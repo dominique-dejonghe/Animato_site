@@ -9,6 +9,10 @@ import type { Bindings } from './types'
 
 // Import routes
 import publicRoutes from './routes/public'
+import authRoutes from './routes/auth'
+import nieuwsRoutes from './routes/nieuws'
+import agendaRoutes from './routes/agenda'
+import authRoutes from './routes/auth'
 
 // =====================================================
 // APP INITIALIZATION
@@ -40,6 +44,18 @@ app.use('/static/*', serveStatic({ root: './' }))
 
 // Public routes (homepage, nieuws, contact, etc.)
 app.route('/', publicRoutes)
+
+// Auth routes (login, register, logout)
+app.route('/', authRoutes)
+
+// Nieuws routes
+app.route('/', nieuwsRoutes)
+
+// Agenda & Concerten routes
+app.route('/', agendaRoutes)
+
+// Auth routes (login, register, logout)
+app.route('/', authRoutes)
 
 // Health check endpoint
 app.get('/health', (c) => {

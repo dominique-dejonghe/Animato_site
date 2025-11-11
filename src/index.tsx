@@ -1,0 +1,103 @@
+// Gemengd Koor Animato - Hoofdapplicatie
+// Modern koorwebsite met ledenportaal, agenda en ticketing
+
+import { Hono } from 'hono'
+import { cors } from 'hono/cors'
+import { logger } from 'hono/logger'
+import { serveStatic } from 'hono/cloudflare-workers'
+import type { Bindings } from './types'
+
+// Import routes
+import publicRoutes from './routes/public'
+
+// =====================================================
+// APP INITIALIZATION
+// =====================================================
+
+const app = new Hono<{ Bindings: Bindings }>()
+
+// =====================================================
+// MIDDLEWARE
+// =====================================================
+
+// Logger middleware
+app.use('*', logger())
+
+// CORS voor API routes
+app.use('/api/*', cors({
+  origin: '*',
+  allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}))
+
+// Static files from /static/* path
+app.use('/static/*', serveStatic({ root: './' }))
+
+// =====================================================
+// ROUTES
+// =====================================================
+
+// Public routes (homepage, nieuws, contact, etc.)
+app.route('/', publicRoutes)
+
+// Health check endpoint
+app.get('/health', (c) => {
+  return c.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    service: 'Animato Koor Website'
+  })
+})
+
+// API info endpoint
+app.get('/api', (c) => {
+  return c.json({
+    name: 'Animato Koor API',
+    version: '1.0.0',
+    endpoints: {
+      public: ['/api/nieuws', '/api/agenda', '/api/concerten'],
+      auth: ['/api/auth/login', '/api/auth/register', '/api/auth/logout'],
+      leden: ['/api/leden/profiel', '/api/leden/materiaal', '/api/leden/board'],
+      admin: ['/api/admin/users', '/api/admin/content', '/api/admin/settings']
+    }
+  })
+})
+
+// 404 handler
+app.notFound((c) => {
+  return c.html(`
+    <!DOCTYPE html>
+    <html lang="nl">
+    <head>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>404 - Pagina niet gevonden | Animato</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+    </head>
+    <body class="bg-gray-50 flex items-center justify-center min-h-screen">
+      <div class="text-center px-4">
+        <h1 class="text-6xl font-bold text-gray-300 mb-4">404</h1>
+        <h2 class="text-2xl font-semibold text-gray-700 mb-4">Pagina niet gevonden</h2>
+        <p class="text-gray-600 mb-8">De pagina die je zoekt bestaat niet of is verplaatst.</p>
+        <a href="/" class="inline-block bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg font-semibold transition">
+          Terug naar home
+        </a>
+      </div>
+    </body>
+    </html>
+  `, 404)
+})
+
+// Error handler
+app.onError((err, c) => {
+  console.error('Application error:', err)
+  
+  return c.json({
+    error: 'Er is een fout opgetreden',
+    message: err.message,
+    timestamp: new Date().toISOString()
+  }, 500)
+})
+
+export default app

@@ -45,15 +45,14 @@ app.get('/', async (c) => {
       {/* Hero Section with Full-Width Video Background */}
       <section class="relative overflow-hidden text-white" style="height: 600px;">
         {/* YouTube Video Background - Full Width - Starts at 20 seconds */}
-        <div class="absolute inset-0 w-full h-full">
+        <div class="absolute inset-0 w-full h-full overflow-hidden">
           <iframe
             src="https://www.youtube.com/embed/oXLw5RC0lNo?autoplay=1&mute=1&loop=1&playlist=oXLw5RC0lNo&controls=0&showinfo=0&rel=0&modestbranding=1&playsinline=1&start=20"
             title="Gemengd Koor Animato"
             frameborder="0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowfullscreen
-            class="absolute top-1/2 left-1/2 w-full h-full object-cover"
-            style="transform: translate(-50%, -50%); min-width: 100%; min-height: 100%; pointer-events: none;"
+            style="position: absolute; top: 50%; left: 50%; width: 100vw; height: 56.25vw; min-height: 100%; min-width: 177.77vh; transform: translate(-50%, -50%); pointer-events: none;"
           ></iframe>
         </div>
         

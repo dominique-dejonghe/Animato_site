@@ -182,22 +182,28 @@ Materialen en repetities kunnen toegewezen worden aan specifieke stemgroepen of 
 
 ## 🔐 Authentication
 
-### Login Credentials (Development)
+### Login Credentials (Development & Production)
 
 **Admin Account:**
 - **Email**: `admin@animato.be`
 - **Password**: `admin123`
 - **Role**: Administrator (volledige toegang)
 
+**Test Member Accounts** (all password: admin123):
+- **Sopraan**: emma.janssen@example.com, sophie.dubois@example.com
+- **Alt**: lisa.peeters@example.com (stemleider), marie.vermeulen@example.com
+- **Tenor**: thomas.maes@example.com, lucas.claes@example.com (proeflid)
+- **Bas**: jan.desmet@example.com (moderator), pieter.willems@example.com
+
 **Login URLs:**
 - **Production**: https://animato-koor.pages.dev/login
 - **Development**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai/login
 
 **⚠️ BELANGRIJK**: 
-- Database is gereset (oude test users zijn verwijderd)
-- Alleen admin@animato.be werkt momenteel
+- Database is volledig geseeded met test data
+- Alle users gebruiken PBKDF2 password hashing (Web Crypto API)
 - Wijzig admin wachtwoord in productie!
-- Voeg nieuwe test users toe via admin panel indien nodig
+- Test accounts kunnen gebruikt worden om verschillende rollen te testen
 
 ## 🚀 Deployment Info
 
@@ -229,14 +235,25 @@ npx wrangler pages deploy dist --project-name animato-koor
 npx wrangler d1 migrations apply animato-production --remote
 
 # Seed production database (first deployment only)
-npx wrangler d1 execute animato-production --remote --file=./seed-production.sql
+npx wrangler d1 execute animato-production --remote --file=./seed-prod-step1-users.sql
+npx wrangler d1 execute animato-production --remote --file=./seed-prod-step2-posts.sql
+npx wrangler d1 execute animato-production --remote --file=./seed-prod-step3-concerts.sql
 ```
 
-### Production Data
-- **Settings**: ✅ Site naam, kleuren, contact info
-- **News Post**: ✅ Welcome post (publiek zichtbaar)
-- **Test Users**: ❌ Not seeded (alleen admin)
-- **Events/Concerts**: ❌ Not seeded (voeg toe via admin panel)
+### Production Data (✅ FULLY SEEDED)
+- **Settings**: ✅ 13 site settings (naam, kleuren, contact info, features)
+- **Users**: ✅ 9 users (1 admin + 8 test members across all voice sections)
+  - Admin: admin@animato.be / admin123
+  - 2 Sopraan: Emma Janssen, Sophie Dubois
+  - 2 Alt: Lisa Peeters (stemleider), Marie Vermeulen
+  - 2 Tenor: Thomas Maes, Lucas Claes (proeflid)
+  - 2 Bas: Jan Desmet (moderator), Pieter Willems
+- **News Posts**: ✅ 3 nieuws artikelen (welkom, lenteconcert, eerste repetitie)
+- **Events**: ✅ 13 events total
+  - 3 Concerten: Kerstconcert 2024, Voorjaarsconcert 2025, Zomerconcert 2025
+  - 1 Recurring parent event (weekly rehearsals)
+  - 9 Repetities: Nov-Dec 2024 + Jan 2025
+- **Concerts**: ✅ 3 concert details met programma's, prijsstructuur, capaciteit
 
 ## 🎨 Design System
 

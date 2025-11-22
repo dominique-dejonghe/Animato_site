@@ -103,11 +103,16 @@ app.get('/', async (c) => {
               </a>
             </div>
             <div class="relative">
-              <div class="aspect-video bg-gray-200 rounded-lg shadow-xl overflow-hidden">
-                {/* Placeholder - vervang met echte foto */}
-                <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-animato-primary to-animato-secondary">
-                  <i class="fas fa-users text-white text-6xl opacity-50"></i>
-                </div>
+              <div class="aspect-video bg-black rounded-lg shadow-xl overflow-hidden">
+                {/* Gemengd Koor Animato Promo Video */}
+                <iframe
+                  src="https://www.youtube.com/embed/oXLw5RC0lNo"
+                  title="Gemengd Koor Animato"
+                  frameborder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowfullscreen
+                  class="w-full h-full"
+                ></iframe>
               </div>
             </div>
           </div>

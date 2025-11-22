@@ -14,6 +14,7 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 
 #### Publieke Site
 - ✅ **Homepage** met hero, over ons, nieuws preview, concerten preview
+- ✅ **YouTube video embed** op landingspagina (Over Ons sectie)
 - ✅ **Over Ons** pagina met koorgeschiedenis en missie
 - ✅ **Contact** pagina met formulier en contactgegevens
 - ✅ **Responsive design** (desktop, tablet, mobiel)
@@ -181,17 +182,23 @@ Materialen en repetities kunnen toegewezen worden aan specifieke stemgroepen of 
 
 ## 🔐 Authentication
 
-### Login Credentials (Test Data)
+### Login Credentials (Development)
 
-| Email | Password | Role | Stemgroep |
-|-------|----------|------|-----------|
-| admin@animato.be | admin123 | admin | - |
-| emma.janssen@example.com | admin123 | lid | S |
-| lisa.peeters@example.com | admin123 | stemleider | A |
-| thomas.maes@example.com | admin123 | lid | T |
-| jan.desmet@example.com | admin123 | moderator | B |
+**Admin Account:**
+- **Email**: `admin@animato.be`
+- **Password**: `admin123`
+- **Role**: Administrator (volledige toegang)
 
-**⚠️ BELANGRIJK**: Wijzig admin wachtwoord in productie!
+**Login URL:**
+```
+https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai/login
+```
+
+**⚠️ BELANGRIJK**: 
+- Database is gereset (oude test users zijn verwijderd)
+- Alleen admin@animato.be werkt momenteel
+- Wijzig admin wachtwoord in productie!
+- Voeg nieuwe test users toe via admin panel indien nodig
 
 ## 🎨 Design System
 

@@ -227,7 +227,16 @@ npx wrangler pages deploy dist --project-name animato-koor
 
 # Apply database migrations
 npx wrangler d1 migrations apply animato-production --remote
+
+# Seed production database (first deployment only)
+npx wrangler d1 execute animato-production --remote --file=./seed-production.sql
 ```
+
+### Production Data
+- **Settings**: ✅ Site naam, kleuren, contact info
+- **News Post**: ✅ Welcome post (publiek zichtbaar)
+- **Test Users**: ❌ Not seeded (alleen admin)
+- **Events/Concerts**: ❌ Not seeded (voeg toe via admin panel)
 
 ## 🎨 Design System
 

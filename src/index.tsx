@@ -12,7 +12,16 @@ import publicRoutes from './routes/public'
 import authRoutes from './routes/auth'
 import nieuwsRoutes from './routes/nieuws'
 import agendaRoutes from './routes/agenda'
-import authRoutes from './routes/auth'
+import ledenRoutes from './routes/leden'
+import adminRoutes from './routes/admin'
+import adminEventsRoutes from './routes/admin-events'
+import adminBestandenRoutes from './routes/admin-bestanden'
+import adminLocationsRoutes from './routes/admin-locations'
+import adminFotoboekRoutes from './routes/admin-fotoboek'
+import adminTicketsRoutes from './routes/admin-tickets'
+import ticketsRoutes from './routes/tickets'
+import webhooksRoutes from './routes/webhooks'
+import apiRoutes from './routes/api'
 
 // =====================================================
 // APP INITIALIZATION
@@ -54,8 +63,23 @@ app.route('/', nieuwsRoutes)
 // Agenda & Concerten routes
 app.route('/', agendaRoutes)
 
-// Auth routes (login, register, logout)
-app.route('/', authRoutes)
+// Leden portal routes
+app.route('/', ledenRoutes)
+
+// Admin routes
+app.route('/', adminRoutes)
+app.route('/', adminEventsRoutes)
+app.route('/', adminBestandenRoutes)
+app.route('/', adminLocationsRoutes)
+app.route('/', adminFotoboekRoutes)
+app.route('/', adminTicketsRoutes)
+
+// Tickets & Webhooks
+app.route('/', ticketsRoutes)
+app.route('/', webhooksRoutes)
+
+// API routes
+app.route('/', apiRoutes)
 
 // Health check endpoint
 app.get('/health', (c) => {

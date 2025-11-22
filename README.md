@@ -4,9 +4,9 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 
 ## 🌐 Live URLs
 
+- **Production**: https://animato-koor.pages.dev (Latest: https://f5383d85.animato-koor.pages.dev)
 - **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
-- **Production**: *Nog te deployen naar Cloudflare Pages*
-- **API Documentation**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai/api
+- **API Documentation**: /api endpoint
 
 ## ✨ Features
 
@@ -189,16 +189,45 @@ Materialen en repetities kunnen toegewezen worden aan specifieke stemgroepen of 
 - **Password**: `admin123`
 - **Role**: Administrator (volledige toegang)
 
-**Login URL:**
-```
-https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai/login
-```
+**Login URLs:**
+- **Production**: https://animato-koor.pages.dev/login
+- **Development**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai/login
 
 **⚠️ BELANGRIJK**: 
 - Database is gereset (oude test users zijn verwijderd)
 - Alleen admin@animato.be werkt momenteel
 - Wijzig admin wachtwoord in productie!
 - Voeg nieuwe test users toe via admin panel indien nodig
+
+## 🚀 Deployment Info
+
+### Cloudflare Pages
+- **Project Name**: animato-koor
+- **Production URL**: https://animato-koor.pages.dev
+- **Latest Deployment**: https://f5383d85.animato-koor.pages.dev
+- **Production Branch**: main
+
+### Database (Cloudflare D1)
+- **Database Name**: animato-production
+- **Database ID**: 758eef10-f55b-428f-81ca-4d7f87862811
+- **Region**: ENAM (Eastern North America)
+- **Migrations**: ✅ All applied (10 migrations)
+- **Admin User**: ✅ Created (admin@animato.be)
+
+### Environment Variables
+- **JWT_SECRET**: ✅ Configured (production secret)
+
+### Deployment Commands
+```bash
+# Build for production
+npm run build
+
+# Deploy to Cloudflare Pages
+npx wrangler pages deploy dist --project-name animato-koor
+
+# Apply database migrations
+npx wrangler d1 migrations apply animato-production --remote
+```
 
 ## 🎨 Design System
 

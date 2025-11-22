@@ -13,7 +13,7 @@
     {
       "binding": "DB",
       "database_name": "animato-production",
-      "database_id": "PLACEHOLDER-WILL-BE-CREATED"
+      "database_id": "758eef10-f55b-428f-81ca-4d7f87862811"
     }
   ]
   // R2 Buckets - Uncomment when needed for file uploads

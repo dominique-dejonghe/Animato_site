@@ -15,7 +15,7 @@ const app = new Hono<{ Bindings: Bindings }>()
 // =====================================================
 
 app.get('/login', async (c) => {
-  const redirect = c.req.query('redirect') || '/leden'
+  const redirect = c.req.query('redirect') || '/'
   const error = c.req.query('error')
 
   return c.html(
@@ -152,7 +152,7 @@ app.post('/api/auth/login', async (c) => {
     const email = body.email as string
     const password = body.password as string
     const remember = body.remember === 'on'
-    const redirect = (body.redirect as string) || '/leden'
+    const redirect = (body.redirect as string) || '/'
 
     // Validation
     if (!email || !password) {
@@ -228,7 +228,18 @@ app.post('/api/auth/login', async (c) => {
       [user.id, user.id, JSON.stringify({ method: 'password', remember })]
     )
 
-    return c.redirect(redirect)
+    // Smart redirect based on role
+    let finalRedirect = redirect
+    if (redirect === '/leden' || redirect === '/') {
+      // If no specific redirect, send admin/moderator to admin panel
+      if (user.role === 'admin' || user.role === 'moderator') {
+        finalRedirect = '/admin'
+      } else {
+        finalRedirect = '/leden'
+      }
+    }
+
+    return c.redirect(finalRedirect)
   } catch (error) {
     console.error('Login error:', error)
     return c.redirect('/login?error=server')

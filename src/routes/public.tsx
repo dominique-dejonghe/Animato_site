@@ -336,6 +336,242 @@ app.get('/koor', async (c) => {
 })
 
 // =====================================================
+// WORD LID
+// =====================================================
+
+app.get('/word-lid', async (c) => {
+  const user = c.get('user')
+
+  return c.html(
+    <Layout title="Word Lid" user={user} currentPath="/word-lid">
+      <div class="py-16">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <h1 class="text-5xl font-bold text-animato-secondary mb-8" style="font-family: 'Playfair Display', serif;">
+            Word Lid van Gemengd Koor Animato
+          </h1>
+
+          {/* Hero Text */}
+          <div class="bg-gradient-to-br from-animato-primary to-animato-secondary text-white p-8 rounded-lg mb-12">
+            <h2 class="text-3xl font-bold mb-4">Zing jij graag?</h2>
+            <p class="text-xl text-gray-100">
+              Dan ben je van harte welkom bij Gemengd Koor Animato! We zijn altijd op zoek naar enthousiaste zangers en zangeressen die graag samen muziek maken.
+            </p>
+          </div>
+
+          {/* Wat We Zoeken */}
+          <div class="mb-12">
+            <h2 class="text-3xl font-bold text-animato-secondary mb-6">Wat we zoeken</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-animato-primary">
+                <div class="flex items-center mb-3">
+                  <div class="w-10 h-10 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mr-3">
+                    <i class="fas fa-music text-animato-primary"></i>
+                  </div>
+                  <h3 class="text-xl font-semibold">🎵 Sopraan</h3>
+                </div>
+                <p class="text-gray-700">Hoge vrouwenstem - we zoeken enthousiaste sopranen!</p>
+              </div>
+
+              <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-animato-primary">
+                <div class="flex items-center mb-3">
+                  <div class="w-10 h-10 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mr-3">
+                    <i class="fas fa-music text-animato-primary"></i>
+                  </div>
+                  <h3 class="text-xl font-semibold">🎵 Alt</h3>
+                </div>
+                <p class="text-gray-700">Lage vrouwenstem - altijd welkom in ons koor!</p>
+              </div>
+
+              <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-animato-primary">
+                <div class="flex items-center mb-3">
+                  <div class="w-10 h-10 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mr-3">
+                    <i class="fas fa-music text-animato-primary"></i>
+                  </div>
+                  <h3 class="text-xl font-semibold">🎵 Tenor</h3>
+                </div>
+                <p class="text-gray-700">Hoge mannenstem - kom ons team versterken!</p>
+              </div>
+
+              <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-animato-primary">
+                <div class="flex items-center mb-3">
+                  <div class="w-10 h-10 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mr-3">
+                    <i class="fas fa-music text-animato-primary"></i>
+                  </div>
+                  <h3 class="text-xl font-semibold">🎵 Bas</h3>
+                </div>
+                <p class="text-gray-700">Lage mannenstem - de fundering van ons koor!</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Wat Je Moet Weten */}
+          <div class="mb-12">
+            <h2 class="text-3xl font-bold text-animato-secondary mb-6">Wat je moet weten</h2>
+            <div class="bg-gray-50 p-8 rounded-lg">
+              <ul class="space-y-4">
+                <li class="flex items-start">
+                  <i class="fas fa-check-circle text-green-500 mt-1 mr-3"></i>
+                  <span class="text-gray-700"><strong>Geen audities:</strong> We geloven dat iedereen die graag zingt welkom is!</span>
+                </li>
+                <li class="flex items-start">
+                  <i class="fas fa-check-circle text-green-500 mt-1 mr-3"></i>
+                  <span class="text-gray-700"><strong>Proeflid periode:</strong> Je kunt 3 repetities meedoen om te kijken of het bij je past</span>
+                </li>
+                <li class="flex items-start">
+                  <i class="fas fa-check-circle text-green-500 mt-1 mr-3"></i>
+                  <span class="text-gray-700"><strong>Wekelijkse repetities:</strong> Elke dinsdag van 19:30 tot 21:30 uur</span>
+                </li>
+                <li class="flex items-start">
+                  <i class="fas fa-check-circle text-green-500 mt-1 mr-3"></i>
+                  <span class="text-gray-700"><strong>Geen muzieknotenlezen vereist:</strong> We leren je alles wat je moet weten</span>
+                </li>
+                <li class="flex items-start">
+                  <i class="fas fa-check-circle text-green-500 mt-1 mr-3"></i>
+                  <span class="text-gray-700"><strong>Gezellige sfeer:</strong> Muziek maken én sociale contacten</span>
+                </li>
+              </ul>
+            </div>
+          </div>
+
+          {/* Contact Form */}
+          <div class="bg-white p-8 rounded-lg shadow-lg">
+            <h2 class="text-3xl font-bold text-animato-secondary mb-6">Interesse? Neem contact op!</h2>
+            <p class="text-gray-700 mb-8">
+              Vul onderstaand formulier in en we nemen zo snel mogelijk contact met je op om een kennismaking te plannen.
+            </p>
+
+            <form method="POST" action="/api/contact/word-lid" class="space-y-6">
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label for="voornaam" class="block text-sm font-semibold text-gray-700 mb-2">
+                    Voornaam *
+                  </label>
+                  <input
+                    type="text"
+                    id="voornaam"
+                    name="voornaam"
+                    required
+                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label for="achternaam" class="block text-sm font-semibold text-gray-700 mb-2">
+                    Achternaam *
+                  </label>
+                  <input
+                    type="text"
+                    id="achternaam"
+                    name="achternaam"
+                    required
+                    class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label for="email" class="block text-sm font-semibold text-gray-700 mb-2">
+                  Email *
+                </label>
+                <input
+                  type="email"
+                  id="email"
+                  name="email"
+                  required
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label for="telefoon" class="block text-sm font-semibold text-gray-700 mb-2">
+                  Telefoon
+                </label>
+                <input
+                  type="tel"
+                  id="telefoon"
+                  name="telefoon"
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                />
+              </div>
+
+              <div>
+                <label for="stemgroep" class="block text-sm font-semibold text-gray-700 mb-2">
+                  Stemgroep *
+                </label>
+                <select
+                  id="stemgroep"
+                  name="stemgroep"
+                  required
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                >
+                  <option value="">Kies je stemgroep...</option>
+                  <option value="S">Sopraan (hoge vrouwenstem)</option>
+                  <option value="A">Alt (lage vrouwenstem)</option>
+                  <option value="T">Tenor (hoge mannenstem)</option>
+                  <option value="B">Bas (lage mannenstem)</option>
+                  <option value="weet_niet">Weet ik niet zeker</option>
+                </select>
+              </div>
+
+              <div>
+                <label for="ervaring" class="block text-sm font-semibold text-gray-700 mb-2">
+                  Muzikale ervaring
+                </label>
+                <textarea
+                  id="ervaring"
+                  name="ervaring"
+                  rows="4"
+                  placeholder="Vertel ons over je muzikale achtergrond (bijvoorbeeld: eerder in een koor gezongen, instrumenten bespeeld, zanglessen gevolgd, etc.)"
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                ></textarea>
+              </div>
+
+              <div>
+                <label for="bericht" class="block text-sm font-semibold text-gray-700 mb-2">
+                  Bericht / Vragen
+                </label>
+                <textarea
+                  id="bericht"
+                  name="bericht"
+                  rows="4"
+                  placeholder="Heb je nog vragen? Laat het ons weten!"
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                ></textarea>
+              </div>
+
+              <button
+                type="submit"
+                class="w-full bg-animato-accent hover:bg-yellow-600 text-white px-8 py-4 rounded-lg font-bold text-lg transition shadow-lg"
+              >
+                <i class="fas fa-paper-plane mr-2"></i>
+                Verstuur Aanmelding
+              </button>
+            </form>
+          </div>
+
+          {/* Alternative Contact */}
+          <div class="mt-12 text-center">
+            <p class="text-gray-700 mb-4">
+              Of neem direct contact met ons op:
+            </p>
+            <div class="flex flex-col sm:flex-row justify-center gap-4">
+              <a href="mailto:info@animato.be" class="inline-flex items-center text-animato-primary hover:text-animato-secondary font-semibold">
+                <i class="fas fa-envelope mr-2"></i>
+                info@animato.be
+              </a>
+              <a href="tel:+32470123456" class="inline-flex items-center text-animato-primary hover:text-animato-secondary font-semibold">
+                <i class="fas fa-phone mr-2"></i>
+                +32 470 12 34 56
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
+// =====================================================
 // CONTACT
 // =====================================================
 

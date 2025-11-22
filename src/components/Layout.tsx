@@ -115,6 +115,14 @@ export const Layout: FC<LayoutProps> = ({
               <div class="flex items-center space-x-4">
                 {user ? (
                   <>
+                    {/* Admin link (only for admin/moderator) */}
+                    {(user.role === 'admin' || user.role === 'moderator') && (
+                      <a href="/admin" class="hidden md:block text-gray-700 hover:text-animato-primary transition">
+                        <i class="fas fa-shield-alt mr-2"></i>
+                        Admin
+                      </a>
+                    )}
+                    {/* Leden portal link */}
                     <a href="/leden" class="hidden md:block text-gray-700 hover:text-animato-primary transition">
                       <i class="fas fa-user-circle mr-2"></i>
                       {user.voornaam}
@@ -153,7 +161,23 @@ export const Layout: FC<LayoutProps> = ({
               <a href="/concerten" class="block text-gray-700 hover:text-animato-primary">Concerten</a>
               <a href="/fotoboek" class="block text-gray-700 hover:text-animato-primary">Foto's</a>
               <a href="/contact" class="block text-gray-700 hover:text-animato-primary">Contact</a>
-              {!user && (
+              
+              {user ? (
+                <>
+                  {/* Admin link in mobile menu */}
+                  {(user.role === 'admin' || user.role === 'moderator') && (
+                    <a href="/admin" class="block text-gray-700 hover:text-animato-primary">
+                      <i class="fas fa-shield-alt mr-2"></i>
+                      Admin Panel
+                    </a>
+                  )}
+                  {/* Leden portal link in mobile menu */}
+                  <a href="/leden" class="block text-gray-700 hover:text-animato-primary">
+                    <i class="fas fa-user-circle mr-2"></i>
+                    Mijn Profiel
+                  </a>
+                </>
+              ) : (
                 <a href="/word-lid" class="block bg-animato-accent text-white px-4 py-2 rounded-lg text-center font-semibold">
                   Word Lid
                 </a>

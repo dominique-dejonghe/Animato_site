@@ -42,15 +42,31 @@ app.get('/', async (c) => {
 
   return c.html(
     <Layout title="Home" user={user} currentPath="/">
-      {/* Hero Section */}
-      <section class="relative bg-gradient-to-br from-animato-primary to-animato-secondary text-white">
-        <div class="absolute inset-0 bg-black opacity-20"></div>
-        <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24 md:py-32">
+      {/* Hero Section with Full-Width Video Background */}
+      <section class="relative overflow-hidden text-white" style="height: 600px;">
+        {/* YouTube Video Background - Full Width */}
+        <div class="absolute inset-0 w-full h-full">
+          <iframe
+            src="https://www.youtube.com/embed/oXLw5RC0lNo?autoplay=1&mute=1&loop=1&playlist=oXLw5RC0lNo&controls=0&showinfo=0&rel=0&modestbranding=1&playsinline=1"
+            title="Gemengd Koor Animato"
+            frameborder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowfullscreen
+            class="absolute top-1/2 left-1/2 w-full h-full object-cover"
+            style="transform: translate(-50%, -50%); min-width: 100%; min-height: 100%; pointer-events: none;"
+          ></iframe>
+        </div>
+        
+        {/* Dark overlay for better text readability */}
+        <div class="absolute inset-0 bg-black opacity-50"></div>
+        
+        {/* Content overlay */}
+        <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-full flex items-center justify-center">
           <div class="text-center">
-            <h1 class="text-5xl md:text-6xl font-bold mb-6" style="font-family: 'Playfair Display', serif;">
+            <h1 class="text-5xl md:text-6xl font-bold mb-6 drop-shadow-lg" style="font-family: 'Playfair Display', serif;">
               Gemengd Koor Animato
             </h1>
-            <p class="text-xl md:text-2xl mb-8 text-gray-100">
+            <p class="text-xl md:text-2xl mb-8 text-gray-100 drop-shadow-lg">
               Koor met passie • Samen musiceren sinds 1985
             </p>
             <div class="flex flex-col sm:flex-row justify-center gap-4">
@@ -73,7 +89,7 @@ app.get('/', async (c) => {
         </div>
         
         {/* Decorative wave */}
-        <div class="absolute bottom-0 left-0 right-0">
+        <div class="absolute bottom-0 left-0 right-0 z-10">
           <svg viewBox="0 0 1440 100" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M0,50 Q360,0 720,50 T1440,50 L1440,100 L0,100 Z" fill="#F9FAFB"/>
           </svg>
@@ -103,16 +119,11 @@ app.get('/', async (c) => {
               </a>
             </div>
             <div class="relative">
-              <div class="aspect-video bg-black rounded-lg shadow-xl overflow-hidden">
-                {/* Gemengd Koor Animato Promo Video */}
-                <iframe
-                  src="https://www.youtube.com/embed/oXLw5RC0lNo"
-                  title="Gemengd Koor Animato"
-                  frameborder="0"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowfullscreen
-                  class="w-full h-full"
-                ></iframe>
+              <div class="aspect-video bg-gray-200 rounded-lg shadow-xl overflow-hidden">
+                {/* Placeholder voor koor foto */}
+                <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-animato-primary to-animato-secondary">
+                  <i class="fas fa-users text-white text-6xl opacity-50"></i>
+                </div>
               </div>
             </div>
           </div>

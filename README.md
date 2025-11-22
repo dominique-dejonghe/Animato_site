@@ -14,7 +14,7 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 
 #### Publieke Site
 - ✅ **Homepage** met hero, over ons, nieuws preview, concerten preview
-- ✅ **YouTube video embed** op landingspagina (Over Ons sectie)
+- ✅ **Full-width YouTube video** als hero achtergrond (autoplay, muted, looped)
 - ✅ **Over Ons** pagina met koorgeschiedenis en missie
 - ✅ **Contact** pagina met formulier en contactgegevens
 - ✅ **Responsive design** (desktop, tablet, mobiel)

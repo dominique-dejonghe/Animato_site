@@ -44,10 +44,10 @@ app.get('/', async (c) => {
     <Layout title="Home" user={user} currentPath="/">
       {/* Hero Section with Full-Width Video Background */}
       <section class="relative overflow-hidden text-white" style="height: 600px;">
-        {/* YouTube Video Background - Full Width */}
+        {/* YouTube Video Background - Full Width - Starts at 20 seconds */}
         <div class="absolute inset-0 w-full h-full">
           <iframe
-            src="https://www.youtube.com/embed/oXLw5RC0lNo?autoplay=1&mute=1&loop=1&playlist=oXLw5RC0lNo&controls=0&showinfo=0&rel=0&modestbranding=1&playsinline=1"
+            src="https://www.youtube.com/embed/oXLw5RC0lNo?autoplay=1&mute=1&loop=1&playlist=oXLw5RC0lNo&controls=0&showinfo=0&rel=0&modestbranding=1&playsinline=1&start=20"
             title="Gemengd Koor Animato"
             frameborder="0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -98,35 +98,23 @@ app.get('/', async (c) => {
 
       {/* Over Ons - Kort */}
       <section class="py-16 bg-gray-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
-            <div>
-              <h2 class="text-4xl font-bold text-animato-secondary mb-6" style="font-family: 'Playfair Display', serif;">
-                Over Ons
-              </h2>
-              <p class="text-gray-700 text-lg mb-4">
-                Gemengd Koor Animato is een dynamisch koor dat al sinds 1985 het Vlaamse muzieklandschap verrijkt met passie en vakmanschap.
-              </p>
-              <p class="text-gray-700 text-lg mb-6">
-                Ons repertoire varieert van klassieke meesterwerken tot moderne composities, altijd met respect voor de muziek en plezier in het samen musiceren.
-              </p>
-              <a 
-                href="/koor" 
-                class="inline-flex items-center text-animato-primary hover:text-animato-secondary font-semibold transition"
-              >
-                Lees meer over ons koor
-                <i class="fas fa-arrow-right ml-2"></i>
-              </a>
-            </div>
-            <div class="relative">
-              <div class="aspect-video bg-gray-200 rounded-lg shadow-xl overflow-hidden">
-                {/* Placeholder voor koor foto */}
-                <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-animato-primary to-animato-secondary">
-                  <i class="fas fa-users text-white text-6xl opacity-50"></i>
-                </div>
-              </div>
-            </div>
-          </div>
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+          <h2 class="text-4xl font-bold text-animato-secondary mb-6" style="font-family: 'Playfair Display', serif;">
+            Over Ons
+          </h2>
+          <p class="text-gray-700 text-lg mb-4">
+            Gemengd Koor Animato is een dynamisch koor dat al sinds 1985 het Vlaamse muzieklandschap verrijkt met passie en vakmanschap.
+          </p>
+          <p class="text-gray-700 text-lg mb-6">
+            Ons repertoire varieert van klassieke meesterwerken tot moderne composities, altijd met respect voor de muziek en plezier in het samen musiceren.
+          </p>
+          <a 
+            href="/koor" 
+            class="inline-flex items-center text-animato-primary hover:text-animato-secondary font-semibold transition"
+          >
+            Lees meer over ons koor
+            <i class="fas fa-arrow-right ml-2"></i>
+          </a>
         </div>
       </section>
 

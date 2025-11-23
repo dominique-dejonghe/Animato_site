@@ -636,17 +636,74 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
           <div id="add-photo-form" class="bg-white rounded-lg shadow-md p-6 mb-6" style="display: none;">
             <h2 class="text-xl font-bold mb-4">Foto Toevoegen</h2>
             <form method="POST" action={`/admin/fotoboek/album/${albumId}/foto/add`}>
+              
+              {/* Foto Upload/URL Section */}
               <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-2">Foto URL *</label>
-                <input
-                  type="url"
-                  name="url"
-                  required
-                  placeholder="https://example.com/foto.jpg"
-                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                />
-                <p class="text-xs text-gray-500 mt-1">Gebruik Unsplash, Imgur of een andere afbeeldingsdienst</p>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Foto *</label>
+                
+                {/* Tab Toggle */}
+                <div class="flex gap-2 mb-3">
+                  <button 
+                    type="button" 
+                    id="photo-upload-tab-btn"
+                    onclick="switchPhotoMode('upload')"
+                    class="flex-1 px-4 py-2 border-2 border-animato-primary bg-animato-primary text-white rounded-lg transition font-medium"
+                  >
+                    <i class="fas fa-upload mr-2"></i>Upload Bestand
+                  </button>
+                  <button 
+                    type="button" 
+                    id="photo-url-tab-btn"
+                    onclick="switchPhotoMode('url')"
+                    class="flex-1 px-4 py-2 border-2 border-gray-300 text-gray-700 rounded-lg transition font-medium hover:bg-gray-50"
+                  >
+                    <i class="fas fa-link mr-2"></i>URL Invoeren
+                  </button>
+                </div>
+
+                {/* Upload Section */}
+                <div id="photo-upload-section">
+                  <input
+                    type="file"
+                    id="photo_file_input"
+                    accept="image/*"
+                    class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-animato-primary file:text-white hover:file:bg-animato-secondary cursor-pointer"
+                    onchange="handlePhotoFileSelect(event)"
+                  />
+                  <p class="text-xs text-gray-500 mt-1">Maximaal 5MB per foto</p>
+                  
+                  {/* Preview */}
+                  <div id="photo_file_preview" class="hidden mt-3">
+                    <label class="block text-sm text-gray-600 mb-2">Preview:</label>
+                    <div class="relative inline-block">
+                      <img id="photo_file_preview_img" src="" alt="Preview" class="max-h-48 rounded-lg border border-gray-300" />
+                      <button
+                        type="button"
+                        onclick="clearPhotoFile()"
+                        class="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center hover:bg-red-600"
+                      >
+                        <i class="fas fa-times text-xs"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* URL Section */}
+                <div id="photo-url-section" style="display: none;">
+                  <input
+                    type="url"
+                    id="photo_url_input"
+                    name="url"
+                    placeholder="https://example.com/foto.jpg"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  />
+                  <p class="text-xs text-gray-500 mt-1">Gebruik Unsplash, Imgur of een andere afbeeldingsdienst</p>
+                </div>
+
+                {/* Hidden field for base64 data */}
+                <input type="hidden" name="photo_data" id="photo_data_input" />
               </div>
+
               <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-700 mb-2">Bijschrift</label>
                 <input
@@ -685,7 +742,7 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
                 </button>
                 <button
                   type="button"
-                  onclick="document.getElementById('add-photo-form').style.display = 'none'"
+                  onclick="document.getElementById('add-photo-form').style.display = 'none'; resetPhotoForm();"
                   class="px-4 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg transition"
                 >
                   Annuleren
@@ -810,6 +867,94 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
             document.getElementById('edit_cover_data').value = '';
             document.getElementById('edit_cover_preview').classList.add('hidden');
             document.getElementById('edit_cover_preview_img').src = '';
+          }
+
+          // ===== Photo Upload/URL Toggle =====
+          function switchPhotoMode(mode) {
+            const uploadTab = document.getElementById('photo-upload-tab-btn');
+            const urlTab = document.getElementById('photo-url-tab-btn');
+            const uploadSection = document.getElementById('photo-upload-section');
+            const urlSection = document.getElementById('photo-url-section');
+            
+            if (mode === 'upload') {
+              // Switch to upload mode
+              uploadTab.classList.add('bg-animato-primary', 'text-white', 'border-animato-primary');
+              uploadTab.classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
+              urlTab.classList.remove('bg-animato-primary', 'text-white', 'border-animato-primary');
+              urlTab.classList.add('bg-white', 'text-gray-700', 'border-gray-300');
+              
+              uploadSection.style.display = 'block';
+              urlSection.style.display = 'none';
+              
+              // Clear URL input
+              document.getElementById('photo_url_input').value = '';
+            } else {
+              // Switch to URL mode
+              urlTab.classList.add('bg-animato-primary', 'text-white', 'border-animato-primary');
+              urlTab.classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
+              uploadTab.classList.remove('bg-animato-primary', 'text-white', 'border-animato-primary');
+              uploadTab.classList.add('bg-white', 'text-gray-700', 'border-gray-300');
+              
+              urlSection.style.display = 'block';
+              uploadSection.style.display = 'none';
+              
+              // Clear file upload
+              clearPhotoFile();
+            }
+          }
+
+          function handlePhotoFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // Validate file type
+            if (!file.type.startsWith('image/')) {
+              alert('Alleen afbeeldingen zijn toegestaan');
+              event.target.value = '';
+              return;
+            }
+
+            // Validate file size (max 5MB)
+            if (file.size > 5 * 1024 * 1024) {
+              alert('Bestand is te groot. Maximaal 5MB toegestaan.');
+              event.target.value = '';
+              return;
+            }
+
+            // Read file and create preview
+            const reader = new FileReader();
+            reader.onload = function(e) {
+              const base64Data = e.target.result;
+              
+              // Show preview
+              document.getElementById('photo_file_preview_img').src = base64Data;
+              document.getElementById('photo_file_preview').classList.remove('hidden');
+              
+              // Store base64 in hidden field
+              document.getElementById('photo_data_input').value = base64Data;
+            };
+            reader.readAsDataURL(file);
+          }
+
+          function clearPhotoFile() {
+            const fileInput = document.getElementById('photo_file_input');
+            const preview = document.getElementById('photo_file_preview');
+            const previewImg = document.getElementById('photo_file_preview_img');
+            const dataInput = document.getElementById('photo_data_input');
+            
+            if (fileInput) fileInput.value = '';
+            if (preview) preview.classList.add('hidden');
+            if (previewImg) previewImg.src = '';
+            if (dataInput) dataInput.value = '';
+          }
+
+          function resetPhotoForm() {
+            // Reset to upload mode
+            switchPhotoMode('upload');
+            clearPhotoFile();
+            
+            // Clear URL input
+            document.getElementById('photo_url_input').value = '';
           }
         `
       }}></script>
@@ -940,7 +1085,23 @@ app.post('/admin/fotoboek/album/:id/foto/add', async (c) => {
   const albumId = c.req.param('id')
   const body = await c.req.parseBody()
   
-  const { url, caption, fotograaf, sorteer_volgorde } = body
+  const { url, photo_data, caption, fotograaf, sorteer_volgorde } = body
+
+  // Determine final photo URL
+  // Priority: uploaded file (base64) > URL input
+  let finalPhotoUrl = null
+  if (photo_data && String(photo_data).startsWith('data:image/')) {
+    // Use base64 data directly
+    finalPhotoUrl = photo_data as string
+  } else if (url) {
+    // Use provided URL
+    finalPhotoUrl = url as string
+  }
+
+  // Validation: must have either uploaded file or URL
+  if (!finalPhotoUrl) {
+    return c.json({ error: 'Geen foto opgegeven. Upload een bestand of geef een URL op.' }, 400)
+  }
 
   try {
     await c.env.DB.prepare(
@@ -948,7 +1109,7 @@ app.post('/admin/fotoboek/album/:id/foto/add', async (c) => {
        VALUES (?, ?, ?, ?, ?, ?)`
     ).bind(
       albumId,
-      url,
+      finalPhotoUrl,
       caption || null,
       fotograaf || null,
       user.id,

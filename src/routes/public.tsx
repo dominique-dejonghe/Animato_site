@@ -732,6 +732,30 @@ app.get('/contact', async (c) => {
               </form>
             </div>
           </div>
+
+          {/* Google Maps Section */}
+          <div class="mt-16">
+            <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center">
+              <i class="fas fa-map-marker-alt text-animato-primary mr-3"></i>
+              Vind Ons
+            </h2>
+            <div class="w-full h-96 rounded-lg overflow-hidden shadow-lg">
+              <iframe 
+                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2519.1890446229856!2d4.3517!3d50.8503!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zNTDCsDUxJzAxLjEiTiA0wrAyMScwNi4xIkU!5e0!3m2!1snl!2sbe!4v1234567890"
+                width="100%" 
+                height="100%" 
+                style="border:0;" 
+                allowfullscreen="" 
+                loading="lazy" 
+                referrerpolicy="no-referrer-when-downgrade"
+                title="Google Maps - Koorstraat 1, 1000 Brussel"
+              ></iframe>
+            </div>
+            <p class="mt-4 text-sm text-gray-600 text-center">
+              <i class="fas fa-info-circle mr-1"></i>
+              Koorstraat 1, 1000 Brussel, België
+            </p>
+          </div>
         </div>
       </div>
     </Layout>

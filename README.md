@@ -5,7 +5,7 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 ## 🌐 Live URLs
 
 - **Production**: https://animato-koor.pages.dev
-- **Latest Deploy**: https://1715cfec.animato-koor.pages.dev (Deployed: 2025-11-23 11:51 UTC)
+- **Latest Deploy**: https://8cef00a2.animato-koor.pages.dev (Deployed: 2025-11-23 14:40 UTC)
 - **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
 - **API Documentation**: /api endpoint
 
@@ -74,6 +74,10 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
   - Capaciteit, notities, actief/inactief status
 - ✅ **Materiaal upload** (SATB bestanden + toegangscontrole)
 - ✅ **Fotoboek** beheer (albums, foto's, publiek/intern)
+  - **Foto upload** - Upload foto's direct (JPG, PNG, max 5MB) via file picker
+  - Toggle tussen URL input en file upload voor zowel cover als individuele foto's
+  - Automatische base64 encoding voor opslag in D1 database
+  - Live preview met clear functionaliteit
 - ✅ **Ticketing** dashboard (concerten, prijsstructuur, orders)
 - ✅ **Production login fix** (PBKDF2 password hashing compatibility met Cloudflare Workers)
 - ✅ **No-cache headers** (admin pagina's tonen altijd verse data)
@@ -225,12 +229,13 @@ Materialen en repetities kunnen toegewezen worden aan specifieke stemgroepen of 
 ### Cloudflare Pages
 - **Project Name**: animato-koor
 - **Production URL**: https://animato-koor.pages.dev
-- **Latest Deployment**: https://1715cfec.animato-koor.pages.dev (2025-11-23 11:51 UTC)
+- **Latest Deployment**: https://8cef00a2.animato-koor.pages.dev (2025-11-23 14:40 UTC)
 - **Production Branch**: main
 - **Status**: ✅ LIVE - All systems operational
 - **Cache Control**: ✅ No-cache headers on all admin routes
 - **Image Storage**: ✅ Base64 encoding (no R2 required)
 - **Event Save**: ✅ All fields including doelgroep and dates now save correctly
+- **Photo Upload**: ✅ File upload support in fotoboek admin (base64, max 5MB)
 
 ### Database (Cloudflare D1)
 - **Database Name**: animato-production

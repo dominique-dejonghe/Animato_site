@@ -416,12 +416,15 @@ app.post('/admin/events/save', async (c) => {
     // Ensure locatie has a value (NOT NULL constraint)
     let finalLocatie = locatie as string || ''
     
+    // Normalize location_id: empty string → null
+    const finalLocationId = (location_id && String(location_id).trim() !== '') ? parseInt(String(location_id)) : null
+    
     // If location_id is provided, fetch the location name
-    if (location_id) {
+    if (finalLocationId) {
       const location = await queryOne<any>(
         c.env.DB,
         `SELECT naam FROM locations WHERE id = ?`,
-        [location_id]
+        [finalLocationId]
       )
       if (location) {
         finalLocatie = location.naam
@@ -458,7 +461,7 @@ app.post('/admin/events/save', async (c) => {
              is_recurring = ?, recurrence_rule = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [
-          type, titel, finalSlug, beschrijving || null, afbeelding || null, finalLocatie, location_id || null,
+          type, titel, finalSlug, beschrijving || null, afbeelding || null, finalLocatie, finalLocationId,
           start_at, end_at, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0, doelgroep || 'all',
           zichtbaar_publiek === 'on' ? 1 : 0, toon_op_homepage === 'on' ? 1 : 0,
           is_recurring === 'on' ? 1 : 0, recurrenceRule ? JSON.stringify(recurrenceRule) : null,
@@ -477,7 +480,7 @@ app.post('/admin/events/save', async (c) => {
 
         // Generate new occurrences
         const baseEvent = {
-          type, titel, beschrijving, locatie: finalLocatie, location_id,
+          type, titel, beschrijving, locatie: finalLocatie, location_id: finalLocationId,
           start_at, end_at, max_deelnemers, aanmelden_verplicht: aanmelden_verplicht === 'on',
           zichtbaar_publiek: zichtbaar_publiek === 'on', toon_op_homepage: false, // Don't show on homepage
           slug: null // Each occurrence gets unique slug
@@ -496,7 +499,7 @@ app.post('/admin/events/save', async (c) => {
           is_recurring, recurrence_rule, created_by)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          type, titel, finalSlug, beschrijving || null, afbeelding || null, finalLocatie, location_id || null,
+          type, titel, finalSlug, beschrijving || null, afbeelding || null, finalLocatie, finalLocationId,
           start_at, end_at, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0, doelgroep || 'all',
           isPubliekValue, isPubliekValue, toon_op_homepage === 'on' ? 1 : 0,
           is_recurring === 'on' ? 1 : 0, recurrenceRule ? JSON.stringify(recurrenceRule) : null,
@@ -517,7 +520,7 @@ app.post('/admin/events/save', async (c) => {
       // If recurring, generate occurrences
       if (is_recurring === 'on' && recurrenceRule && result.meta.last_row_id) {
         const baseEvent = {
-          type, titel, beschrijving, locatie: finalLocatie, location_id,
+          type, titel, beschrijving, locatie: finalLocatie, location_id: finalLocationId,
           start_at, end_at, max_deelnemers, aanmelden_verplicht: aanmelden_verplicht === 'on',
           zichtbaar_publiek: zichtbaar_publiek === 'on', toon_op_homepage: false,
           slug: null

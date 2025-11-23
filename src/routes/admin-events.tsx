@@ -384,19 +384,18 @@ app.get('/admin/events', async (c) => {
                                   >
                                     <i class="fas fa-calendar text-blue-500 mr-2"></i>Outlook / Apple
                                   </a>
+                                  <div class="border-t border-gray-200 my-1"></div>
+                                  <button
+                                    onclick={`if(confirm('Weet je zeker dat je dit event wilt verwijderen?${event.is_recurring ? '\\n\\nLET OP: Dit verwijdert ALLE herhalingen!' : ''}')) { 
+                                      fetch('/admin/events/${event.id}/delete', {method: 'POST'}).then(() => location.reload()) 
+                                    }`}
+                                    class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+                                  >
+                                    <i class="fas fa-trash mr-2"></i>Verwijder Event
+                                  </button>
                                 </div>
                               </div>
                             </div>
-                            
-                            <button
-                              onclick={`if(confirm('Weet je zeker dat je dit event wilt verwijderen?${event.is_recurring ? ' Dit verwijdert ALLE occurrences!' : ''}')) { 
-                                fetch('/admin/events/${event.id}/delete', {method: 'POST'}).then(() => location.reload()) 
-                              }`}
-                              class="text-red-600 hover:text-red-900"
-                              title="Verwijderen"
-                            >
-                              <i class="fas fa-trash"></i>
-                            </button>
                           </div>
                         </td>
                       </tr>

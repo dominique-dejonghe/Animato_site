@@ -23,6 +23,8 @@ app.get('/admin/events', async (c) => {
   const type = c.req.query('type') || 'all'
   const search = c.req.query('search') || ''
   const view = c.req.query('view') || 'upcoming'
+  const sortBy = c.req.query('sort') || 'start_at'
+  const sortOrder = c.req.query('order') || 'asc'
 
   // Build query based on filters
   let query = `
@@ -58,7 +60,19 @@ app.get('/admin/events', async (c) => {
     params.push(`%${search}%`, `%${search}%`, `%${search}%`)
   }
 
-  query += ` GROUP BY e.id ORDER BY e.start_at ASC`
+  // Sorting - validate sort column and order
+  const validSortColumns: Record<string, string> = {
+    'titel': 'e.titel',
+    'type': 'e.type',
+    'start_at': 'e.start_at',
+    'locatie': 'COALESCE(l.naam, e.locatie)',
+    'aanmeldingen': 'aanmeldingen'
+  }
+  
+  const sortColumn = validSortColumns[sortBy] || 'e.start_at'
+  const sortDirection = sortOrder === 'desc' ? 'DESC' : 'ASC'
+  
+  query += ` GROUP BY e.id ORDER BY ${sortColumn} ${sortDirection}`
 
   const events = await queryAll(c.env.DB, query, params)
 
@@ -202,19 +216,49 @@ app.get('/admin/events', async (c) => {
                       />
                     </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Event
+                      <a href={`/admin/events?view=${view}&type=${type}&search=${search}&sort=titel&order=${sortBy === 'titel' && sortOrder === 'asc' ? 'desc' : 'asc'}`} class="flex items-center hover:text-animato-primary cursor-pointer">
+                        Event
+                        {sortBy === 'titel' && (
+                          <i class={`fas fa-sort-${sortOrder === 'asc' ? 'up' : 'down'} ml-2 text-animato-primary`}></i>
+                        )}
+                        {sortBy !== 'titel' && <i class="fas fa-sort ml-2 text-gray-300"></i>}
+                      </a>
                     </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Type
+                      <a href={`/admin/events?view=${view}&type=${type}&search=${search}&sort=type&order=${sortBy === 'type' && sortOrder === 'asc' ? 'desc' : 'asc'}`} class="flex items-center hover:text-animato-primary cursor-pointer">
+                        Type
+                        {sortBy === 'type' && (
+                          <i class={`fas fa-sort-${sortOrder === 'asc' ? 'up' : 'down'} ml-2 text-animato-primary`}></i>
+                        )}
+                        {sortBy !== 'type' && <i class="fas fa-sort ml-2 text-gray-300"></i>}
+                      </a>
                     </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Datum & Tijd
+                      <a href={`/admin/events?view=${view}&type=${type}&search=${search}&sort=start_at&order=${sortBy === 'start_at' && sortOrder === 'asc' ? 'desc' : 'asc'}`} class="flex items-center hover:text-animato-primary cursor-pointer">
+                        Datum & Tijd
+                        {sortBy === 'start_at' && (
+                          <i class={`fas fa-sort-${sortOrder === 'asc' ? 'up' : 'down'} ml-2 text-animato-primary`}></i>
+                        )}
+                        {sortBy !== 'start_at' && <i class="fas fa-sort ml-2 text-gray-300"></i>}
+                      </a>
                     </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Locatie
+                      <a href={`/admin/events?view=${view}&type=${type}&search=${search}&sort=locatie&order=${sortBy === 'locatie' && sortOrder === 'asc' ? 'desc' : 'asc'}`} class="flex items-center hover:text-animato-primary cursor-pointer">
+                        Locatie
+                        {sortBy === 'locatie' && (
+                          <i class={`fas fa-sort-${sortOrder === 'asc' ? 'up' : 'down'} ml-2 text-animato-primary`}></i>
+                        )}
+                        {sortBy !== 'locatie' && <i class="fas fa-sort ml-2 text-gray-300"></i>}
+                      </a>
                     </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Aanmeldingen
+                      <a href={`/admin/events?view=${view}&type=${type}&search=${search}&sort=aanmeldingen&order=${sortBy === 'aanmeldingen' && sortOrder === 'asc' ? 'desc' : 'asc'}`} class="flex items-center hover:text-animato-primary cursor-pointer">
+                        Aanmeldingen
+                        {sortBy === 'aanmeldingen' && (
+                          <i class={`fas fa-sort-${sortOrder === 'asc' ? 'up' : 'down'} ml-2 text-animato-primary`}></i>
+                        )}
+                        {sortBy !== 'aanmeldingen' && <i class="fas fa-sort ml-2 text-gray-300"></i>}
+                      </a>
                     </th>
                     <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Acties

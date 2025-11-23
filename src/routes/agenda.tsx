@@ -20,15 +20,35 @@ app.get('/agenda', async (c) => {
   const user = c.get('user')
   const type = c.req.query('type') || 'all'
   const maand = c.req.query('maand')
+  const view = c.req.query('view') || 'list' // 'list' or 'calendar'
+  const dateParam = c.req.query('date') || new Date().toISOString().split('T')[0]
+
+  // Parse date for calendar view
+  const currentDate = new Date(dateParam)
+  const year = currentDate.getFullYear()
+  const month = currentDate.getMonth()
+
+  // Calculate month range for calendar view
+  const monthStart = new Date(year, month, 1)
+  const monthEnd = new Date(year, month + 1, 0)
 
   // Build query
   let query = `
     SELECT e.id, e.type, e.titel, e.slug, e.start_at, e.end_at, e.locatie, e.adres, e.doelgroep
     FROM events e
-    WHERE e.is_publiek = 1 AND e.start_at >= datetime('now')
+    WHERE e.is_publiek = 1
   `
 
   const filters: any[] = []
+
+  if (view === 'list') {
+    // List view: only show upcoming events
+    query += ` AND e.start_at >= datetime('now')`
+  } else {
+    // Calendar view: show events in current month
+    query += ` AND DATE(e.start_at) >= DATE(?) AND DATE(e.start_at) <= DATE(?)`
+    filters.push(monthStart.toISOString().split('T')[0], monthEnd.toISOString().split('T')[0])
+  }
 
   if (type !== 'all') {
     query += ` AND e.type = ?`
@@ -59,13 +79,41 @@ app.get('/agenda', async (c) => {
       <div class="py-12 bg-gray-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
-          <div class="text-center mb-12">
+          <div class="text-center mb-8">
             <h1 class="text-5xl font-bold text-animato-secondary mb-4" style="font-family: 'Playfair Display', serif;">
               Agenda
             </h1>
             <p class="text-gray-600 text-lg">
               Alle repetities, concerten en activiteiten op een rij
             </p>
+          </div>
+
+          {/* View Toggle */}
+          <div class="flex justify-center mb-8">
+            <div class="inline-flex rounded-lg shadow-sm bg-white" role="group">
+              <a
+                href={`/agenda?view=list&type=${type}`}
+                class={`px-8 py-3 text-sm font-semibold rounded-l-lg border transition ${
+                  view === 'list'
+                    ? 'bg-animato-primary text-white border-animato-primary'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                <i class="fas fa-list mr-2"></i>
+                Lijst
+              </a>
+              <a
+                href={`/agenda?view=calendar&type=${type}&date=${dateParam}`}
+                class={`px-8 py-3 text-sm font-semibold rounded-r-lg border-t border-r border-b transition ${
+                  view === 'calendar'
+                    ? 'bg-animato-primary text-white border-animato-primary'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                <i class="fas fa-calendar mr-2"></i>
+                Kalender
+              </a>
+            </div>
           </div>
 
           {/* Filters */}
@@ -98,8 +146,8 @@ app.get('/agenda', async (c) => {
             </div>
           </div>
 
-          {/* Events grouped by month */}
-          {Object.keys(eventsByMonth).length > 0 ? (
+          {/* LIST VIEW */}
+          {view === 'list' && Object.keys(eventsByMonth).length > 0 ? (
             <div class="space-y-12">
               {Object.entries(eventsByMonth).map(([month, monthEvents]) => (
                 <div>
@@ -190,12 +238,45 @@ app.get('/agenda', async (c) => {
                 </div>
               ))}
             </div>
-          ) : (
+          ) : view === 'list' ? (
             <div class="text-center py-16">
               <i class="far fa-calendar-times text-gray-300 text-6xl mb-4"></i>
               <p class="text-xl text-gray-600">
                 Geen aankomende activiteiten gevonden
               </p>
+            </div>
+          ) : null}
+
+          {/* CALENDAR VIEW */}
+          {view === 'calendar' && (
+            <div>
+              {/* Calendar Navigation */}
+              <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+                <div class="flex items-center justify-between">
+                  <a
+                    href={`/agenda?view=calendar&type=${type}&date=${new Date(year, month - 1, 1).toISOString().split('T')[0]}`}
+                    class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                  >
+                    <i class="fas fa-chevron-left mr-2"></i>
+                    Vorige maand
+                  </a>
+                  <h2 class="text-2xl font-bold text-gray-900">
+                    {new Date(year, month).toLocaleDateString('nl-BE', { month: 'long', year: 'numeric' })}
+                  </h2>
+                  <a
+                    href={`/agenda?view=calendar&type=${type}&date=${new Date(year, month + 1, 1).toISOString().split('T')[0]}`}
+                    class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
+                  >
+                    Volgende maand
+                    <i class="fas fa-chevron-right ml-2"></i>
+                  </a>
+                </div>
+              </div>
+
+              {/* Calendar Grid */}
+              <div class="bg-white rounded-lg shadow-md overflow-hidden">
+                {renderCalendarGrid(events, year, month)}
+              </div>
             </div>
           )}
         </div>
@@ -569,5 +650,100 @@ app.get('/concerten/:slug', async (c) => {
     </Layout>
   )
 })
+
+// =====================================================
+// HELPER: RENDER CALENDAR GRID
+// =====================================================
+
+function renderCalendarGrid(events: any[], year: number, month: number) {
+  const firstDay = new Date(year, month, 1)
+  const lastDay = new Date(year, month + 1, 0)
+  const daysInMonth = lastDay.getDate()
+  const startDayOfWeek = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1 // Monday = 0
+
+  // Build calendar grid
+  const weeks: any[][] = []
+  let currentWeek: any[] = []
+
+  // Fill empty cells before month starts
+  for (let i = 0; i < startDayOfWeek; i++) {
+    currentWeek.push(null)
+  }
+
+  // Fill days of month
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+    const dayEvents = events.filter((e: any) => e.start_at.startsWith(dateStr))
+    
+    currentWeek.push({ day, date: dateStr, events: dayEvents })
+
+    if (currentWeek.length === 7) {
+      weeks.push(currentWeek)
+      currentWeek = []
+    }
+  }
+
+  // Fill remaining cells
+  while (currentWeek.length > 0 && currentWeek.length < 7) {
+    currentWeek.push(null)
+  }
+  if (currentWeek.length > 0) {
+    weeks.push(currentWeek)
+  }
+
+  const dayNames = ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo']
+
+  return (
+    <div class="p-4">
+      {/* Day headers */}
+      <div class="grid grid-cols-7 gap-2 mb-2">
+        {dayNames.map(name => (
+          <div class="text-center font-semibold text-gray-600 py-2">
+            {name}
+          </div>
+        ))}
+      </div>
+
+      {/* Calendar days */}
+      {weeks.map((week) => (
+        <div class="grid grid-cols-7 gap-2 mb-2">
+          {week.map((cell: any) => (
+            <div class={`min-h-[100px] p-2 rounded-lg border ${
+              cell ? 'bg-white hover:bg-gray-50' : 'bg-gray-50'
+            }`}>
+              {cell && (
+                <div>
+                  <div class="text-right text-sm font-semibold text-gray-700 mb-1">
+                    {cell.day}
+                  </div>
+                  <div class="space-y-1">
+                    {cell.events.slice(0, 2).map((event: any) => (
+                      <a
+                        href={event.type === 'concert' && event.slug ? `/concerten/${event.slug}` : '#'}
+                        class={`block text-xs p-1 rounded truncate ${
+                          event.type === 'concert' ? 'bg-yellow-100 text-yellow-800' :
+                          event.type === 'repetitie' ? 'bg-blue-100 text-blue-800' :
+                          'bg-gray-100 text-gray-800'
+                        }`}
+                        title={`${event.titel} - ${new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}`}
+                      >
+                        {new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })} {event.titel}
+                      </a>
+                    ))}
+                    {cell.events.length > 2 && (
+                      <div class="text-xs text-gray-500 text-center">
+                        +{cell.events.length - 2} meer
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
 
 export default app

@@ -387,7 +387,7 @@ app.post('/admin/events/save', async (c) => {
 
   const {
     id, type, titel, slug, beschrijving, afbeelding, locatie, location_id,
-    start_at, end_at, max_deelnemers, aanmelden_verplicht,
+    start_at, end_at, max_deelnemers, aanmelden_verplicht, doelgroep,
     zichtbaar_publiek, toon_op_homepage,
     is_recurring, recurrence_frequency, recurrence_interval,
     recurrence_end_date, recurrence_count, recurrence_days
@@ -453,13 +453,13 @@ app.post('/admin/events/save', async (c) => {
         c.env.DB,
         `UPDATE events 
          SET type = ?, titel = ?, slug = ?, beschrijving = ?, afbeelding = ?, locatie = ?, location_id = ?,
-             start_at = ?, end_at = ?, max_deelnemers = ?, aanmelden_verplicht = ?,
+             start_at = ?, end_at = ?, max_deelnemers = ?, aanmelden_verplicht = ?, doelgroep = ?,
              zichtbaar_publiek = ?, toon_op_homepage = ?,
-             is_recurring = ?, recurrence_rule = ?
+             is_recurring = ?, recurrence_rule = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [
           type, titel, finalSlug, beschrijving || null, afbeelding || null, finalLocatie, location_id || null,
-          start_at, end_at, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0,
+          start_at, end_at, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0, doelgroep || 'all',
           zichtbaar_publiek === 'on' ? 1 : 0, toon_op_homepage === 'on' ? 1 : 0,
           is_recurring === 'on' ? 1 : 0, recurrenceRule ? JSON.stringify(recurrenceRule) : null,
           id
@@ -492,12 +492,12 @@ app.post('/admin/events/save', async (c) => {
         c.env.DB,
         `INSERT INTO events 
          (type, titel, slug, beschrijving, afbeelding, locatie, location_id, start_at, end_at, 
-          max_deelnemers, aanmelden_verplicht, is_publiek, zichtbaar_publiek, toon_op_homepage,
+          max_deelnemers, aanmelden_verplicht, doelgroep, is_publiek, zichtbaar_publiek, toon_op_homepage,
           is_recurring, recurrence_rule, created_by)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           type, titel, finalSlug, beschrijving || null, afbeelding || null, finalLocatie, location_id || null,
-          start_at, end_at, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0,
+          start_at, end_at, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0, doelgroep || 'all',
           isPubliekValue, isPubliekValue, toon_op_homepage === 'on' ? 1 : 0,
           is_recurring === 'on' ? 1 : 0, recurrenceRule ? JSON.stringify(recurrenceRule) : null,
           user.id

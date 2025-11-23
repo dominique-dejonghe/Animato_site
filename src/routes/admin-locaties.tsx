@@ -14,6 +14,43 @@ app.use('*', requireAuth)
 app.use('*', requireRole('admin', 'moderator'))
 
 // =====================================================
+// HELPER: GENERATE GOOGLE MAPS EMBED URL
+// =====================================================
+
+function getGoogleMapsEmbedUrl(location: any): string {
+  if (!location.google_maps_url) {
+    return ''
+  }
+
+  const url = location.google_maps_url
+  
+  // Format 1: https://maps.google.com/?q=lat,lng
+  const coordMatch = url.match(/[?&]q=([-\d.]+),([-\d.]+)/)
+  if (coordMatch) {
+    return `https://www.google.com/maps/embed?pb=!1m14!1m12!1m3!1d100!2d${coordMatch[2]}!3d${coordMatch[1]}!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1`
+  }
+  
+  // Format 2: https://www.google.com/maps/place/Name/@lat,lng
+  const atMatch = url.match(/@([-\d.]+),([-\d.]+)/)
+  if (atMatch) {
+    return `https://www.google.com/maps/embed?pb=!1m14!1m12!1m3!1d100!2d${atMatch[2]}!3d${atMatch[1]}!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1`
+  }
+  
+  // Format 3: Already an embed URL
+  if (url.includes('/embed')) {
+    return url
+  }
+  
+  // Fallback: Use iframe with search query
+  if (location.naam) {
+    const searchQuery = encodeURIComponent(`${location.naam} ${location.adres || ''} ${location.stad || ''}`.trim())
+    return `https://maps.google.com/maps?q=${searchQuery}&output=embed`
+  }
+  
+  return ''
+}
+
+// =====================================================
 // LOCATIONS OVERVIEW
 // =====================================================
 
@@ -193,34 +230,78 @@ app.get('/admin/locaties', async (c) => {
                 </a>
               </div>
             ) : (
-              locations.map((location: any) => (
-                <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition">
-                  {/* Card Header */}
-                  <div class="bg-gradient-to-r from-red-500 to-pink-500 p-4 text-white">
-                    <div class="flex items-start justify-between">
-                      <div class="flex-1">
-                        <h3 class="text-lg font-bold mb-1">{location.naam}</h3>
-                        <div class="flex items-center text-sm opacity-90">
-                          <i class="fas fa-calendar-alt mr-2"></i>
-                          {location.event_count || 0} event(s)
+              locations.map((location: any) => {
+                const embedUrl = getGoogleMapsEmbedUrl(location)
+                
+                return (
+                  <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition">
+                    {/* Card Header - Google Maps or Gradient */}
+                    {embedUrl ? (
+                      <div class="relative w-full h-48 bg-gray-200">
+                        <iframe
+                          src={embedUrl}
+                          width="100%"
+                          height="100%"
+                          style="border:0;"
+                          loading="lazy"
+                          referrerpolicy="no-referrer-when-downgrade"
+                          title={`Map of ${location.naam}`}
+                        ></iframe>
+                        {/* Overlay with location name and status */}
+                        <div class="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent p-4">
+                          <div class="flex items-start justify-between">
+                            <div class="flex-1">
+                              <h3 class="text-lg font-bold text-white mb-1">{location.naam}</h3>
+                              <div class="flex items-center text-sm text-white/90">
+                                <i class="fas fa-calendar-alt mr-2"></i>
+                                {location.event_count || 0} event(s)
+                              </div>
+                            </div>
+                            <div>
+                              {location.is_actief ? (
+                                <span class="px-2 py-1 bg-green-500 rounded-full text-xs font-semibold text-white">
+                                  Actief
+                                </span>
+                              ) : (
+                                <span class="px-2 py-1 bg-gray-500 rounded-full text-xs font-semibold text-white">
+                                  Inactief
+                                </span>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
-                      <div>
-                        {location.is_actief ? (
-                          <span class="px-2 py-1 bg-green-500 rounded-full text-xs font-semibold">
-                            Actief
-                          </span>
-                        ) : (
-                          <span class="px-2 py-1 bg-gray-500 rounded-full text-xs font-semibold">
-                            Inactief
-                          </span>
-                        )}
+                    ) : (
+                      <div class="bg-gradient-to-r from-red-500 to-pink-500 p-4 text-white h-48 flex flex-col justify-between">
+                        <div class="flex items-start justify-between">
+                          <div class="flex-1">
+                            <h3 class="text-lg font-bold mb-1">{location.naam}</h3>
+                            <div class="flex items-center text-sm opacity-90">
+                              <i class="fas fa-calendar-alt mr-2"></i>
+                              {location.event_count || 0} event(s)
+                            </div>
+                          </div>
+                          <div>
+                            {location.is_actief ? (
+                              <span class="px-2 py-1 bg-green-500 rounded-full text-xs font-semibold">
+                                Actief
+                              </span>
+                            ) : (
+                              <span class="px-2 py-1 bg-gray-500 rounded-full text-xs font-semibold">
+                                Inactief
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div class="text-center">
+                          <i class="fas fa-map-marker-alt text-6xl opacity-30"></i>
+                          <p class="text-sm opacity-75 mt-2">Geen Google Maps URL</p>
+                        </div>
                       </div>
-                    </div>
-                  </div>
+                    )}
 
-                  {/* Card Body */}
-                  <div class="p-4">
+                    {/* Card Body */}
+                    <div class="p-4">
                     {/* Address */}
                     <div class="mb-3">
                       <div class="flex items-start text-sm text-gray-700">
@@ -288,7 +369,8 @@ app.get('/admin/locaties', async (c) => {
                     </div>
                   </div>
                 </div>
-              ))
+                )
+              })
             )}
           </div>
 

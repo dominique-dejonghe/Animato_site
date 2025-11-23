@@ -5,7 +5,7 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 ## 🌐 Live URLs
 
 - **Production**: https://animato-koor.pages.dev
-- **Latest Deploy**: https://a7fed7f4.animato-koor.pages.dev (Deployed: 2025-11-23 06:30 UTC)
+- **Latest Deploy**: https://b184bb01.animato-koor.pages.dev (Deployed: 2025-11-23 07:43 UTC)
 - **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
 - **API Documentation**: /api endpoint
 
@@ -17,7 +17,7 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - ✅ **Homepage** met hero, over ons, nieuws preview, concerten preview
 - ✅ **Full-width YouTube video** als hero achtergrond (autoplay, muted, looped)
 - ✅ **Over Ons** pagina met koorgeschiedenis en missie
-- ✅ **Contact** pagina met formulier en contactgegevens
+- ✅ **Contact** pagina met formulier, contactgegevens en Google Maps integratie
 - ✅ **Responsive design** (desktop, tablet, mobiel)
 - ✅ **Animato branding** (#00A9CE primary, #1B4D5C secondary, #F59E0B accent)
 
@@ -59,11 +59,15 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - ⏳ **Profiel** bewerken
 
 #### Admin Console
-- ⏳ **Ledenbeheer** (CRUD, rol toewijzen, export CSV)
-- ⏳ **Contentbeheer** (nieuws, agenda, concerten)
-- ⏳ **Materiaal upload** (SATB bestanden + toegangscontrole)
+- ✅ **Admin Dashboard** met statistieken (leden, posts, events, albums, materialen, locaties)
+- ✅ **Ledenbeheer** (volledige CRUD, rol toewijzen, stemgroep, status)
+- ✅ **Contentbeheer** (nieuws, posts, filters, publicatie status)
+- ✅ **Eventbeheer** (repetities, concerten, terugkerende events, doelgroep filtering)
+- ✅ **Locatiebeheer** (repetitieruimtes, concertzalen, Google Maps, capaciteit)
+- ✅ **Materiaal upload** (SATB bestanden + toegangscontrole)
+- ✅ **Fotoboek** beheer (albums, foto's, publiek/intern)
+- ✅ **Ticketing** dashboard (concerten, prijsstructuur, orders)
 - ⏳ **Theming** (logo, kleuren, lettertypes)
-- ⏳ **Ticketing** dashboard
 - ⏳ **Moderatie** (board berichten, media goedkeuren)
 
 #### Ticketing & Payments

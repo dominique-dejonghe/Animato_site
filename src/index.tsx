@@ -17,6 +17,7 @@ import adminRoutes from './routes/admin'
 import adminEventsRoutes from './routes/admin-events'
 import adminBestandenRoutes from './routes/admin-bestanden'
 import adminLocationsRoutes from './routes/admin-locations'
+import adminLocatiesRoutes from './routes/admin-locaties'
 import adminFotoboekRoutes from './routes/admin-fotoboek'
 import adminTicketsRoutes from './routes/admin-tickets'
 import ticketsRoutes from './routes/tickets'
@@ -71,6 +72,7 @@ app.route('/', adminRoutes)
 app.route('/', adminEventsRoutes)
 app.route('/', adminBestandenRoutes)
 app.route('/', adminLocationsRoutes)
+app.route('/', adminLocatiesRoutes)
 app.route('/', adminFotoboekRoutes)
 app.route('/', adminTicketsRoutes)
 

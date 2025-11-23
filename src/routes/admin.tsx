@@ -37,6 +37,9 @@ app.get('/admin', async (c) => {
     total_materials: await queryOne<any>(c.env.DB,
       `SELECT COUNT(*) as count FROM materials WHERE is_actief = 1`
     ),
+    total_locations: await queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as count FROM locations WHERE is_actief = 1`
+    ),
   }
 
   // Get recent activity from audit logs
@@ -96,7 +99,7 @@ app.get('/admin', async (c) => {
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           
           {/* Stats Cards */}
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
             <div class="bg-white rounded-lg shadow-md p-6">
               <div class="flex items-center justify-between">
                 <div>
@@ -171,6 +174,21 @@ app.get('/admin', async (c) => {
                 Beheer bestanden <i class="fas fa-arrow-right ml-1 text-xs"></i>
               </a>
             </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm text-gray-600 mb-1">Actieve Locaties</p>
+                  <p class="text-3xl font-bold text-gray-900">{stats.total_locations?.count || 0}</p>
+                </div>
+                <div class="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-map-marker-alt text-red-600 text-xl"></i>
+                </div>
+              </div>
+              <a href="/admin/locaties" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
+                Beheer locaties <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              </a>
+            </div>
           </div>
 
           {/* Quick Actions */}
@@ -179,7 +197,7 @@ app.get('/admin', async (c) => {
               <i class="fas fa-bolt text-animato-accent mr-2"></i>
               Snelle Acties
             </h2>
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
               <a href="/admin/leden/nieuw" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-animato-primary hover:bg-gray-50 transition">
                 <i class="fas fa-user-plus text-2xl text-animato-primary mb-2"></i>
                 <span class="text-sm font-medium text-gray-700">Nieuw Lid</span>
@@ -191,6 +209,10 @@ app.get('/admin', async (c) => {
               <a href="/admin/events/nieuw" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-animato-primary hover:bg-gray-50 transition">
                 <i class="fas fa-calendar-plus text-2xl text-purple-600 mb-2"></i>
                 <span class="text-sm font-medium text-gray-700">Nieuw Event</span>
+              </a>
+              <a href="/admin/locaties/nieuw" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-animato-primary hover:bg-gray-50 transition">
+                <i class="fas fa-map-marker-alt text-2xl text-red-600 mb-2"></i>
+                <span class="text-sm font-medium text-gray-700">Nieuwe Locatie</span>
               </a>
               <a href="/admin/fotoboek" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-animato-primary hover:bg-gray-50 transition">
                 <i class="fas fa-images text-2xl text-pink-600 mb-2"></i>

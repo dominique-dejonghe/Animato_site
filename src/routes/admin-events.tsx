@@ -7,6 +7,7 @@ import { Layout } from '../components/Layout'
 import { requireAuth, requireRole } from '../middleware/auth'
 import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 import { createEventOccurrences, formatRecurrenceRule } from '../utils/recurring-events'
+import { generateICS, generateBulkICS, generateGoogleCalendarURL } from '../utils/ics'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -192,12 +193,20 @@ app.get('/admin/events', async (c) => {
                   <i class="fas fa-times mr-2"></i>Selectie wissen
                 </button>
               </div>
-              <button
-                onclick="deleteSelectedEvents()"
-                class="px-6 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition font-semibold"
-              >
-                <i class="fas fa-trash mr-2"></i>Verwijder geselecteerde
-              </button>
+              <div class="flex items-center gap-3">
+                <button
+                  onclick="exportSelectedEvents()"
+                  class="px-6 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition font-semibold"
+                >
+                  <i class="fas fa-calendar-plus mr-2"></i>Exporteer naar Kalender
+                </button>
+                <button
+                  onclick="deleteSelectedEvents()"
+                  class="px-6 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition font-semibold"
+                >
+                  <i class="fas fa-trash mr-2"></i>Verwijder geselecteerde
+                </button>
+              </div>
             </div>
           </div>
 
@@ -334,20 +343,54 @@ app.get('/admin/events', async (c) => {
                           {event.aanmeldingen || 0}
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <a
-                            href={`/admin/events/${event.id}`}
-                            class="text-animato-primary hover:text-animato-secondary mr-3"
-                          >
-                            <i class="fas fa-edit"></i>
-                          </a>
-                          <button
-                            onclick={`if(confirm('Weet je zeker dat je dit event wilt verwijderen?${event.is_recurring ? ' Dit verwijdert ALLE occurrences!' : ''}')) { 
-                              fetch('/admin/events/${event.id}/delete', {method: 'POST'}).then(() => location.reload()) 
-                            }`}
-                            class="text-red-600 hover:text-red-900"
-                          >
-                            <i class="fas fa-trash"></i>
-                          </button>
+                          <div class="flex items-center justify-end gap-2">
+                            <a
+                              href={`/admin/events/${event.id}`}
+                              class="text-animato-primary hover:text-animato-secondary"
+                              title="Bewerken"
+                            >
+                              <i class="fas fa-edit"></i>
+                            </a>
+                            
+                            {/* Export Dropdown */}
+                            <div class="relative inline-block">
+                              <button
+                                onclick={`toggleExportMenu(${event.id})`}
+                                class="text-green-600 hover:text-green-900"
+                                title="Exporteren"
+                              >
+                                <i class="fas fa-calendar-plus"></i>
+                              </button>
+                              <div id={`export-menu-${event.id}`} class="hidden absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 z-50">
+                                <div class="py-1">
+                                  <a
+                                    href={`/admin/events/${event.id}/google-calendar`}
+                                    target="_blank"
+                                    class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                  >
+                                    <i class="fab fa-google text-red-500 mr-2"></i>Google Calendar
+                                  </a>
+                                  <a
+                                    href={`/admin/events/${event.id}/export.ics`}
+                                    download
+                                    class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+                                  >
+                                    <i class="fas fa-calendar text-blue-500 mr-2"></i>Outlook / Apple
+                                  </a>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <button
+                              onclick={`if(confirm('Weet je zeker dat je dit event wilt verwijderen?${event.is_recurring ? ' Dit verwijdert ALLE occurrences!' : ''}')) { 
+                                fetch('/admin/events/${event.id}/delete', {method: 'POST'}).then(() => location.reload()) 
+                              }`}
+                              class="text-red-600 hover:text-red-900"
+                              title="Verwijderen"
+                            >
+                              <i class="fas fa-trash"></i>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -470,6 +513,56 @@ app.get('/admin/events', async (c) => {
               console.error('Delete error:', error);
             }
           }
+
+          function exportSelectedEvents() {
+            const checkboxes = document.querySelectorAll('.event-checkbox:checked');
+            const eventIds = Array.from(checkboxes).map(cb => cb.dataset.eventId);
+            
+            if (eventIds.length === 0) {
+              alert('Geen events geselecteerd');
+              return;
+            }
+
+            // Create form and submit for bulk ICS export
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = '/admin/events/export-bulk.ics';
+            
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'event_ids';
+            input.value = eventIds.join(',');
+            
+            form.appendChild(input);
+            document.body.appendChild(form);
+            form.submit();
+            document.body.removeChild(form);
+          }
+
+          // Toggle export menu for individual events
+          function toggleExportMenu(eventId) {
+            const menu = document.getElementById('export-menu-' + eventId);
+            const allMenus = document.querySelectorAll('[id^="export-menu-"]');
+            
+            // Close all other menus
+            allMenus.forEach(m => {
+              if (m.id !== 'export-menu-' + eventId) {
+                m.classList.add('hidden');
+              }
+            });
+            
+            // Toggle this menu
+            menu.classList.toggle('hidden');
+          }
+
+          // Close export menus when clicking outside
+          document.addEventListener('click', function(e) {
+            if (!e.target.closest('.fa-calendar-plus') && !e.target.closest('[id^="export-menu-"]')) {
+              document.querySelectorAll('[id^="export-menu-"]').forEach(menu => {
+                menu.classList.add('hidden');
+              });
+            }
+          });
         `
       }}></script>
     </Layout>
@@ -1589,5 +1682,108 @@ async function generateAndSaveOccurrences(
     )
   }
 }
+
+// =====================================================
+// ICS EXPORT ROUTES
+// =====================================================
+
+// Export single event as ICS
+app.get('/admin/events/:id/export.ics', async (c) => {
+  const id = c.req.param('id')
+  
+  const event = await queryOne<any>(
+    c.env.DB,
+    `SELECT e.*, l.naam as locatie_naam 
+     FROM events e
+     LEFT JOIN locations l ON l.id = e.location_id
+     WHERE e.id = ?`,
+    [id]
+  )
+  
+  if (!event) {
+    return c.text('Event not found', 404)
+  }
+  
+  const icsContent = generateICS({
+    id: event.id,
+    titel: event.titel,
+    beschrijving: event.beschrijving,
+    locatie: event.locatie_naam || event.locatie,
+    start_at: event.start_at,
+    end_at: event.end_at,
+    url: `https://animato-koor.pages.dev/events/${event.slug}`
+  })
+  
+  return c.body(icsContent, 200, {
+    'Content-Type': 'text/calendar; charset=utf-8',
+    'Content-Disposition': `attachment; filename="animato-event-${event.id}.ics"`
+  })
+})
+
+// Export multiple events as ICS (bulk)
+app.post('/admin/events/export-bulk.ics', async (c) => {
+  const body = await c.req.parseBody()
+  const eventIds = body.event_ids ? String(body.event_ids).split(',') : []
+  
+  if (eventIds.length === 0) {
+    return c.text('No events selected', 400)
+  }
+  
+  const placeholders = eventIds.map(() => '?').join(',')
+  const events = await queryAll(
+    c.env.DB,
+    `SELECT e.*, l.naam as locatie_naam 
+     FROM events e
+     LEFT JOIN locations l ON l.id = e.location_id
+     WHERE e.id IN (${placeholders})`,
+    eventIds
+  )
+  
+  const icsEvents = events.map((e: any) => ({
+    id: e.id,
+    titel: e.titel,
+    beschrijving: e.beschrijving,
+    locatie: e.locatie_naam || e.locatie,
+    start_at: e.start_at,
+    end_at: e.end_at,
+    url: `https://animato-koor.pages.dev/events/${e.slug}`
+  }))
+  
+  const icsContent = generateBulkICS(icsEvents)
+  
+  return c.body(icsContent, 200, {
+    'Content-Type': 'text/calendar; charset=utf-8',
+    'Content-Disposition': `attachment; filename="animato-events-export.ics"`
+  })
+})
+
+// Get Google Calendar URL (redirect)
+app.get('/admin/events/:id/google-calendar', async (c) => {
+  const id = c.req.param('id')
+  
+  const event = await queryOne<any>(
+    c.env.DB,
+    `SELECT e.*, l.naam as locatie_naam 
+     FROM events e
+     LEFT JOIN locations l ON l.id = e.location_id
+     WHERE e.id = ?`,
+    [id]
+  )
+  
+  if (!event) {
+    return c.text('Event not found', 404)
+  }
+  
+  const googleURL = generateGoogleCalendarURL({
+    id: event.id,
+    titel: event.titel,
+    beschrijving: event.beschrijving,
+    locatie: event.locatie_naam || event.locatie,
+    start_at: event.start_at,
+    end_at: event.end_at
+  })
+  
+  return c.redirect(googleURL)
+})
 
 export default app

@@ -683,20 +683,68 @@ function renderEventForm(event: any | null, locations: any[]) {
               <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-700 mb-2">
                   <i class="fas fa-image text-purple-600 mr-2"></i>
-                  Afbeelding URL (optioneel)
+                  Afbeelding (optioneel)
                 </label>
+
+                {/* Toggle between Upload and URL */}
+                <div class="flex gap-2 mb-3">
+                  <button
+                    type="button"
+                    id="uploadTabBtn"
+                    onclick="switchImageMode('upload')"
+                    class="flex-1 px-4 py-2 text-sm font-medium rounded-lg border-2 border-animato-primary bg-animato-primary text-white transition"
+                  >
+                    <i class="fas fa-upload mr-2"></i>
+                    Upload Bestand
+                  </button>
+                  <button
+                    type="button"
+                    id="urlTabBtn"
+                    onclick="switchImageMode('url')"
+                    class="flex-1 px-4 py-2 text-sm font-medium rounded-lg border-2 border-gray-300 text-gray-700 hover:bg-gray-50 transition"
+                  >
+                    <i class="fas fa-link mr-2"></i>
+                    URL Invoeren
+                  </button>
+                </div>
+
+                {/* Upload Mode */}
+                <div id="uploadMode">
+                  <input
+                    type="file"
+                    id="afbeeldingUpload"
+                    accept="image/*"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-animato-primary file:text-white hover:file:bg-animato-secondary file:cursor-pointer"
+                    onchange="handleImageUpload(event)"
+                  />
+                  <p class="text-xs text-gray-500 mt-1">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    Upload een afbeelding (JPG, PNG, max 2MB). Wordt automatisch geconverteerd naar data URL.
+                  </p>
+                </div>
+
+                {/* URL Mode */}
+                <div id="urlMode" class="hidden">
+                  <input
+                    type="url"
+                    id="afbeeldingInput"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary"
+                    placeholder="https://example.com/image.jpg"
+                    onchange="previewImageFromUrl()"
+                  />
+                  <p class="text-xs text-gray-500 mt-1">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    Plak een URL van een online afbeelding
+                  </p>
+                </div>
+
+                {/* Hidden field to store actual image data/URL */}
                 <input
-                  type="url"
+                  type="hidden"
                   name="afbeelding"
-                  id="afbeeldingInput"
+                  id="afbeeldingValue"
                   value={event?.afbeelding || ''}
-                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary"
-                  placeholder="https://example.com/image.jpg"
-                  onchange="previewImage()"
                 />
-                <p class="text-xs text-gray-500 mt-1">
-                  Plak een URL van een online afbeelding (optioneel voor concerten)
-                </p>
 
                 {/* Image Preview */}
                 <div id="imagePreview" class={`mt-3 ${event?.afbeelding ? '' : 'hidden'}`}>
@@ -1108,13 +1156,76 @@ function renderEventForm(event: any | null, locations: any[]) {
             }
           }
 
-          // Image preview
-          function previewImage() {
+          // Image mode switching
+          function switchImageMode(mode) {
+            const uploadMode = document.getElementById('uploadMode');
+            const urlMode = document.getElementById('urlMode');
+            const uploadBtn = document.getElementById('uploadTabBtn');
+            const urlBtn = document.getElementById('urlTabBtn');
+            
+            if (mode === 'upload') {
+              uploadMode.classList.remove('hidden');
+              urlMode.classList.add('hidden');
+              uploadBtn.classList.add('border-animato-primary', 'bg-animato-primary', 'text-white');
+              uploadBtn.classList.remove('border-gray-300', 'text-gray-700', 'bg-white');
+              urlBtn.classList.remove('border-animato-primary', 'bg-animato-primary', 'text-white');
+              urlBtn.classList.add('border-gray-300', 'text-gray-700', 'bg-white');
+            } else {
+              urlMode.classList.remove('hidden');
+              uploadMode.classList.add('hidden');
+              urlBtn.classList.add('border-animato-primary', 'bg-animato-primary', 'text-white');
+              urlBtn.classList.remove('border-gray-300', 'text-gray-700', 'bg-white');
+              uploadBtn.classList.remove('border-animato-primary', 'bg-animato-primary', 'text-white');
+              uploadBtn.classList.add('border-gray-300', 'text-gray-700', 'bg-white');
+            }
+          }
+
+          // Handle file upload and convert to base64
+          function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            // Check file size (max 2MB)
+            if (file.size > 2 * 1024 * 1024) {
+              alert('Bestand is te groot! Maximaal 2MB toegestaan.');
+              event.target.value = '';
+              return;
+            }
+
+            // Check file type
+            if (!file.type.startsWith('image/')) {
+              alert('Alleen afbeeldingen zijn toegestaan!');
+              event.target.value = '';
+              return;
+            }
+
+            // Convert to base64
+            const reader = new FileReader();
+            reader.onload = function(e) {
+              const base64 = e.target.result;
+              const hiddenInput = document.getElementById('afbeeldingValue');
+              const preview = document.getElementById('imagePreview');
+              const img = document.getElementById('previewImg');
+              
+              // Store base64 in hidden field
+              hiddenInput.value = base64;
+              
+              // Show preview
+              img.src = base64;
+              preview.classList.remove('hidden');
+            };
+            reader.readAsDataURL(file);
+          }
+
+          // Preview image from URL
+          function previewImageFromUrl() {
             const input = document.getElementById('afbeeldingInput');
+            const hiddenInput = document.getElementById('afbeeldingValue');
             const preview = document.getElementById('imagePreview');
             const img = document.getElementById('previewImg');
             
             if (input.value) {
+              hiddenInput.value = input.value;
               img.src = input.value;
               preview.classList.remove('hidden');
             } else {
@@ -1123,9 +1234,14 @@ function renderEventForm(event: any | null, locations: any[]) {
           }
 
           function clearImage() {
-            const input = document.getElementById('afbeeldingInput');
+            const uploadInput = document.getElementById('afbeeldingUpload');
+            const urlInput = document.getElementById('afbeeldingInput');
+            const hiddenInput = document.getElementById('afbeeldingValue');
             const preview = document.getElementById('imagePreview');
-            input.value = '';
+            
+            if (uploadInput) uploadInput.value = '';
+            if (urlInput) urlInput.value = '';
+            if (hiddenInput) hiddenInput.value = '';
             preview.classList.add('hidden');
           }
 
@@ -1149,7 +1265,16 @@ function renderEventForm(event: any | null, locations: any[]) {
           // Check on page load if editing
           document.addEventListener('DOMContentLoaded', function() {
             checkPastDate();
-            previewImage();
+            
+            // Show preview if there's already an image
+            const hiddenInput = document.getElementById('afbeeldingValue');
+            const preview = document.getElementById('imagePreview');
+            const img = document.getElementById('previewImg');
+            
+            if (hiddenInput && hiddenInput.value) {
+              img.src = hiddenInput.value;
+              preview.classList.remove('hidden');
+            }
           });
 
           // Toggle recurring options

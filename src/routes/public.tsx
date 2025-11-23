@@ -762,4 +762,407 @@ app.get('/contact', async (c) => {
   )
 })
 
+// =====================================================
+// FOTOBOEK
+// =====================================================
+
+app.get('/fotoboek', async (c) => {
+  const user = c.get('user')
+  const year = c.req.query('year') || 'all'
+  const visibility = c.req.query('visibility') || 'all'
+
+  // Build query with filters
+  let query = `
+    SELECT a.*, 
+           COUNT(p.id) as photo_count,
+           strftime('%Y', a.created_at) as year
+    FROM albums a
+    LEFT JOIN photos p ON p.album_id = a.id
+    WHERE 1=1
+  `
+  const params: any[] = []
+
+  // Visibility filter - if not logged in, only show public
+  if (!user) {
+    query += ` AND a.is_publiek = 1`
+  } else if (visibility === 'public') {
+    query += ` AND a.is_publiek = 1`
+  } else if (visibility === 'private') {
+    query += ` AND a.is_publiek = 0`
+  }
+  // 'all' shows both if logged in
+
+  query += ` GROUP BY a.id`
+
+  // Get all albums first
+  const allAlbums = await queryAll(c.env.DB, query, params)
+
+  // Filter by year in JavaScript (since year is computed)
+  let albums = allAlbums
+  if (year !== 'all') {
+    albums = allAlbums.filter((a: any) => a.year === year)
+  }
+
+  // Sort by date descending
+  albums.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
+  // Get unique years for filter
+  const years = [...new Set(allAlbums.map((a: any) => a.year))].sort().reverse()
+
+  return c.html(
+    <Layout title="Fotoboek" user={user} currentPath="/fotoboek">
+      {/* Header */}
+      <div class="bg-gradient-to-r from-animato-primary to-animato-secondary text-white py-16">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <h1 class="text-4xl md:text-5xl font-bold mb-4" style="font-family: 'Playfair Display', serif;">
+            <i class="fas fa-images mr-3"></i>
+            Fotoboek
+          </h1>
+          <p class="text-xl text-white/90">
+            Bekijk onze mooiste momenten en herinneringen
+          </p>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div class="bg-white border-b border-gray-200 sticky top-16 z-40">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <div class="flex flex-wrap gap-4 items-center">
+            {/* Year Filter */}
+            <div class="flex items-center gap-2">
+              <label class="text-sm font-medium text-gray-700">Jaar:</label>
+              <select
+                onchange={`window.location.href='/fotoboek?year=' + this.value + '&visibility=${visibility}'`}
+                class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary"
+              >
+                <option value="all" selected={year === 'all'}>Alle jaren</option>
+                {years.map((y: string) => (
+                  <option value={y} selected={year === y}>{y}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Visibility Filter - Only show if logged in */}
+            {user && (
+              <div class="flex items-center gap-2">
+                <label class="text-sm font-medium text-gray-700">Zichtbaarheid:</label>
+                <select
+                  onchange={`window.location.href='/fotoboek?year=${year}&visibility=' + this.value`}
+                  class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary"
+                >
+                  <option value="all" selected={visibility === 'all'}>Alles</option>
+                  <option value="public" selected={visibility === 'public'}>Publiek</option>
+                  <option value="private" selected={visibility === 'private'}>Alleen leden</option>
+                </select>
+              </div>
+            )}
+
+            {/* Stats */}
+            <div class="ml-auto text-sm text-gray-600">
+              <i class="fas fa-folder mr-1"></i>
+              {albums.length} album(s)
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Albums Grid */}
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {albums.length === 0 ? (
+          <div class="text-center py-16">
+            <i class="fas fa-images text-6xl text-gray-300 mb-4"></i>
+            <h3 class="text-xl font-semibold text-gray-600 mb-2">Geen albums gevonden</h3>
+            <p class="text-gray-500">
+              {year !== 'all' ? `Geen albums gevonden voor ${year}` : 'Er zijn nog geen foto albums beschikbaar'}
+            </p>
+          </div>
+        ) : (
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {albums.map((album: any) => (
+              <a
+                href={`/fotoboek/${album.slug}`}
+                class="group bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1"
+              >
+                {/* Cover Image */}
+                <div class="relative h-64 bg-gradient-to-br from-gray-200 to-gray-300 overflow-hidden">
+                  {album.cover_url ? (
+                    <img
+                      src={album.cover_url}
+                      alt={album.titel}
+                      class="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
+                    />
+                  ) : (
+                    <div class="w-full h-full flex items-center justify-center">
+                      <i class="fas fa-images text-6xl text-gray-400"></i>
+                    </div>
+                  )}
+                  {/* Overlay with photo count */}
+                  <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-4">
+                    <div class="flex items-center justify-between text-white">
+                      <span class="flex items-center text-sm">
+                        <i class="fas fa-camera mr-2"></i>
+                        {album.photo_count} foto's
+                      </span>
+                      {!album.is_publiek && (
+                        <span class="px-2 py-1 bg-yellow-500 text-xs rounded">
+                          <i class="fas fa-lock mr-1"></i>
+                          Leden
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Album Info */}
+                <div class="p-6">
+                  <h3 class="text-xl font-bold text-gray-900 mb-2 group-hover:text-animato-primary transition">
+                    {album.titel}
+                  </h3>
+                  {album.beschrijving && (
+                    <p class="text-gray-600 text-sm line-clamp-2 mb-3">
+                      {album.beschrijving}
+                    </p>
+                  )}
+                  <div class="flex items-center text-sm text-gray-500">
+                    <i class="fas fa-calendar mr-2"></i>
+                    {new Date(album.created_at).toLocaleDateString('nl-NL', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric'
+                    })}
+                  </div>
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Call to Action for logged out users */}
+      {!user && (
+        <div class="bg-animato-primary/10 border-t border-animato-primary/20">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center">
+            <i class="fas fa-user-circle text-5xl text-animato-primary mb-4"></i>
+            <h3 class="text-2xl font-bold text-gray-900 mb-2">Wil je meer foto's zien?</h3>
+            <p class="text-gray-600 mb-6">
+              Log in als lid om toegang te krijgen tot exclusieve ledenalbums
+            </p>
+            <a
+              href="/login"
+              class="inline-block px-8 py-3 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition"
+            >
+              <i class="fas fa-sign-in-alt mr-2"></i>
+              Inloggen
+            </a>
+          </div>
+        </div>
+      )}
+    </Layout>
+  )
+})
+
+// =====================================================
+// ALBUM DETAIL WITH PHOTO GALLERY
+// =====================================================
+
+app.get('/fotoboek/:slug', async (c) => {
+  const user = c.get('user')
+  const slug = c.req.param('slug')
+
+  // Get album
+  const album = await queryAll(
+    c.env.DB,
+    `SELECT * FROM albums WHERE slug = ?`,
+    [slug]
+  )
+
+  if (!album[0]) {
+    return c.redirect('/fotoboek')
+  }
+
+  const albumData = album[0] as any
+
+  // Check access - if private and not logged in, redirect
+  if (!albumData.is_publiek && !user) {
+    return c.redirect('/login?redirect=/fotoboek/' + slug)
+  }
+
+  // Get photos
+  const photos = await queryAll(
+    c.env.DB,
+    `SELECT * FROM photos WHERE album_id = ? ORDER BY sorteer_volgorde ASC, id ASC`,
+    [albumData.id]
+  )
+
+  return c.html(
+    <Layout title={albumData.titel} user={user}>
+      {/* Album Header */}
+      <div class="bg-gradient-to-r from-animato-primary to-animato-secondary text-white py-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <nav class="flex items-center text-white/80 text-sm mb-4">
+            <a href="/fotoboek" class="hover:text-white">
+              <i class="fas fa-images mr-2"></i>
+              Fotoboek
+            </a>
+            <i class="fas fa-chevron-right mx-2 text-xs"></i>
+            <span class="text-white">{albumData.titel}</span>
+          </nav>
+          <h1 class="text-3xl md:text-4xl font-bold mb-3" style="font-family: 'Playfair Display', serif;">
+            {albumData.titel}
+          </h1>
+          {albumData.beschrijving && (
+            <p class="text-xl text-white/90 max-w-3xl">
+              {albumData.beschrijving}
+            </p>
+          )}
+          <div class="flex items-center gap-6 mt-4 text-sm">
+            <span>
+              <i class="fas fa-calendar mr-2"></i>
+              {new Date(albumData.created_at).toLocaleDateString('nl-NL', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+              })}
+            </span>
+            <span>
+              <i class="fas fa-camera mr-2"></i>
+              {photos.length} foto's
+            </span>
+            {!albumData.is_publiek && (
+              <span class="px-3 py-1 bg-yellow-500 rounded-full">
+                <i class="fas fa-lock mr-2"></i>
+                Alleen leden
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Photo Gallery - Masonry Grid */}
+      <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        {photos.length === 0 ? (
+          <div class="text-center py-16">
+            <i class="fas fa-camera text-6xl text-gray-300 mb-4"></i>
+            <h3 class="text-xl font-semibold text-gray-600 mb-2">Geen foto's</h3>
+            <p class="text-gray-500">Dit album bevat nog geen foto's</p>
+          </div>
+        ) : (
+          <div class="columns-1 md:columns-2 lg:columns-3 gap-4 space-y-4">
+            {photos.map((photo: any, index: number) => (
+              <div class="break-inside-avoid">
+                <button
+                  onclick={`openLightbox(${index})`}
+                  class="relative block w-full overflow-hidden rounded-lg shadow-md hover:shadow-xl transition-shadow cursor-pointer group"
+                >
+                  <img
+                    src={photo.thumbnail_url || photo.url}
+                    alt={photo.caption || `Foto ${index + 1}`}
+                    class="w-full h-auto group-hover:scale-105 transition-transform duration-300"
+                    loading="lazy"
+                  />
+                  {photo.caption && (
+                    <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <p class="text-white text-sm">{photo.caption}</p>
+                    </div>
+                  )}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Lightbox */}
+      <div id="lightbox" class="hidden fixed inset-0 z-50 bg-black/95">
+        <button
+          onclick="closeLightbox()"
+          class="absolute top-4 right-4 text-white text-3xl hover:text-gray-300 transition z-10"
+        >
+          <i class="fas fa-times"></i>
+        </button>
+
+        <button
+          onclick="previousPhoto()"
+          class="absolute left-4 top-1/2 -translate-y-1/2 text-white text-4xl hover:text-gray-300 transition z-10"
+        >
+          <i class="fas fa-chevron-left"></i>
+        </button>
+
+        <button
+          onclick="nextPhoto()"
+          class="absolute right-4 top-1/2 -translate-y-1/2 text-white text-4xl hover:text-gray-300 transition z-10"
+        >
+          <i class="fas fa-chevron-right"></i>
+        </button>
+
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+          <div class="max-w-6xl w-full">
+            <img
+              id="lightboxImage"
+              src=""
+              alt=""
+              class="max-w-full max-h-[85vh] mx-auto rounded-lg"
+            />
+            <div id="lightboxCaption" class="text-white text-center mt-4 text-lg"></div>
+            <div id="lightboxCounter" class="text-white/70 text-center mt-2 text-sm"></div>
+          </div>
+        </div>
+      </div>
+
+      {/* Lightbox JavaScript */}
+      <script dangerouslySetInnerHTML={{
+        __html: `
+          const photos = ${JSON.stringify(photos)};
+          let currentPhotoIndex = 0;
+
+          function openLightbox(index) {
+            currentPhotoIndex = index;
+            updateLightbox();
+            document.getElementById('lightbox').classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+          }
+
+          function closeLightbox() {
+            document.getElementById('lightbox').classList.add('hidden');
+            document.body.style.overflow = '';
+          }
+
+          function nextPhoto() {
+            currentPhotoIndex = (currentPhotoIndex + 1) % photos.length;
+            updateLightbox();
+          }
+
+          function previousPhoto() {
+            currentPhotoIndex = (currentPhotoIndex - 1 + photos.length) % photos.length;
+            updateLightbox();
+          }
+
+          function updateLightbox() {
+            const photo = photos[currentPhotoIndex];
+            document.getElementById('lightboxImage').src = photo.url;
+            document.getElementById('lightboxImage').alt = photo.caption || '';
+            document.getElementById('lightboxCaption').textContent = photo.caption || '';
+            document.getElementById('lightboxCounter').textContent = 
+              (currentPhotoIndex + 1) + ' / ' + photos.length;
+          }
+
+          // Keyboard navigation
+          document.addEventListener('keydown', function(e) {
+            if (!document.getElementById('lightbox').classList.contains('hidden')) {
+              if (e.key === 'Escape') closeLightbox();
+              if (e.key === 'ArrowRight') nextPhoto();
+              if (e.key === 'ArrowLeft') previousPhoto();
+            }
+          });
+
+          // Close on background click
+          document.getElementById('lightbox').addEventListener('click', function(e) {
+            if (e.target === this) closeLightbox();
+          });
+        `
+      }} />
+    </Layout>
+  )
+})
+
 export default app

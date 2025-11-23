@@ -5,7 +5,7 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 ## 🌐 Live URLs
 
 - **Production**: https://animato-koor.pages.dev
-- **Latest Deploy**: https://b184bb01.animato-koor.pages.dev (Deployed: 2025-11-23 07:43 UTC)
+- **Latest Deploy**: https://fd299abe.animato-koor.pages.dev (Deployed: 2025-11-23 10:33 UTC)
 - **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
 - **API Documentation**: /api endpoint
 
@@ -59,14 +59,19 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - ⏳ **Profiel** bewerken
 
 #### Admin Console
-- ✅ **Admin Dashboard** met statistieken (leden, posts, events, albums, materialen, locaties)
+- ✅ **Admin Dashboard** met 6 statistieken cards (leden, posts, events, albums, materialen, locaties)
 - ✅ **Ledenbeheer** (volledige CRUD, rol toewijzen, stemgroep, status)
 - ✅ **Contentbeheer** (nieuws, posts, filters, publicatie status)
 - ✅ **Eventbeheer** (repetities, concerten, terugkerende events, doelgroep filtering)
-- ✅ **Locatiebeheer** (repetitieruimtes, concertzalen, Google Maps, capaciteit)
+- ✅ **Locatiebeheer** (standalone management met Google Maps visual integration)
+  - CRUD interface voor locaties (apart van events)
+  - Google Maps embed in location cards (ipv rode gradient placeholder)
+  - Smart URL parsing voor verschillende Google Maps formaten
+  - Capaciteit, notities, actief/inactief status
 - ✅ **Materiaal upload** (SATB bestanden + toegangscontrole)
 - ✅ **Fotoboek** beheer (albums, foto's, publiek/intern)
 - ✅ **Ticketing** dashboard (concerten, prijsstructuur, orders)
+- ✅ **Production login fix** (PBKDF2 password hashing compatibility met Cloudflare Workers)
 - ⏳ **Theming** (logo, kleuren, lettertypes)
 - ⏳ **Moderatie** (board berichten, media goedkeuren)
 
@@ -215,8 +220,9 @@ Materialen en repetities kunnen toegewezen worden aan specifieke stemgroepen of 
 ### Cloudflare Pages
 - **Project Name**: animato-koor
 - **Production URL**: https://animato-koor.pages.dev
-- **Latest Deployment**: https://f5383d85.animato-koor.pages.dev
+- **Latest Deployment**: https://fd299abe.animato-koor.pages.dev (2025-11-23 10:33 UTC)
 - **Production Branch**: main
+- **Status**: ✅ LIVE - Login authentication working
 
 ### Database (Cloudflare D1)
 - **Database Name**: animato-production

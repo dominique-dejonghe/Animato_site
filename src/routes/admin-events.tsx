@@ -5,7 +5,7 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser, Event, Location, RecurrenceRule } from '../types'
 import { Layout } from '../components/Layout'
 import { requireAuth, requireRole } from '../middleware/auth'
-import { queryOne, queryAll, execute } from '../utils/db'
+import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 import { createEventOccurrences, formatRecurrenceRule } from '../utils/recurring-events'
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -61,6 +61,9 @@ app.get('/admin/events', async (c) => {
   query += ` GROUP BY e.id ORDER BY e.start_at ASC`
 
   const events = await queryAll(c.env.DB, query, params)
+
+  // Disable caching for admin pages
+  noCacheHeaders(c)
 
   return c.html(
     <Layout 
@@ -317,6 +320,9 @@ app.get('/admin/events/nieuw', async (c) => {
     `SELECT * FROM locations WHERE is_actief = 1 ORDER BY naam ASC`
   )
 
+  // Disable caching for admin pages
+  noCacheHeaders(c)
+
   return c.html(
     <Layout 
       title="Nieuw Event"
@@ -352,6 +358,9 @@ app.get('/admin/events/:id', async (c) => {
     c.env.DB,
     `SELECT * FROM locations WHERE is_actief = 1 ORDER BY naam ASC`
   )
+
+  // Disable caching for admin pages
+  noCacheHeaders(c)
 
   return c.html(
     <Layout 

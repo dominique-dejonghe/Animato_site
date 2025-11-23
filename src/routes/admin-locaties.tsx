@@ -5,7 +5,7 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { requireAuth, requireRole } from '../middleware/auth'
-import { queryOne, queryAll, execute } from '../utils/db'
+import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -58,6 +58,9 @@ app.get('/admin/locaties', async (c) => {
   const user = c.get('user') as SessionUser
   const search = c.req.query('search') || ''
   const status = c.req.query('status') || 'all'
+
+  // Disable caching for admin pages
+  noCacheHeaders(c)
 
   // Build query based on filters
   let query = `
@@ -387,6 +390,9 @@ app.get('/admin/locaties', async (c) => {
 app.get('/admin/locaties/nieuw', async (c) => {
   const user = c.get('user') as SessionUser
 
+  // Disable caching for admin pages
+  noCacheHeaders(c)
+
   return c.html(
     <Layout 
       title="Nieuwe Locatie"
@@ -405,6 +411,9 @@ app.get('/admin/locaties/nieuw', async (c) => {
 app.get('/admin/locaties/:id', async (c) => {
   const user = c.get('user') as SessionUser
   const id = c.req.param('id')
+
+  // Disable caching for admin pages
+  noCacheHeaders(c)
 
   // Get location
   const location = await queryOne<any>(

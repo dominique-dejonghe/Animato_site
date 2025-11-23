@@ -5,7 +5,7 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { requireAuth, requireRole } from '../middleware/auth'
-import { queryOne, queryAll, execute } from '../utils/db'
+import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -19,6 +19,9 @@ app.use('*', requireRole('admin', 'moderator'))
 
 app.get('/admin', async (c) => {
   const user = c.get('user') as SessionUser
+
+  // Disable caching for admin pages
+  noCacheHeaders(c)
 
   // Get statistics
   const stats = {

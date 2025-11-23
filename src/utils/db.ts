@@ -164,6 +164,20 @@ export async function ensureUniqueSlug(
 }
 
 // =====================================================
+// HTTP HELPERS
+// =====================================================
+
+/**
+ * Disable caching for admin pages
+ * Prevents browser and CDN caching to ensure fresh data
+ */
+export function noCacheHeaders(c: any): void {
+  c.header('Cache-Control', 'no-cache, no-store, must-revalidate')
+  c.header('Pragma', 'no-cache')
+  c.header('Expires', '0')
+}
+
+// =====================================================
 // DATE HELPERS
 // =====================================================
 

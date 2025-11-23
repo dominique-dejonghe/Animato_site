@@ -527,9 +527,43 @@ app.post('/admin/events/save', async (c) => {
     }
 
     return c.redirect('/admin/events')
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error saving event:', error)
-    return c.text('Error saving event', 500)
+    const errorMessage = error?.message || String(error)
+    return c.html(
+      <div class="min-h-screen bg-red-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-xl p-8 max-w-2xl w-full">
+          <div class="flex items-center mb-4">
+            <i class="fas fa-exclamation-triangle text-red-600 text-3xl mr-4"></i>
+            <h1 class="text-2xl font-bold text-gray-900">Error bij opslaan event</h1>
+          </div>
+          <div class="bg-red-100 border border-red-400 rounded-lg p-4 mb-4">
+            <p class="text-red-800 font-mono text-sm whitespace-pre-wrap">{errorMessage}</p>
+          </div>
+          <div class="bg-gray-100 rounded-lg p-4 mb-4">
+            <h2 class="font-bold mb-2">Debug Info:</h2>
+            <pre class="text-xs overflow-auto">{JSON.stringify({
+              type: body.type,
+              titel: body.titel,
+              start_at: body.start_at,
+              end_at: body.end_at,
+              locatie: body.locatie,
+              location_id: body.location_id,
+              doelgroep: body.doelgroep,
+              afbeelding_length: body.afbeelding ? String(body.afbeelding).length : 0
+            }, null, 2)}</pre>
+          </div>
+          <div class="flex gap-3">
+            <a href="/admin/events/nieuw" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition">
+              <i class="fas fa-arrow-left mr-2"></i>Probeer Opnieuw
+            </a>
+            <a href="/admin/events" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition">
+              Terug naar Overzicht
+            </a>
+          </div>
+        </div>
+      </div>
+    , 500)
   }
 })
 

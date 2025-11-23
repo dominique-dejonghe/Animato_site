@@ -1647,59 +1647,8 @@ app.get('/leden/materiaal', async (c) => {
                         {/* Materials */}
                         {piece.materials.length > 0 ? (
                           <div class="space-y-3">
-                            {piece.materials.map((material: any) => {
-                              // Check if it's a YouTube video
-                              const isYouTube = material.type === 'link' && (material.url.includes('youtube.com') || material.url.includes('youtu.be'))
-                              
-                              // Extract YouTube video ID
-                              let youtubeId = null
-                              if (isYouTube) {
-                                const match = material.url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&?/]+)/)
-                                if (match) youtubeId = match[1]
-                              }
-                              
-                              return isYouTube && youtubeId ? (
-                                // YouTube Video Embed
-                                <div class="bg-gray-50 rounded-lg border border-gray-200 p-4">
-                                  <div class="flex items-center mb-3">
-                                    <div class="w-10 h-10 rounded-lg flex items-center justify-center mr-3 bg-red-100">
-                                      <i class="fab fa-youtube text-red-600 text-xl"></i>
-                                    </div>
-                                    <div class="flex-1">
-                                      <div class="font-semibold text-gray-900">{material.titel}</div>
-                                      <div class="text-xs text-gray-600">
-                                        <span class="font-semibold">{
-                                          material.stem === 'S' ? 'Sopraan' :
-                                          material.stem === 'A' ? 'Alt' :
-                                          material.stem === 'T' ? 'Tenor' :
-                                          material.stem === 'B' ? 'Bas' :
-                                          material.stem === 'SATB' ? 'Alle stemmen' :
-                                          material.stem
-                                        }</span> • YouTube Video
-                                      </div>
-                                    </div>
-                                    <a
-                                      href={material.url}
-                                      target="_blank"
-                                      class="text-animato-primary hover:text-animato-secondary"
-                                      title="Open in YouTube"
-                                    >
-                                      <i class="fas fa-external-link-alt"></i>
-                                    </a>
-                                  </div>
-                                  <div class="aspect-video bg-black rounded-lg overflow-hidden">
-                                    <iframe
-                                      src={`https://www.youtube.com/embed/${youtubeId}`}
-                                      title={material.titel}
-                                      frameborder="0"
-                                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                                      allowfullscreen
-                                      class="w-full h-full"
-                                    ></iframe>
-                                  </div>
-                                </div>
-                              ) : (
-                                // Regular File Download Link
+                            {piece.materials.map((material: any) => (
+                                // File Download or External Link
                                 <a
                                   href={material.url}
                                   download={material.type !== 'link'}
@@ -1742,8 +1691,7 @@ app.get('/leden/materiaal', async (c) => {
                                   </div>
                                   <i class={`fas ${material.type === 'link' ? 'fa-external-link-alt' : 'fa-download'} text-animato-primary ml-3`}></i>
                                 </a>
-                              )
-                            })}
+                            ))}
                           </div>
                         ) : (
                           <p class="text-gray-500 text-sm italic">

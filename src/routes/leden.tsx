@@ -883,10 +883,10 @@ app.get('/leden/profiel', async (c) => {
                 <div class="flex items-center gap-4 mt-2 text-sm text-gray-600">
                   <span>
                     <i class="fas fa-music mr-1 text-animato-primary"></i>
-                    {profile.stemgroep === 'sopraan' && 'Sopraan'}
-                    {profile.stemgroep === 'alt' && 'Alt'}
-                    {profile.stemgroep === 'tenor' && 'Tenor'}
-                    {profile.stemgroep === 'bas' && 'Bas'}
+                    {profile.stemgroep === 'S' && 'Sopraan'}
+                    {profile.stemgroep === 'A' && 'Alt'}
+                    {profile.stemgroep === 'T' && 'Tenor'}
+                    {profile.stemgroep === 'B' && 'Bas'}
                     {!profile.stemgroep && 'Geen stemgroep'}
                   </span>
                   <span>
@@ -1062,6 +1062,28 @@ app.get('/leden/profiel', async (c) => {
                   placeholder="+32 123 45 67 89"
                   class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                 />
+              </div>
+
+              <div>
+                <label for="stemgroep" class="block text-sm font-medium text-gray-700 mb-1">
+                  Stemgroep *
+                </label>
+                <select
+                  id="stemgroep"
+                  name="stemgroep"
+                  required
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                >
+                  <option value="">-- Kies je stemgroep --</option>
+                  <option value="S" selected={profile.stemgroep === 'S'}>Sopraan</option>
+                  <option value="A" selected={profile.stemgroep === 'A'}>Alt</option>
+                  <option value="T" selected={profile.stemgroep === 'T'}>Tenor</option>
+                  <option value="B" selected={profile.stemgroep === 'B'}>Bas</option>
+                </select>
+                <p class="mt-1 text-xs text-gray-500">
+                  <i class="fas fa-music mr-1 text-animato-primary"></i>
+                  Je zangroep bepaalt welk materiaal en events je ziet
+                </p>
               </div>
 
               <div>
@@ -2702,11 +2724,19 @@ app.post('/api/leden/profiel', async (c) => {
   const {
     voornaam, achternaam, telefoon, adres, bio, muzikale_ervaring,
     profielfoto_url, favoriete_genre, favoriete_componist, favoriete_werk,
-    instrument, jaren_in_koor, zanger_type, smoelenboek_zichtbaar, toon_email, toon_telefoon
+    instrument, jaren_in_koor, zanger_type, smoelenboek_zichtbaar, toon_email, toon_telefoon,
+    stemgroep
   } = body
 
   try {
-    // Update profile
+    // Update user stemgroep in users table
+    if (stemgroep && ['S', 'A', 'T', 'B'].includes(String(stemgroep))) {
+      await c.env.DB.prepare(
+        `UPDATE users SET stemgroep = ? WHERE id = ?`
+      ).bind(stemgroep, user.id).run()
+    }
+
+    // Update profile in profiles table
     const result = await c.env.DB.prepare(
       `UPDATE profiles 
        SET voornaam = ?, achternaam = ?, telefoon = ?, adres = ?, bio = ?, muzikale_ervaring = ?, 

@@ -1761,7 +1761,26 @@ app.get('/leden/smoelenboek', async (c) => {
   const view = c.req.query('view') || 'tiles' // tiles or list
   const search = c.req.query('search') || ''
 
-  // Get all active members with their profiles and new smoelenboek fields
+  // First, get ALL members for accurate counts (without stemgroep filter)
+  let countQuery = `
+    SELECT u.id, u.stemgroep
+    FROM users u
+    LEFT JOIN profiles p ON p.user_id = u.id
+    WHERE u.status IN ('actief', 'proeflid') AND u.role IN ('lid', 'stemleider', 'moderator', 'admin')
+      AND p.smoelenboek_zichtbaar = 1
+  `
+  const allMembers = await queryAll(c.env.DB, countQuery, [])
+  
+  // Calculate accurate counts from all members
+  const counts = {
+    'Sopraan': allMembers.filter((m: any) => m.stemgroep === 'S').length,
+    'Alt': allMembers.filter((m: any) => m.stemgroep === 'A').length,
+    'Tenor': allMembers.filter((m: any) => m.stemgroep === 'T').length,
+    'Bas': allMembers.filter((m: any) => m.stemgroep === 'B').length
+  }
+  const totalCount = allMembers.length
+
+  // Now get the filtered members for display with their full profile data
   let query = `
     SELECT u.id, u.email, u.stemgroep, u.role,
            p.voornaam, p.achternaam, p.telefoon, p.bio, p.muzikale_ervaring, 
@@ -1807,14 +1826,6 @@ app.get('/leden/smoelenboek', async (c) => {
     acc[stemName].push(member)
     return acc
   }, {})
-
-  // Count by stemgroep
-  const counts = {
-    'Sopraan': members.filter((m: any) => m.stemgroep === 'S').length,
-    'Alt': members.filter((m: any) => m.stemgroep === 'A').length,
-    'Tenor': members.filter((m: any) => m.stemgroep === 'T').length,
-    'Bas': members.filter((m: any) => m.stemgroep === 'B').length
-  }
 
   return c.html(
     <Layout 
@@ -1926,7 +1937,7 @@ app.get('/leden/smoelenboek', async (c) => {
                   }`}
                 >
                   <i class="fas fa-users mr-2"></i>
-                  Alle Leden ({members.length})
+                  Alle Leden ({totalCount})
                 </a>
                 <a
                   href={`/leden/smoelenboek?stemgroep=S&view=${view}${search ? `&search=${search}` : ''}`}

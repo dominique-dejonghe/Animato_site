@@ -166,12 +166,41 @@ app.get('/admin/events', async (c) => {
             </div>
           </div>
 
+          {/* Bulk Actions Bar */}
+          <div id="bulkActionsBar" class="hidden bg-animato-primary text-white rounded-lg shadow-md p-4 mb-4">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-4">
+                <span id="selectedCount" class="font-semibold">0 geselecteerd</span>
+                <button
+                  onclick="clearSelection()"
+                  class="px-4 py-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg transition text-sm"
+                >
+                  <i class="fas fa-times mr-2"></i>Selectie wissen
+                </button>
+              </div>
+              <button
+                onclick="deleteSelectedEvents()"
+                class="px-6 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition font-semibold"
+              >
+                <i class="fas fa-trash mr-2"></i>Verwijder geselecteerde
+              </button>
+            </div>
+          </div>
+
           {/* Events List */}
           <div class="bg-white rounded-lg shadow-md overflow-hidden">
             <div class="overflow-x-auto">
               <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
                   <tr>
+                    <th class="px-6 py-3 text-left">
+                      <input
+                        type="checkbox"
+                        id="selectAll"
+                        onchange="toggleSelectAll(this)"
+                        class="h-4 w-4 text-animato-primary focus:ring-animato-primary border-gray-300 rounded cursor-pointer"
+                      />
+                    </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       Event
                     </th>
@@ -195,14 +224,22 @@ app.get('/admin/events', async (c) => {
                 <tbody class="bg-white divide-y divide-gray-200">
                   {events.length === 0 ? (
                     <tr>
-                      <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                      <td colspan="7" class="px-6 py-8 text-center text-gray-500">
                         <i class="fas fa-calendar-times text-4xl mb-2"></i>
                         <p>Geen events gevonden</p>
                       </td>
                     </tr>
                   ) : (
                     events.map((event: any) => (
-                      <tr class="hover:bg-gray-50">
+                      <tr class="hover:bg-gray-50" id={`row-${event.id}`}>
+                        <td class="px-6 py-4">
+                          <input
+                            type="checkbox"
+                            class="event-checkbox h-4 w-4 text-animato-primary focus:ring-animato-primary border-gray-300 rounded cursor-pointer"
+                            data-event-id={event.id}
+                            onchange="updateBulkActions()"
+                          />
+                        </td>
                         <td class="px-6 py-4">
                           <div class="flex items-center">
                             {event.is_recurring && (
@@ -303,6 +340,94 @@ app.get('/admin/events', async (c) => {
           </div>
         </div>
       </div>
+
+      {/* Multi-select JavaScript */}
+      <script dangerouslySetInnerHTML={{
+        __html: `
+          function toggleSelectAll(checkbox) {
+            const checkboxes = document.querySelectorAll('.event-checkbox');
+            checkboxes.forEach(cb => {
+              cb.checked = checkbox.checked;
+            });
+            updateBulkActions();
+          }
+
+          function updateBulkActions() {
+            const checkboxes = document.querySelectorAll('.event-checkbox:checked');
+            const count = checkboxes.length;
+            const bulkBar = document.getElementById('bulkActionsBar');
+            const countSpan = document.getElementById('selectedCount');
+            const selectAllCheckbox = document.getElementById('selectAll');
+            const allCheckboxes = document.querySelectorAll('.event-checkbox');
+
+            if (count > 0) {
+              bulkBar.classList.remove('hidden');
+              countSpan.textContent = count + ' geselecteerd';
+            } else {
+              bulkBar.classList.add('hidden');
+            }
+
+            // Update "select all" checkbox state
+            if (count === 0) {
+              selectAllCheckbox.checked = false;
+              selectAllCheckbox.indeterminate = false;
+            } else if (count === allCheckboxes.length) {
+              selectAllCheckbox.checked = true;
+              selectAllCheckbox.indeterminate = false;
+            } else {
+              selectAllCheckbox.checked = false;
+              selectAllCheckbox.indeterminate = true;
+            }
+          }
+
+          function clearSelection() {
+            const checkboxes = document.querySelectorAll('.event-checkbox');
+            checkboxes.forEach(cb => {
+              cb.checked = false;
+            });
+            document.getElementById('selectAll').checked = false;
+            updateBulkActions();
+          }
+
+          async function deleteSelectedEvents() {
+            const checkboxes = document.querySelectorAll('.event-checkbox:checked');
+            const eventIds = Array.from(checkboxes).map(cb => cb.dataset.eventId);
+            
+            if (eventIds.length === 0) {
+              alert('Geen events geselecteerd');
+              return;
+            }
+
+            const confirmed = confirm(
+              'Weet je zeker dat je ' + eventIds.length + ' event(s) wilt verwijderen?\\n\\n' +
+              'Let op: Als je terugkerende events verwijdert, worden ALLE occurrences verwijderd!'
+            );
+
+            if (!confirmed) return;
+
+            // Show loading state
+            const bulkBar = document.getElementById('bulkActionsBar');
+            const originalHTML = bulkBar.innerHTML;
+            bulkBar.innerHTML = '<div class="text-center py-2"><i class="fas fa-spinner fa-spin mr-2"></i>Events verwijderen...</div>';
+
+            try {
+              // Delete events one by one
+              for (const eventId of eventIds) {
+                await fetch('/admin/events/' + eventId + '/delete', {
+                  method: 'POST'
+                });
+              }
+
+              // Reload page to show updated list
+              location.reload();
+            } catch (error) {
+              bulkBar.innerHTML = originalHTML;
+              alert('Er is een fout opgetreden bij het verwijderen van events');
+              console.error('Delete error:', error);
+            }
+          }
+        `
+      }}></script>
     </Layout>
   )
 })

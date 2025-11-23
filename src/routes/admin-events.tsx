@@ -1410,12 +1410,26 @@ function renderEventForm(event: any | null, locations: any[]) {
 
             {/* Submit Buttons */}
             <div class="flex items-center justify-between pt-6 border-t">
-              <a
-                href="/admin/events"
-                class="px-6 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition"
-              >
-                Annuleren
-              </a>
+              <div class="flex items-center gap-3">
+                <a
+                  href="/admin/events"
+                  class="px-6 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition"
+                >
+                  Annuleren
+                </a>
+                {isEdit && (
+                  <button
+                    type="button"
+                    onclick={`if(confirm('Weet je zeker dat je dit event wilt verwijderen?${event?.is_recurring ? '\\n\\nLET OP: Dit verwijdert ALLE herhalingen!' : ''}')) { 
+                      fetch('/admin/events/${event?.id}/delete', {method: 'POST'}).then(() => window.location.href = '/admin/events') 
+                    }`}
+                    class="px-6 py-2 text-white bg-red-600 hover:bg-red-700 rounded-lg transition"
+                  >
+                    <i class="fas fa-trash mr-2"></i>
+                    Verwijderen
+                  </button>
+                )}
+              </div>
               <button
                 type="submit"
                 class="px-6 py-2 bg-animato-primary text-white hover:bg-animato-secondary rounded-lg transition"

@@ -15,6 +15,7 @@ import agendaRoutes from './routes/agenda'
 import ledenRoutes from './routes/leden'
 import adminRoutes from './routes/admin'
 import adminEventsRoutes from './routes/admin-events'
+import adminCalendarRoutes from './routes/admin-calendar'
 import adminBestandenRoutes from './routes/admin-bestanden'
 import adminLocationsRoutes from './routes/admin-locations'
 import adminLocatiesRoutes from './routes/admin-locaties'
@@ -70,6 +71,7 @@ app.route('/', ledenRoutes)
 // Admin routes
 app.route('/', adminRoutes)
 app.route('/', adminEventsRoutes)
+app.route('/', adminCalendarRoutes)
 app.route('/', adminBestandenRoutes)
 app.route('/', adminLocationsRoutes)
 app.route('/', adminLocatiesRoutes)

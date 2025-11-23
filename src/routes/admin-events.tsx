@@ -105,6 +105,13 @@ app.get('/admin/events', async (c) => {
               </div>
               <div class="flex items-center gap-3">
                 <a
+                  href="/admin/calendar"
+                  class="px-4 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg transition"
+                >
+                  <i class="fas fa-calendar-alt mr-2"></i>
+                  Kalender
+                </a>
+                <a
                   href="/admin/locations"
                   class="px-4 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg transition"
                 >

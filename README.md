@@ -5,7 +5,7 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 ## 🌐 Live URLs
 
 - **Production**: https://animato-koor.pages.dev
-- **Latest Deploy**: https://cf1e6a37.animato-koor.pages.dev (Deployed: 2025-11-23 11:31 UTC)
+- **Latest Deploy**: https://ff809092.animato-koor.pages.dev (Deployed: 2025-11-23 11:42 UTC)
 - **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
 - **API Documentation**: /api endpoint
 
@@ -63,6 +63,10 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - ✅ **Ledenbeheer** (volledige CRUD, rol toewijzen, stemgroep, status)
 - ✅ **Contentbeheer** (nieuws, posts, filters, publicatie status)
 - ✅ **Eventbeheer** (repetities, concerten, terugkerende events, doelgroep filtering)
+  - **Image upload met base64 encoding** - Upload afbeeldingen direct (JPG, PNG, max 2MB)
+  - Toggle tussen URL input en file upload met elegant UI
+  - Automatische conversie naar base64 data URLs
+  - Preview functionaliteit voor beide modes
 - ✅ **Locatiebeheer** (standalone management met Google Maps visual integration)
   - CRUD interface voor locaties (apart van events)
   - Google Maps embed in location cards (ipv rode gradient placeholder)
@@ -72,6 +76,7 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - ✅ **Fotoboek** beheer (albums, foto's, publiek/intern)
 - ✅ **Ticketing** dashboard (concerten, prijsstructuur, orders)
 - ✅ **Production login fix** (PBKDF2 password hashing compatibility met Cloudflare Workers)
+- ✅ **No-cache headers** (admin pagina's tonen altijd verse data)
 - ⏳ **Theming** (logo, kleuren, lettertypes)
 - ⏳ **Moderatie** (board berichten, media goedkeuren)
 
@@ -220,10 +225,11 @@ Materialen en repetities kunnen toegewezen worden aan specifieke stemgroepen of 
 ### Cloudflare Pages
 - **Project Name**: animato-koor
 - **Production URL**: https://animato-koor.pages.dev
-- **Latest Deployment**: https://cf1e6a37.animato-koor.pages.dev (2025-11-23 11:31 UTC)
+- **Latest Deployment**: https://ff809092.animato-koor.pages.dev (2025-11-23 11:42 UTC)
 - **Production Branch**: main
 - **Status**: ✅ LIVE - Login authentication working
 - **Cache Control**: ✅ No-cache headers on all admin routes
+- **Image Storage**: ✅ Base64 encoding (no R2 required)
 
 ### Database (Cloudflare D1)
 - **Database Name**: animato-production

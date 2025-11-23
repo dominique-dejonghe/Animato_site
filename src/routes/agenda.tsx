@@ -210,27 +210,66 @@ app.get('/agenda', async (c) => {
 
 app.get('/concerten', async (c) => {
   const user = c.get('user')
+  const view = c.req.query('view') || 'upcoming'
 
-  const concerten = await queryAll(
-    c.env.DB,
-    `SELECT e.*, c.poster_url, c.programma, c.uitverkocht
-     FROM events e
-     LEFT JOIN concerts c ON c.event_id = e.id
-     WHERE e.type = 'concert' AND e.is_publiek = 1 AND e.start_at >= datetime('now')
-     ORDER BY e.start_at ASC`
-  )
+  // Query based on view parameter
+  let query = `
+    SELECT e.*, c.poster_url, c.programma, c.uitverkocht
+    FROM events e
+    LEFT JOIN concerts c ON c.event_id = e.id
+    WHERE e.type = 'concert' AND e.is_publiek = 1
+  `
+
+  if (view === 'upcoming') {
+    query += ` AND e.start_at >= datetime('now') ORDER BY e.start_at ASC`
+  } else if (view === 'past') {
+    query += ` AND e.start_at < datetime('now') ORDER BY e.start_at DESC`
+  } else {
+    // Default to upcoming
+    query += ` AND e.start_at >= datetime('now') ORDER BY e.start_at ASC`
+  }
+
+  const concerten = await queryAll(c.env.DB, query)
 
   return c.html(
     <Layout title="Concerten" user={user} currentPath="/concerten">
       <div class="py-12 bg-gray-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div class="text-center mb-12">
+          <div class="text-center mb-8">
             <h1 class="text-5xl font-bold text-animato-secondary mb-4" style="font-family: 'Playfair Display', serif;">
               Concerten
             </h1>
             <p class="text-gray-600 text-lg">
               Ontdek onze aankomende optredens en bestel uw tickets
             </p>
+          </div>
+
+          {/* Toggle Buttons */}
+          <div class="flex justify-center mb-12">
+            <div class="inline-flex rounded-lg shadow-sm bg-white" role="group">
+              <a
+                href="/concerten?view=upcoming"
+                class={`px-8 py-3 text-sm font-semibold rounded-l-lg border transition ${
+                  view === 'upcoming'
+                    ? 'bg-animato-primary text-white border-animato-primary'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                <i class="fas fa-calendar-plus mr-2"></i>
+                Toekomstige concerten
+              </a>
+              <a
+                href="/concerten?view=past"
+                class={`px-8 py-3 text-sm font-semibold rounded-r-lg border-t border-r border-b transition ${
+                  view === 'past'
+                    ? 'bg-animato-primary text-white border-animato-primary'
+                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                <i class="fas fa-history mr-2"></i>
+                Afgelopen concerten
+              </a>
+            </div>
           </div>
 
           {concerten.length > 0 ? (
@@ -293,8 +332,15 @@ app.get('/concerten', async (c) => {
             <div class="text-center py-16">
               <i class="fas fa-calendar-times text-gray-300 text-6xl mb-4"></i>
               <p class="text-xl text-gray-600">
-                Momenteel geen aankomende concerten gepland
+                {view === 'past' 
+                  ? 'Geen afgelopen concerten gevonden' 
+                  : 'Momenteel geen aankomende concerten gepland'}
               </p>
+              {view === 'upcoming' && (
+                <p class="text-gray-500 mt-2">
+                  Check binnenkort opnieuw voor updates!
+                </p>
+              )}
             </div>
           )}
         </div>

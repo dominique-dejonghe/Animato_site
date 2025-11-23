@@ -327,11 +327,11 @@ app.get('/admin/locaties', async (c) => {
                     )}
 
                     {/* Notes Preview */}
-                    {location.opmerkingen && (
+                    {location.notities && (
                       <div class="mb-3 p-3 bg-gray-50 rounded border border-gray-200">
                         <div class="text-xs text-gray-600 line-clamp-2">
                           <i class="fas fa-sticky-note text-yellow-500 mr-1"></i>
-                          {location.opmerkingen}
+                          {location.notities}
                         </div>
                       </div>
                     )}
@@ -451,11 +451,11 @@ app.post('/admin/locaties/save', async (c) => {
         c.env.DB,
         `UPDATE locations 
          SET naam = ?, adres = ?, postcode = ?, stad = ?, land = ?,
-             capaciteit = ?, opmerkingen = ?, google_maps_url = ?, is_actief = ?,
+             capaciteit = ?, notities = ?, google_maps_url = ?, is_actief = ?,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [
-          naam, adres || null, postcode || null, stad || null, land || 'België',
+          naam, adres || '', postcode || null, stad || null, land || 'België',
           capaciteit || null, opmerkingen || null, google_maps_url || null,
           is_actief === 'on' ? 1 : 0,
           id
@@ -466,10 +466,10 @@ app.post('/admin/locaties/save', async (c) => {
       await execute(
         c.env.DB,
         `INSERT INTO locations 
-         (naam, adres, postcode, stad, land, capaciteit, opmerkingen, google_maps_url, is_actief)
+         (naam, adres, postcode, stad, land, capaciteit, notities, google_maps_url, is_actief)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          naam, adres || null, postcode || null, stad || null, land || 'België',
+          naam, adres || '', postcode || null, stad || null, land || 'België',
           capaciteit || null, opmerkingen || null, google_maps_url || null,
           is_actief === 'on' ? 1 : 0
         ]
@@ -671,7 +671,7 @@ function renderLocationForm(location: any | null) {
                   rows={4}
                   placeholder="Parkeerinformatie, toegankelijkheid, bijzonderheden..."
                   class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary"
-                >{location?.opmerkingen || ''}</textarea>
+                >{location?.notities || ''}</textarea>
               </div>
             </div>
 

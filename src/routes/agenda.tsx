@@ -652,6 +652,136 @@ app.get('/concerten/:slug', async (c) => {
 })
 
 // =====================================================
+// GENERIEKE EVENT DETAIL PAGINA
+// =====================================================
+
+app.get('/agenda/:slug', async (c) => {
+  const user = c.get('user')
+  const slug = c.req.param('slug')
+
+  const event = await queryOne<any>(
+    c.env.DB,
+    `SELECT * FROM events WHERE slug = ?`,
+    [slug]
+  )
+
+  if (!event) {
+    return c.notFound()
+  }
+
+  // Als het een concert is, redirect naar /concerten/:slug
+  if (event.type === 'concert') {
+    return c.redirect(`/concerten/${slug}`)
+  }
+
+  return c.html(
+    <Layout title={event.titel} description={event.beschrijving} user={user}>
+      <article class="py-12 bg-gray-50">
+        {/* Hero section */}
+        <div class="relative h-64 bg-gradient-to-br from-animato-primary to-animato-secondary mb-12">
+          <div class="absolute inset-0 flex items-center justify-center">
+            <div class="text-center text-white">
+              <h1 class="text-4xl md:text-5xl font-bold mb-2" style="font-family: 'Playfair Display', serif;">
+                {event.titel}
+              </h1>
+              <div class="text-lg opacity-90">
+                {event.type === 'repetitie' && '🎵 Repetitie'}
+                {event.type === 'activiteit' && '🎉 Activiteit'}
+                {event.type === 'workshop' && '📚 Workshop'}
+                {event.type === 'vergadering' && '📋 Vergadering'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Event info card */}
+          <div class="bg-white rounded-lg shadow-md p-8 mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div class="flex items-center">
+                <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center mr-4">
+                  <i class="far fa-calendar text-animato-primary text-xl"></i>
+                </div>
+                <div>
+                  <div class="text-sm text-gray-500">Datum</div>
+                  <div class="font-semibold">
+                    {new Date(event.start_at).toLocaleDateString('nl-BE', {
+                      weekday: 'long',
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric'
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex items-center">
+                <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center mr-4">
+                  <i class="far fa-clock text-animato-primary text-xl"></i>
+                </div>
+                <div>
+                  <div class="text-sm text-gray-500">Tijd</div>
+                  <div class="font-semibold">
+                    {new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}
+                    {event.end_at && ` - ${new Date(event.end_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}`}
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex items-center">
+                <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center mr-4">
+                  <i class="fas fa-map-marker-alt text-animato-primary text-xl"></i>
+                </div>
+                <div>
+                  <div class="text-sm text-gray-500">Locatie</div>
+                  <div class="font-semibold">{event.locatie || 'Geen locatie opgegeven'}</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Doelgroep badge */}
+            {event.doelgroep && event.doelgroep !== 'all' && (
+              <div class="mt-6 pt-6 border-t border-gray-200">
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-semibold bg-blue-100 text-blue-800">
+                  <i class="fas fa-users mr-2"></i>
+                  {event.doelgroep === 'S' && 'Sopraan'}
+                  {event.doelgroep === 'A' && 'Alt'}
+                  {event.doelgroep === 'T' && 'Tenor'}
+                  {event.doelgroep === 'B' && 'Bas'}
+                  {event.doelgroep === 'SATB' && 'Alle stemmen'}
+                  {event.doelgroep.includes(',') && 'Meerdere stemgroepen'}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Description */}
+          {event.beschrijving && (
+            <div class="bg-white rounded-lg shadow-md p-8 mb-8">
+              <h2 class="text-2xl font-bold text-gray-900 mb-4">
+                Details
+              </h2>
+              <div class="prose prose-lg max-w-none" dangerouslySetInnerHTML={{ __html: event.beschrijving }} />
+            </div>
+          )}
+
+          {/* Back button */}
+          <div class="text-center">
+            <a 
+              href="/agenda"
+              class="inline-flex items-center text-animato-primary hover:text-animato-secondary font-semibold transition"
+            >
+              <i class="fas fa-arrow-left mr-2"></i>
+              Terug naar agenda
+            </a>
+          </div>
+        </div>
+      </article>
+    </Layout>
+  )
+})
+
+// =====================================================
 // HELPER: RENDER CALENDAR GRID
 // =====================================================
 
@@ -719,10 +849,12 @@ function renderCalendarGrid(events: any[], year: number, month: number) {
                   <div class="space-y-1">
                     {cell.events.slice(0, 2).map((event: any) => (
                       <a
-                        href={event.type === 'concert' && event.slug ? `/concerten/${event.slug}` : '#'}
-                        class={`block text-xs p-1 rounded truncate ${
+                        href={event.slug ? `/agenda/${event.slug}` : '#'}
+                        class={`block text-xs p-1 rounded truncate hover:opacity-80 transition ${
                           event.type === 'concert' ? 'bg-yellow-100 text-yellow-800' :
                           event.type === 'repetitie' ? 'bg-blue-100 text-blue-800' :
+                          event.type === 'activiteit' ? 'bg-green-100 text-green-800' :
+                          event.type === 'workshop' ? 'bg-purple-100 text-purple-800' :
                           'bg-gray-100 text-gray-800'
                         }`}
                         title={`${event.titel} - ${new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}`}

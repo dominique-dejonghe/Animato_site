@@ -2849,10 +2849,12 @@ function renderLedenCalendarGrid(events: any[], year: number, month: number) {
                   <div class="space-y-1">
                     {cell.events.slice(0, 2).map((event: any) => (
                       <a
-                        href={event.type === 'concert' && event.slug ? `/concerten/${event.slug}` : '#'}
-                        class={`block text-xs p-1 rounded truncate ${
+                        href={event.slug ? `/agenda/${event.slug}` : '#'}
+                        class={`block text-xs p-1 rounded truncate hover:opacity-80 transition ${
                           event.type === 'concert' ? 'bg-yellow-100 text-yellow-800' :
                           event.type === 'repetitie' ? 'bg-blue-100 text-blue-800' :
+                          event.type === 'activiteit' ? 'bg-green-100 text-green-800' :
+                          event.type === 'workshop' ? 'bg-purple-100 text-purple-800' :
                           'bg-gray-100 text-gray-800'
                         }`}
                         title={`${event.titel} - ${new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}`}

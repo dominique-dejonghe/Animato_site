@@ -5,7 +5,7 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 ## 🌐 Live URLs
 
 - **Production**: https://animato-koor.pages.dev
-- **Latest Deploy**: https://ff809092.animato-koor.pages.dev (Deployed: 2025-11-23 11:42 UTC)
+- **Latest Deploy**: https://1715cfec.animato-koor.pages.dev (Deployed: 2025-11-23 11:51 UTC)
 - **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
 - **API Documentation**: /api endpoint
 
@@ -225,11 +225,12 @@ Materialen en repetities kunnen toegewezen worden aan specifieke stemgroepen of 
 ### Cloudflare Pages
 - **Project Name**: animato-koor
 - **Production URL**: https://animato-koor.pages.dev
-- **Latest Deployment**: https://ff809092.animato-koor.pages.dev (2025-11-23 11:42 UTC)
+- **Latest Deployment**: https://1715cfec.animato-koor.pages.dev (2025-11-23 11:51 UTC)
 - **Production Branch**: main
-- **Status**: ✅ LIVE - Login authentication working
+- **Status**: ✅ LIVE - All systems operational
 - **Cache Control**: ✅ No-cache headers on all admin routes
 - **Image Storage**: ✅ Base64 encoding (no R2 required)
+- **Event Save**: ✅ All fields including doelgroep and dates now save correctly
 
 ### Database (Cloudflare D1)
 - **Database Name**: animato-production

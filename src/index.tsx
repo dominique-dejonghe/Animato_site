@@ -24,6 +24,7 @@ import adminTicketsRoutes from './routes/admin-tickets'
 import ticketsRoutes from './routes/tickets'
 import webhooksRoutes from './routes/webhooks'
 import apiRoutes from './routes/api'
+import pollsRoutes from './routes/polls'
 
 // =====================================================
 // APP INITIALIZATION
@@ -81,6 +82,9 @@ app.route('/', adminTicketsRoutes)
 // Tickets & Webhooks
 app.route('/', ticketsRoutes)
 app.route('/', webhooksRoutes)
+
+// Polls & Voting
+app.route('/', pollsRoutes)
 
 // API routes
 app.route('/', apiRoutes)

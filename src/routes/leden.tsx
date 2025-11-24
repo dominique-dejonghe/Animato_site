@@ -1603,9 +1603,12 @@ app.get('/leden/materiaal', async (c) => {
                 <div class="bg-white rounded-lg shadow-md overflow-hidden">
                   {/* Work header */}
                   <div class="bg-gradient-to-r from-animato-primary to-animato-secondary text-white p-6">
-                    <h2 class="text-2xl font-bold mb-1" style="font-family: 'Playfair Display', serif;">
-                      {work.titel}
-                    </h2>
+                    <a href={`/leden/werk/${work.id}`} class="block hover:opacity-90 transition">
+                      <h2 class="text-2xl font-bold mb-1 flex items-center" style="font-family: 'Playfair Display', serif;">
+                        {work.titel}
+                        <i class="fas fa-external-link-alt ml-3 text-lg opacity-75"></i>
+                      </h2>
+                    </a>
                     <p class="text-gray-100">
                       <i class="fas fa-user-edit mr-2"></i>
                       {work.componist}
@@ -1715,6 +1718,214 @@ app.get('/leden/materiaal', async (c) => {
               </p>
             </div>
           )}
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
+// =====================================================
+// WERK DETAIL (WORK DETAIL)
+// =====================================================
+
+app.get('/leden/werk/:id', async (c) => {
+  const user = c.get('user') as SessionUser
+  const werkId = c.req.param('id')
+
+  // Get work with all pieces and materials
+  const work = await queryOne<any>(
+    c.env.DB,
+    `SELECT * FROM works WHERE id = ?`,
+    [werkId]
+  )
+
+  if (!work) {
+    return c.redirect('/leden/materiaal?error=not_found')
+  }
+
+  // Get all pieces for this work
+  const pieces = await queryAll(
+    c.env.DB,
+    `SELECT * FROM pieces WHERE work_id = ? ORDER BY nummer`,
+    [werkId]
+  )
+
+  // For each piece, get materials visible to this user
+  const piecesWithMaterials = await Promise.all(
+    pieces.map(async (piece: any) => {
+      const materials = await queryAll(
+        c.env.DB,
+        `SELECT m.*
+         FROM materials m
+         WHERE m.piece_id = ? 
+           AND m.is_actief = 1
+           AND (m.stem = ? OR m.stem = 'SATB' OR m.stem = 'algemeen')
+           AND (m.zichtbaar_voor = 'alle_leden' OR 
+                ((m.zichtbaar_voor = 'stem_specifiek' OR m.zichtbaar_voor = 'eigen_stem') AND m.stem = ?))
+         ORDER BY 
+           CASE m.type 
+             WHEN 'pdf' THEN 1 
+             WHEN 'audio' THEN 2 
+             WHEN 'video' THEN 3 
+             ELSE 4 
+           END,
+           m.stem, m.versie DESC`,
+        [piece.id, user.stemgroep, user.stemgroep]
+      )
+      return { ...piece, materials }
+    })
+  )
+
+  return c.html(
+    <Layout 
+      title={`${work.titel} - ${work.componist}`}
+      user={user}
+      breadcrumbs={[
+        { label: 'Ledenportaal', href: '/leden' },
+        { label: 'Materiaal', href: '/leden/materiaal' },
+        { label: work.titel, href: `/leden/werk/${werkId}` }
+      ]}
+    >
+      <div class="bg-gray-50 min-h-screen py-8">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          
+          {/* Back button */}
+          <div class="mb-6">
+            <a 
+              href="/leden/materiaal"
+              class="inline-flex items-center text-animato-primary hover:text-animato-secondary font-semibold transition"
+            >
+              <i class="fas fa-arrow-left mr-2"></i>
+              Terug naar materiaal
+            </a>
+          </div>
+
+          {/* Work header */}
+          <div class="bg-white rounded-lg shadow-md overflow-hidden mb-8">
+            <div class="bg-gradient-to-r from-animato-primary to-animato-secondary text-white p-8">
+              <h1 class="text-4xl font-bold mb-3" style="font-family: 'Playfair Display', serif;">
+                {work.titel}
+              </h1>
+              <div class="flex flex-wrap items-center gap-4 text-lg">
+                <div class="flex items-center">
+                  <i class="fas fa-user-edit mr-2"></i>
+                  {work.componist}
+                </div>
+                {work.genre && (
+                  <div class="flex items-center">
+                    <i class="fas fa-tag mr-2"></i>
+                    {work.genre}
+                  </div>
+                )}
+                {work.jaar && (
+                  <div class="flex items-center">
+                    <i class="fas fa-calendar mr-2"></i>
+                    {work.jaar}
+                  </div>
+                )}
+              </div>
+              {work.beschrijving && (
+                <p class="text-gray-100 mt-4 text-base whitespace-pre-line">{work.beschrijving}</p>
+              )}
+            </div>
+
+            {/* Pieces and Materials */}
+            <div class="p-8">
+              {piecesWithMaterials.length > 0 ? (
+                <div class="space-y-8">
+                  {piecesWithMaterials.map((piece: any, index: number) => (
+                    <div class={`${index > 0 ? 'pt-8 border-t border-gray-200' : ''}`}>
+                      {/* Piece header */}
+                      <div class="mb-4">
+                        <h2 class="text-2xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+                          {piece.nummer && `${piece.nummer}. `}
+                          {piece.titel}
+                        </h2>
+                        {piece.moeilijkheidsgraad && (
+                          <span class={`inline-block px-3 py-1 rounded-full text-sm font-semibold mt-2 ${
+                            piece.moeilijkheidsgraad === 'beginner' ? 'bg-green-100 text-green-800' :
+                            piece.moeilijkheidsgraad === 'gemiddeld' ? 'bg-yellow-100 text-yellow-800' :
+                            piece.moeilijkheidsgraad === 'gevorderd' ? 'bg-orange-100 text-orange-800' :
+                            'bg-red-100 text-red-800'
+                          }`}>
+                            <i class="fas fa-signal mr-1"></i>
+                            {piece.moeilijkheidsgraad.charAt(0).toUpperCase() + piece.moeilijkheidsgraad.slice(1)}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Materials list */}
+                      {piece.materials.length > 0 ? (
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          {piece.materials.map((material: any) => (
+                            <a
+                              href={material.url}
+                              download={material.type !== 'link'}
+                              target="_blank"
+                              class="flex items-center justify-between bg-gray-50 hover:bg-gray-100 p-4 rounded-lg border border-gray-200 transition group"
+                            >
+                              <div class="flex items-center flex-1 min-w-0">
+                                <div class={`w-12 h-12 rounded-lg flex items-center justify-center mr-4 ${
+                                  material.type === 'pdf' ? 'bg-red-100' :
+                                  material.type === 'audio' ? 'bg-green-100' :
+                                  material.type === 'video' ? 'bg-blue-100' :
+                                  material.type === 'link' ? 'bg-purple-100' :
+                                  'bg-gray-100'
+                                }`}>
+                                  <i class={`fas text-xl ${
+                                    material.type === 'pdf' ? 'fa-file-pdf text-red-600' :
+                                    material.type === 'audio' ? 'fa-file-audio text-green-600' :
+                                    material.type === 'video' ? 'fa-file-video text-blue-600' :
+                                    material.type === 'link' ? 'fa-link text-purple-600' :
+                                    'fa-file-archive text-gray-600'
+                                  }`}></i>
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                  <div class="font-semibold text-gray-900 truncate group-hover:text-animato-primary">
+                                    {material.titel}
+                                  </div>
+                                  <div class="text-sm text-gray-600 flex items-center gap-2 mt-1">
+                                    <span class={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                      material.stem === 'S' ? 'bg-pink-100 text-pink-800' :
+                                      material.stem === 'A' ? 'bg-purple-100 text-purple-800' :
+                                      material.stem === 'T' ? 'bg-blue-100 text-blue-800' :
+                                      material.stem === 'B' ? 'bg-indigo-100 text-indigo-800' :
+                                      'bg-gray-100 text-gray-800'
+                                    }`}>
+                                      {material.stem === 'S' ? 'Sopraan' :
+                                       material.stem === 'A' ? 'Alt' :
+                                       material.stem === 'T' ? 'Tenor' :
+                                       material.stem === 'B' ? 'Bas' :
+                                       material.stem === 'SATB' ? 'Alle stemmen' :
+                                       material.stem}
+                                    </span>
+                                    {material.versie > 1 && <span>• v{material.versie}</span>}
+                                    {material.grootte_bytes && <span>• {(material.grootte_bytes / 1024 / 1024).toFixed(1)} MB</span>}
+                                  </div>
+                                </div>
+                              </div>
+                              <i class={`fas ${material.type === 'link' ? 'fa-external-link-alt' : 'fa-download'} text-animato-primary text-xl ml-4`}></i>
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <p class="text-gray-500 italic text-center py-8 bg-gray-50 rounded-lg">
+                          Geen materiaal beschikbaar voor dit stuk
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div class="text-center py-12">
+                  <i class="fas fa-music text-gray-300 text-6xl mb-4"></i>
+                  <p class="text-gray-500 text-lg">
+                    Nog geen stukken toegevoegd aan dit werk
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       </div>
     </Layout>

@@ -118,7 +118,7 @@ app.get('/leden', async (c) => {
           </div>
 
           {/* Quick actions */}
-          <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-12">
+          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-12">
             <a
               href="/leden/materiaal"
               class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
@@ -175,6 +175,17 @@ app.get('/leden', async (c) => {
               </div>
               <h3 class="font-semibold text-gray-900 mb-1">Profiel</h3>
               <p class="text-sm text-gray-600">Mijn gegevens</p>
+            </a>
+
+            <a
+              href="/leden/polls"
+              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
+            >
+              <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <i class="fas fa-poll text-green-600 text-xl"></i>
+              </div>
+              <h3 class="font-semibold text-gray-900 mb-1">Polls</h3>
+              <p class="text-sm text-gray-600">Stem mee!</p>
             </a>
           </div>
 

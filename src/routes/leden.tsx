@@ -1841,16 +1841,44 @@ app.get('/leden/werk/:id', async (c) => {
                           {piece.nummer && `${piece.nummer}. `}
                           {piece.titel}
                         </h2>
-                        {piece.moeilijkheidsgraad && (
-                          <span class={`inline-block px-3 py-1 rounded-full text-sm font-semibold mt-2 ${
-                            piece.moeilijkheidsgraad === 'beginner' ? 'bg-green-100 text-green-800' :
-                            piece.moeilijkheidsgraad === 'gemiddeld' ? 'bg-yellow-100 text-yellow-800' :
-                            piece.moeilijkheidsgraad === 'gevorderd' ? 'bg-orange-100 text-orange-800' :
-                            'bg-red-100 text-red-800'
-                          }`}>
-                            <i class="fas fa-signal mr-1"></i>
-                            {piece.moeilijkheidsgraad.charAt(0).toUpperCase() + piece.moeilijkheidsgraad.slice(1)}
-                          </span>
+                        <div class="flex flex-wrap items-center gap-3 mt-2">
+                          {piece.moeilijkheidsgraad && (
+                            <span class={`inline-block px-3 py-1 rounded-full text-sm font-semibold ${
+                              piece.moeilijkheidsgraad === 'beginner' ? 'bg-green-100 text-green-800' :
+                              piece.moeilijkheidsgraad === 'gemiddeld' ? 'bg-yellow-100 text-yellow-800' :
+                              piece.moeilijkheidsgraad === 'gevorderd' ? 'bg-orange-100 text-orange-800' :
+                              'bg-red-100 text-red-800'
+                            }`}>
+                              <i class="fas fa-signal mr-1"></i>
+                              {piece.moeilijkheidsgraad.charAt(0).toUpperCase() + piece.moeilijkheidsgraad.slice(1)}
+                            </span>
+                          )}
+                          {piece.toonsoort && (
+                            <span class="text-sm text-gray-600">
+                              <i class="fas fa-music mr-1"></i>
+                              {piece.toonsoort}
+                            </span>
+                          )}
+                          {piece.tempo && (
+                            <span class="text-sm text-gray-600">
+                              <i class="fas fa-tachometer-alt mr-1"></i>
+                              {piece.tempo}
+                            </span>
+                          )}
+                          {piece.duur_minuten && (
+                            <span class="text-sm text-gray-600">
+                              <i class="fas fa-clock mr-1"></i>
+                              {piece.duur_minuten} min
+                            </span>
+                          )}
+                        </div>
+                        {piece.opmerking && (
+                          <div class="mt-3 p-3 bg-blue-50 border-l-4 border-blue-400 rounded">
+                            <p class="text-sm text-gray-700 whitespace-pre-line">
+                              <i class="fas fa-info-circle text-blue-600 mr-2"></i>
+                              {piece.opmerking}
+                            </p>
+                          </div>
                         )}
                       </div>
 

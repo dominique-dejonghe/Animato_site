@@ -1918,6 +1918,7 @@ app.get('/admin/content/:id', async (c) => {
                   {error === 'save_failed' && 'Er is iets misgegaan bij het opslaan'}
                   {error === 'not_found' && 'Post niet gevonden'}
                   {error === 'required_fields' && 'Vul alle verplichte velden in'}
+                  {error === 'body_missing' && 'De inhoud (body) van de post ontbreekt. Vul de hoofdtekst in.'}
                 </div>
               </div>
             </div>
@@ -2290,11 +2291,25 @@ app.post('/api/admin/content/save', async (c) => {
       is_pinned
     } = body
 
-    // Validation
-    if (!titel || !slug || !postBody || !type || !zichtbaarheid) {
+    // Debug logging
+    console.log('Received body keys:', Object.keys(body))
+    console.log('postBody value:', postBody)
+
+    // Validation - check if body field exists and is not empty string
+    if (!titel || !type || !zichtbaarheid) {
       const redirectUrl = is_new === '1' ? '/admin/content/nieuw' : `/admin/content/${post_id}`
       return c.redirect(`${redirectUrl}?error=required_fields`)
     }
+
+    // Check specifically for body field
+    if (postBody === undefined || postBody === null) {
+      console.error('Body field is missing from request')
+      const redirectUrl = is_new === '1' ? '/admin/content/nieuw' : `/admin/content/${post_id}`
+      return c.redirect(`${redirectUrl}?error=body_missing`)
+    }
+
+    // Allow empty string for body, but must be present
+    const finalBody = String(postBody || '')
 
     // Generate slug if empty
     const finalSlug = slug || titel.toString().toLowerCase()
@@ -2318,7 +2333,7 @@ app.post('/api/admin/content/save', async (c) => {
         titel,
         finalSlug,
         excerpt || null,
-        postBody,
+        finalBody,
         zichtbaarheid,
         publishedValue,
         pinnedValue,
@@ -2348,7 +2363,7 @@ app.post('/api/admin/content/save', async (c) => {
         titel,
         finalSlug,
         excerpt || null,
-        postBody,
+        finalBody,
         zichtbaarheid,
         publishedValue,
         pinnedValue,

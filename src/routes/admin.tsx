@@ -43,6 +43,12 @@ app.get('/admin', async (c) => {
     total_locations: await queryOne<any>(c.env.DB,
       `SELECT COUNT(*) as count FROM locations WHERE is_actief = 1`
     ),
+    total_polls: await queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as count FROM polls WHERE status IN ('open', 'concept')`
+    ),
+    total_proposals_pending: await queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as count FROM member_proposals WHERE status = 'pending'`
+    ),
   }
 
   // Get recent activity from audit logs
@@ -102,7 +108,7 @@ app.get('/admin', async (c) => {
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           
           {/* Stats Cards */}
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-6 mb-8">
             <div class="bg-white rounded-lg shadow-md p-6">
               <div class="flex items-center justify-between">
                 <div>
@@ -190,6 +196,36 @@ app.get('/admin', async (c) => {
               </div>
               <a href="/admin/locaties" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
                 Beheer locaties <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              </a>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm text-gray-600 mb-1">Actieve Polls</p>
+                  <p class="text-3xl font-bold text-gray-900">{stats.total_polls?.count || 0}</p>
+                </div>
+                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-poll text-green-600 text-xl"></i>
+                </div>
+              </div>
+              <a href="/admin/polls" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
+                Beheer polls <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              </a>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm text-gray-600 mb-1">Voorstellen</p>
+                  <p class="text-3xl font-bold text-gray-900">{stats.total_proposals_pending?.count || 0}</p>
+                </div>
+                <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-lightbulb text-yellow-600 text-xl"></i>
+                </div>
+              </div>
+              <a href="/admin/voorstellen" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
+                Beoordeel voorstellen <i class="fas fa-arrow-right ml-1 text-xs"></i>
               </a>
             </div>
           </div>

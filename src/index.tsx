@@ -26,6 +26,8 @@ import webhooksRoutes from './routes/webhooks'
 import apiRoutes from './routes/api'
 import pollsRoutes from './routes/polls'
 import voorstellenRoutes from './routes/voorstellen'
+import adminPollsRoutes from './routes/admin-polls'
+import adminVoorstellenRoutes from './routes/admin-voorstellen'
 
 // =====================================================
 // APP INITIALIZATION
@@ -79,6 +81,8 @@ app.route('/', adminLocationsRoutes)
 app.route('/', adminLocatiesRoutes)
 app.route('/', adminFotoboekRoutes)
 app.route('/', adminTicketsRoutes)
+app.route('/', adminPollsRoutes)
+app.route('/', adminVoorstellenRoutes)
 
 // Tickets & Webhooks
 app.route('/', ticketsRoutes)

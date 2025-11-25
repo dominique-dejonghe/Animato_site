@@ -727,6 +727,7 @@ app.get('/admin/leden', async (c) => {
 
 app.get('/admin/leden/nieuw', async (c) => {
   const user = c.get('user') as SessionUser
+  const error = c.req.query('error')
   
   return c.html(
     <Layout 
@@ -764,6 +765,18 @@ app.get('/admin/leden/nieuw', async (c) => {
 
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           
+          {/* Error Messages */}
+          {error && (
+            <div class="mb-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
+              <i class="fas fa-exclamation-circle mr-3"></i>
+              {error === 'required_fields' && 'Niet alle verplichte velden zijn ingevuld.'}
+              {error === 'passwords_dont_match' && 'Wachtwoorden komen niet overeen.'}
+              {error === 'password_too_short' && 'Wachtwoord moet minimaal 8 karakters lang zijn.'}
+              {error === 'email_exists' && 'Dit e-mailadres bestaat al in het systeem.'}
+              {error === 'create_failed' && 'Er is een fout opgetreden bij het aanmaken van het lid. Probeer opnieuw.'}
+            </div>
+          )}
+
           {/* Create Form */}
           <div class="bg-white rounded-lg shadow-md p-6">
             <form action="/api/admin/leden/create" method="POST" class="space-y-6">

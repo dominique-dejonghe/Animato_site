@@ -8,7 +8,7 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - **Latest Deploy**: https://8cef00a2.animato-koor.pages.dev (Deployed: 2025-11-23 14:40 UTC)
 - **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
 - **API Documentation**: /api endpoint
-- **Current Version**: v1.0.25 (User Activity Tracking)
+- **Current Version**: v1.0.27 (Online Status Indicators Everywhere)
 
 ## ✨ Features
 

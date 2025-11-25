@@ -8,6 +8,7 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - **Latest Deploy**: https://8cef00a2.animato-koor.pages.dev (Deployed: 2025-11-23 14:40 UTC)
 - **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
 - **API Documentation**: /api endpoint
+- **Current Version**: v1.0.20 (Mobile UX improvements)
 
 ## ✨ Features
 
@@ -57,10 +58,22 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - ⏳ **Messageboard** (threads, replies, mentions, zoekfunctie)
 - ⏳ **Repetitie-kalender** met aanwezigheidsregistratie
 - ⏳ **Profiel** bewerken
+- ✅ **Polls & Voting** (dirigent polls met multiple choice voting)
+  - Filter tabs: open, gesloten, all polls
+  - Vote once or multiple options (based on max_stemmen)
+  - Conditional results display (always, after_vote, after_close)
+  - Doelgroep filtering (all, S/A/T/B, SATB, bestuur)
+- ✅ **Member Proposals** (submit eigen voorstellen, upvote/downvote)
+  - Submit voorstel met titel, categorie, beschrijving
+  - Vote toggle: up/down/remove vote
+  - Filter tabs: open, goedgekeurd, afgekeurd, all
+  - Net vote score display
 
 #### Admin Console
-- ✅ **Admin Dashboard** met 6 statistieken cards (leden, posts, events, albums, materialen, locaties)
+- ✅ **Admin Dashboard** met 8 statistieken cards (leden, posts, events, albums, materialen, locaties, polls, proposals)
 - ✅ **Ledenbeheer** (volledige CRUD, rol toewijzen, stemgroep, status)
+  - Error messages bij member creation (required fields, email exists, password mismatch)
+  - Stemgroep dropdown gebruikt correcte waarden (S/A/T/B ipv full names)
 - ✅ **Contentbeheer** (nieuws, posts, filters, publicatie status)
 - ✅ **Eventbeheer** (repetities, concerten, terugkerende events, doelgroep filtering)
   - **Image upload met base64 encoding** - Upload afbeeldingen direct (JPG, PNG, max 2MB)
@@ -81,6 +94,8 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - ✅ **Ticketing** dashboard (concerten, prijsstructuur, orders)
 - ✅ **Production login fix** (PBKDF2 password hashing compatibility met Cloudflare Workers)
 - ✅ **No-cache headers** (admin pagina's tonen altijd verse data)
+- ✅ **Polls Management** (CRUD voor polls, status management, 5 opties per poll)
+- ✅ **Proposals Review** (approve/reject voorstellen met review opmerking)
 - ⏳ **Theming** (logo, kleuren, lettertypes)
 - ⏳ **Moderatie** (board berichten, media goedkeuren)
 
@@ -236,12 +251,16 @@ Materialen en repetities kunnen toegewezen worden aan specifieke stemgroepen of 
 - **Image Storage**: ✅ Base64 encoding (no R2 required)
 - **Event Save**: ✅ All fields including doelgroep and dates now save correctly
 - **Photo Upload**: ✅ File upload support in fotoboek admin (base64, max 5MB)
+- **Auth UX**: ✅ Login form icons moved to labels (not inside inputs)
+- **Mobile UX**: ✅ Uitloggen moved to hamburger menu (prevents accidental logout) (v1.0.20)
 
 ### Database (Cloudflare D1)
 - **Database Name**: animato-production
 - **Database ID**: 758eef10-f55b-428f-81ca-4d7f87862811
 - **Region**: ENAM (Eastern North America)
 - **Migrations**: ✅ All applied (10 migrations)
+  - 0001-0009: Core schema (users, posts, events, concerts, albums, etc.)
+  - 0010: Polls & Voting system (polls, poll_options, poll_votes, member_proposals, proposal_votes)
 - **Admin User**: ✅ Created (admin@animato.be)
 
 ### Environment Variables
@@ -387,6 +406,23 @@ Add via Cloudflare Dashboard → Pages → Settings → Environment Variables:
 - ✅ Role-based access control
 - ✅ SQL injection prevention (D1 prepared statements)
 - ✅ CORS configured for API routes
+- ⏳ 2FA support (geplanned)
+- ⏳ Rate limiting (geplanned)
+
+## 📝 License
+
+© 2025 Gemengd Koor Animato. Alle rechten voorbehouden.
+
+## 👤 Contact
+
+- **Email**: info@animato.be
+- **Telefoon**: +32 470 12 34 56
+- **Adres**: Koorstraat 1, 1000 Brussel
+
+---
+
+**Built with ❤️ by GenSpark AI** | **Designed for Gemengd Koor Animato**
+nfigured for API routes
 - ⏳ 2FA support (geplanned)
 - ⏳ Rate limiting (geplanned)
 

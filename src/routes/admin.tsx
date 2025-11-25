@@ -399,10 +399,11 @@ app.get('/admin/leden', async (c) => {
   const stemgroep = c.req.query('stemgroep') || 'all'
   const status = c.req.query('status') || 'all'
 
-  // Build query
+  // Build query with online status
   let query = `
     SELECT u.id, u.email, u.role, u.stemgroep, u.status, u.created_at, u.last_login_at,
-           p.voornaam, p.achternaam, p.telefoon
+           p.voornaam, p.achternaam, p.telefoon,
+           (SELECT COUNT(*) FROM user_sessions WHERE user_id = u.id AND is_active = 1) as is_online
     FROM users u
     LEFT JOIN profiles p ON p.user_id = u.id
     WHERE 1=1
@@ -446,6 +447,7 @@ app.get('/admin/leden', async (c) => {
     lid: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'lid'`),
     actief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
     inactief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'inactief'`),
+    online: await queryOne<any>(c.env.DB, `SELECT COUNT(DISTINCT user_id) as count FROM user_sessions WHERE is_active = 1`),
   }
 
   return c.html(
@@ -517,6 +519,13 @@ app.get('/admin/leden', async (c) => {
               <div class="text-center">
                 <p class="text-2xl font-bold text-gray-400">{counts.inactief?.count || 0}</p>
                 <p class="text-sm text-gray-600">Inactief</p>
+              </div>
+              <div class="text-center border-l-2 border-animato-accent pl-4">
+                <p class="text-2xl font-bold text-animato-accent flex items-center justify-center">
+                  <i class="fas fa-circle text-xs mr-2 animate-pulse"></i>
+                  {counts.online?.count || 0}
+                </p>
+                <p class="text-sm font-semibold text-animato-accent">Nu Online</p>
               </div>
             </div>
           </div>
@@ -656,12 +665,22 @@ app.get('/admin/leden', async (c) => {
                         <tr class="hover:bg-gray-50 transition">
                           <td class="px-6 py-4 whitespace-nowrap">
                             <div class="flex items-center">
-                              <div class="w-10 h-10 bg-gradient-to-br from-animato-primary to-animato-secondary rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">
-                                {lid.voornaam?.charAt(0) || 'U'}{lid.achternaam?.charAt(0) || ''}
+                              <div class="relative">
+                                <div class="w-10 h-10 bg-gradient-to-br from-animato-primary to-animato-secondary rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">
+                                  {lid.voornaam?.charAt(0) || 'U'}{lid.achternaam?.charAt(0) || ''}
+                                </div>
+                                {lid.is_online > 0 && (
+                                  <div class="absolute -top-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white rounded-full animate-pulse" title="Online"></div>
+                                )}
                               </div>
                               <div>
-                                <div class="text-sm font-medium text-gray-900">
+                                <div class="text-sm font-medium text-gray-900 flex items-center">
                                   {lid.voornaam} {lid.achternaam}
+                                  {lid.is_online > 0 && (
+                                    <span class="ml-2 text-xs text-green-600 font-semibold">
+                                      <i class="fas fa-circle text-xs"></i> Online
+                                    </span>
+                                  )}
                                 </div>
                                 {lid.telefoon && (
                                   <div class="text-xs text-gray-500">

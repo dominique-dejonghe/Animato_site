@@ -228,6 +228,23 @@ app.get('/admin', async (c) => {
                 Beoordeel voorstellen <i class="fas fa-arrow-right ml-1 text-xs"></i>
               </a>
             </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6 border-2 border-animato-accent">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm text-gray-600 mb-1">Gebruikers Activiteit</p>
+                  <p class="text-3xl font-bold text-gray-900">
+                    <i class="fas fa-chart-line text-animato-accent"></i>
+                  </p>
+                </div>
+                <div class="w-12 h-12 bg-animato-accent bg-opacity-10 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-users text-animato-accent text-xl"></i>
+                </div>
+              </div>
+              <a href="/admin/activity" class="mt-4 text-sm text-animato-accent hover:underline inline-flex items-center font-semibold">
+                Bekijk login activiteit <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              </a>
+            </div>
           </div>
 
           {/* Quick Actions */}
@@ -256,6 +273,10 @@ app.get('/admin', async (c) => {
               <a href="/admin/fotoboek" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-animato-primary hover:bg-gray-50 transition">
                 <i class="fas fa-images text-2xl text-pink-600 mb-2"></i>
                 <span class="text-sm font-medium text-gray-700">Fotoboek</span>
+              </a>
+              <a href="/admin/activity" class="flex flex-col items-center p-4 border-2 border-animato-accent rounded-lg hover:bg-animato-accent hover:bg-opacity-10 transition">
+                <i class="fas fa-chart-line text-2xl text-animato-accent mb-2"></i>
+                <span class="text-sm font-medium text-animato-accent font-semibold">Activiteit</span>
               </a>
               <a href="/admin/bestanden/nieuw" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-animato-primary hover:bg-gray-50 transition">
                 <i class="fas fa-upload text-2xl text-amber-600 mb-2"></i>

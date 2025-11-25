@@ -205,6 +205,10 @@ app.post('/api/auth/login', async (c) => {
       path: '/'
     })
 
+    // Get IP address and User Agent
+    const ipAddress = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown'
+    const userAgent = c.req.header('user-agent') || 'unknown'
+
     // Update last login
     await execute(
       c.env.DB,
@@ -212,12 +216,20 @@ app.post('/api/auth/login', async (c) => {
       [formatDateForDB(), user.id]
     )
 
+    // Create user session record
+    await execute(
+      c.env.DB,
+      `INSERT INTO user_sessions (user_id, session_token, login_at, ip_address, user_agent, login_method, is_active) 
+       VALUES (?, ?, ?, ?, ?, ?, 1)`,
+      [user.id, token.substring(0, 32), formatDateForDB(), ipAddress, userAgent, 'password']
+    )
+
     // Audit log
     await execute(
       c.env.DB,
-      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta) 
-       VALUES (?, 'user_login', 'user', ?, ?)`,
-      [user.id, user.id, JSON.stringify({ method: 'password', remember })]
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta, ip_adres, user_agent) 
+       VALUES (?, 'user_login', 'user', ?, ?, ?, ?)`,
+      [user.id, user.id, JSON.stringify({ method: 'password', remember }), ipAddress, userAgent]
     )
 
     // Smart redirect based on role
@@ -543,6 +555,30 @@ app.post('/api/auth/register', async (c) => {
 // =====================================================
 
 app.get('/api/auth/logout', async (c) => {
+  try {
+    // Get user from cookie before deleting
+    const token = c.req.header('Cookie')?.split('auth_token=')[1]?.split(';')[0]
+    
+    if (token) {
+      const tokenPrefix = token.substring(0, 32)
+      
+      // Close active session - calculate duration
+      await execute(
+        c.env.DB,
+        `UPDATE user_sessions 
+         SET logout_at = ?, 
+             duration_seconds = CAST((julianday(?) - julianday(login_at)) * 86400 AS INTEGER),
+             is_active = 0,
+             updated_at = ?
+         WHERE session_token = ? AND is_active = 1`,
+        [formatDateForDB(), formatDateForDB(), formatDateForDB(), tokenPrefix]
+      )
+    }
+  } catch (error) {
+    console.error('Logout session tracking error:', error)
+    // Continue with logout even if session tracking fails
+  }
+  
   deleteCookie(c, 'auth_token', { path: '/' })
   return c.redirect('/?logout=1')
 })

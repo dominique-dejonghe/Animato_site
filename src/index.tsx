@@ -28,6 +28,7 @@ import pollsRoutes from './routes/polls'
 import voorstellenRoutes from './routes/voorstellen'
 import adminPollsRoutes from './routes/admin-polls'
 import adminVoorstellenRoutes from './routes/admin-voorstellen'
+import adminActivityRoutes from './routes/admin-activity'
 
 // =====================================================
 // APP INITIALIZATION
@@ -83,6 +84,7 @@ app.route('/', adminFotoboekRoutes)
 app.route('/', adminTicketsRoutes)
 app.route('/', adminPollsRoutes)
 app.route('/', adminVoorstellenRoutes)
+app.route('/', adminActivityRoutes)
 
 // Tickets & Webhooks
 app.route('/', ticketsRoutes)

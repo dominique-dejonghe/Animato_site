@@ -2016,7 +2016,8 @@ app.get('/leden/smoelenboek', async (c) => {
     SELECT u.id, u.email, u.stemgroep, u.role,
            p.voornaam, p.achternaam, p.telefoon, p.bio, p.muzikale_ervaring, 
            p.foto_url, p.favoriete_genre, p.favoriete_componist, p.favoriete_werk,
-           p.instrument, p.jaren_in_koor, p.zanger_type, p.smoelenboek_zichtbaar, p.toon_telefoon, p.toon_email
+           p.instrument, p.jaren_in_koor, p.zanger_type, p.smoelenboek_zichtbaar, p.toon_telefoon, p.toon_email,
+           (SELECT COUNT(*) FROM user_sessions WHERE user_id = u.id AND is_active = 1) as is_online
     FROM users u
     LEFT JOIN profiles p ON p.user_id = u.id
     WHERE u.status IN ('actief', 'proeflid') AND u.role IN ('lid', 'stemleider', 'moderator', 'admin')
@@ -2255,16 +2256,24 @@ app.get('/leden/smoelenboek', async (c) => {
                         
                         {/* Profile Photo */}
                         <div class="absolute -bottom-12 left-6">
-                          <div class="w-24 h-24 rounded-full border-4 border-white shadow-lg overflow-hidden bg-gray-200">
-                            {member.foto_url ? (
-                              <img 
-                                src={member.foto_url} 
-                                alt={`${member.voornaam} ${member.achternaam}`}
-                                class="w-full h-full object-cover"
-                              />
-                            ) : (
-                              <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-animato-primary to-animato-secondary text-white text-2xl font-bold">
-                                {member.voornaam?.charAt(0) || 'U'}{member.achternaam?.charAt(0) || ''}
+                          <div class="relative w-24 h-24">
+                            <div class="w-24 h-24 rounded-full border-4 border-white shadow-lg overflow-hidden bg-gray-200">
+                              {member.foto_url ? (
+                                <img 
+                                  src={member.foto_url} 
+                                  alt={`${member.voornaam} ${member.achternaam}`}
+                                  class="w-full h-full object-cover"
+                                />
+                              ) : (
+                                <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-animato-primary to-animato-secondary text-white text-2xl font-bold">
+                                  {member.voornaam?.charAt(0) || 'U'}{member.achternaam?.charAt(0) || ''}
+                                </div>
+                              )}
+                            </div>
+                            {/* Online Indicator */}
+                            {member.is_online > 0 && (
+                              <div class="absolute bottom-1 right-1 w-6 h-6 bg-green-500 border-3 border-white rounded-full flex items-center justify-center shadow-lg animate-pulse">
+                                <i class="fas fa-circle text-white text-xs"></i>
                               </div>
                             )}
                           </div>
@@ -2287,8 +2296,14 @@ app.get('/leden/smoelenboek', async (c) => {
                       <div class="pt-14 px-6 pb-6">
                         {/* Name and Voice */}
                         <div class="mb-3">
-                          <h3 class="text-xl font-bold text-gray-900">
+                          <h3 class="text-xl font-bold text-gray-900 flex items-center gap-2">
                             {member.voornaam} {member.achternaam}
+                            {member.is_online > 0 && (
+                              <span class="inline-flex items-center px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold animate-pulse">
+                                <i class="fas fa-circle text-xs mr-1"></i>
+                                Online
+                              </span>
+                            )}
                           </h3>
                           <div class="flex items-center gap-2 mt-1">
                             <span class="inline-flex items-center px-2 py-1 bg-animato-primary/10 text-animato-primary rounded text-xs font-semibold">
@@ -2405,7 +2420,7 @@ app.get('/leden/smoelenboek', async (c) => {
                             <tr class="hover:bg-gray-50 transition">
                               <td class="px-6 py-4 whitespace-nowrap">
                                 <div class="flex items-center">
-                                  <div class="flex-shrink-0 h-10 w-10">
+                                  <div class="flex-shrink-0 h-10 w-10 relative">
                                     {member.foto_url ? (
                                       <img 
                                         src={member.foto_url} 
@@ -2417,10 +2432,20 @@ app.get('/leden/smoelenboek', async (c) => {
                                         {member.voornaam?.charAt(0)}{member.achternaam?.charAt(0)}
                                       </div>
                                     )}
+                                    {/* Online Indicator */}
+                                    {member.is_online > 0 && (
+                                      <div class="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white rounded-full animate-pulse"></div>
+                                    )}
                                   </div>
                                   <div class="ml-4">
-                                    <div class="text-sm font-medium text-gray-900">
+                                    <div class="text-sm font-medium text-gray-900 flex items-center gap-2">
                                       {member.voornaam} {member.achternaam}
+                                      {member.is_online > 0 && (
+                                        <span class="inline-flex items-center px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs font-semibold animate-pulse">
+                                          <i class="fas fa-circle text-xs mr-1"></i>
+                                          Online
+                                        </span>
+                                      )}
                                       {member.id === user.id && (
                                         <a href="/leden/profiel" class="ml-2 text-amber-600 hover:text-amber-700">
                                           <i class="fas fa-edit text-xs"></i>

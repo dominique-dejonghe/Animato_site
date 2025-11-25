@@ -53,42 +53,34 @@ app.get('/login', async (c) => {
             <div class="space-y-4">
               <div>
                 <label for="email" class="block text-sm font-medium text-gray-700 mb-1">
+                  <i class="fas fa-envelope text-animato-primary mr-2"></i>
                   Email adres
                 </label>
-                <div class="relative">
-                  <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <i class="fas fa-envelope text-gray-400"></i>
-                  </div>
-                  <input
-                    id="email"
-                    name="email"
-                    type="email"
-                    autocomplete="email"
-                    required
-                    class="pl-10 block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    placeholder="naam@example.com"
-                  />
-                </div>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autocomplete="email"
+                  required
+                  class="block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  placeholder="naam@example.com"
+                />
               </div>
 
               <div>
                 <label for="password" class="block text-sm font-medium text-gray-700 mb-1">
+                  <i class="fas fa-lock text-animato-primary mr-2"></i>
                   Wachtwoord
                 </label>
-                <div class="relative">
-                  <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <i class="fas fa-lock text-gray-400"></i>
-                  </div>
-                  <input
-                    id="password"
-                    name="password"
-                    type="password"
-                    autocomplete="current-password"
-                    required
-                    class="pl-10 block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    placeholder="••••••••"
-                  />
-                </div>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autocomplete="current-password"
+                  required
+                  class="block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  placeholder="••••••••"
+                />
               </div>
             </div>
 

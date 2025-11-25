@@ -8,7 +8,7 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - **Latest Deploy**: https://8cef00a2.animato-koor.pages.dev (Deployed: 2025-11-23 14:40 UTC)
 - **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
 - **API Documentation**: /api endpoint
-- **Current Version**: v1.0.20 (Mobile UX improvements)
+- **Current Version**: v1.0.25 (User Activity Tracking)
 
 ## ✨ Features
 
@@ -96,6 +96,13 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - ✅ **No-cache headers** (admin pagina's tonen altijd verse data)
 - ✅ **Polls Management** (CRUD voor polls, status management, 5 opties per poll)
 - ✅ **Proposals Review** (approve/reject voorstellen met review opmerking)
+- ✅ **User Activity Tracking** (login/logout monitoring, session duration, real-time online status)
+  - Track alle login/logout sessies met timestamps
+  - IP adres en user agent logging
+  - Bereken sessieduur automatisch
+  - Real-time "wie is online" dashboard
+  - Filter op status (active/today/all) en per gebruiker
+  - Statistieken: active users, today logins, avg duration
 - ⏳ **Theming** (logo, kleuren, lettertypes)
 - ⏳ **Moderatie** (board berichten, media goedkeuren)
 
@@ -258,9 +265,10 @@ Materialen en repetities kunnen toegewezen worden aan specifieke stemgroepen of 
 - **Database Name**: animato-production
 - **Database ID**: 758eef10-f55b-428f-81ca-4d7f87862811
 - **Region**: ENAM (Eastern North America)
-- **Migrations**: ✅ All applied (10 migrations)
+- **Migrations**: ✅ All applied (11 migrations)
   - 0001-0009: Core schema (users, posts, events, concerts, albums, etc.)
   - 0010: Polls & Voting system (polls, poll_options, poll_votes, member_proposals, proposal_votes)
+  - 0011: User Sessions Tracking (user_sessions table for login/logout activity monitoring)
 - **Admin User**: ✅ Created (admin@animato.be)
 
 ### Environment Variables

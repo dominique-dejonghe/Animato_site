@@ -137,9 +137,11 @@ export const Layout: FC<LayoutProps> = ({
                     <a href="/word-lid" class="hidden md:block bg-animato-accent text-white px-4 py-2 rounded-lg hover:bg-yellow-600 transition font-semibold">
                       Word Lid
                     </a>
-                    <a href="/login" class="text-animato-primary hover:text-animato-secondary transition">
+                    {/* Login link - visible on both mobile and desktop */}
+                    <a href="/login" class="text-animato-primary hover:text-animato-secondary transition font-medium">
                       <i class="fas fa-sign-in-alt mr-1"></i>
-                      Login
+                      <span class="hidden sm:inline">Login</span>
+                      <span class="sm:hidden">Login</span>
                     </a>
                   </>
                 )}
@@ -186,9 +188,18 @@ export const Layout: FC<LayoutProps> = ({
                   </a>
                 </>
               ) : (
-                <a href="/word-lid" class="block bg-animato-accent text-white px-4 py-2 rounded-lg text-center font-semibold">
-                  Word Lid
-                </a>
+                <>
+                  {/* Login and Word Lid in mobile menu for non-authenticated users */}
+                  <div class="border-t border-gray-300 my-2"></div>
+                  <a href="/login" class="block text-animato-primary hover:text-animato-secondary font-medium">
+                    <i class="fas fa-sign-in-alt mr-2"></i>
+                    Inloggen
+                  </a>
+                  <a href="/word-lid" class="block bg-animato-accent text-white px-4 py-2 rounded-lg text-center font-semibold mt-2">
+                    <i class="fas fa-user-plus mr-2"></i>
+                    Word Lid
+                  </a>
+                </>
               )}
             </div>
           </div>

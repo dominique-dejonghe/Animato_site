@@ -275,23 +275,7 @@ export const Layout: FC<LayoutProps> = ({
           </div>
         </footer>
 
-        {/* Mobile menu toggle script */}
-        <script dangerouslySetInnerHTML={{
-          __html: `
-            document.addEventListener('DOMContentLoaded', function() {
-              const menuButton = document.getElementById('mobile-menu-button');
-              const menu = document.getElementById('mobile-menu');
-              
-              if (menuButton && menu) {
-                menuButton.addEventListener('click', function() {
-                  menu.classList.toggle('hidden');
-                });
-              }
-            });
-          `
-        }} />
-
-        {/* Custom JS */}
+        {/* Custom JS - includes mobile menu handler */}
         <script src="/static/js/app.js"></script>
       </body>
     </html>

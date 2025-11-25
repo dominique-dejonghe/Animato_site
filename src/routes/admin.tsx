@@ -534,10 +534,10 @@ app.get('/admin/leden', async (c) => {
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                   >
                     <option value="all" selected={stemgroep === 'all'}>Alle stemmen</option>
-                    <option value="sopraan" selected={stemgroep === 'sopraan'}>Sopraan</option>
-                    <option value="alt" selected={stemgroep === 'alt'}>Alt</option>
-                    <option value="tenor" selected={stemgroep === 'tenor'}>Tenor</option>
-                    <option value="bas" selected={stemgroep === 'bas'}>Bas</option>
+                    <option value="S" selected={stemgroep === 'S'}>Sopraan (S)</option>
+                    <option value="A" selected={stemgroep === 'A'}>Alt (A)</option>
+                    <option value="T" selected={stemgroep === 'T'}>Tenor (T)</option>
+                    <option value="B" selected={stemgroep === 'B'}>Bas (B)</option>
                   </select>
                 </div>
                 <div>
@@ -613,10 +613,10 @@ app.get('/admin/leden', async (c) => {
                       }
                       
                       const stemgroepLabels: Record<string, string> = {
-                        'sopraan': 'Sopraan',
-                        'alt': 'Alt',
-                        'tenor': 'Tenor',
-                        'bas': 'Bas'
+                        'S': 'Sopraan',
+                        'A': 'Alt',
+                        'T': 'Tenor',
+                        'B': 'Bas'
                       }
                       
                       const roleColors: Record<string, string> = {
@@ -883,10 +883,10 @@ app.get('/admin/leden/nieuw', async (c) => {
                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                     >
                       <option value="">Geen stemgroep</option>
-                      <option value="sopraan">Sopraan</option>
-                      <option value="alt">Alt</option>
-                      <option value="tenor">Tenor</option>
-                      <option value="bas">Bas</option>
+                      <option value="S">Sopraan (S)</option>
+                      <option value="A">Alt (A)</option>
+                      <option value="T">Tenor (T)</option>
+                      <option value="B">Bas (B)</option>
                     </select>
                   </div>
 
@@ -1219,10 +1219,10 @@ app.get('/admin/leden/:id', async (c) => {
                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                     >
                       <option value="" selected={!member.stemgroep}>Geen stemgroep</option>
-                      <option value="sopraan" selected={member.stemgroep === 'sopraan'}>Sopraan</option>
-                      <option value="alt" selected={member.stemgroep === 'alt'}>Alt</option>
-                      <option value="tenor" selected={member.stemgroep === 'tenor'}>Tenor</option>
-                      <option value="bas" selected={member.stemgroep === 'bas'}>Bas</option>
+                      <option value="S" selected={member.stemgroep === 'S'}>Sopraan (S)</option>
+                      <option value="A" selected={member.stemgroep === 'A'}>Alt (A)</option>
+                      <option value="T" selected={member.stemgroep === 'T'}>Tenor (T)</option>
+                      <option value="B" selected={member.stemgroep === 'B'}>Bas (B)</option>
                     </select>
                   </div>
 

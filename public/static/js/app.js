@@ -122,13 +122,19 @@ document.addEventListener('DOMContentLoaded', () => {
   const mobileMenu = document.getElementById('mobile-menu');
 
   if (mobileMenuButton && mobileMenu) {
-    mobileMenuButton.addEventListener('click', () => {
+    // Toggle menu on button click
+    mobileMenuButton.addEventListener('click', (e) => {
+      e.stopPropagation(); // Prevent immediate closing from document click
       mobileMenu.classList.toggle('hidden');
     });
 
-    // Close menu when clicking outside
+    // Close menu when clicking outside (but not immediately)
     document.addEventListener('click', (e) => {
-      if (!mobileMenuButton.contains(e.target) && !mobileMenu.contains(e.target)) {
+      const isMenuOpen = !mobileMenu.classList.contains('hidden');
+      const clickedInsideMenu = mobileMenu.contains(e.target);
+      const clickedButton = mobileMenuButton.contains(e.target);
+      
+      if (isMenuOpen && !clickedInsideMenu && !clickedButton) {
         mobileMenu.classList.add('hidden');
       }
     });

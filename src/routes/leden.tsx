@@ -118,7 +118,7 @@ app.get('/leden', async (c) => {
           </div>
 
           {/* Quick actions */}
-          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-12">
+          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 mb-12">
             <a
               href="/leden/materiaal"
               class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
@@ -186,6 +186,17 @@ app.get('/leden', async (c) => {
               </div>
               <h3 class="font-semibold text-gray-900 mb-1">Polls</h3>
               <p class="text-sm text-gray-600">Stem mee!</p>
+            </a>
+
+            <a
+              href="/leden/voorstellen"
+              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
+            >
+              <div class="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <i class="fas fa-lightbulb text-yellow-600 text-xl"></i>
+              </div>
+              <h3 class="font-semibold text-gray-900 mb-1">Voorstellen</h3>
+              <p class="text-sm text-gray-600">Deel je ideeën</p>
             </a>
           </div>
 

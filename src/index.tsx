@@ -25,6 +25,7 @@ import ticketsRoutes from './routes/tickets'
 import webhooksRoutes from './routes/webhooks'
 import apiRoutes from './routes/api'
 import pollsRoutes from './routes/polls'
+import voorstellenRoutes from './routes/voorstellen'
 
 // =====================================================
 // APP INITIALIZATION
@@ -85,6 +86,9 @@ app.route('/', webhooksRoutes)
 
 // Polls & Voting
 app.route('/', pollsRoutes)
+
+// Voorstellen (Member Proposals)
+app.route('/', voorstellenRoutes)
 
 // API routes
 app.route('/', apiRoutes)

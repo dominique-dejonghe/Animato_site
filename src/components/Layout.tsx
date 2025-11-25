@@ -127,7 +127,8 @@ export const Layout: FC<LayoutProps> = ({
                       <i class="fas fa-user-circle mr-2"></i>
                       {user.voornaam}
                     </a>
-                    <a href="/api/auth/logout" class="text-sm text-gray-600 hover:text-gray-900">
+                    {/* Uitloggen - Desktop only (hidden on mobile to prevent accidental clicks) */}
+                    <a href="/api/auth/logout" class="hidden md:block text-sm text-gray-600 hover:text-gray-900">
                       Uitloggen
                     </a>
                   </>
@@ -175,6 +176,13 @@ export const Layout: FC<LayoutProps> = ({
                   <a href="/leden" class="block text-gray-700 hover:text-animato-primary">
                     <i class="fas fa-user-circle mr-2"></i>
                     Mijn Profiel
+                  </a>
+                  {/* Divider */}
+                  <div class="border-t border-gray-300 my-2"></div>
+                  {/* Uitloggen link in mobile menu (safer placement to avoid accidental clicks) */}
+                  <a href="/api/auth/logout" class="block text-red-600 hover:text-red-700 font-medium">
+                    <i class="fas fa-sign-out-alt mr-2"></i>
+                    Uitloggen
                   </a>
                 </>
               ) : (

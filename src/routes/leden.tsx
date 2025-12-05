@@ -198,6 +198,17 @@ app.get('/leden', async (c) => {
               <h3 class="font-semibold text-gray-900 mb-1">Voorstellen</h3>
               <p class="text-sm text-gray-600">Deel je ideeën</p>
             </a>
+
+            <a
+              href="/stem-test"
+              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
+            >
+              <div class="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <i class="fas fa-microphone text-purple-600 text-xl"></i>
+              </div>
+              <h3 class="font-semibold text-gray-900 mb-1">Stem Test</h3>
+              <p class="text-sm text-gray-600">Test je stembereik</p>
+            </a>
           </div>
 
           {/* Main content grid */}
@@ -833,6 +844,19 @@ app.get('/leden/profiel', async (c) => {
     }
   }
 
+  // Get most recent voice analysis for this user
+  const voiceAnalysis = await queryOne<any>(
+    c.env.DB,
+    `SELECT lowest_note, lowest_frequency, highest_note, highest_frequency, 
+            primary_stemgroep, primary_confidence, secondary_stemgroep, 
+            voice_type, created_at
+     FROM voice_analyses
+     WHERE user_id = ? AND status = 'completed'
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [user.id]
+  )
+
   return c.html(
     <Layout 
       title="Mijn Profiel" 
@@ -880,6 +904,125 @@ app.get('/leden/profiel', async (c) => {
                   {error === 'update_failed' && 'Er is iets misgegaan bij het bijwerken'}
                   {error === 'profile_not_found' && 'Profiel niet gevonden'}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Voice Range Analysis Card */}
+          {voiceAnalysis && (
+            <div class="bg-gradient-to-br from-purple-50 to-blue-50 rounded-lg shadow-md p-6 mb-6 border-2 border-purple-200">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-bold text-gray-900">
+                  <i class="fas fa-music text-purple-600 mr-2"></i>
+                  Jouw Stembereik
+                </h3>
+                <a 
+                  href="/stem-test"
+                  class="text-sm px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                >
+                  <i class="fas fa-redo mr-2"></i>
+                  Nieuwe Test
+                </a>
+              </div>
+              
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                {/* Lowest Note */}
+                <div 
+                  class="bg-white rounded-lg p-4 shadow-sm hover:shadow-md transition-all cursor-pointer group voice-note-card"
+                  data-note={voiceAnalysis.lowest_note}
+                  data-freq={voiceAnalysis.lowest_frequency}
+                >
+                  <div class="text-sm text-gray-600 mb-2 flex items-center justify-between">
+                    <span>Laagste Noot</span>
+                    <i class="fas fa-volume-up text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                  </div>
+                  <div class="text-2xl font-bold text-blue-600 mb-1">
+                    {voiceAnalysis.lowest_note}
+                  </div>
+                  <div class="text-xs text-gray-500">
+                    {Math.round(voiceAnalysis.lowest_frequency)} Hz
+                  </div>
+                  <div class="text-xs text-blue-500 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    Klik om deze noot te horen
+                  </div>
+                </div>
+
+                {/* Highest Note */}
+                <div 
+                  class="bg-white rounded-lg p-4 shadow-sm hover:shadow-md transition-all cursor-pointer group voice-note-card"
+                  data-note={voiceAnalysis.highest_note}
+                  data-freq={voiceAnalysis.highest_frequency}
+                >
+                  <div class="text-sm text-gray-600 mb-2 flex items-center justify-between">
+                    <span>Hoogste Noot</span>
+                    <i class="fas fa-volume-up text-purple-400 opacity-0 group-hover:opacity-100 transition-opacity"></i>
+                  </div>
+                  <div class="text-2xl font-bold text-purple-600 mb-1">
+                    {voiceAnalysis.highest_note}
+                  </div>
+                  <div class="text-xs text-gray-500">
+                    {Math.round(voiceAnalysis.highest_frequency)} Hz
+                  </div>
+                  <div class="text-xs text-purple-500 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    Klik om deze noot te horen
+                  </div>
+                </div>
+
+                {/* Recommended Voice Group */}
+                <div class="bg-white rounded-lg p-4 shadow-sm">
+                  <div class="text-sm text-gray-600 mb-2">
+                    Aanbevolen Stemgroep
+                  </div>
+                  <div class="text-2xl font-bold text-green-600 mb-1">
+                    {voiceAnalysis.primary_stemgroep === 'S' && 'Sopraan'}
+                    {voiceAnalysis.primary_stemgroep === 'A' && 'Alt'}
+                    {voiceAnalysis.primary_stemgroep === 'T' && 'Tenor'}
+                    {voiceAnalysis.primary_stemgroep === 'B' && 'Bas'}
+                  </div>
+                  {voiceAnalysis.primary_confidence && (
+                    <div class="text-xs text-gray-500">
+                      {Math.round(voiceAnalysis.primary_confidence * 100)}% zekerheid
+                    </div>
+                  )}
+                  {voiceAnalysis.voice_type && (
+                    <div class="text-xs text-gray-600 mt-2 italic">
+                      {voiceAnalysis.voice_type}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div class="text-xs text-gray-500 text-right">
+                <i class="far fa-clock mr-1"></i>
+                Getest op {new Date(voiceAnalysis.created_at).toLocaleDateString('nl-NL', { 
+                  day: 'numeric', 
+                  month: 'long', 
+                  year: 'numeric' 
+                })}
+              </div>
+            </div>
+          )}
+          
+          {/* No Voice Analysis - CTA */}
+          {!voiceAnalysis && (
+            <div class="bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg shadow-md p-6 mb-6 border-2 border-dashed border-blue-300">
+              <div class="text-center">
+                <div class="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <i class="fas fa-microphone text-blue-600 text-2xl"></i>
+                </div>
+                <h3 class="text-xl font-bold text-gray-900 mb-2">
+                  Ontdek jouw stembereik!
+                </h3>
+                <p class="text-gray-600 mb-4">
+                  Test je vocale bereik om de beste stemgroep voor jou te vinden.
+                </p>
+                <a 
+                  href="/stem-test"
+                  class="inline-flex items-center px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold"
+                >
+                  <i class="fas fa-music mr-2"></i>
+                  Start Stem Test
+                </a>
               </div>
             </div>
           )}
@@ -1412,6 +1555,76 @@ app.get('/leden/profiel', async (c) => {
               </div>
             </form>
           </div>
+
+          {/* Voice Analysis Playback Script */}
+          {voiceAnalysis && (
+            <script dangerouslySetInnerHTML={{
+              __html: `
+                (function() {
+                  // Define note frequency map (same as voice-analyzer)
+                  const noteFrequencies = {
+                    'C2': 65.41, 'C#2': 69.30, 'D2': 73.42, 'D#2': 77.78, 'E2': 82.41, 
+                    'F2': 87.31, 'F#2': 92.50, 'G2': 98.00, 'G#2': 103.83, 'A2': 110.00, 
+                    'A#2': 116.54, 'B2': 123.47,
+                    'C3': 130.81, 'C#3': 138.59, 'D3': 146.83, 'D#3': 155.56, 'E3': 164.81, 
+                    'F3': 174.61, 'F#3': 185.00, 'G3': 196.00, 'G#3': 207.65, 'A3': 220.00, 
+                    'A#3': 233.08, 'B3': 246.94,
+                    'C4': 261.63, 'C#4': 277.18, 'D4': 293.66, 'D#4': 311.13, 'E4': 329.63, 
+                    'F4': 349.23, 'F#4': 369.99, 'G4': 392.00, 'G#4': 415.30, 'A4': 440.00, 
+                    'A#4': 466.16, 'B4': 493.88,
+                    'C5': 523.25, 'C#5': 554.37, 'D5': 587.33, 'D#5': 622.25, 'E5': 659.25, 
+                    'F5': 698.46, 'F#5': 739.99, 'G5': 783.99, 'G#5': 830.61, 'A5': 880.00, 
+                    'A#5': 932.33, 'B5': 987.77,
+                    'C6': 1046.50, 'C#6': 1108.73, 'D6': 1174.66, 'D#6': 1244.51, 'E6': 1318.51, 
+                    'F6': 1396.91, 'F#6': 1479.98, 'G6': 1567.98, 'G#6': 1661.22, 'A6': 1760.00
+                  };
+
+                  // Play note function
+                  function playNote(note, duration = 1.0) {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const frequency = noteFrequencies[note];
+                    
+                    if (!frequency) {
+                      console.error('Unknown note:', note);
+                      return;
+                    }
+
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+
+                    oscillator.type = 'sine';
+                    oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+
+                    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                    gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+
+                    oscillator.start(audioContext.currentTime);
+                    oscillator.stop(audioContext.currentTime + duration);
+                  }
+
+                  // Add click event listeners to voice note cards
+                  document.querySelectorAll('.voice-note-card').forEach(function(card) {
+                    card.addEventListener('click', function() {
+                      const note = this.getAttribute('data-note');
+                      if (note) {
+                        // Visual feedback
+                        this.classList.add('ring-4', 'ring-blue-400');
+                        setTimeout(() => {
+                          this.classList.remove('ring-4', 'ring-blue-400');
+                        }, 1000);
+                        
+                        // Play the note
+                        playNote(note, 1.0);
+                      }
+                    });
+                  });
+                })();
+              `
+            }}></script>
+          )}
 
         </div>
       </div>

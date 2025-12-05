@@ -197,6 +197,24 @@ app.get('/stem-test', async (c) => {
             
             {/* Piano Keys */}
             <div class="bg-white rounded-lg p-6">
+              {/* Playback Controls */}
+              <div class="flex justify-center gap-4 mb-4">
+                <button
+                  id="play-melody-btn"
+                  class="px-6 py-3 bg-green-600 text-white font-bold rounded-lg hover:bg-green-700 transition flex items-center"
+                >
+                  <i class="fas fa-play mr-2"></i>
+                  Speel Melodie
+                </button>
+                <button
+                  id="stop-melody-btn"
+                  class="hidden px-6 py-3 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition flex items-center"
+                >
+                  <i class="fas fa-stop mr-2"></i>
+                  Stop Melodie
+                </button>
+              </div>
+              
               <div class="text-sm text-gray-700 mb-3 text-center">
                 <i class="fas fa-hand-pointer text-purple-600 mr-2"></i>
                 Klik op de paarse toetsen om de noten te horen
@@ -467,6 +485,49 @@ app.get('/stem-test', async (c) => {
         let timerInterval = null;
         let recordedBlob = null;
         let stream = null;
+        let melodyTimeouts = [];
+        let currentMelody = null;
+        let isPlayingMelody = false;
+        
+        // =====================================================
+        // SONG MELODIES (simplified versions for demo)
+        // =====================================================
+        
+        const songMelodies = {
+          'Somewhere Over the Rainbow': [
+            {note: 'C4', duration: 0.5}, {note: 'C5', duration: 1}, {note: 'B4', duration: 0.5}, 
+            {note: 'A4', duration: 0.5}, {note: 'G4', duration: 1}, {note: 'A4', duration: 0.5},
+            {note: 'C5', duration: 1.5}
+          ],
+          'Hallelujah (vrouwen)': [
+            {note: 'C4', duration: 0.5}, {note: 'E4', duration: 0.5}, {note: 'G4', duration: 0.5},
+            {note: 'A4', duration: 1}, {note: 'G4', duration: 0.5}, {note: 'E4', duration: 1}
+          ],
+          'Happy Birthday (vrouwen)': [
+            {note: 'C4', duration: 0.4}, {note: 'C4', duration: 0.4}, {note: 'D4', duration: 0.8},
+            {note: 'C4', duration: 0.8}, {note: 'F4', duration: 0.8}, {note: 'E4', duration: 1.6}
+          ],
+          'Amazing Grace': [
+            {note: 'D4', duration: 0.8}, {note: 'G4', duration: 0.8}, {note: 'G4', duration: 0.8},
+            {note: 'E4', duration: 0.4}, {note: 'G4', duration: 0.8}, {note: 'D4', duration: 1.2}
+          ],
+          'Hallelujah (mannen)': [
+            {note: 'C3', duration: 0.5}, {note: 'E3', duration: 0.5}, {note: 'G3', duration: 0.5},
+            {note: 'A3', duration: 1}, {note: 'G3', duration: 0.5}, {note: 'E3', duration: 1}
+          ],
+          'My Way': [
+            {note: 'F2', duration: 0.6}, {note: 'A2', duration: 0.6}, {note: 'C3', duration: 0.8},
+            {note: 'D3', duration: 0.8}, {note: 'C3', duration: 0.8}, {note: 'A2', duration: 1}
+          ],
+          "Ol' Man River": [
+            {note: 'E2', duration: 0.8}, {note: 'G2', duration: 0.8}, {note: 'A2', duration: 0.6},
+            {note: 'C3', duration: 1}, {note: 'B2', duration: 0.8}, {note: 'G2', duration: 1.2}
+          ],
+          'Happy Birthday (mannen)': [
+            {note: 'C3', duration: 0.4}, {note: 'C3', duration: 0.4}, {note: 'D3', duration: 0.8},
+            {note: 'C3', duration: 0.8}, {note: 'F3', duration: 0.8}, {note: 'E3', duration: 1.6}
+          ]
+        };
         
         // =====================================================
         // SONG SELECTION HANDLERS (with sheet music viz)
@@ -479,6 +540,12 @@ app.get('/stem-test', async (c) => {
             const rangeHigh = this.dataset.rangeHigh;
             const freqLow = parseFloat(this.dataset.freqLow);
             const freqHigh = parseFloat(this.dataset.freqHigh);
+            
+            // Stop any playing melody
+            stopMelody();
+            
+            // Store current melody
+            currentMelody = songMelodies[songTitle] || null;
             
             // Show piano container
             const container = document.getElementById('piano-container');
@@ -519,27 +586,86 @@ app.get('/stem-test', async (c) => {
           'C6': 1046.50
         };
         
+        // Global audio context for melody playback
+        let melodyAudioContext = null;
+        
         // Play note sound
-        function playNote(note) {
+        function playNote(note, duration = 0.5) {
           const frequency = noteFrequencies[note];
           if (!frequency) return;
           
-          const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          const oscillator = audioCtx.createOscillator();
-          const gainNode = audioCtx.createGain();
+          if (!melodyAudioContext) {
+            melodyAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+          }
+          
+          const oscillator = melodyAudioContext.createOscillator();
+          const gainNode = melodyAudioContext.createGain();
           
           oscillator.connect(gainNode);
-          gainNode.connect(audioCtx.destination);
+          gainNode.connect(melodyAudioContext.destination);
           
           oscillator.frequency.value = frequency;
           oscillator.type = 'sine';
           
-          gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-          gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+          gainNode.gain.setValueAtTime(0.3, melodyAudioContext.currentTime);
+          gainNode.gain.exponentialRampToValueAtTime(0.01, melodyAudioContext.currentTime + duration);
           
-          oscillator.start(audioCtx.currentTime);
-          oscillator.stop(audioCtx.currentTime + 0.5);
+          oscillator.start(melodyAudioContext.currentTime);
+          oscillator.stop(melodyAudioContext.currentTime + duration);
+          
+          // Visual feedback on piano key
+          highlightKey(note, duration * 1000);
         }
+        
+        // Highlight piano key during playback
+        function highlightKey(note, duration) {
+          const key = document.querySelector(\`[data-note="\${note}"]\`);
+          if (key) {
+            key.classList.add('ring-4', 'ring-yellow-400');
+            setTimeout(() => {
+              key.classList.remove('ring-4', 'ring-yellow-400');
+            }, duration);
+          }
+        }
+        
+        // Play melody sequence
+        function playMelody() {
+          if (!currentMelody || isPlayingMelody) return;
+          
+          isPlayingMelody = true;
+          document.getElementById('play-melody-btn').classList.add('hidden');
+          document.getElementById('stop-melody-btn').classList.remove('hidden');
+          
+          let currentTime = 0;
+          currentMelody.forEach((noteObj) => {
+            const timeout = setTimeout(() => {
+              playNote(noteObj.note, noteObj.duration);
+            }, currentTime * 1000);
+            
+            melodyTimeouts.push(timeout);
+            currentTime += noteObj.duration;
+          });
+          
+          // Auto-reset after melody finishes
+          const finishTimeout = setTimeout(() => {
+            stopMelody();
+          }, currentTime * 1000);
+          melodyTimeouts.push(finishTimeout);
+        }
+        
+        // Stop melody
+        function stopMelody() {
+          melodyTimeouts.forEach(timeout => clearTimeout(timeout));
+          melodyTimeouts = [];
+          isPlayingMelody = false;
+          
+          document.getElementById('play-melody-btn').classList.remove('hidden');
+          document.getElementById('stop-melody-btn').classList.add('hidden');
+        }
+        
+        // Melody control buttons
+        document.getElementById('play-melody-btn')?.addEventListener('click', playMelody);
+        document.getElementById('stop-melody-btn')?.addEventListener('click', stopMelody);
         
         // Generate piano roll visualization with playable keys
         function generatePianoRoll(noteLow, noteHigh) {
@@ -619,11 +745,32 @@ app.get('/stem-test', async (c) => {
             return;
           }
           
+          // Stop any playing melody before recording
+          stopMelody();
+          
           try {
             stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
             
-            mediaRecorder = new MediaRecorder(stream);
+            // Create audio processing chain to filter out piano tones
+            const source = audioContext.createMediaStreamSource(stream);
+            const highPassFilter = audioContext.createBiquadFilter();
+            const destination = audioContext.createMediaStreamDestination();
+            
+            // High-pass filter to remove low-frequency piano tones
+            // Human voice typically starts around 85Hz (male) to 165Hz (female)
+            // This filter attenuates frequencies below 150Hz to remove bass piano notes
+            highPassFilter.type = 'highpass';
+            highPassFilter.frequency.value = 150; // Hz
+            highPassFilter.Q.value = 1.0;
+            
+            // Connect: microphone -> filter -> destination
+            source.connect(highPassFilter);
+            highPassFilter.connect(destination);
+            
+            // Use filtered stream for recording
+            const filteredStream = destination.stream;
+            mediaRecorder = new MediaRecorder(filteredStream);
             audioChunks = [];
             
             mediaRecorder.ondataavailable = (event) => {

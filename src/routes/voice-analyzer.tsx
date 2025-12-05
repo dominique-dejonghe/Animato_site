@@ -383,15 +383,27 @@ app.get('/stem-test', async (c) => {
 
                 {/* Range Display */}
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                  <div class="bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-6">
-                    <div class="text-sm text-blue-700 font-medium mb-2">Laagste Noot</div>
+                  <div class="bg-gradient-to-r from-blue-50 to-blue-100 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all transform hover:scale-105" 
+                       id="lowest-note-card"
+                       title="Klik om deze noot te horen">
+                    <div class="text-sm text-blue-700 font-medium mb-2 flex items-center justify-between">
+                      <span>Laagste Noot</span>
+                      <i class="fas fa-volume-up text-blue-600"></i>
+                    </div>
                     <div id="lowest-note" class="text-3xl font-bold text-blue-900">-</div>
-                    <div id="lowest-freq" class="text-sm text-blue-600 mt-1">- Hz</div>
+                    <div id="lowest-solfege" class="text-xl text-blue-700 mt-1 font-medium">-</div>
+                    <div id="lowest-freq" class="text-sm text-blue-600 mt-2">- Hz</div>
                   </div>
-                  <div class="bg-gradient-to-r from-purple-50 to-purple-100 rounded-lg p-6">
-                    <div class="text-sm text-purple-700 font-medium mb-2">Hoogste Noot</div>
+                  <div class="bg-gradient-to-r from-purple-50 to-purple-100 rounded-lg p-6 cursor-pointer hover:shadow-lg transition-all transform hover:scale-105" 
+                       id="highest-note-card"
+                       title="Klik om deze noot te horen">
+                    <div class="text-sm text-purple-700 font-medium mb-2 flex items-center justify-between">
+                      <span>Hoogste Noot</span>
+                      <i class="fas fa-volume-up text-purple-600"></i>
+                    </div>
                     <div id="highest-note" class="text-3xl font-bold text-purple-900">-</div>
-                    <div id="highest-freq" class="text-sm text-purple-600 mt-1">- Hz</div>
+                    <div id="highest-solfege" class="text-xl text-purple-700 mt-1 font-medium">-</div>
+                    <div id="highest-freq" class="text-sm text-purple-600 mt-2">- Hz</div>
                   </div>
                 </div>
 
@@ -1173,10 +1185,34 @@ app.get('/stem-test', async (c) => {
         
         // Display results
         function displayResults(analysis) {
-          document.getElementById('lowest-note').textContent = analysis.lowestNote;
+          // Display notes with solfège
+          const lowestNote = analysis.lowestNote;
+          const highestNote = analysis.highestNote;
+          
+          document.getElementById('lowest-note').textContent = lowestNote;
+          document.getElementById('lowest-solfege').textContent = noteSolfege[lowestNote] || lowestNote;
           document.getElementById('lowest-freq').textContent = analysis.lowestFreq + ' Hz';
-          document.getElementById('highest-note').textContent = analysis.highestNote;
+          
+          document.getElementById('highest-note').textContent = highestNote;
+          document.getElementById('highest-solfege').textContent = noteSolfege[highestNote] || highestNote;
           document.getElementById('highest-freq').textContent = analysis.highestFreq + ' Hz';
+          
+          // Add click handlers to play notes
+          document.getElementById('lowest-note-card').onclick = () => {
+            playNote(lowestNote, 1.0);
+            // Visual feedback
+            const card = document.getElementById('lowest-note-card');
+            card.classList.add('ring-4', 'ring-blue-400');
+            setTimeout(() => card.classList.remove('ring-4', 'ring-blue-400'), 1000);
+          };
+          
+          document.getElementById('highest-note-card').onclick = () => {
+            playNote(highestNote, 1.0);
+            // Visual feedback
+            const card = document.getElementById('highest-note-card');
+            card.classList.add('ring-4', 'ring-purple-400');
+            setTimeout(() => card.classList.remove('ring-4', 'ring-purple-400'), 1000);
+          };
           
           const stemgroepNames = {
             'Sopraan': 'Sopraan (S)',

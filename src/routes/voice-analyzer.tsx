@@ -33,7 +33,7 @@ app.get('/stem-test', async (c) => {
               Stem Bereik Analyse
             </h1>
             <p class="text-xl text-gray-600 max-w-2xl mx-auto">
-              Upload een audio sample van je stem en ontdek welke stemgroep het beste bij je past
+              Neem je stem op of upload een audio bestand en ontdek welke stemgroep het beste bij je past
             </p>
           </div>
 
@@ -46,61 +46,130 @@ app.get('/stem-test', async (c) => {
             <ol class="space-y-2 text-blue-800">
               <li class="flex items-start">
                 <span class="font-bold mr-2">1.</span>
-                <span>Neem een audio sample op (15-30 seconden) waarin je zingt van je <strong>laagste</strong> tot je <strong>hoogste</strong> comfortabele noot</span>
+                <span><strong>Klik op "Start Opname"</strong> en geef microfoon toegang</span>
               </li>
               <li class="flex items-start">
                 <span class="font-bold mr-2">2.</span>
-                <span>Upload het bestand (MP3, WAV, of M4A - max 5MB)</span>
+                <span>Zing van je <strong>laagste</strong> tot je <strong>hoogste</strong> comfortabele noot (15-30 seconden)</span>
               </li>
               <li class="flex items-start">
                 <span class="font-bold mr-2">3.</span>
-                <span>Wacht enkele seconden terwijl we je stem analyseren</span>
+                <span><strong>Stop de opname</strong> en wacht terwijl we je stem analyseren</span>
               </li>
               <li class="flex items-start">
                 <span class="font-bold mr-2">4.</span>
-                <span>Bekijk je resultaten en stemgroep aanbeveling</span>
+                <span>Bekijk je resultaten en stemgroep aanbeveling!</span>
               </li>
             </ol>
           </div>
 
-          {/* Upload Section */}
+          {/* Recording Section */}
           <div class="bg-white rounded-lg shadow-lg p-8">
-            <form id="voice-upload-form" class="space-y-6">
+            {/* Recording Controls */}
+            <div class="space-y-6" id="recording-section">
               
-              {/* Audio File Input */}
-              <div>
-                <label class="block text-sm font-medium text-gray-700 mb-2">
-                  <i class="fas fa-upload text-animato-primary mr-2"></i>
-                  Upload Audio Sample
-                </label>
-                <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg hover:border-animato-primary transition">
-                  <div class="space-y-1 text-center">
-                    <i class="fas fa-music text-4xl text-gray-400 mb-3"></i>
-                    <div class="flex text-sm text-gray-600">
-                      <label for="audio-file" class="relative cursor-pointer bg-white rounded-md font-medium text-animato-primary hover:text-animato-secondary">
-                        <span>Upload een bestand</span>
-                        <input 
-                          id="audio-file" 
-                          name="audio-file" 
-                          type="file" 
-                          class="sr-only" 
-                          accept="audio/mp3,audio/wav,audio/m4a,audio/mpeg,audio/x-m4a"
-                          required
-                        />
-                      </label>
-                      <p class="pl-1">of sleep hier</p>
+              {/* Microphone Visualizer */}
+              <div class="bg-gradient-to-r from-animato-primary/10 to-animato-secondary/10 rounded-lg p-8 text-center">
+                <div id="mic-icon" class="mb-4">
+                  <i class="fas fa-microphone text-6xl text-gray-400"></i>
+                </div>
+                <div id="recording-timer" class="text-2xl font-bold text-gray-700 mb-2">00:00</div>
+                <div id="recording-status" class="text-sm text-gray-600">Klaar om op te nemen</div>
+                
+                {/* Waveform Canvas */}
+                <canvas id="waveform" class="w-full h-24 mt-4 hidden"></canvas>
+              </div>
+
+              {/* Recording Buttons */}
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button
+                  type="button"
+                  id="start-recording-btn"
+                  class="px-6 py-4 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition text-lg"
+                >
+                  <i class="fas fa-circle mr-2"></i>
+                  Start Opname
+                </button>
+                <button
+                  type="button"
+                  id="stop-recording-btn"
+                  class="hidden px-6 py-4 bg-gray-600 text-white font-bold rounded-lg hover:bg-gray-700 transition text-lg"
+                  disabled
+                >
+                  <i class="fas fa-stop mr-2"></i>
+                  Stop Opname
+                </button>
+              </div>
+
+              {/* Playback Controls (after recording) */}
+              <div id="playback-controls" class="hidden space-y-4">
+                <div class="bg-green-50 border-2 border-green-300 rounded-lg p-4">
+                  <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                      <i class="fas fa-check-circle text-green-600 text-2xl"></i>
+                      <div>
+                        <div class="font-bold text-green-900">Opname voltooid!</div>
+                        <div id="recording-duration" class="text-sm text-green-700">Duur: 00:00</div>
+                      </div>
                     </div>
-                    <p class="text-xs text-gray-500">
-                      MP3, WAV, M4A tot 5MB
-                    </p>
+                    <button
+                      type="button"
+                      id="play-recording-btn"
+                      class="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition"
+                    >
+                      <i class="fas fa-play mr-2"></i>
+                      Beluister
+                    </button>
                   </div>
                 </div>
-                <div id="file-info" class="mt-2 text-sm text-gray-600 hidden"></div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    id="analyze-recording-btn"
+                    class="px-6 py-4 bg-animato-primary text-white font-bold rounded-lg hover:bg-animato-secondary transition text-lg"
+                  >
+                    <i class="fas fa-chart-line mr-2"></i>
+                    Analyseer Opname
+                  </button>
+                  <button
+                    type="button"
+                    id="new-recording-btn"
+                    class="px-6 py-4 border-2 border-gray-300 text-gray-700 font-bold rounded-lg hover:bg-gray-50 transition text-lg"
+                  >
+                    <i class="fas fa-redo mr-2"></i>
+                    Nieuwe Opname
+                  </button>
+                </div>
               </div>
+
+              {/* Optional File Upload */}
+              <details class="mt-6">
+                <summary class="cursor-pointer text-sm text-gray-600 hover:text-animato-primary">
+                  <i class="fas fa-upload mr-1"></i>
+                  Of upload een bestaand audio bestand
+                </summary>
+                <div class="mt-4 p-4 bg-gray-50 rounded-lg">
+                  <input 
+                    id="audio-file" 
+                    type="file" 
+                    accept="audio/mp3,audio/wav,audio/m4a,audio/mpeg,audio/x-m4a"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg"
+                  />
+                  <button
+                    type="button"
+                    id="upload-analyze-btn"
+                    class="mt-3 w-full px-6 py-3 bg-animato-accent text-white font-bold rounded-lg hover:bg-amber-600 transition"
+                  >
+                    <i class="fas fa-chart-line mr-2"></i>
+                    Analyseer Upload
+                  </button>
+                </div>
+              </details>
 
               {/* Optional: Email for results */}
               {!user && (
-                <div>
+                <div class="pt-4 border-t border-gray-200">
                   <label for="email" class="block text-sm font-medium text-gray-700 mb-2">
                     <i class="fas fa-envelope text-animato-primary mr-2"></i>
                     Email (optioneel)
@@ -117,17 +186,7 @@ app.get('/stem-test', async (c) => {
                   </p>
                 </div>
               )}
-
-              {/* Analyze Button */}
-              <button
-                type="submit"
-                id="analyze-btn"
-                class="w-full px-6 py-4 bg-animato-primary text-white font-bold rounded-lg hover:bg-animato-secondary transition text-lg"
-              >
-                <i class="fas fa-chart-line mr-2"></i>
-                Analyseer Mijn Stem
-              </button>
-            </form>
+            </div>
 
             {/* Processing State */}
             <div id="processing" class="hidden mt-8 text-center">
@@ -223,77 +282,229 @@ app.get('/stem-test', async (c) => {
       {/* Voice Analysis JavaScript */}
       <script dangerouslySetInnerHTML={{
         __html: `
-        // Voice Analysis Client-Side Implementation
-        // Using Web Audio API for pitch detection
+        // Voice Analysis with Live Recording
+        // Using Web Audio API for recording and pitch detection
         
-        const form = document.getElementById('voice-upload-form');
+        const startRecordingBtn = document.getElementById('start-recording-btn');
+        const stopRecordingBtn = document.getElementById('stop-recording-btn');
+        const playRecordingBtn = document.getElementById('play-recording-btn');
+        const analyzeRecordingBtn = document.getElementById('analyze-recording-btn');
+        const newRecordingBtn = document.getElementById('new-recording-btn');
+        const uploadAnalyzeBtn = document.getElementById('upload-analyze-btn');
         const fileInput = document.getElementById('audio-file');
-        const fileInfo = document.getElementById('file-info');
-        const analyzeBtn = document.getElementById('analyze-btn');
+        const playbackControls = document.getElementById('playback-controls');
+        const recordingTimer = document.getElementById('recording-timer');
+        const recordingStatus = document.getElementById('recording-status');
+        const recordingDuration = document.getElementById('recording-duration');
+        const micIcon = document.getElementById('mic-icon');
+        const waveformCanvas = document.getElementById('waveform');
         const processing = document.getElementById('processing');
         const results = document.getElementById('results');
         
         let audioBuffer = null;
         let audioContext = null;
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let recordingStartTime = 0;
+        let timerInterval = null;
+        let recordedBlob = null;
+        let stream = null;
         
-        // Show file info when selected
-        fileInput.addEventListener('change', (e) => {
-          const file = e.target.files[0];
-          if (file) {
-            const sizeMB = (file.size / 1024 / 1024).toFixed(2);
-            fileInfo.textContent = \`Geselecteerd: \${file.name} (\${sizeMB}MB)\`;
-            fileInfo.classList.remove('hidden');
-            fileInfo.classList.add('text-green-600', 'font-medium');
+        // Start Recording
+        startRecordingBtn.addEventListener('click', async () => {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+            
+            mediaRecorder.ondataavailable = (event) => {
+              audioChunks.push(event.data);
+            };
+            
+            mediaRecorder.onstop = async () => {
+              recordedBlob = new Blob(audioChunks, { type: 'audio/webm' });
+              const duration = (Date.now() - recordingStartTime) / 1000;
+              recordingDuration.textContent = \`Duur: \${formatTime(duration)}\`;
+              
+              // Stop all tracks
+              stream.getTracks().forEach(track => track.stop());
+              
+              // Show playback controls
+              playbackControls.classList.remove('hidden');
+              waveformCanvas.classList.add('hidden');
+            };
+            
+            mediaRecorder.start();
+            recordingStartTime = Date.now();
+            
+            // Update UI
+            startRecordingBtn.classList.add('hidden');
+            stopRecordingBtn.classList.remove('hidden');
+            stopRecordingBtn.disabled = false;
+            micIcon.innerHTML = '<i class="fas fa-microphone text-6xl text-red-600 animate-pulse"></i>';
+            recordingStatus.textContent = 'Opname bezig...';
+            waveformCanvas.classList.remove('hidden');
+            
+            // Start timer
+            timerInterval = setInterval(() => {
+              const elapsed = (Date.now() - recordingStartTime) / 1000;
+              recordingTimer.textContent = formatTime(elapsed);
+            }, 100);
+            
+            // Draw waveform
+            drawWaveform();
+            
+          } catch (error) {
+            console.error('Microphone error:', error);
+            alert('Kan geen toegang krijgen tot de microfoon. Controleer je browser instellingen.');
           }
         });
         
-        // Handle form submission
-        form.addEventListener('submit', async (e) => {
-          e.preventDefault();
+        // Stop Recording
+        stopRecordingBtn.addEventListener('click', () => {
+          if (mediaRecorder && mediaRecorder.state === 'recording') {
+            mediaRecorder.stop();
+            clearInterval(timerInterval);
+            
+            // Update UI
+            stopRecordingBtn.classList.add('hidden');
+            startRecordingBtn.classList.remove('hidden');
+            micIcon.innerHTML = '<i class="fas fa-check-circle text-6xl text-green-600"></i>';
+            recordingStatus.textContent = 'Opname voltooid!';
+          }
+        });
+        
+        // Play Recording
+        playRecordingBtn.addEventListener('click', () => {
+          if (recordedBlob) {
+            const audioUrl = URL.createObjectURL(recordedBlob);
+            const audio = new Audio(audioUrl);
+            audio.play();
+          }
+        });
+        
+        // Analyze Recording
+        analyzeRecordingBtn.addEventListener('click', async () => {
+          if (!recordedBlob) return;
           
+          playbackControls.classList.add('hidden');
+          processing.classList.remove('hidden');
+          
+          try {
+            const arrayBuffer = await recordedBlob.arrayBuffer();
+            audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+            
+            const analysis = await analyzePitchRange(audioBuffer);
+            await saveAnalysis(analysis);
+            displayResults(analysis);
+            
+            processing.classList.add('hidden');
+            results.classList.remove('hidden');
+          } catch (error) {
+            console.error('Analysis error:', error);
+            processing.classList.add('hidden');
+            playbackControls.classList.remove('hidden');
+            alert('Er ging iets mis bij de analyse. Probeer opnieuw.');
+          }
+        });
+        
+        // New Recording
+        newRecordingBtn.addEventListener('click', () => {
+          location.reload();
+        });
+        
+        // Upload and Analyze
+        uploadAnalyzeBtn.addEventListener('click', async () => {
           const file = fileInput.files[0];
           if (!file) {
             alert('Selecteer eerst een audio bestand');
             return;
           }
           
-          // Check file size
           if (file.size > 5 * 1024 * 1024) {
             alert('Bestand is te groot (max 5MB)');
             return;
           }
           
-          // Show processing
-          form.classList.add('hidden');
+          document.getElementById('recording-section').classList.add('hidden');
           processing.classList.remove('hidden');
           
           try {
-            // Initialize audio context
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            
-            // Read file
             const arrayBuffer = await file.arrayBuffer();
             audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
             
-            // Analyze pitch
             const analysis = await analyzePitchRange(audioBuffer);
-            
-            // Save to database
             await saveAnalysis(analysis);
-            
-            // Show results
             displayResults(analysis);
             
             processing.classList.add('hidden');
             results.classList.remove('hidden');
-            
           } catch (error) {
             console.error('Analysis error:', error);
             processing.classList.add('hidden');
-            form.classList.remove('hidden');
+            document.getElementById('recording-section').classList.remove('hidden');
             alert('Er ging iets mis bij de analyse. Probeer opnieuw.');
           }
         });
+        
+        // Format time helper
+        function formatTime(seconds) {
+          const mins = Math.floor(seconds / 60);
+          const secs = Math.floor(seconds % 60);
+          return \`\${mins.toString().padStart(2, '0')}:\${secs.toString().padStart(2, '0')}\`;
+        }
+        
+        // Simple waveform visualization
+        function drawWaveform() {
+          if (!stream || mediaRecorder.state !== 'recording') return;
+          
+          const ctx = waveformCanvas.getContext('2d');
+          const analyser = audioContext.createAnalyser();
+          const source = audioContext.createMediaStreamSource(stream);
+          source.connect(analyser);
+          
+          analyser.fftSize = 2048;
+          const bufferLength = analyser.frequencyBinCount;
+          const dataArray = new Uint8Array(bufferLength);
+          
+          const draw = () => {
+            if (mediaRecorder.state !== 'recording') return;
+            
+            requestAnimationFrame(draw);
+            analyser.getByteTimeDomainData(dataArray);
+            
+            ctx.fillStyle = 'rgb(243, 244, 246)';
+            ctx.fillRect(0, 0, waveformCanvas.width, waveformCanvas.height);
+            
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = 'rgb(0, 169, 206)';
+            ctx.beginPath();
+            
+            const sliceWidth = waveformCanvas.width / bufferLength;
+            let x = 0;
+            
+            for (let i = 0; i < bufferLength; i++) {
+              const v = dataArray[i] / 128.0;
+              const y = v * waveformCanvas.height / 2;
+              
+              if (i === 0) {
+                ctx.moveTo(x, y);
+              } else {
+                ctx.lineTo(x, y);
+              }
+              
+              x += sliceWidth;
+            }
+            
+            ctx.lineTo(waveformCanvas.width, waveformCanvas.height / 2);
+            ctx.stroke();
+          };
+          
+          draw();
+        }
         
         // Pitch detection function (simplified autocorrelation)
         function analyzePitchRange(audioBuffer) {

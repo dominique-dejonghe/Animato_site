@@ -295,27 +295,27 @@ app.get('/stem-test', async (c) => {
 
               {/* Gender Selection (IMPORTANT for accurate results) */}
               <div class="pt-4 border-t border-gray-200">
-                <label class="block text-sm font-medium text-gray-700 mb-3">
-                  <i class="fas fa-user text-animato-primary mr-2"></i>
-                  Geslacht (belangrijk voor nauwkeurige analyse)
+                <label class="block text-sm font-medium text-gray-700 mb-3 text-center">
+                  <i class="fas fa-user-friends text-animato-primary mr-2"></i>
+                  Ik ben een...
                 </label>
-                <div class="grid grid-cols-3 gap-3">
-                  <label class="flex items-center justify-center px-4 py-3 border-2 border-gray-300 rounded-lg cursor-pointer hover:border-animato-primary transition has-[:checked]:border-animato-primary has-[:checked]:bg-animato-primary/5">
-                    <input type="radio" name="gender" value="male" id="gender-male" class="mr-2" required />
-                    <span class="font-medium">Man</span>
+                <div class="grid grid-cols-2 gap-4 max-w-md mx-auto">
+                  <label class="flex flex-col items-center justify-center px-6 py-4 border-2 border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all transform hover:scale-105 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:shadow-lg">
+                    <input type="radio" name="gender" value="male" id="gender-male" class="sr-only" required />
+                    <i class="fas fa-male text-5xl text-blue-600 mb-2"></i>
+                    <span class="font-bold text-lg text-gray-900">Man</span>
+                    <span class="text-xs text-gray-600 mt-1">Tenor / Bas</span>
                   </label>
-                  <label class="flex items-center justify-center px-4 py-3 border-2 border-gray-300 rounded-lg cursor-pointer hover:border-animato-primary transition has-[:checked]:border-animato-primary has-[:checked]:bg-animato-primary/5">
-                    <input type="radio" name="gender" value="female" id="gender-female" class="mr-2" required />
-                    <span class="font-medium">Vrouw</span>
-                  </label>
-                  <label class="flex items-center justify-center px-4 py-3 border-2 border-gray-300 rounded-lg cursor-pointer hover:border-animato-primary transition has-[:checked]:border-animato-primary has-[:checked]:bg-animato-primary/5">
-                    <input type="radio" name="gender" value="other" id="gender-other" class="mr-2" />
-                    <span class="font-medium text-sm">Neutraal</span>
+                  <label class="flex flex-col items-center justify-center px-6 py-4 border-2 border-gray-300 rounded-xl cursor-pointer hover:border-pink-500 hover:bg-pink-50 transition-all transform hover:scale-105 has-[:checked]:border-pink-500 has-[:checked]:bg-pink-50 has-[:checked]:shadow-lg">
+                    <input type="radio" name="gender" value="female" id="gender-female" class="sr-only" required />
+                    <i class="fas fa-female text-5xl text-pink-600 mb-2"></i>
+                    <span class="font-bold text-lg text-gray-900">Vrouw</span>
+                    <span class="text-xs text-gray-600 mt-1">Sopraan / Alt</span>
                   </label>
                 </div>
-                <p class="mt-2 text-xs text-gray-600">
+                <p class="mt-3 text-xs text-center text-gray-600">
                   <i class="fas fa-info-circle mr-1"></i>
-                  Mannen: Tenor/Bas | Vrouwen: Sopraan/Alt
+                  Essentieel voor correcte stemgroep analyse
                 </p>
               </div>
 

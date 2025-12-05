@@ -70,6 +70,30 @@ app.get('/stem-test', async (c) => {
               Liedje Suggesties voor Beste Resultaten
             </h3>
             
+            {/* Sheet Music Visualization Container */}
+            <div id="sheet-music-container" class="hidden mb-6 bg-white rounded-lg p-6 border-2 border-purple-300">
+              <h4 class="font-bold text-gray-900 mb-3 flex items-center">
+                <i class="fas fa-file-audio text-purple-600 mr-2"></i>
+                <span id="selected-song-title">Geselecteerd Liedje</span>
+              </h4>
+              
+              {/* Piano Roll Visualization */}
+              <div class="bg-gray-50 rounded-lg p-4">
+                <div class="text-xs text-gray-600 mb-2">Bereik op piano:</div>
+                <div id="piano-roll" class="flex justify-center space-x-1 mb-3">
+                  {/* Generated dynamically by JS */}
+                </div>
+                <div id="song-range-info" class="text-sm text-gray-700 text-center font-medium">
+                  {/* Range info */}
+                </div>
+              </div>
+              
+              <div class="mt-3 text-xs text-gray-600 text-center">
+                <i class="fas fa-lightbulb text-purple-600 mr-1"></i>
+                Probeer alle noten in dit bereik te zingen voor de beste analyse
+              </div>
+            </div>
+            
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Women's Songs */}
               <div class="bg-white rounded-lg p-4">
@@ -78,28 +102,32 @@ app.get('/stem-test', async (c) => {
                   <h4 class="font-bold text-gray-900">Voor Vrouwen:</h4>
                 </div>
                 <ul class="space-y-2 text-sm">
-                  <li class="flex items-start">
+                  <li class="flex items-start hover:bg-purple-50 p-2 rounded cursor-pointer transition" 
+                      data-song="Somewhere Over the Rainbow" data-range-low="C4" data-range-high="C6" data-freq-low="261.6" data-freq-high="1046.5">
                     <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
                     <div>
                       <strong>"Somewhere Over the Rainbow"</strong>
                       <div class="text-xs text-gray-600">Perfect bereik (C4-C6)</div>
                     </div>
                   </li>
-                  <li class="flex items-start">
+                  <li class="flex items-start hover:bg-purple-50 p-2 rounded cursor-pointer transition"
+                      data-song="Hallelujah (vrouwen)" data-range-low="A3" data-range-high="E5" data-freq-low="220.0" data-freq-high="659.3">
                     <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
                     <div>
                       <strong>"Hallelujah" (Leonard Cohen)</strong>
                       <div class="text-xs text-gray-600">Emotioneel bereik (A3-E5)</div>
                     </div>
                   </li>
-                  <li class="flex items-start">
+                  <li class="flex items-start hover:bg-purple-50 p-2 rounded cursor-pointer transition"
+                      data-song="Happy Birthday (vrouwen)" data-range-low="C4" data-range-high="C5" data-freq-low="261.6" data-freq-high="523.3">
                     <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
                     <div>
                       <strong>"Happy Birthday"</strong>
                       <div class="text-xs text-gray-600">Simpel en effectief (C4-C5)</div>
                     </div>
                   </li>
-                  <li class="flex items-start">
+                  <li class="flex items-start hover:bg-purple-50 p-2 rounded cursor-pointer transition"
+                      data-song="Amazing Grace" data-range-low="D4" data-range-high="D5" data-freq-low="293.7" data-freq-high="587.3">
                     <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
                     <div>
                       <strong>"Amazing Grace"</strong>
@@ -116,28 +144,32 @@ app.get('/stem-test', async (c) => {
                   <h4 class="font-bold text-gray-900">Voor Mannen:</h4>
                 </div>
                 <ul class="space-y-2 text-sm">
-                  <li class="flex items-start">
+                  <li class="flex items-start hover:bg-purple-50 p-2 rounded cursor-pointer transition"
+                      data-song="Hallelujah (mannen)" data-range-low="G2" data-range-high="D4" data-freq-low="98.0" data-freq-high="293.7">
                     <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
                     <div>
                       <strong>"Hallelujah"</strong>
                       <div class="text-xs text-gray-600">Populair en breed (G2-D4)</div>
                     </div>
                   </li>
-                  <li class="flex items-start">
+                  <li class="flex items-start hover:bg-purple-50 p-2 rounded cursor-pointer transition"
+                      data-song="My Way" data-range-low="F2" data-range-high="F4" data-freq-low="87.3" data-freq-high="349.2">
                     <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
                     <div>
                       <strong>"My Way" (Frank Sinatra)</strong>
                       <div class="text-xs text-gray-600">Klassiek bereik (F2-F4)</div>
                     </div>
                   </li>
-                  <li class="flex items-start">
+                  <li class="flex items-start hover:bg-purple-50 p-2 rounded cursor-pointer transition"
+                      data-song="Ol' Man River" data-range-low="E2" data-range-high="E4" data-freq-low="82.4" data-freq-high="329.6">
                     <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
                     <div>
                       <strong>"Ol' Man River"</strong>
                       <div class="text-xs text-gray-600">Ideaal voor bas (E2-E4)</div>
                     </div>
                   </li>
-                  <li class="flex items-start">
+                  <li class="flex items-start hover:bg-purple-50 p-2 rounded cursor-pointer transition"
+                      data-song="Happy Birthday (mannen)" data-range-low="C3" data-range-high="C4" data-freq-low="130.8" data-freq-high="261.6">
                     <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
                     <div>
                       <strong>"Happy Birthday"</strong>
@@ -430,8 +462,118 @@ app.get('/stem-test', async (c) => {
         let recordedBlob = null;
         let stream = null;
         
-        // Start Recording
+        // =====================================================
+        // SONG SELECTION HANDLERS (with sheet music viz)
+        // =====================================================
+        
+        document.querySelectorAll('[data-song]').forEach(songItem => {
+          songItem.addEventListener('click', function() {
+            const songTitle = this.dataset.song;
+            const rangeLow = this.dataset.rangeLow;
+            const rangeHigh = this.dataset.rangeHigh;
+            const freqLow = parseFloat(this.dataset.freqLow);
+            const freqHigh = parseFloat(this.dataset.freqHigh);
+            
+            // Show sheet music container
+            const container = document.getElementById('sheet-music-container');
+            container.classList.remove('hidden');
+            
+            // Update title
+            document.getElementById('selected-song-title').textContent = songTitle;
+            
+            // Update range info
+            document.getElementById('song-range-info').textContent = 
+              \`Bereik: \${rangeLow} tot \${rangeHigh} (\${freqLow.toFixed(0)} Hz - \${freqHigh.toFixed(0)} Hz)\`;
+            
+            // Generate piano roll visualization
+            generatePianoRoll(rangeLow, rangeHigh);
+            
+            // Highlight selected song
+            document.querySelectorAll('[data-song]').forEach(item => {
+              item.classList.remove('bg-purple-100', 'border-2', 'border-purple-400');
+            });
+            this.classList.add('bg-purple-100', 'border-2', 'border-purple-400');
+            
+            // Scroll to recording section
+            setTimeout(() => {
+              document.getElementById('recording-section').scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'center' 
+              });
+            }, 300);
+          });
+        });
+        
+        // Generate piano roll visualization
+        function generatePianoRoll(noteLow, noteHigh) {
+          const pianoRoll = document.getElementById('piano-roll');
+          
+          // All piano keys from C2 to C6
+          const allNotes = ['C2','D2','E2','F2','G2','A2','B2',
+                           'C3','D3','E3','F3','G3','A3','B3',
+                           'C4','D4','E4','F4','G4','A4','B4',
+                           'C5','D5','E5','F5','G5','A5','B5',
+                           'C6'];
+          
+          const lowIndex = allNotes.indexOf(noteLow);
+          const highIndex = allNotes.indexOf(noteHigh);
+          
+          // Generate keys
+          pianoRoll.innerHTML = allNotes.map((note, index) => {
+            const isBlack = note.includes('#') || ['D','E','G','A','B'].includes(note[0]);
+            const isInRange = index >= lowIndex && index <= highIndex;
+            
+            let bgColor = 'bg-gray-300';
+            if (isInRange) {
+              bgColor = isBlack ? 'bg-purple-700' : 'bg-purple-400';
+            } else {
+              bgColor = isBlack ? 'bg-gray-600' : 'bg-white border border-gray-400';
+            }
+            
+            const height = isBlack ? 'h-12' : 'h-16';
+            const width = isBlack ? 'w-4' : 'w-6';
+            
+            return \`
+              <div class="\${width} \${height} \${bgColor} rounded-b relative group" 
+                   title="\${note}">
+                <span class="absolute bottom-0 left-0 right-0 text-xs text-center opacity-0 group-hover:opacity-100 text-gray-900">
+                  \${note}
+                </span>
+              </div>
+            \`;
+          }).join('');
+        }
+        
+        // =====================================================
+        // GENDER VALIDATION
+        // =====================================================
+        
+        function checkGenderSelection() {
+          const gender = document.querySelector('input[name="gender"]:checked');
+          if (!gender) {
+            alert('⚠️ Selecteer eerst je geslacht voor een nauwkeurige analyse\\n\\nDit is essentieel voor correcte stemgroep-bepaling (Mannen: Tenor/Bas | Vrouwen: Sopraan/Alt)');
+            
+            // Scroll to gender selection
+            document.querySelector('input[name="gender"]').closest('.pt-4').scrollIntoView({ 
+              behavior: 'smooth', 
+              block: 'center' 
+            });
+            
+            return false;
+          }
+          return true;
+        }
+        
+        // =====================================================
+        // START RECORDING (with gender check)
+        // =====================================================
+        
         startRecordingBtn.addEventListener('click', async () => {
+          // CRITICAL: Check gender selection first
+          if (!checkGenderSelection()) {
+            return;
+          }
+          
           try {
             stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -542,8 +684,13 @@ app.get('/stem-test', async (c) => {
           location.reload();
         });
         
-        // Upload and Analyze
+        // Upload and Analyze (with gender check)
         uploadAnalyzeBtn.addEventListener('click', async () => {
+          // CRITICAL: Check gender selection first
+          if (!checkGenderSelection()) {
+            return;
+          }
+          
           const file = fileInput.files[0];
           if (!file) {
             alert('Selecteer eerst een audio bestand');
@@ -555,12 +702,7 @@ app.get('/stem-test', async (c) => {
             return;
           }
           
-          // Check gender selection
           const gender = document.querySelector('input[name="gender"]:checked')?.value;
-          if (!gender) {
-            alert('Selecteer eerst je geslacht voor een nauwkeurige analyse');
-            return;
-          }
           
           document.getElementById('recording-section').classList.add('hidden');
           processing.classList.remove('hidden');

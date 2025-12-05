@@ -261,13 +261,24 @@ app.get('/', async (c) => {
           <p class="text-xl mb-8 text-gray-100 max-w-2xl mx-auto">
             Word lid van Gemengd Koor Animato en ontdek de vreugde van samen musiceren. Alle stemgroepen (SATB) zijn welkom!
           </p>
-          <a 
-            href="/word-lid" 
-            class="inline-block bg-animato-accent hover:bg-yellow-600 text-white px-10 py-4 rounded-lg font-bold text-lg transition shadow-lg"
-          >
-            <i class="fas fa-user-plus mr-2"></i>
-            Word Lid
-          </a>
+          
+          {/* CTA Buttons */}
+          <div class="flex flex-col sm:flex-row gap-4 justify-center items-center">
+            <a 
+              href="/stem-test" 
+              class="inline-block bg-white hover:bg-gray-100 text-animato-primary px-10 py-4 rounded-lg font-bold text-lg transition shadow-lg hover:shadow-2xl group"
+            >
+              <i class="fas fa-microphone mr-2 animate-mic-vibrate group-hover:animate-mic-pulse"></i>
+              Test Je Stem
+            </a>
+            <a 
+              href="/word-lid" 
+              class="inline-block bg-animato-accent hover:bg-yellow-600 text-white px-10 py-4 rounded-lg font-bold text-lg transition shadow-lg hover:shadow-2xl"
+            >
+              <i class="fas fa-user-plus mr-2"></i>
+              Word Lid
+            </a>
+          </div>
         </div>
       </section>
     </Layout>

@@ -29,6 +29,7 @@ import voorstellenRoutes from './routes/voorstellen'
 import adminPollsRoutes from './routes/admin-polls'
 import adminVoorstellenRoutes from './routes/admin-voorstellen'
 import adminActivityRoutes from './routes/admin-activity'
+import voiceAnalyzerRoutes from './routes/voice-analyzer'
 
 // =====================================================
 // APP INITIALIZATION
@@ -69,6 +70,9 @@ app.route('/', nieuwsRoutes)
 
 // Agenda & Concerten routes
 app.route('/', agendaRoutes)
+
+// Voice Analyzer (MUST be before leden - no auth required)
+app.route('/', voiceAnalyzerRoutes)
 
 // Leden portal routes
 app.route('/', ledenRoutes)

@@ -630,11 +630,21 @@ app.get('/stem-test', async (c) => {
         
         // Play melody sequence
         function playMelody() {
-          if (!currentMelody || isPlayingMelody) return;
+          console.log('playMelody called, currentMelody:', currentMelody);
+          if (!currentMelody) {
+            console.error('No melody selected!');
+            return;
+          }
+          if (isPlayingMelody) {
+            console.log('Already playing, ignoring');
+            return;
+          }
           
           isPlayingMelody = true;
           document.getElementById('play-melody-btn').classList.add('hidden');
           document.getElementById('stop-melody-btn').classList.remove('hidden');
+          
+          console.log('Starting melody playback with', currentMelody.length, 'notes');
           
           let currentTime = 0;
           currentMelody.forEach((noteObj) => {
@@ -663,9 +673,18 @@ app.get('/stem-test', async (c) => {
           document.getElementById('stop-melody-btn').classList.add('hidden');
         }
         
-        // Melody control buttons
-        document.getElementById('play-melody-btn')?.addEventListener('click', playMelody);
-        document.getElementById('stop-melody-btn')?.addEventListener('click', stopMelody);
+        // Melody control buttons - use event delegation since buttons may not exist yet
+        document.addEventListener('click', function(e) {
+          if (e.target && e.target.id === 'play-melody-btn') {
+            playMelody();
+          } else if (e.target && e.target.id === 'stop-melody-btn') {
+            stopMelody();
+          } else if (e.target && e.target.closest('#play-melody-btn')) {
+            playMelody();
+          } else if (e.target && e.target.closest('#stop-melody-btn')) {
+            stopMelody();
+          }
+        });
         
         // Generate piano roll visualization with playable keys
         function generatePianoRoll(noteLow, noteHigh) {

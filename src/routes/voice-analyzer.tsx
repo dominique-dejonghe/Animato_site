@@ -257,11 +257,11 @@ app.get('/stem-test', async (c) => {
               </div>
 
               {/* Recording Buttons */}
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="flex justify-center gap-4">
                 <button
                   type="button"
                   id="start-recording-btn"
-                  class="px-6 py-4 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition text-lg"
+                  class="px-8 py-4 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 transition text-lg shadow-lg"
                 >
                   <i class="fas fa-circle mr-2"></i>
                   Start Opname
@@ -269,7 +269,7 @@ app.get('/stem-test', async (c) => {
                 <button
                   type="button"
                   id="stop-recording-btn"
-                  class="hidden px-6 py-4 bg-gray-600 text-white font-bold rounded-lg hover:bg-gray-700 transition text-lg"
+                  class="hidden px-8 py-4 bg-gray-600 text-white font-bold rounded-lg hover:bg-gray-700 transition text-lg shadow-lg"
                   disabled
                 >
                   <i class="fas fa-stop mr-2"></i>
@@ -586,6 +586,15 @@ app.get('/stem-test', async (c) => {
           'C6': 1046.50
         };
         
+        // Solfège mapping (Do Re Mi Fa Sol La Si)
+        const noteSolfege = {
+          'C2': 'Do₂', 'C#2': 'Do#₂', 'D2': 'Re₂', 'D#2': 'Re#₂', 'E2': 'Mi₂', 'F2': 'Fa₂', 'F#2': 'Fa#₂', 'G2': 'Sol₂', 'G#2': 'Sol#₂', 'A2': 'La₂', 'A#2': 'La#₂', 'B2': 'Si₂',
+          'C3': 'Do₃', 'C#3': 'Do#₃', 'D3': 'Re₃', 'D#3': 'Re#₃', 'E3': 'Mi₃', 'F3': 'Fa₃', 'F#3': 'Fa#₃', 'G3': 'Sol₃', 'G#3': 'Sol#₃', 'A3': 'La₃', 'A#3': 'La#₃', 'B3': 'Si₃',
+          'C4': 'Do₄', 'C#4': 'Do#₄', 'D4': 'Re₄', 'D#4': 'Re#₄', 'E4': 'Mi₄', 'F4': 'Fa₄', 'F#4': 'Fa#₄', 'G4': 'Sol₄', 'G#4': 'Sol#₄', 'A4': 'La₄', 'A#4': 'La#₄', 'B4': 'Si₄',
+          'C5': 'Do₅', 'C#5': 'Do#₅', 'D5': 'Re₅', 'D#5': 'Re#₅', 'E5': 'Mi₅', 'F5': 'Fa₅', 'F#5': 'Fa#₅', 'G5': 'Sol₅', 'G#5': 'Sol#₅', 'A5': 'La₅', 'A#5': 'La#₅', 'B5': 'Si₅',
+          'C6': 'Do₆'
+        };
+        
         // Global audio context for melody playback
         let melodyAudioContext = null;
         
@@ -720,14 +729,17 @@ app.get('/stem-test', async (c) => {
             const width = isBlack ? 'w-8' : 'w-10';
             const cursor = isInRange ? 'cursor-pointer' : 'cursor-not-allowed opacity-40';
             
+            const solfege = noteSolfege[note] || note;
+            
             return \`
               <div class="\${width} \${height} \${bgColor} \${hoverColor} \${cursor} rounded-b shadow-md relative group transition-all active:scale-95" 
                    data-note="\${note}"
                    data-in-range="\${isInRange}"
                    onclick="if(this.dataset.inRange === 'true') playNote('\${note}')"
-                   title="\${note} - \${noteFrequencies[note].toFixed(2)} Hz">
-                <span class="absolute bottom-1 left-0 right-0 text-xs text-center \${textColor} font-medium">
-                  \${note}
+                   title="\${solfege} (\${note}) - \${noteFrequencies[note].toFixed(2)} Hz">
+                <span class="absolute bottom-1 left-0 right-0 text-xs text-center \${textColor} font-medium leading-tight">
+                  <div>\${note}</div>
+                  <div class="text-[10px] opacity-75">\${solfege}</div>
                 </span>
               </div>
             \`;

@@ -283,7 +283,7 @@ app.get('/stem-test', async (c) => {
                 </div>
                 <p class="mt-2 text-xs text-gray-600">
                   <i class="fas fa-info-circle mr-1"></i>
-                  Mannen: Tenor/Bariton/Bas | Vrouwen: Sopraan/Mezzo/Alt
+                  Mannen: Tenor/Bas | Vrouwen: Sopraan/Alt
                 </p>
               </div>
 
@@ -759,22 +759,21 @@ app.get('/stem-test', async (c) => {
           const avgFreq = (lowFreq + highFreq) / 2;
           
           // Gender-specific stemgroep ranges (Hz)
+          // Simplified to classic 4 voice types: Sopraan, Alt, Tenor, Bas
           const rangesByGender = {
             male: {
-              'Tenor': { low: 130, high: 523, ideal: 320 },      // C3-C5
-              'Bariton': { low: 110, high: 440, ideal: 260 },    // A2-A4
-              'Bas': { low: 82, high: 349, ideal: 196 }          // E2-F4
+              'Tenor': { low: 130, high: 523, ideal: 330 },      // C3-C5
+              'Bas': { low: 82, high: 392, ideal: 196 }          // E2-G4
             },
             female: {
               'Sopraan': { low: 260, high: 1047, ideal: 523 },   // C4-C6
-              'Mezzosopraan': { low: 220, high: 880, ideal: 440 }, // A3-A5
               'Alt': { low: 175, high: 698, ideal: 349 }         // F3-F5
             },
             other: {
               'Sopraan': { low: 260, high: 1047, ideal: 523 },
               'Alt': { low: 175, high: 698, ideal: 349 },
-              'Tenor': { low: 130, high: 523, ideal: 320 },
-              'Bas': { low: 82, high: 349, ideal: 196 }
+              'Tenor': { low: 130, high: 523, ideal: 330 },
+              'Bas': { low: 82, high: 392, ideal: 196 }
             }
           };
           
@@ -816,10 +815,8 @@ app.get('/stem-test', async (c) => {
           
           const stemgroepNames = {
             'Sopraan': 'Sopraan (S)',
-            'Mezzosopraan': 'Mezzosopraan (A)',
             'Alt': 'Alt (A)',
             'Tenor': 'Tenor (T)',
-            'Bariton': 'Bariton (B)',
             'Bas': 'Bas (B)'
           };
           
@@ -854,10 +851,8 @@ app.get('/stem-test', async (c) => {
             const email = document.getElementById('email')?.value || null;
             const stemgroepMap = { 
               'Sopraan': 'S', 
-              'Mezzosopraan': 'A', 
               'Alt': 'A', 
               'Tenor': 'T', 
-              'Bariton': 'B', 
               'Bas': 'B' 
             };
             

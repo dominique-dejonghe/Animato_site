@@ -167,9 +167,35 @@ app.get('/stem-test', async (c) => {
                 </div>
               </details>
 
+              {/* Gender Selection (IMPORTANT for accurate results) */}
+              <div class="pt-4 border-t border-gray-200">
+                <label class="block text-sm font-medium text-gray-700 mb-3">
+                  <i class="fas fa-user text-animato-primary mr-2"></i>
+                  Geslacht (belangrijk voor nauwkeurige analyse)
+                </label>
+                <div class="grid grid-cols-3 gap-3">
+                  <label class="flex items-center justify-center px-4 py-3 border-2 border-gray-300 rounded-lg cursor-pointer hover:border-animato-primary transition has-[:checked]:border-animato-primary has-[:checked]:bg-animato-primary/5">
+                    <input type="radio" name="gender" value="male" id="gender-male" class="mr-2" required />
+                    <span class="font-medium">Man</span>
+                  </label>
+                  <label class="flex items-center justify-center px-4 py-3 border-2 border-gray-300 rounded-lg cursor-pointer hover:border-animato-primary transition has-[:checked]:border-animato-primary has-[:checked]:bg-animato-primary/5">
+                    <input type="radio" name="gender" value="female" id="gender-female" class="mr-2" required />
+                    <span class="font-medium">Vrouw</span>
+                  </label>
+                  <label class="flex items-center justify-center px-4 py-3 border-2 border-gray-300 rounded-lg cursor-pointer hover:border-animato-primary transition has-[:checked]:border-animato-primary has-[:checked]:bg-animato-primary/5">
+                    <input type="radio" name="gender" value="other" id="gender-other" class="mr-2" />
+                    <span class="font-medium text-sm">Neutraal</span>
+                  </label>
+                </div>
+                <p class="mt-2 text-xs text-gray-600">
+                  <i class="fas fa-info-circle mr-1"></i>
+                  Mannen: Tenor/Bariton/Bas | Vrouwen: Sopraan/Mezzo/Alt
+                </p>
+              </div>
+
               {/* Optional: Email for results */}
               {!user && (
-                <div class="pt-4 border-t border-gray-200">
+                <div class="pt-4">
                   <label for="email" class="block text-sm font-medium text-gray-700 mb-2">
                     <i class="fas fa-envelope text-animato-primary mr-2"></i>
                     Email (optioneel)
@@ -389,6 +415,13 @@ app.get('/stem-test', async (c) => {
         analyzeRecordingBtn.addEventListener('click', async () => {
           if (!recordedBlob) return;
           
+          // Check gender selection
+          const gender = document.querySelector('input[name="gender"]:checked')?.value;
+          if (!gender) {
+            alert('Selecteer eerst je geslacht voor een nauwkeurige analyse');
+            return;
+          }
+          
           playbackControls.classList.add('hidden');
           processing.classList.remove('hidden');
           
@@ -396,7 +429,7 @@ app.get('/stem-test', async (c) => {
             const arrayBuffer = await recordedBlob.arrayBuffer();
             audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
             
-            const analysis = await analyzePitchRange(audioBuffer);
+            const analysis = await analyzePitchRange(audioBuffer, gender);
             await saveAnalysis(analysis);
             displayResults(analysis);
             
@@ -428,6 +461,13 @@ app.get('/stem-test', async (c) => {
             return;
           }
           
+          // Check gender selection
+          const gender = document.querySelector('input[name="gender"]:checked')?.value;
+          if (!gender) {
+            alert('Selecteer eerst je geslacht voor een nauwkeurige analyse');
+            return;
+          }
+          
           document.getElementById('recording-section').classList.add('hidden');
           processing.classList.remove('hidden');
           
@@ -436,7 +476,7 @@ app.get('/stem-test', async (c) => {
             const arrayBuffer = await file.arrayBuffer();
             audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
             
-            const analysis = await analyzePitchRange(audioBuffer);
+            const analysis = await analyzePitchRange(audioBuffer, gender);
             await saveAnalysis(analysis);
             displayResults(analysis);
             
@@ -506,8 +546,8 @@ app.get('/stem-test', async (c) => {
           draw();
         }
         
-        // Pitch detection function (simplified autocorrelation)
-        function analyzePitchRange(audioBuffer) {
+        // Pitch detection function with gender-aware filtering
+        function analyzePitchRange(audioBuffer, gender) {
           return new Promise((resolve) => {
             const channelData = audioBuffer.getChannelData(0);
             const sampleRate = audioBuffer.sampleRate;
@@ -516,11 +556,22 @@ app.get('/stem-test', async (c) => {
             
             const frequencies = [];
             
+            // Gender-specific frequency limits (Hz)
+            const limits = {
+              male: { min: 70, max: 650 },     // E2 to E5
+              female: { min: 150, max: 1200 }, // D3 to D6
+              other: { min: 70, max: 1200 }    // Full range
+            };
+            
+            const freqLimits = limits[gender] || limits.other;
+            
             // Process audio in windows
             for (let i = 0; i < channelData.length - windowSize; i += hopSize) {
               const window = channelData.slice(i, i + windowSize);
               const freq = detectPitch(window, sampleRate);
-              if (freq > 0 && freq >= 60 && freq <= 1200) {
+              
+              // Apply gender-specific filtering
+              if (freq > 0 && freq >= freqLimits.min && freq <= freqLimits.max) {
                 frequencies.push(freq);
               }
             }
@@ -528,18 +579,33 @@ app.get('/stem-test', async (c) => {
             // Filter and sort
             frequencies.sort((a, b) => a - b);
             
-            // Get lowest and highest (ignore outliers)
-            const percentile10 = Math.floor(frequencies.length * 0.1);
-            const percentile90 = Math.floor(frequencies.length * 0.9);
+            if (frequencies.length === 0) {
+              resolve({
+                lowestFreq: 0,
+                highestFreq: 0,
+                lowestNote: 'N/A',
+                highestNote: 'N/A',
+                primaryStemgroep: 'Onbekend',
+                primaryConfidence: 0,
+                secondaryStemgroep: null,
+                secondaryConfidence: null,
+                duration: audioBuffer.duration
+              });
+              return;
+            }
             
-            const lowestFreq = frequencies[percentile10] || frequencies[0] || 100;
-            const highestFreq = frequencies[percentile90] || frequencies[frequencies.length - 1] || 400;
+            // Use percentiles to filter outliers (more robust)
+            const p15 = Math.floor(frequencies.length * 0.15);
+            const p85 = Math.floor(frequencies.length * 0.85);
+            
+            const lowestFreq = frequencies[p15] || frequencies[0];
+            const highestFreq = frequencies[p85] || frequencies[frequencies.length - 1];
             
             const lowestNote = frequencyToNote(lowestFreq);
             const highestNote = frequencyToNote(highestFreq);
             
-            // Determine stemgroep
-            const stemgroep = determineStemgroep(lowestFreq, highestFreq);
+            // Determine stemgroep with gender context
+            const stemgroep = determineStemgroep(lowestFreq, highestFreq, gender);
             
             resolve({
               lowestFreq: lowestFreq.toFixed(1),
@@ -594,32 +660,56 @@ app.get('/stem-test', async (c) => {
           return noteNames[note] + octave;
         }
         
-        // Determine stemgroep based on range
-        function determineStemgroep(lowFreq, highFreq) {
+        // Determine stemgroep with gender-specific ranges
+        function determineStemgroep(lowFreq, highFreq, gender) {
           const avgFreq = (lowFreq + highFreq) / 2;
           
-          // Stemgroep ranges (approximate)
-          const ranges = {
-            'Sopraan': { low: 260, high: 1047, ideal: 500 },
-            'Alt': { low: 196, high: 698, ideal: 400 },
-            'Tenor': { low: 130, high: 523, ideal: 300 },
-            'Bas': { low: 82, high: 349, ideal: 200 }
+          // Gender-specific stemgroep ranges (Hz)
+          const rangesByGender = {
+            male: {
+              'Tenor': { low: 130, high: 523, ideal: 320 },      // C3-C5
+              'Bariton': { low: 110, high: 440, ideal: 260 },    // A2-A4
+              'Bas': { low: 82, high: 349, ideal: 196 }          // E2-F4
+            },
+            female: {
+              'Sopraan': { low: 260, high: 1047, ideal: 523 },   // C4-C6
+              'Mezzosopraan': { low: 220, high: 880, ideal: 440 }, // A3-A5
+              'Alt': { low: 175, high: 698, ideal: 349 }         // F3-F5
+            },
+            other: {
+              'Sopraan': { low: 260, high: 1047, ideal: 523 },
+              'Alt': { low: 175, high: 698, ideal: 349 },
+              'Tenor': { low: 130, high: 523, ideal: 320 },
+              'Bas': { low: 82, high: 349, ideal: 196 }
+            }
           };
           
+          const ranges = rangesByGender[gender] || rangesByGender.other;
+          
           const scores = Object.entries(ranges).map(([name, range]) => {
-            const inRange = lowFreq >= range.low * 0.8 && highFreq <= range.high * 1.2;
-            const avgMatch = 1 - Math.abs(avgFreq - range.ideal) / range.ideal;
-            const rangeMatch = (Math.min(highFreq, range.high) - Math.max(lowFreq, range.low)) / 
-                              (range.high - range.low);
+            // Check if frequencies fall within range (with 20% tolerance)
+            const lowInRange = lowFreq >= range.low * 0.8 && lowFreq <= range.high * 1.2;
+            const highInRange = highFreq >= range.low * 0.8 && highFreq <= range.high * 1.2;
+            const inRange = lowInRange || highInRange;
             
-            const confidence = (inRange ? 0.5 : 0) + (avgMatch * 0.3) + (rangeMatch * 0.2);
+            // Calculate how well average frequency matches ideal
+            const avgMatch = 1 - Math.min(1, Math.abs(avgFreq - range.ideal) / range.ideal);
+            
+            // Calculate overlap between detected range and expected range
+            const overlapLow = Math.max(lowFreq, range.low);
+            const overlapHigh = Math.min(highFreq, range.high);
+            const overlap = Math.max(0, overlapHigh - overlapLow);
+            const rangeMatch = overlap / (range.high - range.low);
+            
+            // Weighted confidence score
+            const confidence = (inRange ? 0.4 : 0) + (avgMatch * 0.35) + (rangeMatch * 0.25);
             
             return { name, confidence: Math.max(0, Math.min(1, confidence)) };
           }).sort((a, b) => b.confidence - a.confidence);
           
           return {
             primary: scores[0],
-            secondary: scores[1].confidence > 0.4 ? scores[1] : null
+            secondary: scores[1].confidence > 0.3 ? scores[1] : null
           };
         }
         
@@ -632,8 +722,10 @@ app.get('/stem-test', async (c) => {
           
           const stemgroepNames = {
             'Sopraan': 'Sopraan (S)',
+            'Mezzosopraan': 'Mezzosopraan (A)',
             'Alt': 'Alt (A)',
             'Tenor': 'Tenor (T)',
+            'Bariton': 'Bariton (B)',
             'Bas': 'Bas (B)'
           };
           
@@ -666,7 +758,14 @@ app.get('/stem-test', async (c) => {
         async function saveAnalysis(analysis) {
           try {
             const email = document.getElementById('email')?.value || null;
-            const stemgroepMap = { 'Sopraan': 'S', 'Alt': 'A', 'Tenor': 'T', 'Bas': 'B' };
+            const stemgroepMap = { 
+              'Sopraan': 'S', 
+              'Mezzosopraan': 'A', 
+              'Alt': 'A', 
+              'Tenor': 'T', 
+              'Bariton': 'B', 
+              'Bas': 'B' 
+            };
             
             await fetch('/api/voice-analysis/save', {
               method: 'POST',

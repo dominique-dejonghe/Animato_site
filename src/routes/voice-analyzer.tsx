@@ -46,21 +46,115 @@ app.get('/stem-test', async (c) => {
             <ol class="space-y-2 text-blue-800">
               <li class="flex items-start">
                 <span class="font-bold mr-2">1.</span>
-                <span><strong>Klik op "Start Opname"</strong> en geef microfoon toegang</span>
+                <span><strong>Selecteer je geslacht</strong> (verderop op de pagina)</span>
               </li>
               <li class="flex items-start">
                 <span class="font-bold mr-2">2.</span>
-                <span>Zing van je <strong>laagste</strong> tot je <strong>hoogste</strong> comfortabele noot (15-30 seconden)</span>
+                <span><strong>Klik op "Start Opname"</strong> en geef microfoon toegang</span>
               </li>
               <li class="flex items-start">
                 <span class="font-bold mr-2">3.</span>
-                <span><strong>Stop de opname</strong> en wacht terwijl we je stem analyseren</span>
+                <span><strong>Zing een liedje</strong> dat een groot bereik heeft (zie suggesties hieronder) of zing van je laagste tot hoogste noot (15-30 seconden)</span>
               </li>
               <li class="flex items-start">
                 <span class="font-bold mr-2">4.</span>
-                <span>Bekijk je resultaten en stemgroep aanbeveling!</span>
+                <span><strong>Stop de opname</strong>, beluister indien gewenst, en klik "Analyseer Opname"</span>
               </li>
             </ol>
+          </div>
+
+          {/* Song Suggestions Card */}
+          <div class="bg-gradient-to-r from-purple-50 to-pink-50 border-2 border-purple-200 rounded-lg p-6 mb-8">
+            <h3 class="text-lg font-bold text-purple-900 mb-4 flex items-center">
+              <i class="fas fa-music mr-2"></i>
+              Liedje Suggesties voor Beste Resultaten
+            </h3>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Women's Songs */}
+              <div class="bg-white rounded-lg p-4">
+                <div class="flex items-center mb-3">
+                  <i class="fas fa-venus text-pink-600 text-xl mr-2"></i>
+                  <h4 class="font-bold text-gray-900">Voor Vrouwen:</h4>
+                </div>
+                <ul class="space-y-2 text-sm">
+                  <li class="flex items-start">
+                    <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
+                    <div>
+                      <strong>"Somewhere Over the Rainbow"</strong>
+                      <div class="text-xs text-gray-600">Perfect bereik (C4-C6)</div>
+                    </div>
+                  </li>
+                  <li class="flex items-start">
+                    <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
+                    <div>
+                      <strong>"Hallelujah" (Leonard Cohen)</strong>
+                      <div class="text-xs text-gray-600">Emotioneel bereik (A3-E5)</div>
+                    </div>
+                  </li>
+                  <li class="flex items-start">
+                    <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
+                    <div>
+                      <strong>"Happy Birthday"</strong>
+                      <div class="text-xs text-gray-600">Simpel en effectief (C4-C5)</div>
+                    </div>
+                  </li>
+                  <li class="flex items-start">
+                    <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
+                    <div>
+                      <strong>"Amazing Grace"</strong>
+                      <div class="text-xs text-gray-600">Langzaam en duidelijk (D4-D5)</div>
+                    </div>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Men's Songs */}
+              <div class="bg-white rounded-lg p-4">
+                <div class="flex items-center mb-3">
+                  <i class="fas fa-mars text-blue-600 text-xl mr-2"></i>
+                  <h4 class="font-bold text-gray-900">Voor Mannen:</h4>
+                </div>
+                <ul class="space-y-2 text-sm">
+                  <li class="flex items-start">
+                    <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
+                    <div>
+                      <strong>"Hallelujah"</strong>
+                      <div class="text-xs text-gray-600">Populair en breed (G2-D4)</div>
+                    </div>
+                  </li>
+                  <li class="flex items-start">
+                    <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
+                    <div>
+                      <strong>"My Way" (Frank Sinatra)</strong>
+                      <div class="text-xs text-gray-600">Klassiek bereik (F2-F4)</div>
+                    </div>
+                  </li>
+                  <li class="flex items-start">
+                    <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
+                    <div>
+                      <strong>"Ol' Man River"</strong>
+                      <div class="text-xs text-gray-600">Ideaal voor bas (E2-E4)</div>
+                    </div>
+                  </li>
+                  <li class="flex items-start">
+                    <i class="fas fa-check-circle text-green-600 mr-2 mt-0.5"></i>
+                    <div>
+                      <strong>"Happy Birthday"</strong>
+                      <div class="text-xs text-gray-600">Universeel bekend (C3-C4)</div>
+                    </div>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div class="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+              <p class="text-sm text-amber-900">
+                <i class="fas fa-lightbulb text-amber-600 mr-2"></i>
+                <strong>Pro Tip:</strong> Zing het liedje volledig door, van de laagste tot hoogste noten. 
+                Probeer je volledige bereik te gebruiken voor de beste analyse!
+              </p>
+            </div>
           </div>
 
           {/* Recording Section */}

@@ -46,53 +46,55 @@ app.get('/stem-test', async (c) => {
             <ol class="space-y-2 text-blue-800">
               <li class="flex items-start">
                 <span class="font-bold mr-2">1.</span>
-                <span><strong>Selecteer je geslacht</strong> (verderop op de pagina)</span>
+                <span><strong>Selecteer je geslacht</strong> (Man of Vrouw)</span>
               </li>
               <li class="flex items-start">
                 <span class="font-bold mr-2">2.</span>
-                <span><strong>Klik op "Start Opname"</strong> en geef microfoon toegang</span>
+                <span><strong>Kies een liedje</strong> om de partituur te zien en noten te horen</span>
               </li>
               <li class="flex items-start">
                 <span class="font-bold mr-2">3.</span>
-                <span><strong>Zing een liedje</strong> dat een groot bereik heeft (zie suggesties hieronder) of zing van je laagste tot hoogste noot (15-30 seconden)</span>
+                <span><strong>Klik op "Start Opname"</strong> en zing het liedje</span>
               </li>
               <li class="flex items-start">
                 <span class="font-bold mr-2">4.</span>
-                <span><strong>Stop de opname</strong>, beluister indien gewenst, en klik "Analyseer Opname"</span>
+                <span><strong>Analyseer je opname</strong> en ontdek je stemgroep</span>
               </li>
             </ol>
           </div>
 
-          {/* Song Suggestions Card */}
-          <div class="bg-gradient-to-r from-purple-50 to-pink-50 border-2 border-purple-200 rounded-lg p-6 mb-8">
-            <h3 class="text-lg font-bold text-purple-900 mb-4 flex items-center">
-              <i class="fas fa-music mr-2"></i>
-              Liedje Suggesties voor Beste Resultaten
-            </h3>
-            
-            {/* Sheet Music Visualization Container */}
-            <div id="sheet-music-container" class="hidden mb-6 bg-white rounded-lg p-6 border-2 border-purple-300">
-              <h4 class="font-bold text-gray-900 mb-3 flex items-center">
-                <i class="fas fa-file-audio text-purple-600 mr-2"></i>
-                <span id="selected-song-title">Geselecteerd Liedje</span>
-              </h4>
-              
-              {/* Piano Roll Visualization */}
-              <div class="bg-gray-50 rounded-lg p-4">
-                <div class="text-xs text-gray-600 mb-2">Bereik op piano:</div>
-                <div id="piano-roll" class="flex justify-center space-x-1 mb-3">
-                  {/* Generated dynamically by JS */}
-                </div>
-                <div id="song-range-info" class="text-sm text-gray-700 text-center font-medium">
-                  {/* Range info */}
-                </div>
-              </div>
-              
-              <div class="mt-3 text-xs text-gray-600 text-center">
-                <i class="fas fa-lightbulb text-purple-600 mr-1"></i>
-                Probeer alle noten in dit bereik te zingen voor de beste analyse
-              </div>
+          {/* STAP 1: Gender Selection */}
+          <div class="bg-white rounded-lg shadow-lg p-8 mb-8">
+            <h2 class="text-2xl font-bold text-gray-900 mb-6 text-center" style="font-family: 'Playfair Display', serif;">
+              <span class="inline-block bg-animato-primary text-white rounded-full w-8 h-8 text-center leading-8 mr-2">1</span>
+              Ik ben een...
+            </h2>
+            <div class="grid grid-cols-2 gap-6 max-w-lg mx-auto">
+              <label class="flex flex-col items-center justify-center px-6 py-6 border-2 border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all transform hover:scale-105 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:shadow-lg">
+                <input type="radio" name="gender" value="male" id="gender-male" class="sr-only" required />
+                <i class="fas fa-male text-6xl text-blue-600 mb-3"></i>
+                <span class="font-bold text-xl text-gray-900">Man</span>
+                <span class="text-sm text-gray-600 mt-2">Tenor / Bas</span>
+              </label>
+              <label class="flex flex-col items-center justify-center px-6 py-6 border-2 border-gray-300 rounded-xl cursor-pointer hover:border-pink-500 hover:bg-pink-50 transition-all transform hover:scale-105 has-[:checked]:border-pink-500 has-[:checked]:bg-pink-50 has-[:checked]:shadow-lg">
+                <input type="radio" name="gender" value="female" id="gender-female" class="sr-only" required />
+                <i class="fas fa-female text-6xl text-pink-600 mb-3"></i>
+                <span class="font-bold text-xl text-gray-900">Vrouw</span>
+                <span class="text-sm text-gray-600 mt-2">Sopraan / Alt</span>
+              </label>
             </div>
+            <p class="mt-4 text-xs text-center text-gray-600">
+              <i class="fas fa-info-circle mr-1"></i>
+              Essentieel voor correcte stemgroep analyse
+            </p>
+          </div>
+
+          {/* STAP 2: Song Selection */}
+          <div class="bg-white rounded-lg shadow-lg p-8 mb-8">
+            <h2 class="text-2xl font-bold text-gray-900 mb-6 text-center" style="font-family: 'Playfair Display', serif;">
+              <span class="inline-block bg-animato-primary text-white rounded-full w-8 h-8 text-center leading-8 mr-2">2</span>
+              Kies een liedje
+            </h2>
             
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Women's Songs */}
@@ -180,17 +182,47 @@ app.get('/stem-test', async (c) => {
               </div>
             </div>
 
-            <div class="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-              <p class="text-sm text-amber-900">
+            <p class="mt-4 text-sm text-center text-gray-600">
+              <i class="fas fa-music text-purple-600 mr-1"></i>
+              Klik op een liedje om de partituur te zien
+            </p>
+          </div>
+
+          {/* Piano Visualization (shown after song selection) */}
+          <div id="piano-container" class="hidden bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg shadow-lg p-8 mb-8 border-2 border-purple-300">
+            <h3 class="text-xl font-bold text-purple-900 mb-4 text-center flex items-center justify-center">
+              <i class="fas fa-file-audio text-purple-600 mr-2"></i>
+              <span id="selected-song-title">Geselecteerd Liedje</span>
+            </h3>
+            
+            {/* Piano Keys */}
+            <div class="bg-white rounded-lg p-6">
+              <div class="text-sm text-gray-700 mb-3 text-center">
+                <i class="fas fa-hand-pointer text-purple-600 mr-2"></i>
+                Klik op de paarse toetsen om de noten te horen
+              </div>
+              <div id="piano-roll" class="flex justify-center items-end space-x-0.5 mb-4" style="min-height: 120px;">
+                {/* Generated dynamically by JS */}
+              </div>
+              <div id="song-range-info" class="text-center text-lg font-bold text-purple-900">
+                {/* Range info */}
+              </div>
+            </div>
+            
+            <div class="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <p class="text-sm text-amber-900 text-center">
                 <i class="fas fa-lightbulb text-amber-600 mr-2"></i>
-                <strong>Pro Tip:</strong> Zing het liedje volledig door, van de laagste tot hoogste noten. 
-                Probeer je volledige bereik te gebruiken voor de beste analyse!
+                <strong>Tip:</strong> Oefen eerst de noten, zing dan het volledige liedje tijdens de opname!
               </p>
             </div>
           </div>
 
-          {/* Recording Section */}
+          {/* STAP 3: Recording Section */}
           <div class="bg-white rounded-lg shadow-lg p-8">
+            <h2 class="text-2xl font-bold text-gray-900 mb-6 text-center" style="font-family: 'Playfair Display', serif;">
+              <span class="inline-block bg-animato-primary text-white rounded-full w-8 h-8 text-center leading-8 mr-2">3</span>
+              Neem je stem op
+            </h2>
             {/* Recording Controls */}
             <div class="space-y-6" id="recording-section">
               
@@ -292,32 +324,6 @@ app.get('/stem-test', async (c) => {
                   </button>
                 </div>
               </details>
-
-              {/* Gender Selection (IMPORTANT for accurate results) */}
-              <div class="pt-4 border-t border-gray-200">
-                <label class="block text-sm font-medium text-gray-700 mb-3 text-center">
-                  <i class="fas fa-user-friends text-animato-primary mr-2"></i>
-                  Ik ben een...
-                </label>
-                <div class="grid grid-cols-2 gap-4 max-w-md mx-auto">
-                  <label class="flex flex-col items-center justify-center px-6 py-4 border-2 border-gray-300 rounded-xl cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-all transform hover:scale-105 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:shadow-lg">
-                    <input type="radio" name="gender" value="male" id="gender-male" class="sr-only" required />
-                    <i class="fas fa-male text-5xl text-blue-600 mb-2"></i>
-                    <span class="font-bold text-lg text-gray-900">Man</span>
-                    <span class="text-xs text-gray-600 mt-1">Tenor / Bas</span>
-                  </label>
-                  <label class="flex flex-col items-center justify-center px-6 py-4 border-2 border-gray-300 rounded-xl cursor-pointer hover:border-pink-500 hover:bg-pink-50 transition-all transform hover:scale-105 has-[:checked]:border-pink-500 has-[:checked]:bg-pink-50 has-[:checked]:shadow-lg">
-                    <input type="radio" name="gender" value="female" id="gender-female" class="sr-only" required />
-                    <i class="fas fa-female text-5xl text-pink-600 mb-2"></i>
-                    <span class="font-bold text-lg text-gray-900">Vrouw</span>
-                    <span class="text-xs text-gray-600 mt-1">Sopraan / Alt</span>
-                  </label>
-                </div>
-                <p class="mt-3 text-xs text-center text-gray-600">
-                  <i class="fas fa-info-circle mr-1"></i>
-                  Essentieel voor correcte stemgroep analyse
-                </p>
-              </div>
 
               {/* Optional: Email for results */}
               {!user && (
@@ -474,8 +480,8 @@ app.get('/stem-test', async (c) => {
             const freqLow = parseFloat(this.dataset.freqLow);
             const freqHigh = parseFloat(this.dataset.freqHigh);
             
-            // Show sheet music container
-            const container = document.getElementById('sheet-music-container');
+            // Show piano container
+            const container = document.getElementById('piano-container');
             container.classList.remove('hidden');
             
             // Update title
@@ -483,9 +489,9 @@ app.get('/stem-test', async (c) => {
             
             // Update range info
             document.getElementById('song-range-info').textContent = 
-              \`Bereik: \${rangeLow} tot \${rangeHigh} (\${freqLow.toFixed(0)} Hz - \${freqHigh.toFixed(0)} Hz)\`;
+              \`\${rangeLow} tot \${rangeHigh} (\${freqLow.toFixed(0)} - \${freqHigh.toFixed(0)} Hz)\`;
             
-            // Generate piano roll visualization
+            // Generate piano roll visualization with playable keys
             generatePianoRoll(rangeLow, rangeHigh);
             
             // Highlight selected song
@@ -494,49 +500,88 @@ app.get('/stem-test', async (c) => {
             });
             this.classList.add('bg-purple-100', 'border-2', 'border-purple-400');
             
-            // Scroll to recording section
+            // Scroll to piano
             setTimeout(() => {
-              document.getElementById('recording-section').scrollIntoView({ 
+              container.scrollIntoView({ 
                 behavior: 'smooth', 
                 block: 'center' 
               });
-            }, 300);
+            }, 200);
           });
         });
         
-        // Generate piano roll visualization
+        // Note frequencies for piano
+        const noteFrequencies = {
+          'C2': 65.41, 'C#2': 69.30, 'D2': 73.42, 'D#2': 77.78, 'E2': 82.41, 'F2': 87.31, 'F#2': 92.50, 'G2': 98.00, 'G#2': 103.83, 'A2': 110.00, 'A#2': 116.54, 'B2': 123.47,
+          'C3': 130.81, 'C#3': 138.59, 'D3': 146.83, 'D#3': 155.56, 'E3': 164.81, 'F3': 174.61, 'F#3': 185.00, 'G3': 196.00, 'G#3': 207.65, 'A3': 220.00, 'A#3': 233.08, 'B3': 246.94,
+          'C4': 261.63, 'C#4': 277.18, 'D4': 293.66, 'D#4': 311.13, 'E4': 329.63, 'F4': 349.23, 'F#4': 369.99, 'G4': 392.00, 'G#4': 415.30, 'A4': 440.00, 'A#4': 466.16, 'B4': 493.88,
+          'C5': 523.25, 'C#5': 554.37, 'D5': 587.33, 'D#5': 622.25, 'E5': 659.25, 'F5': 698.46, 'F#5': 739.99, 'G5': 783.99, 'G#5': 830.61, 'A5': 880.00, 'A#5': 932.33, 'B5': 987.77,
+          'C6': 1046.50
+        };
+        
+        // Play note sound
+        function playNote(note) {
+          const frequency = noteFrequencies[note];
+          if (!frequency) return;
+          
+          const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          const oscillator = audioCtx.createOscillator();
+          const gainNode = audioCtx.createGain();
+          
+          oscillator.connect(gainNode);
+          gainNode.connect(audioCtx.destination);
+          
+          oscillator.frequency.value = frequency;
+          oscillator.type = 'sine';
+          
+          gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+          gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+          
+          oscillator.start(audioCtx.currentTime);
+          oscillator.stop(audioCtx.currentTime + 0.5);
+        }
+        
+        // Generate piano roll visualization with playable keys
         function generatePianoRoll(noteLow, noteHigh) {
           const pianoRoll = document.getElementById('piano-roll');
           
           // All piano keys from C2 to C6
-          const allNotes = ['C2','D2','E2','F2','G2','A2','B2',
-                           'C3','D3','E3','F3','G3','A3','B3',
-                           'C4','D4','E4','F4','G4','A4','B4',
-                           'C5','D5','E5','F5','G5','A5','B5',
+          const allNotes = ['C2','C#2','D2','D#2','E2','F2','F#2','G2','G#2','A2','A#2','B2',
+                           'C3','C#3','D3','D#3','E3','F3','F#3','G3','G#3','A3','A#3','B3',
+                           'C4','C#4','D4','D#4','E4','F4','F#4','G4','G#4','A4','A#4','B4',
+                           'C5','C#5','D5','D#5','E5','F5','F#5','G5','G#5','A5','A#5','B5',
                            'C6'];
           
           const lowIndex = allNotes.indexOf(noteLow);
           const highIndex = allNotes.indexOf(noteHigh);
           
-          // Generate keys
+          // Generate keys with click handlers
           pianoRoll.innerHTML = allNotes.map((note, index) => {
-            const isBlack = note.includes('#') || ['D','E','G','A','B'].includes(note[0]);
+            const isBlack = note.includes('#');
             const isInRange = index >= lowIndex && index <= highIndex;
             
-            let bgColor = 'bg-gray-300';
+            let bgColor, hoverColor, textColor;
             if (isInRange) {
               bgColor = isBlack ? 'bg-purple-700' : 'bg-purple-400';
+              hoverColor = isBlack ? 'hover:bg-purple-900' : 'hover:bg-purple-600';
+              textColor = 'text-white';
             } else {
-              bgColor = isBlack ? 'bg-gray-600' : 'bg-white border border-gray-400';
+              bgColor = isBlack ? 'bg-gray-700' : 'bg-white border border-gray-400';
+              hoverColor = isBlack ? 'hover:bg-gray-800' : 'hover:bg-gray-100';
+              textColor = isBlack ? 'text-white' : 'text-gray-700';
             }
             
-            const height = isBlack ? 'h-12' : 'h-16';
-            const width = isBlack ? 'w-4' : 'w-6';
+            const height = isBlack ? 'h-20' : 'h-28';
+            const width = isBlack ? 'w-8' : 'w-10';
+            const cursor = isInRange ? 'cursor-pointer' : 'cursor-not-allowed opacity-40';
             
             return \`
-              <div class="\${width} \${height} \${bgColor} rounded-b relative group" 
-                   title="\${note}">
-                <span class="absolute bottom-0 left-0 right-0 text-xs text-center opacity-0 group-hover:opacity-100 text-gray-900">
+              <div class="\${width} \${height} \${bgColor} \${hoverColor} \${cursor} rounded-b shadow-md relative group transition-all active:scale-95" 
+                   data-note="\${note}"
+                   data-in-range="\${isInRange}"
+                   onclick="if(this.dataset.inRange === 'true') playNote('\${note}')"
+                   title="\${note} - \${noteFrequencies[note].toFixed(2)} Hz">
+                <span class="absolute bottom-1 left-0 right-0 text-xs text-center \${textColor} font-medium">
                   \${note}
                 </span>
               </div>

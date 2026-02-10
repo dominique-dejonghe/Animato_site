@@ -134,6 +134,20 @@ app.get('/leden', async (c) => {
             </a>
 
             <a
+              href="/leden/karaoke"
+              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center border-2 border-purple-400 border-opacity-30"
+            >
+              <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-3 text-white shadow-md">
+                <i class="fas fa-microphone-alt text-xl"></i>
+              </div>
+              <h3 class="font-semibold text-gray-900 mb-1">
+                <i class="fas fa-star text-yellow-400 mr-1"></i>
+                Karaoke
+              </h3>
+              <p class="text-sm text-gray-600">Kies je songs!</p>
+            </a>
+
+            <a
               href="/leden/board"
               class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
             >

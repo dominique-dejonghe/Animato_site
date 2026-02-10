@@ -793,6 +793,71 @@ app.get('/admin/karaoke/songs/:id/delete', async (c) => {
 })
 
 // =====================================================
+// BULK IMPORT (PLACEHOLDER)
+// =====================================================
+
+app.get('/admin/karaoke/songs/bulk-import', async (c) => {
+  const user = c.get('user') as SessionUser
+  noCacheHeaders(c)
+
+  return c.html(
+    <Layout title="Bulk Import" user={user} breadcrumbs={[
+      { label: 'Admin', href: '/admin' },
+      { label: 'Karaoke', href: '/admin/karaoke' },
+      { label: 'Songs', href: '/admin/karaoke/songs' },
+      { label: 'Bulk Import', href: '/admin/karaoke/songs/bulk-import' }
+    ]}>
+      <div class="bg-gray-50 min-h-screen py-8">
+        <div class="max-w-3xl mx-auto px-4">
+          <h1 class="text-3xl font-bold mb-8">
+            <i class="fas fa-file-import text-animato-primary mr-3"></i>
+            Bulk Import Songs
+          </h1>
+
+          <div class="bg-white p-8 rounded-lg shadow">
+            <div class="bg-blue-50 border border-blue-200 text-blue-800 p-6 rounded-lg mb-6">
+              <h3 class="font-semibold mb-2">
+                <i class="fas fa-info-circle mr-2"></i>
+                Feature Coming Soon
+              </h3>
+              <p class="text-sm">
+                Bulk import via CSV wordt binnenkort toegevoegd. Voor nu kun je songs handmatig toevoegen via het formulier.
+              </p>
+            </div>
+
+            <div class="space-y-4">
+              <h3 class="font-semibold text-gray-900">Verwachte CSV formaat:</h3>
+              <div class="bg-gray-100 p-4 rounded-lg font-mono text-sm">
+                title,artist,genre,language,type,difficulty<br/>
+                "Brabant","Guus Meeuwis","Nederlands","nl","solo","easy"<br/>
+                "Het is een nacht","Guus Meeuwis","Nederlands","nl","solo","easy"
+              </div>
+            </div>
+
+            <div class="flex justify-between mt-8 pt-6 border-t">
+              <a 
+                href="/admin/karaoke/songs"
+                class="px-6 py-2 text-gray-600 hover:text-gray-900 transition-colors"
+              >
+                <i class="fas fa-arrow-left mr-2"></i>
+                Terug naar Songs
+              </a>
+              <a 
+                href="/admin/karaoke/songs/nieuw"
+                class="bg-animato-primary hover:bg-animato-primary-dark text-white px-6 py-2 rounded-lg transition-colors"
+              >
+                <i class="fas fa-plus mr-2"></i>
+                Song Handmatig Toevoegen
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
+// =====================================================
 // KARAOKE EVENTS LIST
 // =====================================================
 

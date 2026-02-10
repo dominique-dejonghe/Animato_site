@@ -97,17 +97,21 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - ✅ **No-cache headers** (admin pagina's tonen altijd verse data)
 - ✅ **Polls Management** (CRUD voor polls, status management, 5 opties per poll)
 - ✅ **Proposals Review** (approve/reject voorstellen met review opmerking)
-- ✅ **Karaoke Module** (LIVE + EDITABLE - 2026-02-10)
+- ✅ **Karaoke Module** ⭐ **COMPLETE SYSTEM LIVE** - [📖 Full Guide](./KARAOKE_GUIDE.md)
   - **Admin: Song Library Management** - CRUD voor karaoke songs (20 Nederlandse nummers seeded)
   - **Admin: Karaoke Events** - Event creation, edit, update, delete met real-time stats
-  - **Admin: Event Editing** - ✨ NEW: Full edit interface voor bestaande events
+  - **Admin: Event Editing** - Full edit interface voor bestaande events
     - Real-time statistics (participants, selections, pending requests)
     - Update max songs, deadline, duets, song requests, status
     - Delete event met confirmation
   - **Admin: Duet Matching Dashboard** - Auto-suggest duets, popularity stats, participation overview
-  - **Members: Song Selection** - Browse songs, select top 3, filters (genre/type), notes for duets
-  - **All Routes Tested**: 11/11 routes verified (incl. edit routes)
-  - **Build Status**: 94 modules, 998.68 kB bundle, PM2 running without errors
+  - **Members: Karaoke Events** - ✨ Browse open karaoke events, deadline warnings, progress tracking
+  - **Members: Song Selection** - ✨ Browse 20 songs, search/filter, select max 3, add duet notes
+  - **Members: Add/Remove Songs** - Real-time limit validation, popularity tracking
+  - **Members: Duet Planning** - Add notes to songs, specify duet partners, visible in admin dashboard
+  - **Test Event Live**: "Jaarlijks LEDENFEEST met partner 🎉" - Members can select songs now!
+  - **All Routes Tested**: 16/16 routes verified (11 admin + 5 member routes)
+  - **Build Status**: 94 modules, 999.25 kB bundle, PM2 running without errors
   - **Database**: 6 tables (karaoke_songs, karaoke_events, karaoke_selections, karaoke_requests, karaoke_playlists, karaoke_playlist_songs)
 - ✅ **User Activity Tracking** (login/logout monitoring, session duration, real-time online status)
   - Track alle login/logout sessies met timestamps

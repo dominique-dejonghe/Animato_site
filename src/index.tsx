@@ -37,6 +37,7 @@ import adminFinanceRoutes from './routes/admin-finance'
 import adminPrintsRoutes from './routes/admin-prints'
 import ledenActivityRoutes from './routes/leden-activity'
 import adminKaraokeRoutes from './routes/admin-karaoke'
+import karaokeLedenRoutes from './routes/karaoke-leden'
 
 // =====================================================
 // APP INITIALIZATION
@@ -103,6 +104,7 @@ app.route('/', adminFinanceRoutes)
 app.route('/', adminPrintsRoutes)
 app.route('/', ledenActivityRoutes)
 app.route('/', adminKaraokeRoutes)
+app.route('/', karaokeLedenRoutes)
 
 // Tickets & Webhooks
 app.route('/', ticketsRoutes)

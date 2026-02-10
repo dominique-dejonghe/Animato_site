@@ -8,7 +8,8 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - **Latest Deploy**: https://8cef00a2.animato-koor.pages.dev (Deployed: 2025-11-23 14:40 UTC)
 - **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
 - **API Documentation**: /api endpoint
-- **Current Version**: v1.0.27 (Online Status Indicators Everywhere)
+- **Current Version**: v1.0.28 (Karaoke Module Tested & Verified)
+- **Last Updated**: 2026-02-10 23:00 UTC
 
 ## ✨ Features
 
@@ -96,6 +97,14 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - ✅ **No-cache headers** (admin pagina's tonen altijd verse data)
 - ✅ **Polls Management** (CRUD voor polls, status management, 5 opties per poll)
 - ✅ **Proposals Review** (approve/reject voorstellen met review opmerking)
+- ✅ **Karaoke Module** (TESTED & VERIFIED - 2026-02-10)
+  - **Admin: Song Library Management** - CRUD voor karaoke songs (20 Nederlandse nummers seeded)
+  - **Admin: Karaoke Events** - Event creation met max songs, deadline, duets, song requests
+  - **Admin: Duet Matching Dashboard** - Auto-suggest duets, popularity stats, participation overview
+  - **Members: Song Selection** - Browse songs, select top 3, filters (genre/type), notes for duets
+  - **All Routes Tested**: 8/8 routes verified (/admin/karaoke, /admin/karaoke/songs, /admin/karaoke/songs/nieuw, /admin/karaoke/songs/bulk-import, /admin/karaoke/events, /admin/karaoke/events/nieuw, /admin/karaoke/matching, /leden/karaoke)
+  - **Build Status**: 94 modules, 990.82 kB bundle, PM2 running without errors
+  - **Database**: 6 tables (karaoke_songs, karaoke_events, karaoke_selections, karaoke_requests, karaoke_playlists, karaoke_playlist_songs)
 - ✅ **User Activity Tracking** (login/logout monitoring, session duration, real-time online status)
   - Track alle login/logout sessies met timestamps
   - IP adres en user agent logging

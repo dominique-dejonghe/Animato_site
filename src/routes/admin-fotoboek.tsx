@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { Layout } from '../components/Layout'
+import { AdminSidebar } from '../components/AdminSidebar'
 import type { Bindings, SessionUser } from '../types'
 import { requireAuth, requireRole } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
@@ -58,8 +59,10 @@ app.get('/admin/fotoboek', async (c) => {
         { label: 'Fotoboek', href: '/admin/fotoboek' }
       ]}
     >
-      <div class="bg-gray-50 min-h-screen">
-        {/* Header */}
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="photos" />
+        <div class="flex-1 min-w-0">
+          {/* Header */}
         <div class="bg-white border-b border-gray-200">
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div class="flex items-center justify-between">
@@ -210,7 +213,7 @@ app.get('/admin/fotoboek', async (c) => {
                         <i class="fas fa-external-link-alt"></i>
                       </a>
                       <button
-                        onclick={`if(confirm('Weet je zeker dat je dit album wilt verwijderen?')) { fetch('/admin/fotoboek/album/${album.id}/delete', {method: 'POST'}).then(() => location.reload()) }`}
+                        onclick={`openDeleteModal('/admin/fotoboek/album/${album.id}/delete')`}
                         class="px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition text-sm"
                       >
                         <i class="fas fa-trash"></i>
@@ -223,6 +226,73 @@ app.get('/admin/fotoboek', async (c) => {
           </div>
         </div>
       </div>
+    </div>
+      {/* Delete Confirmation Modal */}
+      <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="closeDeleteModal()"></div>
+          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+          <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-red-500">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <div class="sm:flex sm:items-start">
+                <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <i class="fas fa-exclamation-triangle text-red-600"></i>
+                </div>
+                <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                  <h3 class="text-xl leading-6 font-bold text-gray-900" id="modal-title" style="font-family: 'Playfair Display', serif;">
+                    Bevestig Verwijderen
+                  </h3>
+                  <div class="mt-2">
+                    <p class="text-sm text-gray-500">
+                      Weet je zeker dat je dit item wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button type="button" id="confirmDeleteBtn" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-md px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Verwijderen
+              </button>
+              <button type="button" onclick="closeDeleteModal()" class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        let deleteUrl = null;
+
+        function openDeleteModal(url) {
+          deleteUrl = url;
+          document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+          deleteUrl = null;
+          document.getElementById('deleteModal').classList.add('hidden');
+        }
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+          if (deleteUrl) {
+            fetch(deleteUrl, { method: 'POST' })
+              .then(response => {
+                if (response.ok) {
+                  window.location.reload();
+                } else {
+                  alert('Er ging iets mis bij het verwijderen.');
+                }
+              })
+              .catch(error => {
+                console.error('Error:', error);
+                alert('Er ging iets mis bij het verwijderen.');
+              });
+          }
+          closeDeleteModal();
+        });
+      ` }} />
     </Layout>
   )
 })
@@ -244,8 +314,10 @@ app.get('/admin/fotoboek/album/nieuw', async (c) => {
         { label: 'Nieuw Album', href: '/admin/fotoboek/album/nieuw' }
       ]}
     >
-      <div class="bg-gray-50 min-h-screen">
-        <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="photos" />
+        <div class="flex-1 min-w-0">
+          <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div class="bg-white rounded-lg shadow-md p-6">
             <h1 class="text-2xl font-bold mb-6">
               <i class="fas fa-plus-circle text-purple-600 mr-2"></i>
@@ -427,6 +499,7 @@ app.get('/admin/fotoboek/album/nieuw', async (c) => {
             }
           `
         }}></script>
+        </div>
       </div>
     </Layout>
   )
@@ -467,8 +540,10 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
         { label: album.titel, href: `/admin/fotoboek/album/${albumId}` }
       ]}
     >
-      <div class="bg-gray-50 min-h-screen">
-        {/* Header */}
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="photos" />
+        <div class="flex-1 min-w-0">
+          {/* Header */}
         <div class="bg-white border-b border-gray-200">
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div class="flex items-center justify-between">
@@ -794,7 +869,7 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
                     {/* Action buttons */}
                     <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition">
                       <button
-                        onclick={`if(confirm('Weet je zeker dat je deze foto wilt verwijderen?')) { fetch('/admin/fotoboek/foto/${photo.id}/delete', {method: 'POST'}).then(() => location.reload()) }`}
+                        onclick={`openDeleteModal('/admin/fotoboek/foto/${photo.id}/delete')`}
                         class="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-xs"
                       >
                         <i class="fas fa-trash"></i>
@@ -958,6 +1033,73 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
           }
         `
       }}></script>
+      </div>
+      {/* Delete Confirmation Modal */}
+      <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="closeDeleteModal()"></div>
+          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+          <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-red-500">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <div class="sm:flex sm:items-start">
+                <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <i class="fas fa-exclamation-triangle text-red-600"></i>
+                </div>
+                <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                  <h3 class="text-xl leading-6 font-bold text-gray-900" id="modal-title" style="font-family: 'Playfair Display', serif;">
+                    Bevestig Verwijderen
+                  </h3>
+                  <div class="mt-2">
+                    <p class="text-sm text-gray-500">
+                      Weet je zeker dat je dit item wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button type="button" id="confirmDeleteBtn" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-md px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Verwijderen
+              </button>
+              <button type="button" onclick="closeDeleteModal()" class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        let deleteUrl = null;
+
+        function openDeleteModal(url) {
+          deleteUrl = url;
+          document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+          deleteUrl = null;
+          document.getElementById('deleteModal').classList.add('hidden');
+        }
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+          if (deleteUrl) {
+            fetch(deleteUrl, { method: 'POST' })
+              .then(response => {
+                if (response.ok) {
+                  window.location.reload();
+                } else {
+                  alert('Er ging iets mis bij het verwijderen.');
+                }
+              })
+              .catch(error => {
+                console.error('Error:', error);
+                alert('Er ging iets mis bij het verwijderen.');
+              });
+          }
+          closeDeleteModal();
+        });
+      ` }} />
     </Layout>
   )
 })

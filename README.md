@@ -103,6 +103,17 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
   - Real-time "wie is online" dashboard
   - Filter op status (active/today/all) en per gebruiker
   - Statistieken: active users, today logins, avg duration
+- ✅ **Concert Projects Management** (Projectmatig werken voor concerten)
+  - Dashboard met status (in uitvoering, planning, afgerond), taken voortgang en budget balans
+  - Taakbeheer per project (todo/doing/done, prioriteit, toewijzen aan leden)
+  - Budgetbeheer (verwachte vs werkelijke inkomsten/uitgaven)
+  - Integratie met Agenda (project gekoppeld aan concert event)
+- ✅ **Meeting Management** (Vergaderingen, Notulen, Actiepunten)
+  - Agenda beheer met tijdsduur en sprekers
+  - Notulen editor met goedkeuringsflow (concept/definitief)
+  - Actiepunten tracking (toewijzen, deadlines, status)
+  - Aanwezigheidsregistratie (genodigd, aanwezig, afwezig, verontschuldigd)
+  - Historiek en templates (bestuur, algemeen, werkgroep)
 - ⏳ **Theming** (logo, kleuren, lettertypes)
 - ⏳ **Moderatie** (board berichten, media goedkeuren)
 
@@ -414,23 +425,6 @@ Add via Cloudflare Dashboard → Pages → Settings → Environment Variables:
 - ✅ Role-based access control
 - ✅ SQL injection prevention (D1 prepared statements)
 - ✅ CORS configured for API routes
-- ⏳ 2FA support (geplanned)
-- ⏳ Rate limiting (geplanned)
-
-## 📝 License
-
-© 2025 Gemengd Koor Animato. Alle rechten voorbehouden.
-
-## 👤 Contact
-
-- **Email**: info@animato.be
-- **Telefoon**: +32 470 12 34 56
-- **Adres**: Koorstraat 1, 1000 Brussel
-
----
-
-**Built with ❤️ by GenSpark AI** | **Designed for Gemengd Koor Animato**
-nfigured for API routes
 - ⏳ 2FA support (geplanned)
 - ⏳ Rate limiting (geplanned)
 

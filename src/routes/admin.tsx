@@ -4,6 +4,7 @@
 import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
+import { AdminSidebar } from '../components/AdminSidebar'
 import { requireAuth, requireRole } from '../middleware/auth'
 import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 
@@ -49,6 +50,15 @@ app.get('/admin', async (c) => {
     total_proposals_pending: await queryOne<any>(c.env.DB,
       `SELECT COUNT(*) as count FROM member_proposals WHERE status = 'pending'`
     ),
+    total_pending: await queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as count FROM users WHERE status = 'proeflid'`
+    ),
+    total_projects: await queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as count FROM concert_projects WHERE status IN ('in_uitvoering', 'planning')`
+    ),
+    total_meetings: await queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as count FROM meetings WHERE datetime(datum || ' ' || COALESCE(start_tijd, '00:00')) >= datetime('now')`
+    ),
   }
 
   // Get recent activity from audit logs
@@ -77,9 +87,11 @@ app.get('/admin', async (c) => {
       user={user}
       breadcrumbs={[{ label: 'Admin', href: '/admin' }]}
     >
-      <div class="bg-gray-50 min-h-screen">
-        {/* Header */}
-        <div class="bg-white border-b border-gray-200">
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="dashboard" pendingRegistrationsCount={stats.total_pending?.count || 0} />
+        <div class="flex-1 min-w-0">
+          {/* Header */}
+          <div class="bg-white border-b border-gray-200">
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div class="flex items-center justify-between">
               <div>
@@ -109,6 +121,25 @@ app.get('/admin', async (c) => {
           
           {/* Stats Cards */}
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-6 mb-8">
+            
+            {/* Pending Registrations Alert Card */}
+            {(stats.total_pending?.count || 0) > 0 && (
+              <div class="bg-amber-50 border-l-4 border-amber-500 rounded-lg shadow-md p-6 col-span-1 md:col-span-2">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <p class="text-sm text-amber-800 font-bold mb-1">Nieuwe Aanmeldingen</p>
+                    <p class="text-3xl font-bold text-amber-900">{stats.total_pending?.count || 0}</p>
+                  </div>
+                  <div class="w-12 h-12 bg-amber-200 rounded-lg flex items-center justify-center animate-pulse">
+                    <i class="fas fa-user-clock text-amber-700 text-xl"></i>
+                  </div>
+                </div>
+                <a href="/admin/leden" class="mt-4 text-sm text-amber-800 hover:underline inline-flex items-center font-semibold">
+                  Beheer aanmeldingen <i class="fas fa-arrow-right ml-1 text-xs"></i>
+                </a>
+              </div>
+            )}
+
             <div class="bg-white rounded-lg shadow-md p-6">
               <div class="flex items-center justify-between">
                 <div>
@@ -217,6 +248,21 @@ app.get('/admin', async (c) => {
             <div class="bg-white rounded-lg shadow-md p-6">
               <div class="flex items-center justify-between">
                 <div>
+                  <p class="text-sm text-gray-600 mb-1">Karaoke Songs</p>
+                  <p class="text-3xl font-bold text-gray-900">20</p>
+                </div>
+                <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-microphone text-orange-600 text-xl"></i>
+                </div>
+              </div>
+              <a href="/admin/karaoke" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
+                Beheer karaoke <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              </a>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+              <div class="flex items-center justify-between">
+                <div>
                   <p class="text-sm text-gray-600 mb-1">Voorstellen</p>
                   <p class="text-3xl font-bold text-gray-900">{stats.total_proposals_pending?.count || 0}</p>
                 </div>
@@ -226,6 +272,36 @@ app.get('/admin', async (c) => {
               </div>
               <a href="/admin/voorstellen" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
                 Beoordeel voorstellen <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              </a>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm text-gray-600 mb-1">Lopende Projecten</p>
+                  <p class="text-3xl font-bold text-gray-900">{stats.total_projects?.count || 0}</p>
+                </div>
+                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-tasks text-blue-600 text-xl"></i>
+                </div>
+              </div>
+              <a href="/admin/projects" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
+                Beheer projecten <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              </a>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md p-6">
+              <div class="flex items-center justify-between">
+                <div>
+                  <p class="text-sm text-gray-600 mb-1">Vergaderingen</p>
+                  <p class="text-3xl font-bold text-gray-900">{stats.total_meetings?.count || 0}</p>
+                </div>
+                <div class="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-handshake text-indigo-600 text-xl"></i>
+                </div>
+              </div>
+              <a href="/admin/meetings" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
+                Bekijk agenda <i class="fas fa-arrow-right ml-1 text-xs"></i>
               </a>
             </div>
 
@@ -285,6 +361,14 @@ app.get('/admin', async (c) => {
               <a href="/admin/tickets" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-animato-primary hover:bg-gray-50 transition">
                 <i class="fas fa-ticket-alt text-2xl text-purple-600 mb-2"></i>
                 <span class="text-sm font-medium text-gray-700">Ticketing</span>
+              </a>
+              <a href="/admin/projects" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-animato-primary hover:bg-gray-50 transition">
+                <i class="fas fa-tasks text-2xl text-blue-600 mb-2"></i>
+                <span class="text-sm font-medium text-gray-700">Projecten</span>
+              </a>
+              <a href="/admin/meetings" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-animato-primary hover:bg-gray-50 transition">
+                <i class="fas fa-handshake text-2xl text-indigo-600 mb-2"></i>
+                <span class="text-sm font-medium text-gray-700">Vergaderingen</span>
               </a>
             </div>
           </div>
@@ -382,6 +466,7 @@ app.get('/admin', async (c) => {
 
           </div>
 
+          </div>
         </div>
       </div>
     </Layout>
@@ -397,7 +482,7 @@ app.get('/admin/leden', async (c) => {
   const search = c.req.query('search') || ''
   const role = c.req.query('role') || 'all'
   const stemgroep = c.req.query('stemgroep') || 'all'
-  const status = c.req.query('status') || 'all'
+  const status = c.req.query('status') || 'actief'  // Default to only active members
 
   // Build query with online status
   let query = `
@@ -438,13 +523,23 @@ app.get('/admin/leden', async (c) => {
 
   const leden = await queryAll(c.env.DB, query, params)
 
-  // Get counts for filters
+  // Get pending registrations (proefleden)
+  const pendingRegistrations = await queryAll(
+    c.env.DB,
+    `SELECT u.id, u.email, u.stemgroep, u.created_at, p.voornaam, p.achternaam
+     FROM users u
+     LEFT JOIN profiles p ON p.user_id = u.id
+     WHERE u.status = 'proeflid'
+     ORDER BY u.created_at DESC`
+  )
+
+  // Get counts for filters (only active members by default)
   const counts = {
-    all: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users`),
-    admin: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'admin'`),
-    moderator: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'moderator'`),
-    stemleider: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'stemleider'`),
-    lid: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'lid'`),
+    all: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
+    admin: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'admin' AND status = 'actief'`),
+    moderator: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'moderator' AND status = 'actief'`),
+    stemleider: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'stemleider' AND status = 'actief'`),
+    lid: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'lid' AND status = 'actief'`),
     actief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
     inactief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'inactief'`),
     online: await queryOne<any>(c.env.DB, `SELECT COUNT(DISTINCT user_id) as count FROM user_sessions WHERE is_active = 1`),
@@ -459,8 +554,10 @@ app.get('/admin/leden', async (c) => {
         { label: 'Leden', href: '/admin/leden' }
       ]}
     >
-      <div class="bg-gray-50 min-h-screen">
-        {/* Header */}
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="leden" pendingRegistrationsCount={pendingRegistrations.length} />
+        <div class="flex-1 min-w-0">
+          {/* Header */}
         <div class="bg-white border-b border-gray-200">
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div class="flex items-center justify-between">
@@ -529,6 +626,72 @@ app.get('/admin/leden', async (c) => {
               </div>
             </div>
           </div>
+
+          {/* Pending Registrations (Wachtrij) */}
+          {pendingRegistrations.length > 0 && (
+            <div class="bg-white rounded-lg shadow-md mb-8 border-l-4 border-amber-500 overflow-hidden">
+              <div class="p-4 bg-amber-50 border-b border-amber-100 flex justify-between items-center">
+                <h2 class="text-lg font-bold text-amber-800 flex items-center">
+                  <i class="fas fa-user-clock mr-2"></i>
+                  Nieuwe Aanmeldingen ({pendingRegistrations.length})
+                </h2>
+                <span class="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-1 rounded-full">
+                  Actie vereist
+                </span>
+              </div>
+              <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Naam</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stemgroep</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Aangemeld op</th>
+                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actie</th>
+                  </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                  {pendingRegistrations.map((reg: any) => (
+                    <tr>
+                      <td class="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
+                        {reg.voornaam} {reg.achternaam}
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {reg.email}
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {reg.stemgroep || '-'}
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(reg.created_at).toLocaleDateString('nl-NL')}
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <form 
+                          action={`/api/admin/leden/${reg.id}/approve`} 
+                          method="POST" 
+                          class="inline-block mr-2"
+                          onsubmit="return confirm('Weet je zeker dat je dit lid wilt accepteren?')"
+                        >
+                          <button type="submit" class="text-green-600 hover:text-green-900 bg-green-50 hover:bg-green-100 px-3 py-1 rounded transition">
+                            <i class="fas fa-check mr-1"></i> Accepteren
+                          </button>
+                        </form>
+                        <form 
+                          action={`/api/admin/leden/${reg.id}/reject`} 
+                          method="POST" 
+                          class="inline-block"
+                          onsubmit="return confirm('Zeker weten dat je deze aanmelding wilt afwijzen en verwijderen?')"
+                        >
+                          <button type="submit" class="text-red-600 hover:text-red-900 bg-red-50 hover:bg-red-100 px-3 py-1 rounded transition">
+                            <i class="fas fa-times mr-1"></i> Afwijzen
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {/* Filters & Search */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
@@ -728,12 +891,13 @@ app.get('/admin/leden', async (c) => {
                             {lastLogin}
                           </td>
                           <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <a href={`/admin/leden/${lid.id}`} class="text-animato-primary hover:text-animato-secondary mr-3">
+                            <a href={`/admin/leden/${lid.id}`} class="text-animato-primary hover:text-animato-secondary mr-3" title="Bewerken">
                               <i class="fas fa-edit"></i>
                             </a>
-                            <button
-                              onclick={`if(confirm('Weet je zeker dat je ${lid.voornaam} ${lid.achternaam} wilt verwijderen?')) { window.location.href='/api/admin/leden/${lid.id}/delete' }`}
+                            <button 
+                              onclick={`openDeleteModal('/api/admin/leden/${lid.id}/delete')`}
                               class="text-red-600 hover:text-red-900"
+                              title="Verwijderen"
                             >
                               <i class="fas fa-trash"></i>
                             </button>
@@ -755,8 +919,64 @@ app.get('/admin/leden', async (c) => {
             </div>
           </div>
 
+          </div>
         </div>
       </div>
+      {/* Delete Confirmation Modal */}
+      <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="closeDeleteModal()"></div>
+          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+          <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-red-500">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <div class="sm:flex sm:items-start">
+                <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <i class="fas fa-exclamation-triangle text-red-600"></i>
+                </div>
+                <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                  <h3 class="text-xl leading-6 font-bold text-gray-900" id="modal-title" style="font-family: 'Playfair Display', serif;">
+                    Bevestig Verwijderen
+                  </h3>
+                  <div class="mt-2">
+                    <p class="text-sm text-gray-500">
+                      Weet je zeker dat je dit item wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button type="button" id="confirmDeleteBtn" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-md px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Verwijderen
+              </button>
+              <button type="button" onclick="closeDeleteModal()" class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        let deleteUrl = null;
+
+        function openDeleteModal(url) {
+          deleteUrl = url;
+          document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+          deleteUrl = null;
+          document.getElementById('deleteModal').classList.add('hidden');
+        }
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+          if (deleteUrl) {
+            window.location.href = deleteUrl;
+          }
+          closeDeleteModal();
+        });
+      ` }} />
     </Layout>
   )
 })
@@ -779,8 +999,10 @@ app.get('/admin/leden/nieuw', async (c) => {
         { label: 'Nieuw Lid', href: '/admin/leden/nieuw' }
       ]}
     >
-      <div class="bg-gray-50 min-h-screen">
-        {/* Header */}
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="leden" />
+        <div class="flex-1 min-w-0">
+          {/* Header */}
         <div class="bg-white border-b border-gray-200">
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div class="flex items-center justify-between">
@@ -1034,6 +1256,7 @@ app.get('/admin/leden/nieuw', async (c) => {
             </form>
           </div>
 
+          </div>
         </div>
       </div>
     </Layout>
@@ -1074,8 +1297,10 @@ app.get('/admin/leden/:id', async (c) => {
         { label: `${member.voornaam} ${member.achternaam}`, href: `/admin/leden/${userId}` }
       ]}
     >
-      <div class="bg-gray-50 min-h-screen">
-        {/* Header */}
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="leden" />
+        <div class="flex-1 min-w-0">
+          {/* Header */}
         <div class="bg-white border-b border-gray-200">
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div class="flex items-center justify-between">
@@ -1318,8 +1543,8 @@ app.get('/admin/leden/:id', async (c) => {
               <div class="flex justify-between items-center pt-6 border-t border-gray-200">
                 <button
                   type="button"
-                  onclick={`if(confirm('Weet je zeker dat je ${member.voornaam} ${member.achternaam} wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.')) { window.location.href='/api/admin/leden/${member.id}/delete' }`}
-                  class="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
+                  onclick={`openDeleteModal('/api/admin/leden/${member.id}/delete')`}
+                  class="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition inline-block"
                 >
                   <i class="fas fa-trash mr-2"></i>
                   Verwijder Lid
@@ -1343,8 +1568,64 @@ app.get('/admin/leden/:id', async (c) => {
             </form>
           </div>
 
+          </div>
         </div>
       </div>
+      {/* Delete Confirmation Modal */}
+      <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="closeDeleteModal()"></div>
+          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+          <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-red-500">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <div class="sm:flex sm:items-start">
+                <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <i class="fas fa-exclamation-triangle text-red-600"></i>
+                </div>
+                <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                  <h3 class="text-xl leading-6 font-bold text-gray-900" id="modal-title" style="font-family: 'Playfair Display', serif;">
+                    Bevestig Verwijderen
+                  </h3>
+                  <div class="mt-2">
+                    <p class="text-sm text-gray-500">
+                      Weet je zeker dat je dit item wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button type="button" id="confirmDeleteBtn" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-md px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Verwijderen
+              </button>
+              <button type="button" onclick="closeDeleteModal()" class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        let deleteUrl = null;
+
+        function openDeleteModal(url) {
+          deleteUrl = url;
+          document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+          deleteUrl = null;
+          document.getElementById('deleteModal').classList.add('hidden');
+        }
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+          if (deleteUrl) {
+            window.location.href = deleteUrl;
+          }
+          closeDeleteModal();
+        });
+      ` }} />
     </Layout>
   )
 })
@@ -1396,34 +1677,8 @@ app.post('/api/admin/leden/create', async (c) => {
       return c.redirect('/admin/leden/nieuw?error=email_exists')
     }
 
-    // Hash password using PBKDF2
-    const salt = crypto.randomUUID().replace(/-/g, '').slice(0, 32)
-    const encoder = new TextEncoder()
-    const passwordData = encoder.encode(password as string)
-    const saltData = encoder.encode(salt)
-    
-    const keyMaterial = await crypto.subtle.importKey(
-      'raw',
-      passwordData,
-      'PBKDF2',
-      false,
-      ['deriveBits']
-    )
-    
-    const derivedBits = await crypto.subtle.deriveBits(
-      {
-        name: 'PBKDF2',
-        salt: saltData,
-        iterations: 100000,
-        hash: 'SHA-256'
-      },
-      keyMaterial,
-      256
-    )
-    
-    const hashArray = Array.from(new Uint8Array(derivedBits))
-    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('')
-    const password_hash = `${salt}:${hashHex}`
+    // Hash password using the same function as login
+    const password_hash = await hashPassword(password as string)
 
     // Insert user
     const userResult = await c.env.DB.prepare(
@@ -1516,6 +1771,37 @@ app.post('/api/admin/leden/update', async (c) => {
 })
 
 // =====================================================
+// MEMBER APPROVE API
+// =====================================================
+
+app.post('/api/admin/leden/:id/approve', async (c) => {
+  const user = c.get('user') as SessionUser
+  const userId = c.req.param('id')
+
+  try {
+    // Update user status to active and role to lid
+    await c.env.DB.prepare(
+      `UPDATE users SET status = 'actief', role = 'lid' WHERE id = ?`
+    ).bind(userId).run()
+
+    // Audit log
+    await c.env.DB.prepare(
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
+       VALUES (?, 'user_approve', 'user', ?, ?)`
+    ).bind(
+      user.id,
+      userId,
+      JSON.stringify({ approved_by: 'admin' })
+    ).run()
+
+    return c.redirect('/admin/leden?success=approved')
+  } catch (error) {
+    console.error('Member approve error:', error)
+    return c.redirect('/admin/leden?error=approve_failed')
+  }
+})
+
+// =====================================================
 // MEMBER DELETE API
 // =====================================================
 
@@ -1545,6 +1831,34 @@ app.get('/api/admin/leden/:id/delete', async (c) => {
   } catch (error) {
     console.error('Member delete error:', error)
     return c.redirect('/admin/leden?error=delete_failed')
+  }
+})
+
+// =====================================================
+// MEMBER REJECT API (DELETE PROEFLID)
+// =====================================================
+
+app.post('/api/admin/leden/:id/reject', async (c) => {
+  const user = c.get('user') as SessionUser
+  const userId = c.req.param('id')
+
+  try {
+    // Audit log before deletion
+    await c.env.DB.prepare(
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
+       VALUES (?, 'user_reject', 'user', ?, ?)`
+    ).bind(user.id, userId, JSON.stringify({ rejected_by: 'admin' })).run()
+
+    // Delete profile first (foreign key)
+    await c.env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(userId).run()
+
+    // Delete user
+    await c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run()
+
+    return c.redirect('/admin/leden?success=rejected')
+  } catch (error) {
+    console.error('Member reject error:', error)
+    return c.redirect('/admin/leden?error=reject_failed')
   }
 })
 
@@ -1631,8 +1945,10 @@ app.get('/admin/content', async (c) => {
         { label: 'Content', href: '/admin/content' }
       ]}
     >
-      <div class="bg-gray-50 min-h-screen">
-        {/* Header */}
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="content" />
+        <div class="flex-1 min-w-0">
+          {/* Header */}
         <div class="bg-white border-b border-gray-200">
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div class="flex items-center justify-between">
@@ -1890,7 +2206,7 @@ app.get('/admin/content', async (c) => {
                             <i class="fas fa-edit"></i>
                           </a>
                           <button
-                            onclick={`if(confirm('Weet je zeker dat je "${item.titel}" wilt verwijderen?')) { window.location.href='/api/admin/content/${item.id}/delete?type=${tab}' }`}
+                            onclick={`openDeleteModal('/api/admin/content/${item.id}/delete?type=${tab}')`}
                             class="text-red-600 hover:text-red-900"
                           >
                             <i class="fas fa-trash"></i>
@@ -1912,8 +2228,64 @@ app.get('/admin/content', async (c) => {
             </div>
           </div>
 
+          </div>
         </div>
       </div>
+      {/* Delete Confirmation Modal */}
+      <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="closeDeleteModal()"></div>
+          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+          <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-red-500">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <div class="sm:flex sm:items-start">
+                <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <i class="fas fa-exclamation-triangle text-red-600"></i>
+                </div>
+                <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                  <h3 class="text-xl leading-6 font-bold text-gray-900" id="modal-title" style="font-family: 'Playfair Display', serif;">
+                    Bevestig Verwijderen
+                  </h3>
+                  <div class="mt-2">
+                    <p class="text-sm text-gray-500">
+                      Weet je zeker dat je dit item wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button type="button" id="confirmDeleteBtn" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-md px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Verwijderen
+              </button>
+              <button type="button" onclick="closeDeleteModal()" class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        let deleteUrl = null;
+
+        function openDeleteModal(url) {
+          deleteUrl = url;
+          document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+          deleteUrl = null;
+          document.getElementById('deleteModal').classList.add('hidden');
+        }
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+          if (deleteUrl) {
+            window.location.href = deleteUrl;
+          }
+          closeDeleteModal();
+        });
+      ` }} />
     </Layout>
   )
 })
@@ -1960,8 +2332,10 @@ app.get('/admin/content/:id', async (c) => {
         { label: isNew ? 'Nieuw' : post.titel, href: `/admin/content/${postId}` }
       ]}
     >
-      <div class="bg-gray-50 min-h-screen">
-        {/* Header */}
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="content" />
+        <div class="flex-1 min-w-0">
+          {/* Header */}
         <div class="bg-white border-b border-gray-200">
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div class="flex items-center justify-between">
@@ -2221,7 +2595,7 @@ app.get('/admin/content/:id', async (c) => {
               {!isNew && post && (
                 <button
                   type="button"
-                  onclick={`if(confirm('Weet je zeker dat je "${post.titel}" wilt verwijderen?')) { window.location.href='/api/admin/content/${post.id}/delete?type=posts' }`}
+                  onclick={`openDeleteModal('/api/admin/content/${post.id}/delete?type=posts')`}
                   class="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
                 >
                   <i class="fas fa-trash mr-2"></i>
@@ -2351,8 +2725,65 @@ app.get('/admin/content/:id', async (c) => {
             `
           }}></script>
 
+          </div>
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="closeDeleteModal()"></div>
+          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+          <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-red-500">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <div class="sm:flex sm:items-start">
+                <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <i class="fas fa-exclamation-triangle text-red-600"></i>
+                </div>
+                <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                  <h3 class="text-xl leading-6 font-bold text-gray-900" id="modal-title" style="font-family: 'Playfair Display', serif;">
+                    Bevestig Verwijderen
+                  </h3>
+                  <div class="mt-2">
+                    <p class="text-sm text-gray-500">
+                      Weet je zeker dat je dit item wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button type="button" id="confirmDeleteBtn" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-md px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Verwijderen
+              </button>
+              <button type="button" onclick="closeDeleteModal()" class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        let deleteUrl = null;
+
+        function openDeleteModal(url) {
+          deleteUrl = url;
+          document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+          deleteUrl = null;
+          document.getElementById('deleteModal').classList.add('hidden');
+        }
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+          if (deleteUrl) {
+            window.location.href = deleteUrl;
+          }
+          closeDeleteModal();
+        });
+      ` }} />
     </Layout>
   )
 })

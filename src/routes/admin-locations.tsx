@@ -218,9 +218,7 @@ app.get('/admin/locations', async (c) => {
                         Bewerken
                       </a>
                       <button
-                        onclick={`if(confirm('Weet je zeker dat je deze locatie wilt verwijderen?')) { 
-                          fetch('/admin/locations/${loc.id}/delete', {method: 'POST'}).then(() => location.reload()) 
-                        }`}
+                        onclick={`openDeleteModal('/admin/locations/${loc.id}/delete')`}
                         class="text-red-600 hover:text-red-900 font-medium"
                       >
                         <i class="fas fa-trash mr-1"></i>
@@ -254,6 +252,75 @@ app.get('/admin/locations', async (c) => {
           </div>
         </div>
       </div>
+      
+      {/* Delete Confirmation Modal */}
+      <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="closeDeleteModal()"></div>
+          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+          <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-red-500">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <div class="sm:flex sm:items-start">
+                <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <i class="fas fa-exclamation-triangle text-red-600"></i>
+                </div>
+                <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                  <h3 class="text-xl leading-6 font-bold text-gray-900" id="modal-title" style="font-family: 'Playfair Display', serif;">
+                    Bevestig Verwijderen
+                  </h3>
+                  <div class="mt-2">
+                    <p class="text-sm text-gray-500">
+                      Weet je zeker dat je deze locatie wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button type="button" id="confirmDeleteBtn" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-md px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Verwijderen
+              </button>
+              <button type="button" onclick="closeDeleteModal()" class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        let deleteUrl = null;
+
+        function openDeleteModal(url) {
+          deleteUrl = url;
+          document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+          deleteUrl = null;
+          document.getElementById('deleteModal').classList.add('hidden');
+        }
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+          if (deleteUrl) {
+            fetch(deleteUrl, { method: 'POST' })
+              .then(response => {
+                if (response.ok) {
+                  window.location.reload();
+                } else {
+                  return response.json().then(data => {
+                    alert(data.error || 'Er ging iets mis bij het verwijderen.');
+                  });
+                }
+              })
+              .catch(error => {
+                console.error('Error:', error);
+                alert('Er ging iets mis bij het verwijderen.');
+              });
+          }
+          closeDeleteModal();
+        });
+      ` }} />
     </Layout>
   )
 })

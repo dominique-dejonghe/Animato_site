@@ -4,6 +4,7 @@
 import { Hono } from 'hono'
 import type { Bindings, SessionUser, Event, Location, RecurrenceRule } from '../types'
 import { Layout } from '../components/Layout'
+import { AdminSidebar } from '../components/AdminSidebar'
 import { requireAuth, requireRole } from '../middleware/auth'
 import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 import { createEventOccurrences, formatRecurrenceRule } from '../utils/recurring-events'
@@ -89,9 +90,11 @@ app.get('/admin/events', async (c) => {
         { label: 'Events', href: '/admin/events' }
       ]}
     >
-      <div class="bg-gray-50 min-h-screen">
-        {/* Header */}
-        <div class="bg-white border-b border-gray-200">
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="events" />
+        <div class="flex-1 min-w-0">
+          {/* Header */}
+          <div class="bg-white border-b border-gray-200">
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             <div class="flex items-center justify-between">
               <div>
@@ -352,7 +355,7 @@ app.get('/admin/events', async (c) => {
                         <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <div class="flex items-center justify-end gap-2">
                             <a
-                              href={`/admin/events/${event.id}`}
+                              href={event.type === 'activiteit' ? `/admin/activities/${event.id}/edit` : `/admin/events/${event.id}`}
                               class="text-animato-primary hover:text-animato-secondary"
                               title="Bewerken"
                             >
@@ -386,9 +389,7 @@ app.get('/admin/events', async (c) => {
                                   </a>
                                   <div class="border-t border-gray-200 my-1"></div>
                                   <button
-                                    onclick={`if(confirm('Weet je zeker dat je dit event wilt verwijderen?${event.is_recurring ? '\\n\\nLET OP: Dit verwijdert ALLE herhalingen!' : ''}')) { 
-                                      fetch('/admin/events/${event.id}/delete', {method: 'POST'}).then(() => location.reload()) 
-                                    }`}
+                                    onclick={`openDeleteModal('/admin/events/${event.id}/delete', 'POST', 'Weet je zeker dat je dit event wilt verwijderen?${event.is_recurring ? '\\n\\nLET OP: Dit verwijdert ALLE herhalingen!' : ''}')`}
                                     class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                                   >
                                     <i class="fas fa-trash mr-2"></i>Verwijder Event
@@ -430,6 +431,7 @@ app.get('/admin/events', async (c) => {
                 {events.filter((e: any) => e.is_recurring).length}
               </div>
             </div>
+          </div>
           </div>
         </div>
       </div>
@@ -491,33 +493,43 @@ app.get('/admin/events', async (c) => {
               return;
             }
 
-            const confirmed = confirm(
-              'Weet je zeker dat je ' + eventIds.length + ' event(s) wilt verwijderen?\\n\\n' +
-              'Let op: Als je terugkerende events verwijdert, worden ALLE occurrences verwijderd!'
-            );
+            // Custom modal logic for bulk delete
+            const confirmBtn = document.getElementById('confirmDeleteBtn');
+            const modalBody = document.getElementById('deleteModalBody');
+            
+            modalBody.innerText = 'Weet je zeker dat je ' + eventIds.length + ' event(s) wilt verwijderen?\\n\\n' +
+              'Let op: Als je terugkerende events verwijdert, worden ALLE occurrences verwijderd!';
+            
+            // Override the onclick handler for this specific action
+            const newConfirmBtn = confirmBtn.cloneNode(true);
+            confirmBtn.parentNode.replaceChild(newConfirmBtn, confirmBtn);
+            
+            newConfirmBtn.addEventListener('click', async function() {
+              closeDeleteModal();
+              
+              // Show loading state
+              const bulkBar = document.getElementById('bulkActionsBar');
+              const originalHTML = bulkBar.innerHTML;
+              bulkBar.innerHTML = '<div class="text-center py-2"><i class="fas fa-spinner fa-spin mr-2"></i>Events verwijderen...</div>';
 
-            if (!confirmed) return;
+              try {
+                // Delete events one by one
+                for (const eventId of eventIds) {
+                  await fetch('/admin/events/' + eventId + '/delete', {
+                    method: 'POST'
+                  });
+                }
 
-            // Show loading state
-            const bulkBar = document.getElementById('bulkActionsBar');
-            const originalHTML = bulkBar.innerHTML;
-            bulkBar.innerHTML = '<div class="text-center py-2"><i class="fas fa-spinner fa-spin mr-2"></i>Events verwijderen...</div>';
-
-            try {
-              // Delete events one by one
-              for (const eventId of eventIds) {
-                await fetch('/admin/events/' + eventId + '/delete', {
-                  method: 'POST'
-                });
+                // Reload page to show updated list
+                location.reload();
+              } catch (error) {
+                bulkBar.innerHTML = originalHTML;
+                alert('Er is een fout opgetreden bij het verwijderen van events');
+                console.error('Delete error:', error);
               }
-
-              // Reload page to show updated list
-              location.reload();
-            } catch (error) {
-              bulkBar.innerHTML = originalHTML;
-              alert('Er is een fout opgetreden bij het verwijderen van events');
-              console.error('Delete error:', error);
-            }
+            });
+            
+            document.getElementById('deleteModal').classList.remove('hidden');
           }
 
           function exportSelectedEvents() {
@@ -571,6 +583,82 @@ app.get('/admin/events', async (c) => {
           });
         `
       }}></script>
+      {/* Delete Confirmation Modal */}
+      <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="closeDeleteModal()"></div>
+          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+          <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-red-500">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <div class="sm:flex sm:items-start">
+                <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <i class="fas fa-exclamation-triangle text-red-600"></i>
+                </div>
+                <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                  <h3 class="text-xl leading-6 font-bold text-gray-900" id="modal-title" style="font-family: 'Playfair Display', serif;">
+                    Bevestig Verwijderen
+                  </h3>
+                  <div class="mt-2">
+                    <p class="text-sm text-gray-500" id="deleteModalBody">
+                      Weet je zeker dat je dit item wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button type="button" id="confirmDeleteBtn" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-md px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Verwijderen
+              </button>
+              <button type="button" onclick="closeDeleteModal()" class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        let deleteUrl = null;
+        let deleteMethod = 'POST';
+
+        function openDeleteModal(url, method = 'POST', message = null) {
+          deleteUrl = url;
+          deleteMethod = method;
+          if (message) {
+             const body = document.getElementById('deleteModalBody');
+             if (body) body.innerText = message;
+          }
+          document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+          deleteUrl = null;
+          document.getElementById('deleteModal').classList.add('hidden');
+        }
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+          if (deleteUrl) {
+            fetch(deleteUrl, { method: deleteMethod })
+              .then(response => {
+                if (response.ok) {
+                  if (window.location.pathname.includes('/admin/events/')) {
+                     window.location.href = '/admin/events';
+                  } else {
+                     window.location.reload();
+                  }
+                } else {
+                  alert('Er ging iets mis bij het verwijderen.');
+                }
+              })
+              .catch(error => {
+                console.error('Error:', error);
+                alert('Er ging iets mis bij het verwijderen.');
+              });
+          }
+          closeDeleteModal();
+        });
+      ` }} />
     </Layout>
   )
 })
@@ -601,7 +689,12 @@ app.get('/admin/events/nieuw', async (c) => {
         { label: 'Nieuw Event', href: '/admin/events/nieuw' }
       ]}
     >
-      {renderEventForm(null, locations)}
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="events" />
+        <div class="flex-1 min-w-0">
+          {renderEventForm(null, locations)}
+        </div>
+      </div>
     </Layout>
   )
 })
@@ -610,15 +703,13 @@ app.get('/admin/events/:id', async (c) => {
   const user = c.get('user') as SessionUser
   const id = c.req.param('id')
 
-  // Get event
-  const event = await queryOne<any>(
-    c.env.DB,
-    `SELECT * FROM events WHERE id = ?`,
-    [id]
-  )
-
-  if (!event) {
-    return c.redirect('/admin/events')
+  // Get activity ID if type is 'activiteit'
+  let activityId = null
+  if (event.type === 'activiteit') {
+    const activity = await queryOne<any>(c.env.DB, "SELECT id FROM activities WHERE event_id = ?", [event.id])
+    if (activity) {
+      return c.redirect(`/admin/activities/${activity.id}/edit`)
+    }
   }
 
   // Get all active locations
@@ -640,7 +731,88 @@ app.get('/admin/events/:id', async (c) => {
         { label: 'Bewerken', href: `/admin/events/${id}` }
       ]}
     >
-      {renderEventForm(event, locations)}
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="events" />
+        <div class="flex-1 min-w-0">
+          {renderEventForm(event, locations)}
+        </div>
+      </div>
+      {/* Delete Confirmation Modal */}
+      <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="closeDeleteModal()"></div>
+          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+          <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-red-500">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <div class="sm:flex sm:items-start">
+                <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <i class="fas fa-exclamation-triangle text-red-600"></i>
+                </div>
+                <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                  <h3 class="text-xl leading-6 font-bold text-gray-900" id="modal-title" style="font-family: 'Playfair Display', serif;">
+                    Bevestig Verwijderen
+                  </h3>
+                  <div class="mt-2">
+                    <p class="text-sm text-gray-500" id="deleteModalBody">
+                      Weet je zeker dat je dit item wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button type="button" id="confirmDeleteBtn" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-md px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Verwijderen
+              </button>
+              <button type="button" onclick="closeDeleteModal()" class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        let deleteUrl = null;
+        let deleteMethod = 'POST';
+
+        function openDeleteModal(url, method = 'POST', message = null) {
+          deleteUrl = url;
+          deleteMethod = method;
+          if (message) {
+             const body = document.getElementById('deleteModalBody');
+             if (body) body.innerText = message;
+          }
+          document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+          deleteUrl = null;
+          document.getElementById('deleteModal').classList.add('hidden');
+        }
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+          if (deleteUrl) {
+            fetch(deleteUrl, { method: deleteMethod })
+              .then(response => {
+                if (response.ok) {
+                  if (window.location.pathname.includes('/admin/events/')) {
+                     window.location.href = '/admin/events';
+                  } else {
+                     window.location.reload();
+                  }
+                } else {
+                  alert('Er ging iets mis bij het verwijderen.');
+                }
+              })
+              .catch(error => {
+                console.error('Error:', error);
+                alert('Er ging iets mis bij het verwijderen.');
+              });
+          }
+          closeDeleteModal();
+        });
+      ` }} />
     </Layout>
   )
 })
@@ -1420,9 +1592,7 @@ function renderEventForm(event: any | null, locations: any[]) {
                 {isEdit && (
                   <button
                     type="button"
-                    onclick={`if(confirm('Weet je zeker dat je dit event wilt verwijderen?${event?.is_recurring ? '\\n\\nLET OP: Dit verwijdert ALLE herhalingen!' : ''}')) { 
-                      fetch('/admin/events/${event?.id}/delete', {method: 'POST'}).then(() => window.location.href = '/admin/events') 
-                    }`}
+                    onclick={`openDeleteModal('/admin/events/${event?.id}/delete', 'POST', 'Weet je zeker dat je dit event wilt verwijderen?${event?.is_recurring ? '\\n\\nLET OP: Dit verwijdert ALLE herhalingen!' : ''}')`}
                     class="px-6 py-2 text-white bg-red-600 hover:bg-red-700 rounded-lg transition"
                   >
                     <i class="fas fa-trash mr-2"></i>

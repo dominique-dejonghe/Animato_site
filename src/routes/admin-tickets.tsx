@@ -26,7 +26,7 @@ app.get('/admin/tickets', async (c) => {
     LEFT JOIN tickets t ON t.concert_id = c.id
     WHERE e.type = 'concert'
     GROUP BY e.id
-    ORDER BY e.start_at DESC
+    ORDER BY e.start_at ASC
   `)
 
   return c.html(
@@ -459,12 +459,19 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
                         {ticket.status === 'pending' && (
                           <button
                             onclick={`markAsPaid(${ticket.id})`}
-                            class="text-green-600 hover:text-green-900"
+                            class="text-green-600 hover:text-green-900 mr-3"
                             title="Markeer als betaald"
                           >
                             <i class="fas fa-check"></i>
                           </button>
                         )}
+                        <button
+                          onclick={`openDeleteModal('/api/admin/tickets/${ticket.id}/delete?concert_id=${concertId}', true)`}
+                          class="text-red-600 hover:text-red-900"
+                          title="Verwijder bestelling"
+                        >
+                          <i class="fas fa-trash"></i>
+                        </button>
                       </td>
                     </tr>
                   )
@@ -473,6 +480,41 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
             </table>
           </div>
         )}
+
+        {/* Delete Confirmation Modal */}
+        <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+          <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="closeDeleteModal()"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-red-500">
+              <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                <div class="sm:flex sm:items-start">
+                  <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                    <i class="fas fa-exclamation-triangle text-red-600"></i>
+                  </div>
+                  <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                    <h3 class="text-xl leading-6 font-bold text-gray-900" id="modal-title" style="font-family: 'Playfair Display', serif;">
+                      Bevestig Verwijderen
+                    </h3>
+                    <div class="mt-2">
+                      <p class="text-sm text-gray-500">
+                        Weet je zeker dat je dit item wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                <button type="button" id="confirmDeleteBtn" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-md px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm transition">
+                  Verwijderen
+                </button>
+                <button type="button" onclick="closeDeleteModal()" class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition">
+                  Annuleren
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
 
         {/* QR Code Modal */}
         <div id="qrModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
@@ -488,6 +530,37 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
         </div>
 
         <script dangerouslySetInnerHTML={{ __html: `
+          let deleteUrl = null;
+          let isPost = false;
+
+          function openDeleteModal(url, usePost = false) {
+            deleteUrl = url;
+            isPost = usePost;
+            document.getElementById('deleteModal').classList.remove('hidden');
+          }
+
+          function closeDeleteModal() {
+            deleteUrl = null;
+            isPost = false;
+            document.getElementById('deleteModal').classList.add('hidden');
+          }
+
+          document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+            if (deleteUrl) {
+              if (isPost) {
+                // Create and submit a form
+                const form = document.createElement('form');
+                form.method = 'POST';
+                form.action = deleteUrl;
+                document.body.appendChild(form);
+                form.submit();
+              } else {
+                window.location.href = deleteUrl;
+              }
+            }
+            closeDeleteModal();
+          });
+
           function showQR(qrCode, orderRef) {
             document.getElementById('qrContent').innerHTML = 
               '<div class="text-2xl font-mono font-bold mb-4">' + orderRef + '</div>' +
@@ -542,6 +615,35 @@ app.post('/api/admin/tickets/:id/mark-paid', async (c) => {
       VALUES (?, 'update', 'tickets', ?, ?)
     `, [user.id, ticketId, JSON.stringify({ action: 'marked_as_paid' })])
 
+    return c.json({ success: true })
+  } catch (error) {
+    return c.json({ error: (error as Error).message }, 500)
+  }
+})
+
+// ==========================================
+// DELETE TICKET API
+// ==========================================
+app.post('/api/admin/tickets/:id/delete', async (c) => {
+  const user = c.get('user') as SessionUser
+  const ticketId = parseInt(c.req.param('id'))
+  const concertId = c.req.query('concert_id')
+  
+  try {
+    // Get ticket info for log
+    const ticket = await queryOne(c.env.DB, 'SELECT * FROM tickets WHERE id = ?', [ticketId])
+    
+    await execute(c.env.DB, `DELETE FROM tickets WHERE id = ?`, [ticketId])
+
+    // Audit log
+    await execute(c.env.DB, `
+      INSERT INTO audit_logs (user_id, action, table_name, record_id, details)
+      VALUES (?, 'delete', 'tickets', ?, ?)
+    `, [user.id, ticketId, JSON.stringify({ deleted_ticket: ticket })])
+
+    if (concertId) {
+      return c.redirect(`/admin/tickets/concert/${concertId}/orders?success=deleted`)
+    }
     return c.json({ success: true })
   } catch (error) {
     return c.json({ error: (error as Error).message }, 500)
@@ -829,12 +931,13 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
           <div class="bg-white rounded-lg shadow-md p-6">
             <h2 class="text-xl font-bold text-gray-900 mb-6">Programma</h2>
             
-            <textarea
-              name="programma"
-              rows="8"
-              class="w-full border border-gray-300 rounded-lg px-4 py-2"
-              placeholder="Beschrijf het concertprogramma (optioneel)"
-            >{concert.programma || ''}</textarea>
+            <link href="https://cdn.quilljs.com/1.3.6/quill.snow.css" rel="stylesheet" />
+            <div class="bg-white border border-gray-300 rounded-lg overflow-hidden">
+               <div id="editor-programma" class="h-64"></div>
+            </div>
+            
+            <textarea name="programma" id="programma-input" class="hidden">{concert.programma || ''}</textarea>
+            
             <p class="text-sm text-gray-500 mt-1">
               Dit wordt getoond op de ticketpagina
             </p>
@@ -854,12 +957,10 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
                   <i class="fas fa-parking mr-2 text-gray-600"></i>
                   Parking
                 </label>
-                <textarea
-                  name="parking"
-                  rows="3"
-                  class="w-full border border-gray-300 rounded-lg px-4 py-2"
-                  placeholder="Bijv. Er is voldoende parkeergelegenheid beschikbaar in de omgeving. Kom tijdig voor een stressloze start van uw concertervaring."
-                >{concert.parking || ''}</textarea>
+                <div class="bg-white border border-gray-300 rounded-lg overflow-hidden">
+                   <div id="editor-parking" class="h-32"></div>
+                </div>
+                <textarea name="parking" id="parking-input" class="hidden">{concert.parking || ''}</textarea>
               </div>
 
               {/* Toegankelijkheid */}
@@ -868,12 +969,10 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
                   <i class="fas fa-wheelchair mr-2 text-gray-600"></i>
                   Toegankelijkheid
                 </label>
-                <textarea
-                  name="toegankelijkheid"
-                  rows="3"
-                  class="w-full border border-gray-300 rounded-lg px-4 py-2"
-                  placeholder="Bijv. De zaal is toegankelijk voor personen met beperkte mobiliteit. Neem bij specifieke vragen contact met ons op."
-                >{concert.toegankelijkheid || ''}</textarea>
+                <div class="bg-white border border-gray-300 rounded-lg overflow-hidden">
+                   <div id="editor-toegankelijkheid" class="h-32"></div>
+                </div>
+                <textarea name="toegankelijkheid" id="toegankelijkheid-input" class="hidden">{concert.toegankelijkheid || ''}</textarea>
               </div>
 
               {/* Duur & Pauze */}
@@ -897,12 +996,10 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
                   <i class="fas fa-tshirt mr-2 text-gray-600"></i>
                   Sfeer & Dresscode
                 </label>
-                <textarea
-                  name="sfeer_dresscode"
-                  rows="3"
-                  class="w-full border border-gray-300 rounded-lg px-4 py-2"
-                  placeholder="Bijv. We creëren een warme, ontspannen sfeer. Er is geen strikte dresscode - kom zoals je je prettig voelt!"
-                >{concert.sfeer_dresscode || ''}</textarea>
+                <div class="bg-white border border-gray-300 rounded-lg overflow-hidden">
+                   <div id="editor-sfeer" class="h-32"></div>
+                </div>
+                <textarea name="sfeer_dresscode" id="sfeer-input" class="hidden">{concert.sfeer_dresscode || ''}</textarea>
               </div>
 
               {/* Extra Info */}
@@ -911,12 +1008,10 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
                   <i class="fas fa-star mr-2 text-gray-600"></i>
                   Extra Informatie
                 </label>
-                <textarea
-                  name="extra_info"
-                  rows="4"
-                  class="w-full border border-gray-300 rounded-lg px-4 py-2"
-                  placeholder="Andere belangrijke informatie voor bezoekers..."
-                >{concert.extra_info || ''}</textarea>
+                <div class="bg-white border border-gray-300 rounded-lg overflow-hidden">
+                   <div id="editor-extra" class="h-32"></div>
+                </div>
+                <textarea name="extra_info" id="extra-input" class="hidden">{concert.extra_info || ''}</textarea>
               </div>
             </div>
 
@@ -944,9 +1039,98 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
           </div>
         </form>
 
+        {/* Delete Confirmation Modal */}
+        <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+          <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="closeDeleteModal()"></div>
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-red-500">
+              <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                <div class="sm:flex sm:items-start">
+                  <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                    <i class="fas fa-exclamation-triangle text-red-600"></i>
+                  </div>
+                  <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                    <h3 class="text-xl leading-6 font-bold text-gray-900" id="modal-title" style="font-family: 'Playfair Display', serif;">
+                      Bevestig Verwijderen
+                    </h3>
+                    <div class="mt-2">
+                      <p class="text-sm text-gray-500">
+                        Weet je zeker dat je dit item wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                <button type="button" id="confirmDeleteBtn" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-md px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm transition">
+                  Verwijderen
+                </button>
+                <button type="button" onclick="closeDeleteModal()" class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition">
+                  Annuleren
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* JavaScript */}
+        <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
         <script dangerouslySetInnerHTML={{ __html: `
+          // Initialize Quill editors
+          function initEditor(containerId, inputId) {
+            if (document.getElementById(containerId)) {
+              var quill = new Quill('#' + containerId, {
+                theme: 'snow',
+                modules: {
+                  toolbar: [
+                    [{ 'header': [3, 4, false] }],
+                    ['bold', 'italic', 'underline'],
+                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                    ['clean']
+                  ]
+                }
+              });
+
+              // Load initial content
+              var initialContent = document.getElementById(inputId).value;
+              if (initialContent) {
+                 quill.clipboard.dangerouslyPasteHTML(initialContent);
+              }
+
+              // Sync content on change
+              quill.on('text-change', function() {
+                document.getElementById(inputId).value = quill.root.innerHTML;
+              });
+            }
+          }
+
+          // Initialize all editors
+          initEditor('editor-programma', 'programma-input');
+          initEditor('editor-parking', 'parking-input');
+          initEditor('editor-toegankelijkheid', 'toegankelijkheid-input');
+          initEditor('editor-sfeer', 'sfeer-input');
+          initEditor('editor-extra', 'extra-input');
+
           let priceIndex = ${prijzen.length};
+          let deleteCallback = null;
+
+          function openDeleteModal(callback) {
+            deleteCallback = callback;
+            document.getElementById('deleteModal').classList.remove('hidden');
+          }
+
+          function closeDeleteModal() {
+            deleteCallback = null;
+            document.getElementById('deleteModal').classList.add('hidden');
+          }
+
+          document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+            if (deleteCallback) {
+              deleteCallback();
+            }
+            closeDeleteModal();
+          });
           
           function addPriceCategory() {
             const container = document.getElementById('prijzen-container');
@@ -977,17 +1161,15 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
           }
           
           function removePriceCategory(index) {
-            if (!confirm('Weet je zeker dat je deze prijscategorie wilt verwijderen?')) {
-              return;
-            }
-            
-            // Find the div with data-price-index matching the index
-            const container = document.getElementById('prijzen-container');
-            const divToRemove = container.querySelector('[data-price-index="' + index + '"]');
-            
-            if (divToRemove) {
-              divToRemove.remove();
-            }
+            openDeleteModal(function() {
+              // Find the div with data-price-index matching the index
+              const container = document.getElementById('prijzen-container');
+              const divToRemove = container.querySelector('[data-price-index="' + index + '"]');
+              
+              if (divToRemove) {
+                divToRemove.remove();
+              }
+            });
           }
 
           // Image Upload Functions
@@ -1075,14 +1257,12 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
           }
 
           function removeImage() {
-            if (!confirm('Weet je zeker dat je de afbeelding wilt verwijderen?')) {
-              return;
-            }
-            
-            document.getElementById('afbeelding-url').value = '';
-            document.getElementById('afbeelding-upload').value = '';
-            document.getElementById('file-input').value = '';
-            document.getElementById('preview-section').classList.add('hidden');
+            openDeleteModal(function() {
+              document.getElementById('afbeelding-url').value = '';
+              document.getElementById('afbeelding-upload').value = '';
+              document.getElementById('file-input').value = '';
+              document.getElementById('preview-section').classList.add('hidden');
+            });
           }
         ` }} />
       </div>

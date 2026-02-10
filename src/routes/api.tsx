@@ -143,24 +143,15 @@ app.post('/api/word-lid', async (c) => {
 
     // Validation
     if (!voornaam || !achternaam || !email || !telefoon || !stemgroep || !consent) {
-      return c.json({ 
-        success: false, 
-        error: 'Vul alle verplichte velden in' 
-      }, 400)
+      return c.redirect('/word-lid?error=required')
     }
 
     if (!isValidEmail(email)) {
-      return c.json({ 
-        success: false, 
-        error: 'Ongeldig email adres' 
-      }, 400)
+      return c.redirect('/word-lid?error=invalid_email')
     }
 
     if (!isValidPhone(telefoon)) {
-      return c.json({ 
-        success: false, 
-        error: 'Ongeldig telefoonnummer (gebruik Belgisch formaat: +32 of 0...)' 
-      }, 400)
+      return c.redirect('/word-lid?error=invalid_phone')
     }
 
     // Check if email already registered
@@ -171,10 +162,7 @@ app.post('/api/word-lid', async (c) => {
     )
 
     if (existingUser) {
-      return c.json({ 
-        success: false, 
-        error: 'Dit email adres is al geregistreerd. Log in of gebruik een ander email adres.' 
-      }, 400)
+      return c.redirect('/word-lid?error=email_exists')
     }
 
     // Check if submission already exists (prevent duplicates)
@@ -188,10 +176,7 @@ app.post('/api/word-lid', async (c) => {
     )
 
     if (existingSubmission) {
-      return c.json({ 
-        success: false, 
-        error: 'Je aanvraag is al ontvangen. We nemen binnenkort contact met je op!' 
-      }, 400)
+      return c.redirect('/word-lid?error=duplicate')
     }
 
     // Store submission
@@ -222,17 +207,10 @@ app.post('/api/word-lid', async (c) => {
     // TODO: Send email to admin (when Resend is configured)
     // TODO: Send confirmation email to applicant
 
-    return c.json({ 
-      success: true, 
-      message: 'Bedankt voor je aanmelding! We nemen binnenkort contact met je op.',
-      submissionId: result.meta.last_row_id
-    })
+    return c.redirect('/word-lid?success=true')
   } catch (error) {
     console.error('Word lid submission error:', error)
-    return c.json({ 
-      success: false, 
-      error: 'Er is een fout opgetreden. Probeer het later opnieuw.' 
-    }, 500)
+    return c.redirect('/word-lid?error=server')
   }
 })
 
@@ -252,17 +230,11 @@ app.post('/api/contact', async (c) => {
 
     // Validation
     if (!naam || !email || !onderwerp || !bericht || !consent) {
-      return c.json({ 
-        success: false, 
-        error: 'Vul alle verplichte velden in' 
-      }, 400)
+      return c.redirect('/contact?error=required')
     }
 
     if (!isValidEmail(email)) {
-      return c.json({ 
-        success: false, 
-        error: 'Ongeldig email adres' 
-      }, 400)
+      return c.redirect('/contact?error=invalid_email')
     }
 
     // Store submission
@@ -290,16 +262,10 @@ app.post('/api/contact', async (c) => {
     // TODO: Send email to admin (when Resend is configured)
     // TODO: Send confirmation email to sender
 
-    return c.json({ 
-      success: true, 
-      message: 'Bedankt voor je bericht! We nemen zo snel mogelijk contact met je op.'
-    })
+    return c.redirect('/contact?success=true')
   } catch (error) {
     console.error('Contact form submission error:', error)
-    return c.json({ 
-      success: false, 
-      error: 'Er is een fout opgetreden. Probeer het later opnieuw.' 
-    }, 500)
+    return c.redirect('/contact?error=server')
   }
 })
 

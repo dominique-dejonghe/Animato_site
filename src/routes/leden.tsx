@@ -5,7 +5,7 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { requireAuth } from '../middleware/auth'
-import { queryOne, queryAll } from '../utils/db'
+import { queryOne, queryAll, execute } from '../utils/db'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -164,6 +164,17 @@ app.get('/leden', async (c) => {
               </div>
               <h3 class="font-semibold text-gray-900 mb-1">Agenda</h3>
               <p class="text-sm text-gray-600">Repetities & concerten</p>
+            </a>
+
+            <a
+              href="/leden/activiteiten"
+              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center border-2 border-animato-primary border-opacity-20"
+            >
+              <div class="w-12 h-12 bg-animato-primary rounded-full flex items-center justify-center mx-auto mb-3 text-white shadow-sm">
+                <i class="fas fa-glass-cheers text-xl"></i>
+              </div>
+              <h3 class="font-semibold text-gray-900 mb-1">Inschrijvingen</h3>
+              <p class="text-sm text-gray-600">Feesten & Activiteiten</p>
             </a>
 
             <a
@@ -857,6 +868,29 @@ app.get('/leden/profiel', async (c) => {
     [user.id]
   )
 
+  // Get membership status
+  const settings = await queryAll(c.env.DB, "SELECT * FROM system_settings WHERE key = 'current_season'")
+  const currentSeason = settings[0]?.value || '2025-2026'
+  
+  const membership = await queryOne<any>(
+    c.env.DB,
+    `SELECT um.*, my.season 
+     FROM user_memberships um
+     JOIN membership_years my ON um.year_id = my.id
+     WHERE um.user_id = ? AND my.season = ?`,
+    [user.id, currentSeason]
+  )
+
+  // Get activity history
+  const myActivities = await queryAll(c.env.DB, `
+    SELECT ar.*, e.titel, e.start_at, e.locatie, a.id as activity_id
+    FROM activity_registrations ar
+    JOIN activities a ON ar.activity_id = a.id
+    JOIN events e ON a.event_id = e.id
+    WHERE ar.user_id = ?
+    ORDER BY e.start_at DESC
+  `, [user.id])
+
   return c.html(
     <Layout 
       title="Mijn Profiel" 
@@ -907,6 +941,131 @@ app.get('/leden/profiel', async (c) => {
               </div>
             </div>
           )}
+
+          {/* Membership Status Card */}
+          <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h3 class="text-xl font-bold text-gray-900 mb-4">
+              <i class="fas fa-id-card text-animato-secondary mr-2"></i>
+              Lidmaatschap {currentSeason}
+            </h3>
+            
+            {!membership ? (
+              <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
+                <p class="text-gray-600">
+                  Er is nog geen lidmaatschap geactiveerd voor dit seizoen.
+                </p>
+                <p class="text-sm text-gray-500 mt-1">
+                  Neem contact op met de penningmeester voor meer informatie.
+                </p>
+              </div>
+            ) : membership.status === 'paid' ? (
+              <div class="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
+                <div>
+                  <div class="flex items-center text-green-800 font-semibold mb-1">
+                    <i class="fas fa-check-circle mr-2 text-xl"></i>
+                    Lidgeld Voldaan
+                  </div>
+                  <p class="text-sm text-green-700">
+                    Bedankt voor je betaling! Je lidmaatschap ({membership.type === 'full' ? 'Met Partituren' : 'Basis'}) is actief.
+                  </p>
+                </div>
+                <div class="text-2xl font-bold text-green-600 opacity-20">
+                  <i class="fas fa-music"></i>
+                </div>
+              </div>
+            ) : (
+              <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <div class="flex items-center text-yellow-800 font-semibold mb-1">
+                      <i class="fas fa-exclamation-circle mr-2 text-xl"></i>
+                      Lidgeld Openstaand
+                    </div>
+                    <p class="text-sm text-yellow-700">
+                      Het lidgeld voor dit seizoen ({membership.type === 'full' ? 'Met Partituren' : 'Basis'}) staat nog open.
+                    </p>
+                    <p class="font-bold text-yellow-900 mt-1">
+                      Te betalen: €{membership.amount.toFixed(2)}
+                    </p>
+                  </div>
+                  {membership.mollie_payment_url ? (
+                    <a 
+                      href={membership.mollie_payment_url} 
+                      class="inline-flex items-center justify-center px-6 py-3 bg-animato-primary text-white rounded-lg hover:opacity-90 transition font-semibold shadow-sm"
+                    >
+                      <i class="fas fa-credit-card mr-2"></i>
+                      Betaal Nu
+                    </a>
+                  ) : (
+                    <div class="text-sm text-gray-500 italic bg-white px-3 py-2 rounded border border-gray-200">
+                      Nog geen betaallink beschikbaar. <br/>Wordt binnenkort verstuurd.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Activity History Card */}
+          <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h3 class="text-xl font-bold text-gray-900 mb-4">
+              <i class="fas fa-calendar-check text-animato-secondary mr-2"></i>
+              Mijn Activiteiten
+            </h3>
+            
+            {myActivities.length > 0 ? (
+              <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                  <thead>
+                    <tr class="text-xs text-gray-500 border-b border-gray-100">
+                      <th class="pb-2 font-medium">Datum</th>
+                      <th class="pb-2 font-medium">Activiteit</th>
+                      <th class="pb-2 font-medium">Status</th>
+                      <th class="pb-2 font-medium text-right">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-gray-100">
+                    {myActivities.map((act: any) => (
+                      <tr>
+                        <td class="py-3 text-sm text-gray-600">
+                          {new Date(act.start_at).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td class="py-3">
+                          <span class="font-medium text-gray-900">{act.titel}</span>
+                          <div class="text-xs text-gray-500">{act.locatie}</div>
+                        </td>
+                        <td class="py-3">
+                          <span class={`inline-flex px-2 py-1 text-xs rounded-full font-semibold ${
+                            act.status === 'paid' ? 'bg-green-100 text-green-800' :
+                            act.status === 'confirmed' ? 'bg-blue-100 text-blue-800' :
+                            act.status === 'cancelled' ? 'bg-red-100 text-red-800' :
+                            'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {act.status === 'paid' && 'Betaald'}
+                            {act.status === 'confirmed' && 'Bevestigd'}
+                            {act.status === 'cancelled' && 'Geannuleerd'}
+                            {act.status === 'pending' && 'Te Betalen'}
+                          </span>
+                        </td>
+                        <td class="py-3 text-right">
+                          <a 
+                            href={`/leden/activiteiten/${act.activity_id}`} 
+                            class="text-animato-primary hover:text-animato-secondary text-sm font-medium"
+                          >
+                            Bekijk <i class="fas fa-chevron-right ml-1 text-xs"></i>
+                          </a>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p class="text-gray-500 italic text-sm text-center py-4">
+                Je hebt je nog niet ingeschreven voor activiteiten.
+              </p>
+            )}
+          </div>
 
           {/* Voice Range Analysis Card */}
           {voiceAnalysis && (
@@ -1721,7 +1880,7 @@ app.get('/leden/materiaal', async (c) => {
   // Get all works with pieces and materials
   const works = await queryAll(
     c.env.DB,
-    `SELECT DISTINCT w.id, w.componist, w.titel, w.beschrijving, w.genre
+    `SELECT DISTINCT w.id, w.componist, w.titel, w.beschrijving, w.genre, w.image_url
      FROM works w
      JOIN pieces p ON p.work_id = w.id
      JOIN materials m ON m.piece_id = p.id
@@ -1794,6 +1953,28 @@ app.get('/leden/materiaal', async (c) => {
             </a>
           </div>
 
+          {/* Success/Error Messages */}
+          {(c.req.query('success') === 'print_requested') && (
+            <div class="mb-6 bg-green-50 border border-green-200 rounded-lg p-4 animate-fade-in">
+              <div class="flex items-center">
+                <i class="fas fa-print text-green-500 mr-3"></i>
+                <div class="text-sm text-green-800">
+                  <strong>Aanvraag ontvangen!</strong> We leggen een geprinte versie voor je klaar bij de volgende repetitie (kosten worden verrekend).
+                </div>
+              </div>
+            </div>
+          )}
+          {(c.req.query('error') === 'already_requested') && (
+            <div class="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4 animate-fade-in">
+              <div class="flex items-center">
+                <i class="fas fa-exclamation-circle text-yellow-500 mr-3"></i>
+                <div class="text-sm text-yellow-800">
+                  Je hebt al een printaanvraag openstaan voor dit stuk.
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Filter tabs */}
           <div class="bg-white rounded-lg shadow-md p-4 mb-8">
             <div class="flex items-center space-x-2">
@@ -1837,7 +2018,15 @@ app.get('/leden/materiaal', async (c) => {
               {worksWithMaterials.map((work: any) => (
                 <div class="bg-white rounded-lg shadow-md overflow-hidden">
                   {/* Work header */}
-                  <div class="bg-gradient-to-r from-animato-primary to-animato-secondary text-white p-6">
+                  <div class="bg-gradient-to-r from-animato-primary to-animato-secondary text-white p-6 relative overflow-hidden group">
+                    {work.image_url && (
+                      <div class="absolute inset-0">
+                        <img src={work.image_url} class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                        <div class="absolute inset-0 bg-gradient-to-r from-animato-primary/90 to-animato-secondary/90"></div>
+                      </div>
+                    )}
+                    <div class="relative z-10 flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+                      <div>
                     <a href={`/leden/werk/${work.id}`} class="block hover:opacity-90 transition">
                       <h2 class="text-2xl font-bold mb-1 flex items-center" style="font-family: 'Playfair Display', serif;">
                         {work.titel}
@@ -1857,6 +2046,16 @@ app.get('/leden/materiaal', async (c) => {
                     {work.beschrijving && (
                       <p class="text-sm text-gray-200 mt-2 whitespace-pre-line">{work.beschrijving}</p>
                     )}
+                    </div>
+                    <button 
+                      onclick={`openPrintModal('work', '${work.id}', '${work.titel.replace(/'/g, "\\'")}')`}
+                      class="flex-shrink-0 bg-white text-animato-primary hover:bg-gray-100 border border-white/40 px-4 py-2 rounded-lg font-bold transition text-sm flex items-center shadow-lg"
+                      title="Vraag papieren versie aan voor dit hele werk"
+                    >
+                      <i class="fas fa-print mr-2"></i>
+                      Vraag papieren versie aan
+                    </button>
+                  </div>
                   </div>
 
                   {/* Pieces */}
@@ -1887,10 +2086,7 @@ app.get('/leden/materiaal', async (c) => {
                           <div class="space-y-3">
                             {piece.materials.map((material: any) => (
                                 // File Download or External Link
-                                <a
-                                  href={material.url}
-                                  download={material.type !== 'link'}
-                                  target="_blank"
+                                <div
                                   class="flex items-center justify-between bg-gray-50 hover:bg-gray-100 p-4 rounded-lg border border-gray-200 transition group"
                                 >
                                   <div class="flex items-center flex-1 min-w-0">
@@ -1927,8 +2123,32 @@ app.get('/leden/materiaal', async (c) => {
                                       </div>
                                     </div>
                                   </div>
-                                  <i class={`fas ${material.type === 'link' ? 'fa-external-link-alt' : 'fa-download'} text-animato-primary ml-3`}></i>
-                                </a>
+                                  <div class="flex items-center gap-3">
+                                    {/* Print Request Button (Only for PDFs) */}
+                                    {material.type === 'pdf' && (
+                                      <button 
+                                        onclick={`openPrintModal('material', '${material.id}', '${material.titel.replace(/'/g, "\\'")}')`}
+                                        class="flex items-center px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-600 hover:text-animato-primary hover:border-animato-primary transition text-sm font-medium"
+                                        title="Vraag papieren versie aan"
+                                      >
+                                        <i class="fas fa-print mr-2"></i>
+                                        Print
+                                      </button>
+                                    )}
+                                    
+                                    {/* Download/Link Button */}
+                                    <a
+                                      href={material.url}
+                                      download={material.type !== 'link'}
+                                      target="_blank"
+                                      class="flex items-center px-3 py-2 bg-animato-primary text-white rounded-lg hover:bg-opacity-90 transition text-sm font-medium"
+                                      title={material.type === 'link' ? 'Open Link' : 'Download Bestand'}
+                                    >
+                                      <i class={`fas ${material.type === 'link' ? 'fa-external-link-alt' : 'fa-download'} mr-2`}></i>
+                                      {material.type === 'link' ? 'Open Link' : 'Download'}
+                                    </a>
+                                  </div>
+                                </div>
                             ))}
                           </div>
                         ) : (
@@ -1953,10 +2173,218 @@ app.get('/leden/materiaal', async (c) => {
               </p>
             </div>
           )}
+          
+          {/* Print Request Modal */}
+          <div id="print-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6" onclick="event.stopPropagation()">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-bold text-gray-900">
+                  <i class="fas fa-print text-animato-primary mr-2"></i>
+                  Papieren versie aanvragen
+                </h3>
+                <button onclick="closePrintModal()" class="text-gray-400 hover:text-gray-600 text-2xl">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+
+              <form id="print-form" method="POST" action="/api/leden/print-request">
+                <input type="hidden" name="work_id" id="print-work-id" />
+                <input type="hidden" name="material_id" id="print-material-id" />
+                
+                <div class="mb-4">
+                  <p class="text-gray-700 mb-2">
+                    Je vraagt een geprinte versie aan van: <br/>
+                    <strong id="print-material-title"></strong>
+                  </p>
+                  <div class="bg-blue-50 border-l-4 border-blue-400 p-3 mb-4">
+                    <p class="text-sm text-blue-800">
+                      <i class="fas fa-info-circle mr-1"></i>
+                      Let op: Hier zijn kosten aan verbonden (ca. €0.10 per pagina). De kosten worden verrekend via de penningmeester.
+                    </p>
+                  </div>
+                  
+                  <label class="block text-sm font-medium text-gray-700 mb-1">
+                    Opmerking (optioneel)
+                  </label>
+                  <textarea
+                    name="opmerking"
+                    rows={3}
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    placeholder="Bijv. aantal exemplaren, specifieke wensen..."
+                  ></textarea>
+                </div>
+
+                <div class="flex justify-end gap-3">
+                  <button type="button" onclick="closePrintModal()" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                    Annuleren
+                  </button>
+                  <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-opacity-90 transition">
+                    Verstuur Aanvraag
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <script dangerouslySetInnerHTML={{ __html: `
+            function openPrintModal(type, id, title) {
+              const modal = document.getElementById('print-modal');
+              const titleEl = document.getElementById('print-material-title');
+              const workInput = document.getElementById('print-work-id');
+              const materialInput = document.getElementById('print-material-id');
+              
+              // Reset inputs
+              workInput.value = '';
+              materialInput.value = '';
+              
+              if (type === 'work') {
+                workInput.value = id;
+              } else {
+                materialInput.value = id;
+              }
+              
+              titleEl.textContent = title;
+              modal.classList.remove('hidden');
+            }
+
+            function closePrintModal() {
+              document.getElementById('print-modal').classList.add('hidden');
+            }
+            
+            // Close on backdrop click
+            document.getElementById('print-modal').addEventListener('click', function(e) {
+              if (e.target === this) closePrintModal();
+            });
+          ` }} />
         </div>
       </div>
     </Layout>
   )
+})
+
+// =====================================================
+// PRINT REQUEST API (UPDATED)
+// =====================================================
+
+app.post('/api/leden/print-request', async (c) => {
+  const user = c.get('user') as SessionUser
+  const body = await c.req.parseBody()
+  
+  const materialId = body.material_id ? parseInt(String(body.material_id)) : null
+  const workId = body.work_id ? parseInt(String(body.work_id)) : null
+  const opmerking = body.opmerking ? String(body.opmerking) : null
+
+  if (!materialId && !workId) {
+    return c.redirect('/leden/materiaal?error=invalid_request')
+  }
+
+  // 1. Determine cost and subscription status
+  // Get settings
+  const settings = await queryAll(c.env.DB, "SELECT * FROM system_settings")
+  const settingsMap = settings.reduce((acc: any, curr: any) => ({...acc, [curr.key]: curr.value}), {})
+  const currentSeason = settingsMap.current_season || '2025-2026'
+  const pricePerPage = parseFloat(settingsMap.price_per_page || '0.15')
+
+  // Check user subscription
+  const membership = await queryOne<any>(
+    c.env.DB,
+    `SELECT um.type, um.status 
+     FROM user_memberships um
+     JOIN membership_years my ON um.year_id = my.id
+     WHERE um.user_id = ? AND my.season = ? AND um.status = 'paid'`,
+    [user.id, currentSeason]
+  )
+
+  const hasSubscription = membership && membership.type === 'full'
+
+  // Calculate cost
+  let cost = 0.00
+  let pageCount = 0
+
+  if (materialId) {
+    const material = await queryOne<any>(c.env.DB, "SELECT page_count FROM materials WHERE id = ?", [materialId])
+    if (material) {
+      pageCount = material.page_count || 0
+      cost = hasSubscription ? 0 : (pageCount * pricePerPage)
+    }
+  } else if (workId) {
+    // Sum all pages for the work
+    const result = await queryOne<any>(
+      c.env.DB, 
+      `SELECT SUM(m.page_count) as total_pages 
+       FROM materials m 
+       JOIN pieces p ON m.piece_id = p.id 
+       WHERE p.work_id = ? AND m.type = 'pdf' AND m.is_actief = 1`,
+      [workId]
+    )
+    pageCount = result?.total_pages || 0
+    cost = hasSubscription ? 0 : (pageCount * pricePerPage)
+  }
+
+  // 2. Check if request already exists (pending)
+  let existing;
+  if (materialId) {
+    existing = await queryOne(
+      c.env.DB,
+      `SELECT id FROM print_requests WHERE user_id = ? AND material_id = ? AND status = 'pending'`,
+      [user.id, materialId]
+    )
+  } else {
+    existing = await queryOne(
+      c.env.DB,
+      `SELECT id FROM print_requests WHERE user_id = ? AND work_id = ? AND material_id IS NULL AND status = 'pending'`,
+      [user.id, workId]
+    )
+  }
+
+  if (existing) {
+    return c.redirect('/leden/materiaal?error=already_requested')
+  }
+  
+  // 3. Retrieve final Work ID
+  let finalWorkId = workId
+  if (!finalWorkId && materialId) {
+    const material = await queryOne<any>(c.env.DB, 
+      `SELECT p.work_id FROM materials m JOIN pieces p ON m.piece_id = p.id WHERE m.id = ?`, 
+      [materialId]
+    )
+    if (material) finalWorkId = material.work_id
+  }
+
+  // 4. Create Request
+  // If cost > 0, we would generate a payment link here in a real scenario
+  const paymentStatus = cost > 0 ? 'pending' : 'free'
+  
+  await execute(c.env.DB, `
+    INSERT INTO print_requests (
+      user_id, material_id, work_id, opmerking, 
+      cost, is_subscription_covered, payment_status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `, [
+    user.id, 
+    materialId, 
+    finalWorkId, 
+    opmerking,
+    cost,
+    hasSubscription ? 1 : 0,
+    paymentStatus
+  ])
+
+  // Redirect back
+  const redirectUrl = workId && !materialId 
+    ? `/leden/werk/${workId}` 
+    : '/leden/materiaal'
+
+  if (cost > 0) {
+    return c.redirect(redirectUrl + '?success=print_requested_payment&cost=' + cost.toFixed(2))
+  }
+
+  return c.redirect(redirectUrl + '?success=print_requested')
+})
+
+// Legacy endpoint support (optional, can be removed if all buttons updated)
+app.post('/api/leden/materiaal/:id/print', async (c) => {
+  return c.redirect('/leden/materiaal')
 })
 
 // =====================================================
@@ -2037,10 +2465,17 @@ app.get('/leden/werk/:id', async (c) => {
 
           {/* Work header */}
           <div class="bg-white rounded-lg shadow-md overflow-hidden mb-8">
-            <div class="bg-gradient-to-r from-animato-primary to-animato-secondary text-white p-8">
-              <h1 class="text-4xl font-bold mb-3" style="font-family: 'Playfair Display', serif;">
-                {work.titel}
-              </h1>
+            <div class="bg-gradient-to-r from-animato-primary to-animato-secondary text-white p-8 relative overflow-hidden group">
+              {work.image_url && (
+                <div class="absolute inset-0">
+                  <img src={work.image_url} class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
+                  <div class="absolute inset-0 bg-gradient-to-r from-animato-primary/90 to-animato-secondary/90"></div>
+                </div>
+              )}
+              <div class="relative z-10">
+                <h1 class="text-4xl font-bold mb-3" style="font-family: 'Playfair Display', serif;">
+                  {work.titel}
+                </h1>
               <div class="flex flex-wrap items-center gap-4 text-lg">
                 <div class="flex items-center">
                   <i class="fas fa-user-edit mr-2"></i>
@@ -2062,6 +2497,21 @@ app.get('/leden/werk/:id', async (c) => {
               {work.beschrijving && (
                 <p class="text-gray-100 mt-4 text-base whitespace-pre-line">{work.beschrijving}</p>
               )}
+              
+              <div class="mt-6">
+                <button 
+                  onclick={`openPrintModal('work', '${work.id}', '${work.titel.replace(/'/g, "\\'")}')`}
+                  class="bg-white text-animato-primary px-6 py-3 rounded-lg font-semibold hover:bg-gray-100 transition shadow-sm inline-flex items-center"
+                >
+                  <i class="fas fa-print mr-2"></i>
+                  Vraag papieren versie aan
+                </button>
+                <p class="text-white text-xs mt-2 opacity-80">
+                  <i class="fas fa-info-circle mr-1"></i>
+                  Bestel een geprinte versie van dit werk (kosten worden verrekend)
+                </p>
+              </div>
+              </div>
             </div>
 
             {/* Pieces and Materials */}
@@ -2121,10 +2571,7 @@ app.get('/leden/werk/:id', async (c) => {
                       {piece.materials.length > 0 ? (
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                           {piece.materials.map((material: any) => (
-                            <a
-                              href={material.url}
-                              download={material.type !== 'link'}
-                              target="_blank"
+                            <div
                               class="flex items-center justify-between bg-gray-50 hover:bg-gray-100 p-4 rounded-lg border border-gray-200 transition group"
                             >
                               <div class="flex items-center flex-1 min-w-0">
@@ -2167,8 +2614,28 @@ app.get('/leden/werk/:id', async (c) => {
                                   </div>
                                 </div>
                               </div>
-                              <i class={`fas ${material.type === 'link' ? 'fa-external-link-alt' : 'fa-download'} text-animato-primary text-xl ml-4`}></i>
-                            </a>
+                              <div class="flex items-center gap-3 ml-4">
+                                {material.type === 'pdf' && (
+                                  <button 
+                                    onclick={`openPrintModal('material', '${material.id}', '${material.titel.replace(/'/g, "\\'")}')`}
+                                    class="flex items-center px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-600 hover:text-animato-primary hover:border-animato-primary transition text-sm font-medium"
+                                    title="Vraag papieren versie aan"
+                                  >
+                                    <i class="fas fa-print mr-2"></i>
+                                    Print
+                                  </button>
+                                )}
+                                <a
+                                  href={material.url}
+                                  download={material.type !== 'link'}
+                                  target="_blank"
+                                  class="text-animato-primary text-xl hover:scale-110 transition-transform"
+                                  title="Download / Open"
+                                >
+                                  <i class={`fas ${material.type === 'link' ? 'fa-external-link-alt' : 'fa-download'}`}></i>
+                                </a>
+                              </div>
+                            </div>
                           ))}
                         </div>
                       ) : (
@@ -2189,6 +2656,89 @@ app.get('/leden/werk/:id', async (c) => {
               )}
             </div>
           </div>
+          
+          {/* Print Request Modal (Detail Page) */}
+          <div id="print-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6" onclick="event.stopPropagation()">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-bold text-gray-900">
+                  <i class="fas fa-print text-animato-primary mr-2"></i>
+                  Papieren versie aanvragen
+                </h3>
+                <button onclick="closePrintModal()" class="text-gray-400 hover:text-gray-600 text-2xl">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+
+              <form id="print-form" method="POST" action="/api/leden/print-request">
+                <input type="hidden" name="work_id" id="print-work-id" />
+                <input type="hidden" name="material_id" id="print-material-id" />
+
+                <div class="mb-4">
+                  <p class="text-gray-700 mb-2">
+                    Je vraagt een geprinte versie aan van: <br/>
+                    <strong id="print-material-title"></strong>
+                  </p>
+                  <div class="bg-blue-50 border-l-4 border-blue-400 p-3 mb-4">
+                    <p class="text-sm text-blue-800">
+                      <i class="fas fa-info-circle mr-1"></i>
+                      Let op: Hier zijn kosten aan verbonden (ca. €0.10 per pagina). De kosten worden verrekend via de penningmeester.
+                    </p>
+                  </div>
+                  
+                  <label class="block text-sm font-medium text-gray-700 mb-1">
+                    Opmerking (optioneel)
+                  </label>
+                  <textarea
+                    name="opmerking"
+                    rows={3}
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    placeholder="Bijv. aantal exemplaren, specifieke wensen..."
+                  ></textarea>
+                </div>
+
+                <div class="flex justify-end gap-3">
+                  <button type="button" onclick="closePrintModal()" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                    Annuleren
+                  </button>
+                  <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-opacity-90 transition">
+                    Verstuur Aanvraag
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <script dangerouslySetInnerHTML={{ __html: `
+            function openPrintModal(type, id, title) {
+              const modal = document.getElementById('print-modal');
+              const titleEl = document.getElementById('print-material-title');
+              const workInput = document.getElementById('print-work-id');
+              const materialInput = document.getElementById('print-material-id');
+              
+              // Reset inputs
+              workInput.value = '';
+              materialInput.value = '';
+              
+              if (type === 'work') {
+                workInput.value = id;
+              } else {
+                materialInput.value = id;
+              }
+              
+              titleEl.textContent = title;
+              modal.classList.remove('hidden');
+            }
+
+            function closePrintModal() {
+              document.getElementById('print-modal').classList.add('hidden');
+            }
+            
+            // Close on backdrop click
+            document.getElementById('print-modal').addEventListener('click', function(e) {
+              if (e.target === this) closePrintModal();
+            });
+          ` }} />
         </div>
       </div>
     </Layout>

@@ -30,6 +30,13 @@ import adminPollsRoutes from './routes/admin-polls'
 import adminVoorstellenRoutes from './routes/admin-voorstellen'
 import adminActivityRoutes from './routes/admin-activity'
 import voiceAnalyzerRoutes from './routes/voice-analyzer'
+import adminProjectsRoutes from './routes/admin-projects'
+import adminMeetingsRoutes from './routes/admin-meetings'
+import adminSettingsRoutes from './routes/admin-settings'
+import adminFinanceRoutes from './routes/admin-finance'
+import adminPrintsRoutes from './routes/admin-prints'
+import ledenActivityRoutes from './routes/leden-activity'
+import adminKaraokeRoutes from './routes/admin-karaoke'
 
 // =====================================================
 // APP INITIALIZATION
@@ -89,6 +96,13 @@ app.route('/', adminTicketsRoutes)
 app.route('/', adminPollsRoutes)
 app.route('/', adminVoorstellenRoutes)
 app.route('/', adminActivityRoutes)
+app.route('/', adminProjectsRoutes)
+app.route('/', adminMeetingsRoutes)
+app.route('/', adminSettingsRoutes)
+app.route('/', adminFinanceRoutes)
+app.route('/', adminPrintsRoutes)
+app.route('/', ledenActivityRoutes)
+app.route('/', adminKaraokeRoutes)
 
 // Tickets & Webhooks
 app.route('/', ticketsRoutes)

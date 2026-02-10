@@ -333,9 +333,10 @@ app.get('/admin/polls', async (c) => {
                           )}
                           
                           <form 
+                            id={`delete-poll-${poll.id}`}
                             method="POST" 
                             action={`/api/admin/polls/${poll.id}/delete`}
-                            onsubmit="return confirm('Weet je zeker dat je deze poll wilt verwijderen? Alle stemmen worden ook verwijderd.')"
+                            onsubmit="event.preventDefault(); openDeleteModal(this.id, 'Weet je zeker dat je deze poll wilt verwijderen? Alle stemmen worden ook verwijderd.')"
                             class="inline"
                           >
                             <button 
@@ -358,6 +359,65 @@ app.get('/admin/polls', async (c) => {
 
         </div>
       </div>
+      {/* Delete Confirmation Modal */}
+      <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="closeDeleteModal()"></div>
+          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+          <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-red-500">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <div class="sm:flex sm:items-start">
+                <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <i class="fas fa-exclamation-triangle text-red-600"></i>
+                </div>
+                <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                  <h3 class="text-xl leading-6 font-bold text-gray-900" id="modal-title" style="font-family: 'Playfair Display', serif;">
+                    Bevestig Verwijderen
+                  </h3>
+                  <div class="mt-2">
+                    <p class="text-sm text-gray-500" id="deleteModalBody">
+                      Weet je zeker dat je dit item wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button type="button" id="confirmDeleteBtn" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-md px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Verwijderen
+              </button>
+              <button type="button" onclick="closeDeleteModal()" class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        let deleteFormId = null;
+
+        function openDeleteModal(formId, message = null) {
+          deleteFormId = formId;
+          if (message) {
+             const body = document.getElementById('deleteModalBody');
+             if (body) body.innerText = message;
+          }
+          document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+          deleteFormId = null;
+          document.getElementById('deleteModal').classList.add('hidden');
+        }
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+          if (deleteFormId) {
+            document.getElementById(deleteFormId).submit();
+          }
+          closeDeleteModal();
+        });
+      ` }} />
     </Layout>
   )
 })
@@ -680,6 +740,376 @@ app.get('/admin/polls/nieuw', async (c) => {
       </div>
     </Layout>
   )
+})
+
+// =====================================================
+// EDIT POLL PAGE
+// =====================================================
+
+app.get('/admin/polls/:id/edit', async (c) => {
+  const user = c.get('user') as SessionUser
+  const pollId = c.req.param('id')
+  noCacheHeaders(c)
+
+  // Get poll details
+  const poll = await queryOne(c.env.DB, `
+    SELECT p.*, u.email as created_by_email
+    FROM polls p
+    LEFT JOIN users u ON u.id = p.created_by
+    WHERE p.id = ?
+  `, [pollId])
+
+  if (!poll) {
+    return c.redirect('/admin/polls?error=not_found')
+  }
+
+  // Get poll options
+  const options = await queryAll(c.env.DB, `
+    SELECT id, optie_tekst, optie_beschrijving, volgorde
+    FROM poll_options
+    WHERE poll_id = ?
+    ORDER BY volgorde ASC, id ASC
+  `, [pollId])
+
+  return c.html(
+    <Layout 
+      title={`Bewerk Poll: ${poll.titel}`}
+      user={user}
+      breadcrumbs={[
+        { label: 'Admin', href: '/admin' },
+        { label: 'Polls', href: '/admin/polls' },
+        { label: 'Bewerken', href: `/admin/polls/${pollId}/edit` }
+      ]}
+    >
+      <div class="bg-gray-50 min-h-screen py-8">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          
+          <div class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+              <i class="fas fa-edit text-animato-primary mr-3"></i>
+              Poll Bewerken
+            </h1>
+            <p class="text-gray-600 mt-2">
+              Wijzig de gegevens en opties van deze poll
+            </p>
+          </div>
+
+          <div class="bg-white rounded-lg shadow-md p-8">
+            <form method="POST" action={`/api/admin/polls/${pollId}/update`} id="pollForm">
+              
+              {/* Titel */}
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  Titel <span class="text-red-500">*</span>
+                </label>
+                <input 
+                  type="text" 
+                  name="titel"
+                  value={poll.titel}
+                  required
+                  maxlength="200"
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                />
+              </div>
+
+              {/* Beschrijving */}
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  Beschrijving (optioneel)
+                </label>
+                <textarea 
+                  name="beschrijving"
+                  rows="3"
+                  maxlength="1000"
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                >{poll.beschrijving || ''}</textarea>
+              </div>
+
+              {/* Type */}
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  Type <span class="text-red-500">*</span>
+                </label>
+                <select 
+                  name="type" 
+                  required
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                >
+                  <option value="repertoire" selected={poll.type === 'repertoire'}>🎵 Repertoire</option>
+                  <option value="datum" selected={poll.type === 'datum'}>📅 Datum</option>
+                  <option value="locatie" selected={poll.type === 'locatie'}>📍 Locatie</option>
+                  <option value="activiteit" selected={poll.type === 'activiteit'}>🎉 Activiteit</option>
+                  <option value="bestuur" selected={poll.type === 'bestuur'}>👔 Bestuur</option>
+                  <option value="algemeen" selected={poll.type === 'algemeen'}>📋 Algemeen</option>
+                </select>
+              </div>
+
+              {/* Doelgroep */}
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  Doelgroep <span class="text-red-500">*</span>
+                </label>
+                <select 
+                  name="doelgroep" 
+                  required
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                >
+                  <option value="all" selected={poll.doelgroep === 'all'}>👥 Alle leden</option>
+                  <option value="sopraan" selected={poll.doelgroep === 'sopraan'}>🎤 Sopraan</option>
+                  <option value="alt" selected={poll.doelgroep === 'alt'}>🎤 Alt</option>
+                  <option value="tenor" selected={poll.doelgroep === 'tenor'}>🎤 Tenor</option>
+                  <option value="bas" selected={poll.doelgroep === 'bas'}>🎤 Bas</option>
+                  <option value="zangers" selected={poll.doelgroep === 'zangers'}>🎶 Alle zangers</option>
+                  <option value="bestuur" selected={poll.doelgroep === 'bestuur'}>👔 Bestuur</option>
+                </select>
+              </div>
+
+              {/* Max stemmen */}
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  Max aantal keuzes per lid <span class="text-red-500">*</span>
+                </label>
+                <input 
+                  type="number" 
+                  name="max_stemmen"
+                  value={poll.max_stemmen}
+                  min="1"
+                  required
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                />
+              </div>
+
+              {/* Einddatum */}
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  Einddatum (optioneel)
+                </label>
+                <input 
+                  type="datetime-local" 
+                  name="eind_datum"
+                  value={poll.eind_datum ? poll.eind_datum.slice(0, 16) : ''}
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                />
+              </div>
+
+              {/* Status */}
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  Status <span class="text-red-500">*</span>
+                </label>
+                <select 
+                  name="status" 
+                  required
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                >
+                  <option value="concept" selected={poll.status === 'concept'}>📝 Concept</option>
+                  <option value="open" selected={poll.status === 'open'}>✅ Open</option>
+                  <option value="gesloten" selected={poll.status === 'gesloten'}>🔒 Gesloten</option>
+                </select>
+              </div>
+
+              {/* Toon resultaten */}
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  Wanneer resultaten tonen? <span class="text-red-500">*</span>
+                </label>
+                <select 
+                  name="toon_resultaten" 
+                  required
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                >
+                  <option value="altijd" selected={poll.toon_resultaten === 'altijd'}>👁️ Altijd zichtbaar</option>
+                  <option value="na_stemmen" selected={poll.toon_resultaten === 'na_stemmen'}>✅ Na stemmen</option>
+                  <option value="na_sluiting" selected={poll.toon_resultaten === 'na_sluiting'}>🔒 Na sluiting</option>
+                </select>
+              </div>
+
+              {/* Anoniem */}
+              <div class="mb-6">
+                <label class="flex items-center">
+                  <input 
+                    type="checkbox" 
+                    name="anoniem"
+                    checked={poll.anoniem === 1}
+                    class="w-5 h-5 text-animato-primary border-gray-300 rounded focus:ring-animato-primary"
+                  />
+                  <span class="ml-3 text-sm font-medium text-gray-700">
+                    Anonieme stemming (stemmen niet zichtbaar voor admin)
+                  </span>
+                </label>
+              </div>
+
+              {/* Poll Opties */}
+              <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-4">
+                  Opties <span class="text-red-500">*</span> (minimaal 2)
+                </label>
+                
+                <div id="pollOptions" class="space-y-3">
+                  {options.map((option, index) => (
+                    <div class="flex items-center gap-3 poll-option-row">
+                      <span class="text-gray-500 font-medium min-w-[2rem]">{index + 1}.</span>
+                      <input 
+                        type="text" 
+                        name={`option_${index}_text`}
+                        value={option.optie_tekst}
+                        required
+                        maxlength="200"
+                        placeholder={`Optie ${index + 1}`}
+                        class="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                      />
+                      {index > 1 && (
+                        <button 
+                          type="button" 
+                          onclick="this.closest('.poll-option-row').remove()" 
+                          class="text-red-600 hover:text-red-700"
+                        >
+                          <i class="fas fa-times-circle text-xl"></i>
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <button 
+                  type="button" 
+                  id="addOption"
+                  class="mt-4 text-animato-primary hover:text-animato-primary-dark font-medium inline-flex items-center"
+                >
+                  <i class="fas fa-plus-circle mr-2"></i>
+                  Optie toevoegen
+                </button>
+              </div>
+
+              {/* Actions */}
+              <div class="flex items-center justify-between pt-6 border-t border-gray-200">
+                <div class="flex gap-2">
+                  <a 
+                    href="/admin/polls"
+                    class="text-gray-700 hover:text-gray-900 font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Annuleren
+                  </a>
+                  <button 
+                    type="button"
+                    onclick={`openDeleteModal('delete-poll-form', 'Weet je zeker dat je deze poll wilt verwijderen?')`}
+                    class="text-red-600 hover:text-red-800 font-medium px-4 py-2 rounded-lg hover:bg-red-50 transition-colors"
+                  >
+                    <i class="fas fa-trash mr-2"></i>
+                    Verwijder Poll
+                  </button>
+                </div>
+                <button 
+                  type="submit"
+                  class="bg-animato-primary hover:bg-animato-primary-dark text-white px-8 py-3 rounded-lg font-medium transition-colors inline-flex items-center"
+                >
+                  <i class="fas fa-save mr-2"></i>
+                  Wijzigingen Opslaan
+                </button>
+              </div>
+
+            </form>
+            
+            {/* Hidden Delete Form */}
+            <form id="delete-poll-form" method="POST" action={`/api/admin/polls/${pollId}/delete`} class="hidden"></form>
+          </div>
+
+        </div>
+      </div>
+
+      {/* JavaScript for dynamic options */}
+      <script dangerouslySetInnerHTML={{
+        __html: `
+          let optionCount = ${options.length};
+          
+          document.getElementById('addOption').addEventListener('click', function() {
+            const container = document.getElementById('pollOptions');
+            const div = document.createElement('div');
+            div.className = 'flex items-center gap-3 poll-option-row';
+            div.innerHTML = \`
+              <span class="text-gray-500 font-medium min-w-[2rem]">\${optionCount + 1}.</span>
+              <input 
+                type="text" 
+                name="option_\${optionCount}_text"
+                required
+                maxlength="200"
+                placeholder="Optie \${optionCount + 1}"
+                class="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+              />
+              <button 
+                type="button" 
+                onclick="this.closest('.poll-option-row').remove()" 
+                class="text-red-600 hover:text-red-700"
+              >
+                <i class="fas fa-times-circle text-xl"></i>
+              </button>
+            \`;
+            container.appendChild(div);
+            optionCount++;
+          });
+        `
+      }} />
+    </Layout>
+  )
+})
+
+// =====================================================
+// API: UPDATE POLL
+// =====================================================
+
+app.post('/api/admin/polls/:id/update', async (c) => {
+  const user = c.get('user') as SessionUser
+  const pollId = c.req.param('id')
+  const body = await c.req.parseBody()
+
+  // Extract poll data
+  const titel = body.titel as string
+  const beschrijving = (body.beschrijving as string) || null
+  const type = body.type as string
+  const doelgroep = body.doelgroep as string
+  const status = body.status as string
+  const max_stemmen = parseInt(body.max_stemmen as string)
+  const eind_datum = (body.eind_datum as string) || null
+  const toon_resultaten = body.toon_resultaten as string
+  const anoniem = body.anoniem ? 1 : 0
+
+  // Validation
+  if (!titel || !type || !doelgroep || !status || !max_stemmen || !toon_resultaten) {
+    return c.redirect(`/admin/polls/${pollId}/edit?error=missing_fields`)
+  }
+
+  // Extract options
+  const optionKeys = Object.keys(body).filter(key => key.startsWith('option_') && key.endsWith('_text'))
+  const options = optionKeys.map(key => body[key] as string).filter(text => text.trim() !== '')
+
+  if (options.length < 2) {
+    return c.redirect(`/admin/polls/${pollId}/edit?error=min_options`)
+  }
+
+  try {
+    // Update poll
+    await execute(c.env.DB, `
+      UPDATE polls 
+      SET titel = ?, beschrijving = ?, type = ?, doelgroep = ?, status = ?,
+          max_stemmen = ?, eind_datum = ?, toon_resultaten = ?, anoniem = ?
+      WHERE id = ?
+    `, [titel, beschrijving, type, doelgroep, status, max_stemmen, eind_datum, toon_resultaten, anoniem, pollId])
+
+    // Delete old options
+    await execute(c.env.DB, `DELETE FROM poll_options WHERE poll_id = ?`, [pollId])
+
+    // Insert new options
+    for (let i = 0; i < options.length; i++) {
+      await execute(c.env.DB, `
+        INSERT INTO poll_options (poll_id, optie_tekst, optie_beschrijving, volgorde) VALUES (?, ?, NULL, ?)
+      `, [pollId, options[i], i])
+    }
+
+    return c.redirect('/admin/polls?success=updated', 303)
+  } catch (error) {
+    console.error('Update poll error:', error)
+    return c.redirect(`/admin/polls/${pollId}/edit?error=update_failed`)
+  }
 })
 
 // =====================================================

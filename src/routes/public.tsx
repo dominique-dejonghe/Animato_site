@@ -352,6 +352,8 @@ app.get('/koor', async (c) => {
 
 app.get('/word-lid', async (c) => {
   const user = c.get('user')
+  const success = c.req.query('success')
+  const error = c.req.query('error')
 
   return c.html(
     <Layout title="Word Lid" user={user} currentPath="/word-lid">
@@ -360,6 +362,35 @@ app.get('/word-lid', async (c) => {
           <h1 class="text-5xl font-bold text-animato-secondary mb-8" style="font-family: 'Playfair Display', serif;">
             Word Lid van Gemengd Koor Animato
           </h1>
+
+          {/* Success/Error Messages */}
+          {success && (
+            <div class="mb-8 bg-green-50 border border-green-200 rounded-lg p-6 animate-fade-in">
+              <div class="flex items-center">
+                <i class="fas fa-check-circle text-green-500 text-2xl mr-4"></i>
+                <div>
+                  <h3 class="text-lg font-bold text-green-800">Bedankt voor je interesse!</h3>
+                  <p class="text-green-700">Je aanvraag is goed ontvangen. We nemen zo snel mogelijk contact met je op.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div class="mb-8 bg-red-50 border border-red-200 rounded-lg p-6 animate-fade-in">
+              <div class="flex items-center">
+                <i class="fas fa-exclamation-circle text-red-500 text-2xl mr-4"></i>
+                <div>
+                  <h3 class="text-lg font-bold text-red-800">Er ging iets mis</h3>
+                  <p class="text-red-700">
+                    {error === 'duplicate' ? 'Je hebt al een aanvraag ingediend.' : 
+                     error === 'email_exists' ? 'Dit email adres is al bekend.' :
+                     'Controleer of alle velden correct zijn ingevuld.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Hero Text */}
           <div class="bg-gradient-to-br from-animato-primary to-animato-secondary text-white p-8 rounded-lg mb-12">
@@ -451,7 +482,7 @@ app.get('/word-lid', async (c) => {
               Vul onderstaand formulier in en we nemen zo snel mogelijk contact met je op om een kennismaking te plannen.
             </p>
 
-            <form method="POST" action="/api/contact/word-lid" class="space-y-6">
+            <form method="POST" action="/api/word-lid" class="space-y-6">
               <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label for="voornaam" class="block text-sm font-semibold text-gray-700 mb-2">
@@ -525,12 +556,12 @@ app.get('/word-lid', async (c) => {
               </div>
 
               <div>
-                <label for="ervaring" class="block text-sm font-semibold text-gray-700 mb-2">
+                <label for="muzikale_ervaring" class="block text-sm font-semibold text-gray-700 mb-2">
                   Muzikale ervaring
                 </label>
                 <textarea
-                  id="ervaring"
-                  name="ervaring"
+                  id="muzikale_ervaring"
+                  name="muzikale_ervaring"
                   rows="4"
                   placeholder="Vertel ons over je muzikale achtergrond (bijvoorbeeld: eerder in een koor gezongen, instrumenten bespeeld, zanglessen gevolgd, etc.)"
                   class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
@@ -538,16 +569,29 @@ app.get('/word-lid', async (c) => {
               </div>
 
               <div>
-                <label for="bericht" class="block text-sm font-semibold text-gray-700 mb-2">
+                <label for="motivatie" class="block text-sm font-semibold text-gray-700 mb-2">
                   Bericht / Vragen
                 </label>
                 <textarea
-                  id="bericht"
-                  name="bericht"
+                  id="motivatie"
+                  name="motivatie"
                   rows="4"
                   placeholder="Heb je nog vragen? Laat het ons weten!"
                   class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                 ></textarea>
+              </div>
+
+              <div class="flex items-start">
+                <input
+                  type="checkbox"
+                  id="consent"
+                  name="consent"
+                  required
+                  class="mt-1 h-4 w-4 text-animato-primary focus:ring-animato-primary border-gray-300 rounded"
+                />
+                <label for="consent" class="ml-2 text-sm text-gray-600">
+                  Ik ga akkoord met de verwerking van mijn gegevens volgens de <a href="/privacy" class="text-animato-primary hover:underline">privacyverklaring</a>.
+                </label>
               </div>
 
               <button
@@ -588,6 +632,8 @@ app.get('/word-lid', async (c) => {
 
 app.get('/contact', async (c) => {
   const user = c.get('user')
+  const success = c.req.query('success')
+  const error = c.req.query('error')
 
   return c.html(
     <Layout title="Contact" user={user} currentPath="/contact">
@@ -596,6 +642,33 @@ app.get('/contact', async (c) => {
           <h1 class="text-5xl font-bold text-animato-secondary mb-8" style="font-family: 'Playfair Display', serif;">
             Contact
           </h1>
+
+          {/* Success/Error Messages */}
+          {success && (
+            <div class="mb-8 bg-green-50 border border-green-200 rounded-lg p-6 animate-fade-in">
+              <div class="flex items-center">
+                <i class="fas fa-check-circle text-green-500 text-2xl mr-4"></i>
+                <div>
+                  <h3 class="text-lg font-bold text-green-800">Bericht verzonden!</h3>
+                  <p class="text-green-700">Bedankt voor je bericht. We nemen zo snel mogelijk contact met je op.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div class="mb-8 bg-red-50 border border-red-200 rounded-lg p-6 animate-fade-in">
+              <div class="flex items-center">
+                <i class="fas fa-exclamation-circle text-red-500 text-2xl mr-4"></i>
+                <div>
+                  <h3 class="text-lg font-bold text-red-800">Er ging iets mis</h3>
+                  <p class="text-red-700">
+                    Controleer of alle velden correct zijn ingevuld en probeer het opnieuw.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-12">
             {/* Contact Info */}

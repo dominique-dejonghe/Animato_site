@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { queryOne, execute } from '../utils/db'
-import { getMolliePayment, mapMollieStatusToTicketStatus } from '../utils/mollie'
+import { getMolliePayment } from '../utils/mollie'
 import { sendEmail, ticketEmail } from '../utils/email'
 import type { Bindings } from '../types'
 
@@ -18,13 +18,53 @@ app.post('/api/webhooks/mollie', async (c) => {
       return c.json({ error: 'No payment ID' }, 400)
     }
 
-    // Get payment status from Mollie
+    // 1. Get payment status from Mollie
     const molliePayment = await getMolliePayment(c.env.MOLLIE_API_KEY, paymentId)
-    
-    if (!molliePayment) {
-      return c.json({ error: 'Payment not found' }, 404)
+    if (!molliePayment) return c.json({ error: 'Payment not found' }, 404)
+
+    // 2. Check metadata to route properly
+    const type = molliePayment.metadata?.type
+
+    if (type === 'activity') {
+      // === ACTIVITY REGISTRATION FLOW ===
+      const userId = molliePayment.metadata.user_id
+      const activityId = molliePayment.metadata.activity_id
+
+      // Determine status
+      const status = molliePayment.status
+      const newStatus = status === 'paid' ? 'paid' : status === 'open' ? 'pending' : 'cancelled'
+
+      // Update Activity Registration
+      await execute(c.env.DB, `
+        UPDATE activity_registrations 
+        SET status = ? 
+        WHERE activity_id = ? AND user_id = ?
+      `, [newStatus, activityId, userId])
+
+      // If paid, maybe send confirmation email? (Optional for now)
+      if (newStatus === 'paid') {
+        // ... send email logic ...
+      }
+
+      return c.json({ success: true, type: 'activity', status: newStatus })
     }
 
+    if (type === 'membership') {
+      // === MEMBERSHIP FLOW ===
+      const membershipId = molliePayment.metadata.membership_id
+      const status = molliePayment.status
+      const newStatus = status === 'paid' ? 'paid' : status === 'open' ? 'pending' : 'cancelled'
+
+      await execute(c.env.DB, `
+        UPDATE user_memberships
+        SET status = ?, paid_at = CASE WHEN ? = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END
+        WHERE id = ?
+      `, [newStatus, newStatus, membershipId])
+
+      return c.json({ success: true, type: 'membership', status: newStatus })
+    }
+
+    // === TICKET FLOW (Default fallback) ===
     // Find ticket order with this payment ID
     const ticket = await queryOne(c.env.DB,
       `SELECT t.*, e.titel, e.start_at, e.locatie
@@ -41,7 +81,9 @@ app.post('/api/webhooks/mollie', async (c) => {
     }
 
     // Map Mollie status to our ticket status
-    const newStatus = mapMollieStatusToTicketStatus(molliePayment.status)
+    // Simple mapping: paid -> paid, open -> pending, anything else -> cancelled
+    const status = molliePayment.status
+    const newStatus = status === 'paid' ? 'paid' : status === 'open' ? 'pending' : 'cancelled'
     const oldStatus = ticket.status
 
     // Only update if status changed
@@ -140,7 +182,8 @@ app.get('/api/tickets/:orderRef/payment-status', async (c) => {
       const molliePayment = await getMolliePayment(c.env.MOLLIE_API_KEY, ticket.betaling_id)
       
       if (molliePayment) {
-        const newStatus = mapMollieStatusToTicketStatus(molliePayment.status)
+        const status = molliePayment.status
+        const newStatus = status === 'paid' ? 'paid' : status === 'open' ? 'pending' : 'cancelled'
         
         if (newStatus !== ticket.status) {
           // Update in database

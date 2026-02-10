@@ -12,6 +12,7 @@ export type Bindings = {
   JWT_SECRET: string
   SESSION_SECRET: string
   RESEND_API_KEY: string
+  OPENAI_API_KEY: string
   STRIPE_SECRET_KEY: string
   STRIPE_PUBLISHABLE_KEY: string
   STRIPE_WEBHOOK_SECRET: string

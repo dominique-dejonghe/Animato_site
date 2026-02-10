@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { Layout } from '../components/Layout'
+import { AdminSidebar } from '../components/AdminSidebar'
 import { requireRole, type SessionUser } from '../middleware/auth'
 import { queryAll, queryOne, execute } from '../utils/db'
 import { verifyToken } from '../utils/auth'
@@ -101,8 +102,11 @@ app.get('/admin/bestanden', async (c) => {
   
   return c.html(
     <Layout title="Bestanden Beheer" user={user}>
-      <div class="max-w-7xl mx-auto px-4 py-8">
-        {/* Header */}
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="materials" />
+        <div class="flex-1 min-w-0">
+          <div class="max-w-7xl mx-auto px-4 py-8">
+            {/* Header */}
         <div class="flex justify-between items-center mb-8">
           <div>
             <h1 class="text-3xl font-bold text-animato-secondary mb-2" style="font-family: 'Playfair Display', serif;">
@@ -119,6 +123,13 @@ app.get('/admin/bestanden', async (c) => {
           >
             <i class="fas fa-plus mr-2"></i>
             Nieuw Bestand
+          </a>
+          <a
+            href="/admin/bestanden/requests"
+            class="ml-3 bg-white border border-gray-300 text-gray-700 px-6 py-3 rounded-lg hover:bg-gray-50 transition inline-flex items-center"
+          >
+            <i class="fas fa-print mr-2"></i>
+            Printaanvragen
           </a>
         </div>
 
@@ -350,7 +361,7 @@ app.get('/admin/bestanden', async (c) => {
                           <i class="fas fa-edit"></i>
                         </a>
                         <button
-                          onclick={`if(confirm('Weet je zeker dat je dit bestand wilt verwijderen?')) { fetch('/api/admin/bestanden/${mat.id}/delete', {method: 'POST'}).then(() => location.reload()) }`}
+                          onclick={`openDeleteModal(${mat.id})`}
                           class="text-red-600 hover:text-red-900"
                           title="Verwijderen"
                         >
@@ -363,10 +374,205 @@ app.get('/admin/bestanden', async (c) => {
               </tbody>
             </table>
           </div>
-        )}
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Delete Confirmation Modal */}
+      <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="closeDeleteModal()"></div>
+          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+          <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-red-500">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <div class="sm:flex sm:items-start">
+                <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <i class="fas fa-exclamation-triangle text-red-600"></i>
+                </div>
+                <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                  <h3 class="text-xl leading-6 font-bold text-gray-900" id="modal-title" style="font-family: 'Playfair Display', serif;">
+                    Bestand Verwijderen
+                  </h3>
+                  <div class="mt-2">
+                    <p class="text-sm text-gray-500">
+                      Weet je zeker dat je dit bestand wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button type="button" id="confirmDeleteBtn" class="w-full inline-flex justify-center rounded-lg border border-transparent shadow-md px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Verwijderen
+              </button>
+              <button type="button" onclick="closeDeleteModal()" class="mt-3 w-full inline-flex justify-center rounded-lg border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm transition">
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        let deleteId = null;
+
+        function openDeleteModal(id) {
+          deleteId = id;
+          document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+          deleteId = null;
+          document.getElementById('deleteModal').classList.add('hidden');
+        }
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+          if (deleteId) {
+            fetch('/api/admin/bestanden/' + deleteId + '/delete', { method: 'POST' })
+              .then(response => {
+                if (response.ok) {
+                  window.location.reload();
+                } else {
+                  alert('Er ging iets mis bij het verwijderen.');
+                }
+              })
+              .catch(error => {
+                console.error('Error:', error);
+                alert('Er ging iets mis bij het verwijderen.');
+              });
+          }
+          closeDeleteModal();
+        });
+      ` }} />
+    </Layout>
+  )
+})
+
+// ==========================================
+// PRINT REQUESTS PAGE
+// ==========================================
+app.get('/admin/bestanden/requests', async (c) => {
+  const user = c.get('user') as SessionUser
+  
+  const requests = await queryAll(c.env.DB, `
+    SELECT pr.*, 
+           u.email, p.voornaam, p.achternaam,
+           m.titel as material_titel, m.type,
+           w.titel as werk_titel
+    FROM print_requests pr
+    JOIN users u ON pr.user_id = u.id
+    LEFT JOIN profiles p ON p.user_id = u.id
+    LEFT JOIN works w ON pr.work_id = w.id
+    LEFT JOIN materials m ON pr.material_id = m.id
+    ORDER BY 
+      CASE pr.status WHEN 'pending' THEN 1 ELSE 2 END,
+      pr.created_at DESC
+  `)
+
+  return c.html(
+    <Layout title="Printaanvragen" user={user}>
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="materials" />
+        <div class="flex-1 min-w-0">
+          <div class="max-w-7xl mx-auto px-4 py-8">
+            <div class="flex justify-between items-center mb-8">
+              <div>
+                <h1 class="text-3xl font-bold text-animato-secondary mb-2" style="font-family: 'Playfair Display', serif;">
+                  <i class="fas fa-print mr-3"></i>
+                  Printaanvragen
+                </h1>
+                <p class="text-gray-600">
+                  Beheer aanvragen voor geprinte partituren
+                </p>
+              </div>
+              <a href="/admin/bestanden" class="text-animato-primary hover:text-animato-secondary">
+                <i class="fas fa-arrow-left mr-2"></i> Terug naar bestanden
+              </a>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-md overflow-hidden">
+              <table class="w-full">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Datum</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lid</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Werk / Bestand</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Opmerking</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actie</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200 bg-white">
+                  {requests.map((req: any) => (
+                    <tr class={req.status === 'completed' ? 'bg-gray-50' : ''}>
+                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {new Date(req.created_at).toLocaleDateString('nl-BE')}
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap">
+                        <div class="text-sm font-medium text-gray-900">{req.voornaam} {req.achternaam}</div>
+                        <div class="text-xs text-gray-500">{req.email}</div>
+                      </td>
+                      <td class="px-6 py-4">
+                        <div class="text-sm text-gray-900 font-medium">{req.werk_titel}</div>
+                        <div class="text-xs text-gray-500">{req.material_titel || 'Gehele werk'}</div>
+                      </td>
+                      <td class="px-6 py-4">
+                        <div class="text-sm text-gray-900 max-w-xs truncate" title={req.opmerking}>{req.opmerking || '-'}</div>
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap">
+                        <span class={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          req.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 
+                          req.status === 'completed' ? 'bg-green-100 text-green-800' : 
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {req.status === 'pending' ? 'Te Printen' : req.status === 'completed' ? 'Geleverd' : 'Geannuleerd'}
+                        </span>
+                      </td>
+                      <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        {req.status === 'pending' && (
+                          <form action={`/api/admin/bestanden/requests/${req.id}/complete`} method="POST" class="inline">
+                            <button class="text-green-600 hover:text-green-900 mr-3" title="Markeer als geprint & geleverd">
+                              <i class="fas fa-check"></i> Afhandelen
+                            </button>
+                          </form>
+                        )}
+                        <form action={`/api/admin/bestanden/requests/${req.id}/delete`} method="POST" class="inline" onsubmit="return confirm('Zeker weten?');">
+                          <button class="text-red-600 hover:text-red-900" title="Verwijderen">
+                            <i class="fas fa-trash"></i>
+                          </button>
+                        </form>
+                      </td>
+                    </tr>
+                  ))}
+                  {requests.length === 0 && (
+                    <tr>
+                      <td colspan="5" class="px-6 py-12 text-center text-gray-500">
+                        <i class="fas fa-check-circle text-4xl text-gray-300 mb-3"></i>
+                        <p>Geen openstaande printaanvragen</p>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
     </Layout>
   )
+})
+
+app.post('/api/admin/bestanden/requests/:id/complete', async (c) => {
+  const id = c.req.param('id')
+  await c.env.DB.prepare("UPDATE print_requests SET status = 'completed' WHERE id = ?").bind(id).run()
+  return c.redirect('/admin/bestanden/requests')
+})
+
+app.post('/api/admin/bestanden/requests/:id/delete', async (c) => {
+  const id = c.req.param('id')
+  await c.env.DB.prepare("DELETE FROM print_requests WHERE id = ?").bind(id).run()
+  return c.redirect('/admin/bestanden/requests')
 })
 
 // ==========================================
@@ -384,8 +590,11 @@ app.get('/admin/bestanden/nieuw', async (c) => {
   
   return c.html(
     <Layout title="Nieuw Bestand Toevoegen" user={user}>
-      <div class="max-w-4xl mx-auto px-4 py-8">
-        <div class="mb-8">
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="materials" />
+        <div class="flex-1 min-w-0">
+          <div class="max-w-4xl mx-auto px-4 py-8">
+            <div class="mb-8">
           <a href="/admin/bestanden" class="text-animato-primary hover:text-animato-secondary inline-flex items-center mb-4">
             <i class="fas fa-arrow-left mr-2"></i>
             Terug naar overzicht
@@ -458,6 +667,28 @@ app.get('/admin/bestanden/nieuw', async (c) => {
                   name="new_werk_titel"
                   class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-animato-primary"
                   placeholder="bijv. Requiem in D minor"
+                />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  Beschrijving Werk
+                </label>
+                <textarea
+                  name="new_beschrijving"
+                  rows={3}
+                  class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-animato-primary"
+                  placeholder="Korte toelichting over het werk, context, etc."
+                ></textarea>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  Afbeelding URL (Optioneel)
+                </label>
+                <input
+                  type="url"
+                  name="new_image_url"
+                  class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-animato-primary"
+                  placeholder="https://example.com/image.jpg"
                 />
               </div>
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -586,6 +817,20 @@ app.get('/admin/bestanden/nieuw', async (c) => {
                     <option value="zip">ZIP Archief</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Page Count (Conditional for PDF) */}
+              <div id="page_count_section" class="hidden">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                  Aantal Pagina's (voor prijsberekening)
+                </label>
+                <input
+                  type="number"
+                  name="page_count"
+                  min="0"
+                  class="w-full border border-gray-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-animato-primary"
+                  placeholder="0"
+                />
               </div>
 
               {/* File Upload Section */}
@@ -735,6 +980,14 @@ app.get('/admin/bestanden/nieuw', async (c) => {
               fileInput.required = false;
               urlInput.required = false;
             }
+
+            // Show page count for PDF
+            const pageSection = document.getElementById('page_count_section');
+            if (type === 'pdf') {
+              pageSection.classList.remove('hidden');
+            } else {
+              pageSection.classList.add('hidden');
+            }
           }
 
           function handleFileSelect(event) {
@@ -761,6 +1014,8 @@ app.get('/admin/bestanden/nieuw', async (c) => {
             reader.readAsDataURL(file);
           }
         ` }} />
+          </div>
+        </div>
       </div>
     </Layout>
   )
@@ -780,8 +1035,8 @@ app.post('/api/admin/bestanden/create', async (c) => {
     if (body.work_option === 'new') {
       // Create new work
       const result = await execute(c.env.DB,
-        `INSERT INTO works (componist, titel, genre, jaar) VALUES (?, ?, ?, ?)`,
-        [body.new_componist, body.new_werk_titel, body.new_genre || null, body.new_jaar || null]
+        `INSERT INTO works (componist, titel, genre, jaar, beschrijving, image_url) VALUES (?, ?, ?, ?, ?, ?)`,
+        [body.new_componist, body.new_werk_titel, body.new_genre || null, body.new_jaar || null, body.new_beschrijving || null, body.new_image_url || null]
       )
       workId = result.meta.last_row_id
     } else {
@@ -857,8 +1112,8 @@ app.post('/api/admin/bestanden/create', async (c) => {
     await execute(c.env.DB, `
       INSERT INTO materials (
         piece_id, stem, type, titel, bestandsnaam, url, mime_type,
-        grootte_bytes, beschrijving, zichtbaar_voor, upload_door
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        grootte_bytes, beschrijving, zichtbaar_voor, upload_door, page_count
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       pieceId,
       body.stem,
@@ -870,7 +1125,8 @@ app.post('/api/admin/bestanden/create', async (c) => {
       grootte,
       body.beschrijving || null,
       body.zichtbaar_voor || 'alle_leden',
-      user.id
+      user.id,
+      body.page_count ? parseInt(body.page_count) : 0
     ])
 
     // 5. Audit log
@@ -901,7 +1157,7 @@ app.get('/admin/bestanden/:id/edit', async (c) => {
   // Get material with work and piece info
   const material = await queryOne(c.env.DB, `
     SELECT m.*, p.id as piece_id, p.titel as piece_titel, p.nummer as piece_nummer,
-           w.id as work_id, w.componist, w.titel as werk_titel, w.genre, w.jaar
+           w.id as work_id, w.componist, w.titel as werk_titel, w.genre, w.jaar, w.image_url as work_image
     FROM materials m
     LEFT JOIN pieces p ON m.piece_id = p.id
     LEFT JOIN works w ON p.work_id = w.id
@@ -935,8 +1191,11 @@ app.get('/admin/bestanden/:id/edit', async (c) => {
   
   return c.html(
     <Layout title={`Bewerken: ${material.titel}`} user={user}>
-      <div class="max-w-4xl mx-auto px-4 py-8">
-        <div class="mb-8">
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="materials" />
+        <div class="flex-1 min-w-0">
+          <div class="max-w-4xl mx-auto px-4 py-8">
+            <div class="mb-8">
           <a href="/admin/bestanden" class="text-animato-primary hover:text-animato-secondary inline-flex items-center mb-4">
             <i class="fas fa-arrow-left mr-2"></i>
             Terug naar overzicht
@@ -957,23 +1216,80 @@ app.get('/admin/bestanden/:id/edit', async (c) => {
               Gekoppeld Muziekwerk
             </h2>
             <div class="bg-gray-50 rounded-lg p-4">
-              <p class="text-sm text-gray-600 mb-2">
-                <span class="font-medium">Componist:</span> {material.componist}
-              </p>
-              <p class="text-sm text-gray-600 mb-2">
-                <span class="font-medium">Werk:</span> {material.werk_titel}
-              </p>
-              {material.piece_titel && (
-                <p class="text-sm text-gray-600">
-                  <span class="font-medium">Deel:</span> {material.piece_titel}
-                  {material.piece_nummer && ` (nr. ${material.piece_nummer})`}
-                </p>
-              )}
+              <div class="flex items-start justify-between">
+                <div>
+                  <p class="text-sm text-gray-600 mb-2">
+                    <span class="font-medium">Componist:</span> {material.componist}
+                  </p>
+                  <p class="text-sm text-gray-600 mb-2">
+                    <span class="font-medium">Werk:</span> {material.werk_titel}
+                  </p>
+                  {material.piece_titel && (
+                    <p class="text-sm text-gray-600">
+                      <span class="font-medium">Deel:</span> {material.piece_titel}
+                      {material.piece_nummer && ` (nr. ${material.piece_nummer})`}
+                    </p>
+                  )}
+                </div>
+                {material.work_image && (
+                  <img src={material.work_image} alt="Work Cover" class="w-16 h-16 object-cover rounded shadow-sm" />
+                )}
+              </div>
+              
+              {/* Edit Work Image Form */}
+              <div class="mt-4 pt-4 border-t border-gray-200">
+                <button 
+                  type="button" 
+                  onclick="document.getElementById('editWorkForm').classList.toggle('hidden')"
+                  class="text-sm text-animato-primary hover:underline"
+                >
+                  <i class="fas fa-edit mr-1"></i> Bewerk Werk Afbeelding
+                </button>
+                
+                <div id="editWorkForm" class="hidden mt-3">
+                   <div class="flex gap-2">
+                     <input 
+                       type="url" 
+                       id="work_image_input" 
+                       value={material.work_image || ''}
+                       placeholder="https://example.com/image.jpg"
+                       class="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
+                     />
+                     <button 
+                       type="button"
+                       onclick={`updateWorkImage(${material.work_id})`}
+                       class="bg-animato-primary text-white text-sm px-3 py-1 rounded hover:bg-opacity-90"
+                     >
+                       Opslaan
+                     </button>
+                   </div>
+                </div>
+              </div>
+
               <p class="text-xs text-gray-500 mt-3">
-                💡 Werk en deel kunnen niet gewijzigd worden. Maak een nieuw bestand aan om het aan een ander werk te koppelen.
+                💡 Werk en deel details kunnen verder niet gewijzigd worden hier.
               </p>
             </div>
           </div>
+
+          <script dangerouslySetInnerHTML={{ __html: `
+            function updateWorkImage(workId) {
+              const imageUrl = document.getElementById('work_image_input').value;
+              fetch('/api/admin/works/' + workId + '/update-image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image_url: imageUrl })
+              })
+              .then(res => res.json())
+              .then(data => {
+                if(data.success) {
+                  window.location.reload();
+                } else {
+                  alert('Error updating image');
+                }
+              });
+            }
+          ` }} />
 
           {/* Material Details */}
           <div class="bg-white rounded-lg shadow-md p-6">
@@ -1116,23 +1432,102 @@ app.get('/admin/bestanden/:id/edit', async (c) => {
           </div>
 
           {/* Submit */}
-          <div class="flex justify-end space-x-4">
-            <a
-              href="/admin/bestanden"
-              class="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
-            >
-              Annuleren
-            </a>
+          <div class="flex justify-between items-center pt-6 border-t border-gray-200">
             <button
-              type="submit"
-              class="bg-animato-primary text-white px-6 py-3 rounded-lg hover:bg-opacity-90 transition"
+              type="button"
+              onclick={`openDeleteModal('/api/admin/bestanden/${materialId}/delete')`}
+              class="px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition"
             >
-              <i class="fas fa-save mr-2"></i>
-              Wijzigingen Opslaan
+              <i class="fas fa-trash mr-2"></i>
+              Verwijder Bestand
             </button>
+            <div class="flex gap-3">
+              <a
+                href="/admin/bestanden"
+                class="px-6 py-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+              >
+                Annuleren
+              </a>
+              <button
+                type="submit"
+                class="bg-animato-primary text-white px-6 py-3 rounded-lg hover:bg-opacity-90 transition"
+              >
+                <i class="fas fa-save mr-2"></i>
+                Wijzigingen Opslaan
+              </button>
+            </div>
           </div>
         </form>
+          </div>
+        </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" aria-hidden="true" onclick="closeDeleteModal()"></div>
+          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+          <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <div class="sm:flex sm:items-start">
+                <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <i class="fas fa-exclamation-triangle text-red-600"></i>
+                </div>
+                <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left">
+                  <h3 class="text-lg leading-6 font-medium text-gray-900" id="modal-title" style="font-family: 'Playfair Display', serif;">
+                    Bevestig Verwijderen
+                  </h3>
+                  <div class="mt-2">
+                    <p class="text-sm text-gray-500">
+                      Weet je zeker dat je dit bestand wilt verwijderen? Deze actie kan niet ongedaan worden gemaakt.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+              <button type="button" id="confirmDeleteBtn" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm">
+                Verwijderen
+              </button>
+              <button type="button" onclick="closeDeleteModal()" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                Annuleren
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        let deleteUrl = null;
+
+        function openDeleteModal(url) {
+          deleteUrl = url;
+          document.getElementById('deleteModal').classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+          deleteUrl = null;
+          document.getElementById('deleteModal').classList.add('hidden');
+        }
+
+        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+          if (deleteUrl) {
+            fetch(deleteUrl, { method: 'POST' })
+              .then(response => {
+                if (response.ok) {
+                  window.location.href = '/admin/bestanden';
+                } else {
+                  alert('Er ging iets mis bij het verwijderen.');
+                }
+              })
+              .catch(error => {
+                console.error('Error:', error);
+                alert('Er ging iets mis bij het verwijderen.');
+              });
+          }
+          closeDeleteModal();
+        });
+      ` }} />
     </Layout>
   )
 })
@@ -1233,6 +1628,27 @@ app.post('/api/admin/bestanden/:id/delete', async (c) => {
     
   } catch (error) {
     console.error('Error deleting material:', error)
+    return c.json({ error: (error as Error).message }, 500)
+  }
+})
+
+// ==========================================
+// WORK IMAGE UPDATE HANDLER
+// ==========================================
+app.post('/api/admin/works/:id/update-image', async (c) => {
+  const user = c.get('user') as SessionUser
+  const workId = parseInt(c.req.param('id'))
+  const body = await c.req.json()
+  
+  try {
+    await execute(c.env.DB, 
+      `UPDATE works SET image_url = ? WHERE id = ?`,
+      [body.image_url || null, workId]
+    )
+    
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Error updating work image:', error)
     return c.json({ error: (error as Error).message }, 500)
   }
 })

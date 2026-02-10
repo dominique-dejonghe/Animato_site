@@ -922,10 +922,15 @@ app.get('/admin/karaoke/events', async (c) => {
           </div>
 
           {success && (
-            <div class="mb-6 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg flex items-center">
-              <i class="fas fa-check-circle mr-3"></i>
+            <div class={`mb-6 border px-4 py-3 rounded-lg flex items-center ${
+              success === 'deleted' 
+                ? 'bg-red-50 border-red-200 text-red-800' 
+                : 'bg-green-50 border-green-200 text-green-800'
+            }`}>
+              <i class={`fas ${success === 'deleted' ? 'fa-trash' : 'fa-check-circle'} mr-3`}></i>
               {success === 'created' && 'Karaoke event succesvol aangemaakt!'}
               {success === 'updated' && 'Karaoke event succesvol bijgewerkt!'}
+              {success === 'deleted' && 'Karaoke event succesvol verwijderd!'}
             </div>
           )}
 
@@ -1089,6 +1094,261 @@ app.get('/admin/karaoke/events', async (c) => {
       </div>
     </Layout>
   )
+})
+
+// =====================================================
+// EDIT KARAOKE EVENT
+// =====================================================
+
+app.get('/admin/karaoke/events/:id', async (c) => {
+  const user = c.get('user') as SessionUser
+  const eventId = c.req.param('id')
+  noCacheHeaders(c)
+
+  // Get karaoke event with main event details
+  const event = await queryOne(c.env.DB, `
+    SELECT 
+      ke.*,
+      e.titel,
+      e.start_at,
+      e.end_at,
+      e.locatie,
+      e.type,
+      e.is_publiek
+    FROM karaoke_events ke
+    JOIN events e ON e.id = ke.event_id
+    WHERE ke.id = ?
+  `, [eventId])
+
+  if (!event) {
+    return c.redirect('/admin/karaoke/events?error=not_found')
+  }
+
+  // Get selection statistics
+  const stats = {
+    members_selected: await queryOne<any>(c.env.DB, 
+      `SELECT COUNT(DISTINCT user_id) as count FROM karaoke_selections WHERE karaoke_event_id = ?`, 
+      [eventId]
+    ),
+    total_selections: await queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as count FROM karaoke_selections WHERE karaoke_event_id = ?`,
+      [eventId]
+    ),
+    pending_requests: await queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as count FROM karaoke_song_requests WHERE karaoke_event_id = ? AND status = 'pending'`,
+      [eventId]
+    ),
+  }
+
+  return c.html(
+    <Layout title={`Bewerk: ${event.titel}`} user={user} breadcrumbs={[
+      { label: 'Admin', href: '/admin' },
+      { label: 'Karaoke', href: '/admin/karaoke' },
+      { label: 'Events', href: '/admin/karaoke/events' },
+      { label: event.titel, href: `/admin/karaoke/events/${event.id}` }
+    ]}>
+      <div class="bg-gray-50 min-h-screen py-8">
+        <div class="max-w-4xl mx-auto px-4">
+          
+          <div class="mb-6">
+            <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+              <i class="fas fa-edit text-animato-primary mr-3"></i>
+              Bewerk Karaoke Event
+            </h1>
+            <p class="text-gray-600 mt-2">{event.titel}</p>
+          </div>
+
+          {/* Statistics Cards */}
+          <div class="grid md:grid-cols-3 gap-4 mb-6">
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div class="text-sm text-gray-600 mb-1">Deelnemers</div>
+              <div class="text-2xl font-bold text-gray-900">{stats.members_selected?.count || 0}</div>
+              <div class="text-xs text-gray-500 mt-1">leden hebben gekozen</div>
+            </div>
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div class="text-sm text-gray-600 mb-1">Selecties</div>
+              <div class="text-2xl font-bold text-gray-900">{stats.total_selections?.count || 0}</div>
+              <div class="text-xs text-gray-500 mt-1">songs geselecteerd</div>
+            </div>
+            <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div class="text-sm text-gray-600 mb-1">Verzoeken</div>
+              <div class="text-2xl font-bold text-orange-600">{stats.pending_requests?.count || 0}</div>
+              <div class="text-xs text-gray-500 mt-1">in afwachting</div>
+            </div>
+          </div>
+
+          {/* Edit Form */}
+          <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <form method="POST" action={`/admin/karaoke/events/${event.id}`}>
+              
+              <div class="mb-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Event Details</h3>
+                <div class="space-y-4 bg-gray-50 p-4 rounded-lg">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Gekoppeld Event</label>
+                    <div class="text-gray-900 font-medium">{event.titel}</div>
+                    <div class="text-sm text-gray-600 mt-1">
+                      <i class="far fa-calendar mr-2"></i>
+                      {new Date(event.start_at).toLocaleDateString('nl-NL', { 
+                        weekday: 'long', 
+                        day: 'numeric', 
+                        month: 'long', 
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </div>
+                    <div class="text-sm text-gray-600 mt-1">
+                      <i class="fas fa-map-marker-alt mr-2"></i>
+                      {event.locatie}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mb-6">
+                <label for="max_songs" class="block text-sm font-medium text-gray-700 mb-2">
+                  Max Songs per Lid
+                </label>
+                <input 
+                  type="number" 
+                  id="max_songs" 
+                  name="max_songs_per_member"
+                  value={event.max_songs_per_member}
+                  min="1"
+                  max="10"
+                  required
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                />
+                <p class="text-sm text-gray-600 mt-1">Hoeveel songs mag elk lid maximaal kiezen?</p>
+              </div>
+
+              <div class="mb-6">
+                <label for="deadline" class="block text-sm font-medium text-gray-700 mb-2">
+                  Selectie Deadline
+                </label>
+                <input 
+                  type="datetime-local" 
+                  id="deadline" 
+                  name="selection_deadline"
+                  value={event.selection_deadline ? new Date(event.selection_deadline).toISOString().slice(0, 16) : ''}
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                />
+                <p class="text-sm text-gray-600 mt-1">Optioneel: Wanneer moeten leden hun keuze gemaakt hebben?</p>
+              </div>
+
+              <div class="mb-6">
+                <label class="flex items-center">
+                  <input 
+                    type="checkbox" 
+                    name="allow_duets"
+                    checked={event.allow_duets === 1}
+                    class="mr-2 h-4 w-4 text-animato-primary focus:ring-animato-primary border-gray-300 rounded"
+                  />
+                  <span class="text-sm font-medium text-gray-700">Duets toestaan</span>
+                </label>
+                <p class="text-sm text-gray-600 mt-1 ml-6">Leden kunnen aangeven dat ze samen willen zingen</p>
+              </div>
+
+              <div class="mb-6">
+                <label class="flex items-center">
+                  <input 
+                    type="checkbox" 
+                    name="allow_song_requests"
+                    checked={event.allow_song_requests === 1}
+                    class="mr-2 h-4 w-4 text-animato-primary focus:ring-animato-primary border-gray-300 rounded"
+                  />
+                  <span class="text-sm font-medium text-gray-700">Song verzoeken toestaan</span>
+                </label>
+                <p class="text-sm text-gray-600 mt-1 ml-6">Leden kunnen nieuwe songs voorstellen die nog niet in de lijst staan</p>
+              </div>
+
+              <div class="mb-6">
+                <label for="status" class="block text-sm font-medium text-gray-700 mb-2">
+                  Status
+                </label>
+                <select 
+                  id="status" 
+                  name="status"
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                >
+                  <option value="open" selected={event.status === 'open'}>Open - Leden kunnen kiezen</option>
+                  <option value="closed" selected={event.status === 'closed'}>Gesloten - Selecties afgesloten</option>
+                  <option value="completed" selected={event.status === 'completed'}>Voltooid - Event is geweest</option>
+                </select>
+              </div>
+
+              <div class="flex items-center justify-between pt-6 border-t border-gray-200">
+                <button
+                  type="button"
+                  onclick="if(confirm('Weet je zeker dat je dit karaoke event wilt verwijderen? Alle selecties en verzoeken worden ook verwijderd.')) { document.getElementById('deleteForm').submit(); }"
+                  class="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
+                >
+                  <i class="fas fa-trash mr-2"></i>
+                  Verwijderen
+                </button>
+                <div class="flex gap-3">
+                  <a 
+                    href="/admin/karaoke/events"
+                    class="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg font-medium transition-colors"
+                  >
+                    Annuleren
+                  </a>
+                  <button 
+                    type="submit"
+                    class="px-6 py-2 bg-animato-primary hover:bg-animato-primary-dark text-white rounded-lg font-medium transition-colors"
+                  >
+                    <i class="fas fa-save mr-2"></i>
+                    Wijzigingen Opslaan
+                  </button>
+                </div>
+              </div>
+            </form>
+
+            {/* Hidden delete form */}
+            <form id="deleteForm" method="POST" action={`/admin/karaoke/events/${event.id}/delete`} style="display: none;"></form>
+          </div>
+
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
+// POST: Update karaoke event
+app.post('/admin/karaoke/events/:id', async (c) => {
+  const user = c.get('user') as SessionUser
+  const eventId = c.req.param('id')
+  
+  const body = await c.req.parseBody()
+  const maxSongs = parseInt(body.max_songs_per_member as string)
+  const deadline = body.selection_deadline as string
+  const allowDuets = body.allow_duets === 'on' ? 1 : 0
+  const allowRequests = body.allow_song_requests === 'on' ? 1 : 0
+  const status = body.status as string
+
+  await execute(c.env.DB, `
+    UPDATE karaoke_events
+    SET max_songs_per_member = ?,
+        selection_deadline = ?,
+        allow_duets = ?,
+        allow_song_requests = ?,
+        status = ?
+    WHERE id = ?
+  `, [maxSongs, deadline || null, allowDuets, allowRequests, status, eventId])
+
+  return c.redirect(`/admin/karaoke/events?success=updated`)
+})
+
+// POST: Delete karaoke event
+app.post('/admin/karaoke/events/:id/delete', async (c) => {
+  const user = c.get('user') as SessionUser
+  const eventId = c.req.param('id')
+
+  // Delete karaoke event (cascade will delete selections and requests)
+  await execute(c.env.DB, `DELETE FROM karaoke_events WHERE id = ?`, [eventId])
+
+  return c.redirect('/admin/karaoke/events?success=deleted')
 })
 
 // =====================================================

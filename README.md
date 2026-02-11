@@ -4,12 +4,12 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 
 ## 🌐 Live URLs
 
-- **Production**: https://animato-koor.pages.dev ✅ **WALKTHROUGH TOURS LIVE!**
-- **Latest Deploy**: https://5077afb1.animato-koor.pages.dev (Deployed: 2026-02-11 08:30 UTC)
+- **Production**: https://animato-koor.pages.dev ✅ **ALL SYSTEMS OPERATIONAL**
+- **Latest Deploy**: https://879bcd72.animato-koor.pages.dev (Deployed: 2026-02-11 16:50 UTC)
 - **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
 - **API Documentation**: /api endpoint
-- **Current Version**: v1.0.33 (Walkthrough Tours Module)
-- **Last Updated**: 2026-02-11 08:30 UTC
+- **Current Version**: v1.0.35 (Production Database Fixed)
+- **Last Updated**: 2026-02-11 16:50 UTC
 
 ## ✨ Features
 
@@ -24,7 +24,7 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - ✅ **Animato branding** (#00A9CE primary, #1B4D5C secondary, #F59E0B accent)
 
 #### Database & Backend
-- ✅ **D1 Database** volledig schema (41 tabellen + indexes)
+- ✅ **D1 Database** volledig schema (44 tabellen + indexes)
   - Users & Profiles (role-based: admin, moderator, stemleider, lid, bezoeker)
   - Posts (nieuws + messageboard met stemgroep categorieën)
   - Events & Concerts (agenda + ticketing)

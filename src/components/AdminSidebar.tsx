@@ -12,12 +12,14 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({ activeSection = 'dashboard
     { id: 'content', label: 'Nieuws & Berichten', href: '/admin/content', icon: 'fas fa-newspaper' },
     { id: 'events', label: 'Agenda & Concerten', href: '/admin/events', icon: 'fas fa-calendar-alt' },
     { id: 'activities', label: 'Activiteiten & Feest', href: '/admin/activities', icon: 'fas fa-glass-cheers' },
+    { id: 'karaoke', label: 'Karaoke', href: '/admin/karaoke', icon: 'fas fa-microphone' },
     { id: 'projects', label: 'Projecten', href: '/admin/projects', icon: 'fas fa-tasks' },
     { id: 'prints', label: 'Printservice', href: '/admin/prints', icon: 'fas fa-print' },
     { id: 'finance', label: 'Lidgelden', href: '/admin/lidgelden', icon: 'fas fa-euro-sign' },
     { id: 'meetings', label: 'Vergaderingen', href: '/admin/meetings', icon: 'fas fa-handshake' },
     { id: 'materials', label: 'Materiaal', href: '/admin/bestanden', icon: 'fas fa-music' },
     { id: 'photos', label: 'Fotoboek', href: '/admin/fotoboek', icon: 'fas fa-images' },
+    { id: 'modules', label: 'Module Beheer', href: '/admin/modules', icon: 'fas fa-toggle-on' },
     { id: 'settings', label: 'Instellingen', href: '/admin/settings', icon: 'fas fa-cogs' },
   ]
 

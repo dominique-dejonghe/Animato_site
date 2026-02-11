@@ -4,12 +4,12 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 
 ## 🌐 Live URLs
 
-- **Production**: https://animato-koor.pages.dev ✅ **FULL KARAOKE SYSTEM LIVE**
-- **Latest Deploy**: https://ab5c6201.animato-koor.pages.dev (Deployed: 2026-02-10 23:23 UTC)
+- **Production**: https://animato-koor.pages.dev ✅ **MODULE MANAGEMENT LIVE**
+- **Latest Deploy**: https://3303e082.animato-koor.pages.dev (Deployed: 2026-02-11 06:13 UTC)
 - **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
 - **API Documentation**: /api endpoint
-- **Current Version**: v1.0.30 (Complete Member Karaoke Interface)
-- **Last Updated**: 2026-02-10 23:23 UTC
+- **Current Version**: v1.0.31 (Module Management System)
+- **Last Updated**: 2026-02-11 06:13 UTC
 
 ## ✨ Features
 
@@ -98,6 +98,21 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - ✅ **Polls Management** (CRUD voor polls, status management, 5 opties per poll)
 - ✅ **Proposals Review** (approve/reject voorstellen met review opmerking)
 - ✅ **Karaoke Module** ⭐ **COMPLETE SYSTEM LIVE** - [📖 Full Guide](./KARAOKE_GUIDE.md)
+  - Song Library Management (CRUD, 20 Nederlandse songs seeded)
+  - Karaoke Events (create/edit/update/delete with real-time stats)
+  - Member Song Selection (browse, select 3, filters, duet notes)
+  - Duet Matching Dashboard (auto-suggest duets, popularity stats)
+- ✅ **Module Management System** 🎛️ **NEW - Toggle Features On/Off**
+  - Admin interface to enable/disable modules (/admin/modules)
+  - 14 modules across 3 categories (Content, Members, Admin)
+  - Toggle switches with real-time feedback
+  - Module state persisted in database
+  - Dynamic menu rendering based on enabled modules
+  - Categories:
+    - **Content**: Nieuws, Agenda, Concerten, Fotoboek
+    - **Members**: Materiaal, Polls, Voorstellen, Activiteiten, Karaoke
+    - **Admin**: Projecten, Vergaderingen, Lidgelden, Printservice, Voice Analyzer
+  - Safe to toggle: existing data preserved when disabled
   - **Admin: Song Library Management** - CRUD voor karaoke songs (20 Nederlandse nummers seeded)
   - **Admin: Karaoke Events** - Event creation, edit, update, delete met real-time stats
   - **Admin: Event Editing** - Full edit interface voor bestaande events

@@ -4,12 +4,12 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 
 ## 🌐 Live URLs
 
-- **Production**: https://animato-koor.pages.dev ✅ **ALL ROUTES WORKING - NO 404s**
-- **Latest Deploy**: https://83e9b6b4.animato-koor.pages.dev (Deployed: 2026-02-11 07:05 UTC)
+- **Production**: https://animato-koor.pages.dev ✅ **WALKTHROUGH TOURS LIVE!**
+- **Latest Deploy**: https://5077afb1.animato-koor.pages.dev (Deployed: 2026-02-11 08:30 UTC)
 - **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
 - **API Documentation**: /api endpoint
-- **Current Version**: v1.0.32 (404 & Route Fixes)
-- **Last Updated**: 2026-02-11 07:05 UTC
+- **Current Version**: v1.0.33 (Walkthrough Tours Module)
+- **Last Updated**: 2026-02-11 08:30 UTC
 
 ## ✨ Features
 
@@ -102,17 +102,42 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
   - Karaoke Events (create/edit/update/delete with real-time stats)
   - Member Song Selection (browse, select 3, filters, duet notes)
   - Duet Matching Dashboard (auto-suggest duets, popularity stats)
-- ✅ **Module Management System** 🎛️ **NEW - Toggle Features On/Off**
+- ✅ **Module Management System** 🎛️ **Toggle Features On/Off**
   - Admin interface to enable/disable modules (/admin/modules)
-  - 14 modules across 3 categories (Content, Members, Admin)
+  - 15 modules across 3 categories (Content, Members, Admin)
   - Toggle switches with real-time feedback
   - Module state persisted in database
   - Dynamic menu rendering based on enabled modules
   - Categories:
     - **Content**: Nieuws, Agenda, Concerten, Fotoboek
     - **Members**: Materiaal, Polls, Voorstellen, Activiteiten, Karaoke
-    - **Admin**: Projecten, Vergaderingen, Lidgelden, Printservice, Voice Analyzer
+    - **Admin**: Projecten, Vergaderingen, Lidgelden, Printservice, Voice Analyzer, Walkthrough
   - Safe to toggle: existing data preserved when disabled
+- ✅ **Walkthrough Tours** 🎯 **NEW - Interactive Guided Tours**
+  - Interactive step-by-step tours for onboarding
+  - Admin interface (/admin/walkthrough) to manage tours
+  - 5 pre-built tours (2 admin + 3 leden) with 23 total steps
+  - **Tours Included**:
+    - **Admin Basics** (5 steps, auto-start) - Dashboard, Navigation, Module management
+    - **Karaoke Setup** (4 steps) - Song library, Events, Duet matching
+    - **Leden Basics** (5 steps, auto-start) - Portal intro, Profile, Materials
+    - **Karaoke for Members** (4 steps) - Song selection, Filters, Duet notes
+    - **Polls & Proposals** (4 steps) - Voting, Proposals, Upvote system
+  - **Features**:
+    - Shepherd.js integration (lightweight, 11KB)
+    - Floating help button (bottom-right corner)
+    - Auto-start tours on first login
+    - Progress tracking per user
+    - Completion rate analytics
+    - Role-based tour filtering (admin/lid/all)
+    - CSS selector targeting for UI elements
+    - Skip/Back/Next navigation
+  - **Admin Tools**:
+    - CRUD interface for tours and steps
+    - Preview mode for testing
+    - Completion statistics
+    - Step-by-step editor (future: drag & drop)
+  - **Technical**: 3 database tables, 8 API endpoints, walkthrough.js helper script
   - **Admin: Song Library Management** - CRUD voor karaoke songs (20 Nederlandse nummers seeded)
   - **Admin: Karaoke Events** - Event creation, edit, update, delete met real-time stats
   - **Admin: Event Editing** - Full edit interface voor bestaande events

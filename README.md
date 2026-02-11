@@ -4,12 +4,12 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 
 ## 🌐 Live URLs
 
-- **Production**: https://animato-koor.pages.dev ✅ **MODULE MANAGEMENT LIVE**
-- **Latest Deploy**: https://3303e082.animato-koor.pages.dev (Deployed: 2026-02-11 06:13 UTC)
+- **Production**: https://animato-koor.pages.dev ✅ **ALL ROUTES WORKING - NO 404s**
+- **Latest Deploy**: https://83e9b6b4.animato-koor.pages.dev (Deployed: 2026-02-11 07:05 UTC)
 - **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
 - **API Documentation**: /api endpoint
-- **Current Version**: v1.0.31 (Module Management System)
-- **Last Updated**: 2026-02-11 06:13 UTC
+- **Current Version**: v1.0.32 (404 & Route Fixes)
+- **Last Updated**: 2026-02-11 07:05 UTC
 
 ## ✨ Features
 

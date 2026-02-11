@@ -335,7 +335,7 @@ app.get('/admin/projects/:id', async (c) => {
   // Get project info
   const project = await queryOne<any>(
     c.env.DB,
-    `SELECT p.*, e.titel as event_titel, e.start_at, e.locatie, e.adres
+    `SELECT p.*, e.titel as event_titel, e.start_at, e.locatie, e.location_id
      FROM concert_projects p
      JOIN events e ON e.id = p.event_id
      WHERE p.id = ?`,

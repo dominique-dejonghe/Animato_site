@@ -34,7 +34,7 @@ app.get('/agenda', async (c) => {
 
   // Build query
   let query = `
-    SELECT e.id, e.type, e.titel, e.slug, e.start_at, e.end_at, e.locatie, e.adres, e.doelgroep
+    SELECT e.id, e.type, e.titel, e.slug, e.start_at, e.end_at, e.locatie, e.doelgroep, e.location_id
     FROM events e
     WHERE e.is_publiek = 1
   `

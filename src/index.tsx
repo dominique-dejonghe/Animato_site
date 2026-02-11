@@ -39,6 +39,8 @@ import ledenActivityRoutes from './routes/leden-activity'
 import adminKaraokeRoutes from './routes/admin-karaoke'
 import karaokeLedenRoutes from './routes/karaoke-leden'
 import adminModulesRoutes from './routes/admin-modules'
+import adminWalkthroughRoutes from './routes/admin-walkthrough'
+import walkthroughApiRoutes from './routes/walkthrough-api'
 
 // =====================================================
 // APP INITIALIZATION
@@ -104,6 +106,8 @@ app.route('/', adminSettingsRoutes)
 app.route('/', adminFinanceRoutes)
 app.route('/', adminPrintsRoutes)
 app.route('/', adminModulesRoutes)
+app.route('/', adminWalkthroughRoutes)
+app.route('/', walkthroughApiRoutes)
 app.route('/', ledenActivityRoutes)
 app.route('/', adminKaraokeRoutes)
 app.route('/', karaokeLedenRoutes)

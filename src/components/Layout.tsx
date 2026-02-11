@@ -60,6 +60,10 @@ export const Layout: FC<LayoutProps> = ({
         {/* Custom CSS */}
         <link href="/static/css/styles.css" rel="stylesheet" />
         
+        {/* Shepherd.js - Walkthrough Tours */}
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11/dist/css/shepherd.css" />
+        <script src="https://cdn.jsdelivr.net/npm/shepherd.js@11/dist/js/shepherd.min.js"></script>
+        
         {/* Favicon - placeholder */}
         <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg" />
       </head>
@@ -277,6 +281,9 @@ export const Layout: FC<LayoutProps> = ({
 
         {/* Custom JS - includes mobile menu handler */}
         <script src="/static/js/app.js"></script>
+        
+        {/* Walkthrough Tours */}
+        <script src="/static/walkthrough.js"></script>
       </body>
     </html>
   )

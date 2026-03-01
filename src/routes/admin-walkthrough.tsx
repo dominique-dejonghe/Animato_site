@@ -242,4 +242,83 @@ app.get('/admin/walkthrough', async (c) => {
   )
 })
 
+// =====================================================
+// PREVIEW TOUR
+// =====================================================
+
+app.get('/admin/walkthrough/:id/preview', async (c) => {
+  const tourId = c.req.param('id')
+
+  // Get first step to find target URL
+  const firstStep = await queryOne(c.env.DB, `
+    SELECT target_url 
+    FROM walkthrough_steps 
+    WHERE tour_id = ? 
+    ORDER BY step_number ASC 
+    LIMIT 1
+  `, [tourId])
+
+  if (!firstStep) {
+    // If no steps, redirect with error
+    return c.redirect('/admin/walkthrough?error=no_steps')
+  }
+
+  // Redirect to target URL with start_tour param
+  // Use 'start_tour' as implemented in public/static/walkthrough.js
+  const targetUrl = firstStep.target_url || '/admin'
+  const separator = targetUrl.includes('?') ? '&' : '?'
+  return c.redirect(`${targetUrl}${separator}start_tour=${tourId}`)
+})
+
+// =====================================================
+// DELETE TOUR
+// =====================================================
+
+app.post('/admin/walkthrough/:id/delete', async (c) => {
+  const tourId = c.req.param('id')
+
+  try {
+    await execute(c.env.DB, `DELETE FROM walkthrough_tours WHERE id = ?`, [tourId])
+    return c.redirect('/admin/walkthrough?success=deleted')
+  } catch (error) {
+    console.error('Error deleting tour:', error)
+    return c.redirect('/admin/walkthrough?error=failed')
+  }
+})
+
+// =====================================================
+// NEW TOUR (Placeholder)
+// =====================================================
+
+app.get('/admin/walkthrough/nieuw', async (c) => {
+  const user = c.get('user') as SessionUser
+  return c.html(
+    <Layout title="Nieuwe Tour" user={user}>
+      <div class="p-8 text-center">
+        <h1 class="text-2xl font-bold mb-4">Nieuwe Tour</h1>
+        <p class="mb-4">Deze functionaliteit is nog in ontwikkeling.</p>
+        <a href="/admin/walkthrough" class="text-blue-600 hover:underline">Terug naar overzicht</a>
+      </div>
+    </Layout>
+  )
+})
+
+// =====================================================
+// EDIT TOUR (Placeholder)
+// =====================================================
+
+app.get('/admin/walkthrough/:id/edit', async (c) => {
+  const user = c.get('user') as SessionUser
+  const tourId = c.req.param('id')
+  return c.html(
+    <Layout title="Bewerk Tour" user={user}>
+      <div class="p-8 text-center">
+        <h1 class="text-2xl font-bold mb-4">Bewerk Tour {tourId}</h1>
+        <p class="mb-4">Deze functionaliteit is nog in ontwikkeling.</p>
+        <a href="/admin/walkthrough" class="text-blue-600 hover:underline">Terug naar overzicht</a>
+      </div>
+    </Layout>
+  )
+})
+
 export default app

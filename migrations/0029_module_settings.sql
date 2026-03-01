@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS module_settings (
 );
 
 -- Seed default modules
-INSERT INTO module_settings (module_key, module_name, module_description, is_enabled, category, sort_order, icon) VALUES
+INSERT OR IGNORE INTO module_settings (module_key, module_name, module_description, is_enabled, category, sort_order, icon) VALUES
   -- Content Modules
   ('nieuws', 'Nieuws & Berichten', 'Nieuwsartikelen en board posts voor leden', 1, 'content', 1, 'fa-newspaper'),
   ('agenda', 'Agenda & Events', 'Evenementenkalender met repetities en concerten', 1, 'content', 2, 'fa-calendar-alt'),

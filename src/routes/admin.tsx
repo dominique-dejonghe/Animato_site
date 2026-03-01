@@ -317,7 +317,7 @@ app.get('/admin', async (c) => {
                   <i class="fas fa-users text-animato-accent text-xl"></i>
                 </div>
               </div>
-              <a href="/admin/activities" class="mt-4 text-sm text-animato-accent hover:underline inline-flex items-center font-semibold">
+              <a href="/admin/audit" class="mt-4 text-sm text-animato-accent hover:underline inline-flex items-center font-semibold">
                 Bekijk login activiteit <i class="fas fa-arrow-right ml-1 text-xs"></i>
               </a>
             </div>
@@ -2948,6 +2948,102 @@ app.get('/api/admin/content/:id/delete', async (c) => {
     console.error('Content delete error:', error)
     return c.redirect(`/admin/content?tab=${contentType}&error=delete_failed`)
   }
+})
+
+// =====================================================
+// AUDIT LOGS
+// =====================================================
+
+app.get('/admin/audit', async (c) => {
+  const user = c.get('user') as SessionUser
+  noCacheHeaders(c)
+
+  const logs = await queryAll(
+    c.env.DB,
+    `SELECT a.*, u.email, p.voornaam, p.achternaam
+     FROM audit_logs a
+     LEFT JOIN users u ON u.id = a.user_id
+     LEFT JOIN profiles p ON p.user_id = u.id
+     ORDER BY a.created_at DESC
+     LIMIT 100`
+  )
+
+  return c.html(
+    <Layout 
+      title="Audit Logs" 
+      user={user}
+      breadcrumbs={[
+        { label: 'Admin', href: '/admin' },
+        { label: 'Audit Logs', href: '/admin/audit' }
+      ]}
+    >
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="dashboard" />
+        <div class="flex-1 min-w-0">
+          <div class="bg-white border-b border-gray-200">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+              <div class="flex items-center justify-between">
+                <div>
+                  <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+                    <i class="fas fa-history text-animato-accent mr-3"></i>
+                    Audit Logs
+                  </h1>
+                  <p class="mt-2 text-gray-600">
+                    Bekijk systeem activiteit en logins
+                  </p>
+                </div>
+                <a href="/admin" class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition">
+                  <i class="fas fa-arrow-left mr-2"></i>
+                  Terug
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="bg-white rounded-lg shadow-md overflow-hidden">
+              <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                  <thead class="bg-gray-50">
+                    <tr>
+                      <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Datum</th>
+                      <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gebruiker</th>
+                      <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actie</th>
+                      <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                      <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+                    </tr>
+                  </thead>
+                  <tbody class="bg-white divide-y divide-gray-200">
+                    {logs.map((log: any) => (
+                      <tr class="hover:bg-gray-50">
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {new Date(log.created_at).toLocaleString('nl-NL')}
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {log.voornaam} {log.achternaam} <span class="text-gray-400">({log.email})</span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          <span class="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100">
+                            {log.actie}
+                          </span>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                          {log.entity_type} #{log.entity_id}
+                        </td>
+                        <td class="px-6 py-4 text-sm text-gray-500 font-mono text-xs">
+                          {log.meta}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
 })
 
 export default app

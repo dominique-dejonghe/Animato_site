@@ -21,7 +21,7 @@ app.get('/admin/meetings', async (c) => {
   const upcomingMeetings = await queryAll(
     c.env.DB,
     `SELECT m.*, datetime(m.datum || ' ' || COALESCE(m.start_tijd, '00:00')) as start_at,
-            (SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = m.id AND status = 'present') as present_count,
+            (SELECT COUNT(*) FROM meeting_participants WHERE meeting_id = m.id AND status = 'aanwezig') as present_count,
             (SELECT COUNT(*) FROM meeting_agenda_items WHERE meeting_id = m.id) as agenda_count
      FROM meetings m
      WHERE datetime(m.datum || ' ' || COALESCE(m.start_tijd, '00:00')) >= datetime('now')
@@ -446,7 +446,12 @@ app.get('/admin/meetings/:id', async (c) => {
                                      </div>
                                      <div class="flex-1">
                                        <label class="block text-sm font-medium text-gray-700 mb-1">Spreker</label>
-                                       <input type="text" name="presenter" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                                       <select name="presenter" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
+                                         <option value="">Selecteer...</option>
+                                         {users.map((u: any) => (
+                                           <option value={u.id}>{u.voornaam} {u.achternaam}</option>
+                                         ))}
+                                       </select>
                                      </div>
                                   </div>
                                   <div class="flex justify-end gap-3 mt-6">
@@ -585,7 +590,7 @@ app.get('/admin/meetings/:id', async (c) => {
                                              action.status === 'done' ? 'ring-green-600 text-green-700 bg-green-50' : 
                                              'ring-gray-300 text-gray-700'
                                           }`}>
-                                             <option value="todo" selected={action.status === 'todo'}>Te doen</option>
+                                             <option value="open" selected={action.status === 'open'}>Te doen</option>
                                              <option value="in_progress" selected={action.status === 'in_progress'}>Bezig</option>
                                              <option value="done" selected={action.status === 'done'}>Klaar</option>
                                           </select>
@@ -664,13 +669,13 @@ app.get('/admin/meetings/:id', async (c) => {
                                <input type="hidden" name="meeting_id" value={meetingId} />
                                <input type="hidden" name="user_id" value={p.user_id} />
                                <select name="status" class={`text-xs border-0 py-0 pl-1 pr-6 rounded ${
-                                  p.status === 'present' ? 'text-green-600 font-bold' :
-                                  p.status === 'absent' ? 'text-red-500' : 'text-gray-500'
+                                  p.status === 'aanwezig' ? 'text-green-600 font-bold' :
+                                  p.status === 'afwezig' ? 'text-red-500' : 'text-gray-500'
                                }`}>
-                                  <option value="invited" selected={p.status === 'invited'}>Genodigd</option>
-                                  <option value="present" selected={p.status === 'present'}>Aanwezig</option>
-                                  <option value="absent" selected={p.status === 'absent'}>Afwezig</option>
-                                  <option value="excused" selected={p.status === 'excused'}>Verontsch.</option>
+                                  <option value="uitgenodigd" selected={p.status === 'uitgenodigd'}>Genodigd</option>
+                                  <option value="aanwezig" selected={p.status === 'aanwezig'}>Aanwezig</option>
+                                  <option value="afwezig" selected={p.status === 'afwezig'}>Afwezig</option>
+                                  <option value="geexcuseerd" selected={p.status === 'geexcuseerd'}>Verontsch.</option>
                                </select>
                             </form>
                             <form id={`delete-participant-${p.user_id}`} action="/api/admin/meetings/participants/remove" method="POST" onsubmit="event.preventDefault(); openDeleteModal(this.id)" class="ml-2">
@@ -990,7 +995,7 @@ app.post('/api/admin/meetings/agenda/create', async (c) => {
   await c.env.DB.prepare(
     `INSERT INTO meeting_agenda_items (meeting_id, titel, beschrijving, duur_minuten, presentator_id, volgorde)
      VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(meeting_id, titel, beschrijving, duration, presenter, nextOrder).run()
+  ).bind(meeting_id, titel, beschrijving, duration, presenter || null, nextOrder).run()
 
   return c.redirect(`/admin/meetings/${meeting_id}?tab=agenda`)
 })
@@ -1029,7 +1034,7 @@ app.post('/api/admin/meetings/participants/add', async (c) => {
   
   const userIds = Array.isArray(user_id) ? user_id : [user_id]
   
-  const stmt = c.env.DB.prepare(`INSERT INTO meeting_participants (meeting_id, user_id, status) VALUES (?, ?, 'invited')`)
+  const stmt = c.env.DB.prepare(`INSERT INTO meeting_participants (meeting_id, user_id, status) VALUES (?, ?, 'uitgenodigd')`)
   const batch = userIds.map(id => stmt.bind(meeting_id, id))
   
   await c.env.DB.batch(batch)

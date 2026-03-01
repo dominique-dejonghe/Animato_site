@@ -826,7 +826,7 @@ app.post('/admin/events/save', async (c) => {
   const body = await c.req.parseBody()
 
   const {
-    id, type, titel, slug, beschrijving, afbeelding, locatie, location_id,
+    id, type, titel, slug, beschrijving, image_url, locatie, location_id,
     start_at, end_at, max_deelnemers, aanmelden_verplicht, doelgroep,
     zichtbaar_publiek, toon_op_homepage,
     is_recurring, recurrence_frequency, recurrence_interval,
@@ -895,13 +895,13 @@ app.post('/admin/events/save', async (c) => {
       await execute(
         c.env.DB,
         `UPDATE events 
-         SET type = ?, titel = ?, slug = ?, beschrijving = ?, afbeelding = ?, locatie = ?, location_id = ?,
+         SET type = ?, titel = ?, slug = ?, beschrijving = ?, image_url = ?, locatie = ?, location_id = ?,
              start_at = ?, end_at = ?, max_deelnemers = ?, aanmelden_verplicht = ?, doelgroep = ?,
              zichtbaar_publiek = ?, toon_op_homepage = ?,
              is_recurring = ?, recurrence_rule = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [
-          type, titel, finalSlug, beschrijving || null, afbeelding || null, finalLocatie, finalLocationId,
+          type, titel, finalSlug, beschrijving || null, image_url || null, finalLocatie, finalLocationId,
           start_at, end_at, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0, doelgroep || 'all',
           zichtbaar_publiek === 'on' ? 1 : 0, toon_op_homepage === 'on' ? 1 : 0,
           is_recurring === 'on' ? 1 : 0, recurrenceRule ? JSON.stringify(recurrenceRule) : null,
@@ -934,12 +934,12 @@ app.post('/admin/events/save', async (c) => {
       const result = await execute(
         c.env.DB,
         `INSERT INTO events 
-         (type, titel, slug, beschrijving, afbeelding, locatie, location_id, start_at, end_at, 
+         (type, titel, slug, beschrijving, image_url, locatie, location_id, start_at, end_at, 
           max_deelnemers, aanmelden_verplicht, doelgroep, is_publiek, zichtbaar_publiek, toon_op_homepage,
           is_recurring, recurrence_rule, created_by)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          type, titel, finalSlug, beschrijving || null, afbeelding || null, finalLocatie, finalLocationId,
+          type, titel, finalSlug, beschrijving || null, image_url || null, finalLocatie, finalLocationId,
           start_at, end_at, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0, doelgroep || 'all',
           isPubliekValue, isPubliekValue, toon_op_homepage === 'on' ? 1 : 0,
           is_recurring === 'on' ? 1 : 0, recurrenceRule ? JSON.stringify(recurrenceRule) : null,
@@ -993,7 +993,7 @@ app.post('/admin/events/save', async (c) => {
               locatie: body.locatie,
               location_id: body.location_id,
               doelgroep: body.doelgroep,
-              afbeelding_length: body.afbeelding ? String(body.afbeelding).length : 0
+              image_url_length: body.image_url ? String(body.image_url).length : 0
             }, null, 2)}</pre>
           </div>
           <div class="flex gap-3">
@@ -1218,17 +1218,17 @@ function renderEventForm(event: any | null, locations: any[]) {
                 {/* Hidden field to store actual image data/URL */}
                 <input
                   type="hidden"
-                  name="afbeelding"
+                  name="image_url"
                   id="afbeeldingValue"
-                  value={event?.afbeelding || ''}
+                  value={event?.image_url || ''}
                 />
 
                 {/* Image Preview */}
-                <div id="imagePreview" class={`mt-3 ${event?.afbeelding ? '' : 'hidden'}`}>
+                <div id="imagePreview" class={`mt-3 ${event?.image_url ? '' : 'hidden'}`}>
                   <div class="relative w-full h-48 bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
                     <img 
                       id="previewImg" 
-                      src={event?.afbeelding || ''} 
+                      src={event?.image_url || ''} 
                       alt="Preview"
                       class="w-full h-full object-cover"
                       onerror="this.parentElement.innerHTML='<div class=\\'flex items-center justify-center h-full text-gray-400\\'>Afbeelding niet geladen</div>'"
@@ -1277,20 +1277,21 @@ function renderEventForm(event: any | null, locations: any[]) {
                         {loc.naam} - {loc.stad}
                       </option>
                     ))}
+                    <option value="new">+ Nieuwe locatie aanmaken...</option>
                   </select>
-                  <a
+                  {/* <a
                     href="/admin/locations/nieuw"
                     target="_blank"
                     class="px-4 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg transition whitespace-nowrap"
                   >
                     <i class="fas fa-plus mr-2"></i>
                     Nieuw
-                  </a>
+                  </a> */}
                 </div>
               </div>
 
-              {/* Manual Location (fallback) */}
-              <div class="mb-4">
+              {/* Manual Location (fallback) - Removed per request */}
+              {/* <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-700 mb-2">
                   Of: Handmatige Locatie
                 </label>
@@ -1305,7 +1306,7 @@ function renderEventForm(event: any | null, locations: any[]) {
                 <p class="text-xs text-gray-500 mt-1">
                   Let op: Vaste locaties hebben Google Maps integratie
                 </p>
-              </div>
+              </div> */}
 
               {/* Location Preview */}
               <div id="locationPreview" class="hidden bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -1620,7 +1621,14 @@ function renderEventForm(event: any | null, locations: any[]) {
           function updateLocationInfo() {
             const select = document.getElementById('locationSelect');
             const preview = document.getElementById('locationPreview');
-            const locatieInput = document.getElementById('locatieInput');
+            // const locatieInput = document.getElementById('locatieInput');
+            
+            if (select.value === 'new') {
+               // Redirect to create new location
+               window.open('/admin/locations/nieuw', '_blank');
+               select.value = ''; // Reset selection
+               return;
+            }
             
             if (select.value) {
               const option = select.options[select.selectedIndex];
@@ -1639,7 +1647,7 @@ function renderEventForm(event: any | null, locations: any[]) {
               }
               
               preview.classList.remove('hidden');
-              locatieInput.value = ''; // Clear manual input
+              // locatieInput.value = ''; // Clear manual input
             } else {
               preview.classList.add('hidden');
             }

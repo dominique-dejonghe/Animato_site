@@ -11,8 +11,9 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({ activeSection = 'dashboard
     { id: 'leden', label: 'Leden', href: '/admin/leden', icon: 'fas fa-users', badge: pendingRegistrationsCount > 0 ? pendingRegistrationsCount : undefined },
     { id: 'content', label: 'Nieuws & Berichten', href: '/admin/content', icon: 'fas fa-newspaper' },
     { id: 'events', label: 'Agenda & Concerten', href: '/admin/events', icon: 'fas fa-calendar-alt' },
+    { id: 'seating', label: 'Zaalplannen (Seats)', href: '/admin/seating', icon: 'fas fa-chair' }, // Added Seating Plans
     { id: 'activities', label: 'Activiteiten & Feest', href: '/admin/activities', icon: 'fas fa-glass-cheers' },
-    { id: 'karaoke', label: 'Karaoke', href: '/admin/karaoke', icon: 'fas fa-microphone' },
+    // { id: 'karaoke', label: 'Karaoke', href: '/admin/karaoke', icon: 'fas fa-microphone' },
     { id: 'projects', label: 'Projecten', href: '/admin/projects', icon: 'fas fa-tasks' },
     { id: 'prints', label: 'Printservice', href: '/admin/prints', icon: 'fas fa-print' },
     { id: 'finance', label: 'Lidgelden', href: '/admin/lidgelden', icon: 'fas fa-euro-sign' },

@@ -6,6 +6,8 @@ import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { requireAuth } from '../middleware/auth'
 import { queryOne, queryAll, execute } from '../utils/db'
+import { createMolliePayment } from '../utils/mollie'
+import { createMolliePayment } from '../utils/mollie'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -882,18 +884,19 @@ app.get('/leden/profiel', async (c) => {
     [user.id]
   )
 
-  // Get membership status
-  const settings = await queryAll(c.env.DB, "SELECT * FROM system_settings WHERE key = 'current_season'")
-  const currentSeason = settings[0]?.value || '2025-2026'
-  
-  const membership = await queryOne<any>(
+  // Get membership history
+  const allMemberships = await queryAll(
     c.env.DB,
-    `SELECT um.*, my.season 
+    `SELECT um.*, my.season, my.start_date, my.end_date, my.is_active
      FROM user_memberships um
      JOIN membership_years my ON um.year_id = my.id
-     WHERE um.user_id = ? AND my.season = ?`,
-    [user.id, currentSeason]
+     WHERE um.user_id = ?
+     ORDER BY my.start_date DESC`,
+    [user.id]
   )
+
+  // Find current active membership (or the most recent one if none active)
+  const activeMembership = allMemberships.find((m: any) => m.is_active) || allMemberships[0]
 
   // Get activity history
   const myActivities = await queryAll(c.env.DB, `
@@ -956,66 +959,88 @@ app.get('/leden/profiel', async (c) => {
             </div>
           )}
 
-          {/* Membership Status Card */}
+          {/* Membership Status & History */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <h3 class="text-xl font-bold text-gray-900 mb-4">
               <i class="fas fa-id-card text-animato-secondary mr-2"></i>
-              Lidmaatschap {currentSeason}
+              Lidmaatschappen
             </h3>
             
-            {!membership ? (
-              <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 text-center">
-                <p class="text-gray-600">
-                  Er is nog geen lidmaatschap geactiveerd voor dit seizoen.
-                </p>
-                <p class="text-sm text-gray-500 mt-1">
-                  Neem contact op met de penningmeester voor meer informatie.
-                </p>
-              </div>
-            ) : membership.status === 'paid' ? (
-              <div class="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center justify-between">
-                <div>
-                  <div class="flex items-center text-green-800 font-semibold mb-1">
-                    <i class="fas fa-check-circle mr-2 text-xl"></i>
-                    Lidgeld Voldaan
-                  </div>
-                  <p class="text-sm text-green-700">
-                    Bedankt voor je betaling! Je lidmaatschap ({membership.type === 'full' ? 'Met Partituren' : 'Basis'}) is actief.
-                  </p>
-                </div>
-                <div class="text-2xl font-bold text-green-600 opacity-20">
-                  <i class="fas fa-music"></i>
-                </div>
-              </div>
-            ) : (
-              <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+            {/* Active Membership Status */}
+            {activeMembership && activeMembership.is_active && activeMembership.status === 'pending' ? (
+              <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-6 animate-pulse-slow">
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div>
-                    <div class="flex items-center text-yellow-800 font-semibold mb-1">
-                      <i class="fas fa-exclamation-circle mr-2 text-xl"></i>
-                      Lidgeld Openstaand
+                    <div class="flex items-center text-yellow-800 font-bold text-lg mb-2">
+                      <i class="fas fa-exclamation-circle mr-2"></i>
+                      Lidgeld {activeMembership.season} Openstaand
                     </div>
-                    <p class="text-sm text-yellow-700">
-                      Het lidgeld voor dit seizoen ({membership.type === 'full' ? 'Met Partituren' : 'Basis'}) staat nog open.
+                    <p class="text-yellow-800 mb-1">
+                      Het lidgeld voor het huidige seizoen ({activeMembership.type === 'full' ? 'Met Partituren' : 'Basis'}) staat nog open.
                     </p>
-                    <p class="font-bold text-yellow-900 mt-1">
-                      Te betalen: €{membership.amount.toFixed(2)}
+                    <p class="font-bold text-yellow-900 text-xl">
+                      Te betalen: €{activeMembership.amount.toFixed(2)}
                     </p>
                   </div>
-                  {membership.mollie_payment_url ? (
-                    <a 
-                      href={membership.mollie_payment_url} 
-                      class="inline-flex items-center justify-center px-6 py-3 bg-animato-primary text-white rounded-lg hover:opacity-90 transition font-semibold shadow-sm"
-                    >
-                      <i class="fas fa-credit-card mr-2"></i>
-                      Betaal Nu
-                    </a>
-                  ) : (
-                    <div class="text-sm text-gray-500 italic bg-white px-3 py-2 rounded border border-gray-200">
-                      Nog geen betaallink beschikbaar. <br/>Wordt binnenkort verstuurd.
-                    </div>
-                  )}
+                  <a 
+                    href="/leden/betaling-lidgeld" 
+                    class="inline-flex items-center justify-center px-6 py-3 bg-animato-primary text-white rounded-lg hover:opacity-90 transition font-semibold shadow-lg transform hover:-translate-y-0.5"
+                  >
+                    <i class="fas fa-credit-card mr-2"></i>
+                    Nu Betalen
+                  </a>
                 </div>
+              </div>
+            ) : null}
+
+            {/* Membership History Table */}
+            {allMemberships.length > 0 ? (
+              <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                  <thead>
+                    <tr class="text-xs text-gray-500 border-b border-gray-100 bg-gray-50">
+                      <th class="px-4 py-2 font-medium">Seizoen</th>
+                      <th class="px-4 py-2 font-medium">Type</th>
+                      <th class="px-4 py-2 font-medium">Bedrag</th>
+                      <th class="px-4 py-2 font-medium">Status</th>
+                      <th class="px-4 py-2 font-medium text-right">Betaald op</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-gray-100">
+                    {allMemberships.map((m: any) => (
+                      <tr class="hover:bg-gray-50 transition">
+                        <td class="px-4 py-3 text-sm font-medium text-gray-900">
+                          {m.season}
+                          {m.is_active ? <span class="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-full">Actief</span> : ''}
+                        </td>
+                        <td class="px-4 py-3 text-sm text-gray-600">
+                          {m.type === 'full' ? 'Full (+ Partituren)' : 'Basis'}
+                        </td>
+                        <td class="px-4 py-3 text-sm font-mono text-gray-600">
+                          €{m.amount.toFixed(2)}
+                        </td>
+                        <td class="px-4 py-3">
+                          {m.status === 'paid' ? (
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              <i class="fas fa-check mr-1"></i> Betaald
+                            </span>
+                          ) : (
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                              <i class="fas fa-clock mr-1"></i> Openstaand
+                            </span>
+                          )}
+                        </td>
+                        <td class="px-4 py-3 text-sm text-gray-500 text-right">
+                          {m.paid_at ? new Date(m.paid_at).toLocaleDateString('nl-BE') : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div class="text-center py-8 text-gray-500 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+                <p>Nog geen lidmaatschappen gevonden.</p>
               </div>
             )}
           </div>
@@ -1806,6 +1831,166 @@ app.get('/leden/profiel', async (c) => {
 })
 
 // =====================================================
+// BETALING LIDGELD
+// =====================================================
+
+app.get('/leden/betaling-lidgeld', async (c) => {
+  const user = c.get('user') as SessionUser
+  
+  // Get active unpaid membership
+  const membership = await queryOne<any>(
+    c.env.DB,
+    `SELECT um.*, my.season, my.description
+     FROM user_memberships um
+     JOIN membership_years my ON um.year_id = my.id
+     WHERE um.user_id = ? AND um.status = 'pending' AND my.is_active = 1`,
+    [user.id]
+  )
+
+  if (!membership) {
+    return c.redirect('/leden/profiel')
+  }
+
+  // Bank details
+  const settingsRes = await queryAll(c.env.DB, "SELECT * FROM system_settings WHERE key IN ('bank_iban', 'bank_bic', 'bank_name')")
+  const settings = settingsRes.reduce((acc: any, curr: any) => ({...acc, [curr.key]: curr.value}), {})
+
+  const iban = settings.bank_iban || 'BE12 3456 7890 1234'
+  const bic = settings.bank_bic || 'GEBA BE BB'
+  const bankName = settings.bank_name || 'Koor Animato Rekening'
+  const communication = `Lidgeld ${membership.season} - ${user.voornaam} ${user.achternaam}`
+
+  return c.html(
+    <Layout title="Lidgeld Betalen" user={user}>
+      <div class="py-12 bg-gray-50 min-h-screen">
+        <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="mb-8">
+            <a href="/leden/profiel" class="text-animato-primary hover:underline flex items-center">
+              <i class="fas fa-arrow-left mr-2"></i> Terug naar profiel
+            </a>
+          </div>
+
+          <div class="bg-white rounded-lg shadow-lg overflow-hidden">
+            <div class="bg-animato-primary px-6 py-4">
+              <h1 class="text-2xl font-bold text-white flex items-center">
+                <i class="fas fa-euro-sign bg-white text-animato-primary rounded-full w-8 h-8 flex items-center justify-center mr-3 text-sm"></i>
+                Betaling Lidgeld {membership.season}
+              </h1>
+            </div>
+            
+            <div class="p-8">
+              <div class="mb-8 text-center">
+                <p class="text-gray-600 mb-2">Te betalen bedrag</p>
+                <div class="text-4xl font-bold text-gray-900">€ {membership.amount.toFixed(2)}</div>
+                <div class="mt-2 inline-block px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+                  {membership.type === 'full' ? 'Lidmaatschap + Partituren' : 'Basis Lidmaatschap'}
+                </div>
+              </div>
+
+              <div class="grid md:grid-cols-2 gap-8">
+                {/* Online Payment */}
+                <div class="bg-gray-50 p-6 rounded-lg border border-gray-200">
+                  <h3 class="font-bold text-lg text-gray-900 mb-4 flex items-center">
+                    <i class="fas fa-globe text-animato-secondary mr-2"></i> Online Betalen
+                  </h3>
+                  <p class="text-sm text-gray-600 mb-6">
+                    Betaal veilig en snel via Bancontact, Payconiq of kredietkaart.
+                  </p>
+                  
+                  {membership.mollie_payment_url ? (
+                    <a href={membership.mollie_payment_url} class="block w-full py-3 px-4 bg-animato-accent text-white text-center rounded-lg hover:bg-amber-600 transition font-bold shadow">
+                      Nu Online Betalen
+                    </a>
+                  ) : (
+                    <form action="/api/leden/betaling/online" method="POST">
+                      <input type="hidden" name="membership_id" value={membership.id} />
+                      <button type="submit" class="w-full py-3 px-4 bg-animato-accent text-white text-center rounded-lg hover:bg-amber-600 transition font-bold shadow">
+                        Link Aanmaken & Betalen
+                      </button>
+                    </form>
+                  )}
+                </div>
+
+                {/* Bank Transfer */}
+                <div class="bg-gray-50 p-6 rounded-lg border border-gray-200">
+                  <h3 class="font-bold text-lg text-gray-900 mb-4 flex items-center">
+                    <i class="fas fa-university text-gray-600 mr-2"></i> Overschrijving
+                  </h3>
+                  <div class="space-y-3 text-sm">
+                    <div>
+                      <div class="text-gray-500 text-xs">Naam begunstigde</div>
+                      <div class="font-medium text-gray-900">{bankName}</div>
+                    </div>
+                    <div>
+                      <div class="text-gray-500 text-xs">IBAN</div>
+                      <div class="font-mono font-medium text-gray-900 tracking-wide select-all bg-white p-1 rounded border border-gray-200">{iban}</div>
+                    </div>
+                    <div>
+                      <div class="text-gray-500 text-xs">BIC</div>
+                      <div class="font-mono font-medium text-gray-900">{bic}</div>
+                    </div>
+                    <div>
+                      <div class="text-gray-500 text-xs">Mededeling (belangrijk!)</div>
+                      <div class="font-mono font-bold text-animato-primary bg-yellow-50 p-2 rounded border border-yellow-200 select-all">
+                        {communication}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-8 pt-6 border-t border-gray-100 text-center text-sm text-gray-500">
+                <p>Heb je vragen over je lidgeld? Neem contact op met de penningmeester.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
+// API to generate payment link if not exists
+app.post('/api/leden/betaling/online', async (c) => {
+  const user = c.get('user') as SessionUser
+  const body = await c.req.parseBody()
+  const membershipId = body.membership_id
+
+  // Verify ownership
+  const membership = await queryOne<any>(
+    c.env.DB, 
+    `SELECT um.*, my.season 
+     FROM user_memberships um
+     JOIN membership_years my ON um.year_id = my.id
+     WHERE um.id = ? AND um.user_id = ?`, 
+    [membershipId, user.id]
+  )
+
+  if (!membership) return c.redirect('/leden/betaling-lidgeld?error=invalid')
+
+  // Generate Payment Link
+  const siteUrl = c.env.SITE_URL || 'https://animato.be'
+  
+  const payment = await createMolliePayment(c.env.MOLLIE_API_KEY, {
+    amount: membership.amount,
+    description: `Lidgeld Animato ${membership.season} - ${membership.type}`,
+    redirectUrl: `${siteUrl}/leden/profiel?payment=success`,
+    webhookUrl: `${siteUrl}/api/webhooks/mollie`,
+    metadata: {
+      membership_id: membership.id,
+      type: 'membership'
+    }
+  })
+  
+  const paymentUrl = payment.checkoutUrl
+  
+  // Save URL
+  await execute(c.env.DB, `UPDATE user_memberships SET mollie_payment_url = ? WHERE id = ?`, [paymentUrl, membership.id])
+
+  return c.redirect(paymentUrl)
+})
+
+// =====================================================
 // PROFIEL BEWERKEN API - Update Profile
 // =====================================================
 
@@ -1881,6 +2066,166 @@ app.post('/api/leden/profiel/wachtwoord', async (c) => {
     console.error('Password change error:', error)
     return c.redirect('/leden/profiel?error=update_failed')
   }
+})
+
+// =====================================================
+// BETALING LIDGELD
+// =====================================================
+
+app.get('/leden/betaling-lidgeld', async (c) => {
+  const user = c.get('user') as SessionUser
+  
+  // Get active unpaid membership
+  const membership = await queryOne<any>(
+    c.env.DB,
+    `SELECT um.*, my.season, my.description
+     FROM user_memberships um
+     JOIN membership_years my ON um.year_id = my.id
+     WHERE um.user_id = ? AND um.status = 'pending' AND my.is_active = 1`,
+    [user.id]
+  )
+
+  if (!membership) {
+    return c.redirect('/leden/profiel')
+  }
+
+  // Bank details
+  const settingsRes = await queryAll(c.env.DB, "SELECT * FROM system_settings WHERE key IN ('bank_iban', 'bank_bic', 'bank_name')")
+  const settings = settingsRes.reduce((acc: any, curr: any) => ({...acc, [curr.key]: curr.value}), {})
+
+  const iban = settings.bank_iban || 'BE12 3456 7890 1234'
+  const bic = settings.bank_bic || 'GEBA BE BB'
+  const bankName = settings.bank_name || 'Koor Animato Rekening'
+  const communication = `Lidgeld ${membership.season} - ${user.voornaam} ${user.achternaam}`
+
+  return c.html(
+    <Layout title="Lidgeld Betalen" user={user}>
+      <div class="py-12 bg-gray-50 min-h-screen">
+        <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="mb-8">
+            <a href="/leden/profiel" class="text-animato-primary hover:underline flex items-center">
+              <i class="fas fa-arrow-left mr-2"></i> Terug naar profiel
+            </a>
+          </div>
+
+          <div class="bg-white rounded-lg shadow-lg overflow-hidden">
+            <div class="bg-animato-primary px-6 py-4">
+              <h1 class="text-2xl font-bold text-white flex items-center">
+                <i class="fas fa-euro-sign bg-white text-animato-primary rounded-full w-8 h-8 flex items-center justify-center mr-3 text-sm"></i>
+                Betaling Lidgeld {membership.season}
+              </h1>
+            </div>
+            
+            <div class="p-8">
+              <div class="mb-8 text-center">
+                <p class="text-gray-600 mb-2">Te betalen bedrag</p>
+                <div class="text-4xl font-bold text-gray-900">€ {membership.amount.toFixed(2)}</div>
+                <div class="mt-2 inline-block px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+                  {membership.type === 'full' ? 'Lidmaatschap + Partituren' : 'Basis Lidmaatschap'}
+                </div>
+              </div>
+
+              <div class="grid md:grid-cols-2 gap-8">
+                {/* Online Payment */}
+                <div class="bg-gray-50 p-6 rounded-lg border border-gray-200">
+                  <h3 class="font-bold text-lg text-gray-900 mb-4 flex items-center">
+                    <i class="fas fa-globe text-animato-secondary mr-2"></i> Online Betalen
+                  </h3>
+                  <p class="text-sm text-gray-600 mb-6">
+                    Betaal veilig en snel via Bancontact, Payconiq of kredietkaart.
+                  </p>
+                  
+                  {membership.mollie_payment_url ? (
+                    <a href={membership.mollie_payment_url} class="block w-full py-3 px-4 bg-animato-accent text-white text-center rounded-lg hover:bg-amber-600 transition font-bold shadow">
+                      Nu Online Betalen
+                    </a>
+                  ) : (
+                    <form action="/api/leden/betaling/online" method="POST">
+                      <input type="hidden" name="membership_id" value={membership.id} />
+                      <button type="submit" class="w-full py-3 px-4 bg-animato-accent text-white text-center rounded-lg hover:bg-amber-600 transition font-bold shadow">
+                        Link Aanmaken & Betalen
+                      </button>
+                    </form>
+                  )}
+                </div>
+
+                {/* Bank Transfer */}
+                <div class="bg-gray-50 p-6 rounded-lg border border-gray-200">
+                  <h3 class="font-bold text-lg text-gray-900 mb-4 flex items-center">
+                    <i class="fas fa-university text-gray-600 mr-2"></i> Overschrijving
+                  </h3>
+                  <div class="space-y-3 text-sm">
+                    <div>
+                      <div class="text-gray-500 text-xs">Naam begunstigde</div>
+                      <div class="font-medium text-gray-900">{bankName}</div>
+                    </div>
+                    <div>
+                      <div class="text-gray-500 text-xs">IBAN</div>
+                      <div class="font-mono font-medium text-gray-900 tracking-wide select-all bg-white p-1 rounded border border-gray-200">{iban}</div>
+                    </div>
+                    <div>
+                      <div class="text-gray-500 text-xs">BIC</div>
+                      <div class="font-mono font-medium text-gray-900">{bic}</div>
+                    </div>
+                    <div>
+                      <div class="text-gray-500 text-xs">Mededeling (belangrijk!)</div>
+                      <div class="font-mono font-bold text-animato-primary bg-yellow-50 p-2 rounded border border-yellow-200 select-all">
+                        {communication}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-8 pt-6 border-t border-gray-100 text-center text-sm text-gray-500">
+                <p>Heb je vragen over je lidgeld? Neem contact op met de penningmeester.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
+// API to generate payment link if not exists
+app.post('/api/leden/betaling/online', async (c) => {
+  const user = c.get('user') as SessionUser
+  const body = await c.req.parseBody()
+  const membershipId = body.membership_id
+
+  // Verify ownership
+  const membership = await queryOne<any>(
+    c.env.DB, 
+    `SELECT um.*, my.season 
+     FROM user_memberships um
+     JOIN membership_years my ON um.year_id = my.id
+     WHERE um.id = ? AND um.user_id = ?`, 
+    [membershipId, user.id]
+  )
+
+  if (!membership) return c.redirect('/leden/betaling-lidgeld?error=invalid')
+
+  // Generate Payment Link
+  const siteUrl = c.env.SITE_URL || 'https://animato.be'
+  
+  const payment = await createMolliePayment(c.env.MOLLIE_API_KEY, {
+    amount: membership.amount,
+    description: `Lidgeld Animato ${membership.season} - ${membership.type}`,
+    redirectUrl: `${siteUrl}/leden/profiel?payment=success`,
+    webhookUrl: `${siteUrl}/api/webhooks/mollie`,
+    metadata: {
+      membership_id: membership.id,
+      type: 'membership'
+    }
+  })
+  
+  const paymentUrl = payment.checkoutUrl
+  
+  // Save URL
+  await execute(c.env.DB, `UPDATE user_memberships SET mollie_payment_url = ? WHERE id = ?`, [paymentUrl, membership.id])
+
+  return c.redirect(paymentUrl)
 })
 
 // =====================================================
@@ -3940,5 +4285,124 @@ function renderLedenCalendarGrid(events: any[], year: number, month: number) {
     </div>
   )
 }
+
+// =====================================================
+// LIDGELD BETALINGSPAGINA
+// =====================================================
+
+app.get('/leden/betaling-lidgeld', async (c) => {
+  const user = c.get('user') as SessionUser
+  
+  // Get current season
+  const settings = await queryAll(c.env.DB, "SELECT * FROM system_settings WHERE key = 'current_season'")
+  const currentSeason = settings[0]?.value || '2025-2026'
+
+  // Get membership
+  const membership = await queryOne<any>(
+    c.env.DB,
+    `SELECT um.*, my.season 
+     FROM user_memberships um
+     JOIN membership_years my ON um.year_id = my.id
+     WHERE um.user_id = ? AND my.season = ?`,
+    [user.id, currentSeason]
+  )
+
+  if (!membership || membership.status === 'paid') {
+    return c.redirect('/leden/profiel')
+  }
+
+  return c.html(
+    <Layout title="Lidgeld Betalen" user={user} breadcrumbs={[
+      { label: 'Ledenportaal', href: '/leden' },
+      { label: 'Profiel', href: '/leden/profiel' },
+      { label: 'Betaling', href: '/leden/betaling-lidgeld' }
+    ]}>
+      <div class="bg-gray-50 min-h-screen py-12">
+        <div class="max-w-2xl mx-auto px-4">
+          <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+            <div class="bg-animato-primary px-6 py-4">
+              <h1 class="text-2xl font-bold text-white flex items-center">
+                <i class="fas fa-credit-card mr-3"></i>
+                Lidgeld Betalen
+              </h1>
+            </div>
+            
+            <div class="p-8">
+              <div class="mb-8 text-center">
+                <p class="text-gray-600 mb-2">Lidmaatschap Seizoen {currentSeason}</p>
+                <div class="text-4xl font-bold text-gray-900 mb-2">
+                  €{membership.amount.toFixed(2)}
+                </div>
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
+                  Nog te betalen
+                </span>
+              </div>
+
+              <div class="space-y-6">
+                {/* Online Payment */}
+                <div class="border rounded-lg p-6 hover:border-animato-primary transition-colors cursor-pointer bg-gray-50">
+                  <h3 class="font-bold text-lg text-gray-900 mb-2">
+                    <i class="fas fa-globe text-animato-primary mr-2"></i>
+                    Online Betalen
+                  </h3>
+                  <p class="text-gray-600 text-sm mb-4">
+                    Betaal direct en veilig via Bancontact, Payconiq of Kredietkaart. Je lidmaatschap wordt direct geactiveerd.
+                  </p>
+                  {membership.mollie_payment_url ? (
+                    <a 
+                      href={membership.mollie_payment_url}
+                      class="block w-full text-center bg-animato-primary hover:bg-animato-secondary text-white font-bold py-3 px-4 rounded-lg transition"
+                    >
+                      Nu Betalen
+                    </a>
+                  ) : (
+                    <button disabled class="block w-full text-center bg-gray-300 text-gray-500 font-bold py-3 px-4 rounded-lg cursor-not-allowed">
+                      Betaallink nog niet beschikbaar
+                    </button>
+                  )}
+                </div>
+
+                {/* Bank Transfer */}
+                <div class="border rounded-lg p-6">
+                  <h3 class="font-bold text-lg text-gray-900 mb-2">
+                    <i class="fas fa-university text-gray-600 mr-2"></i>
+                    Overschrijving
+                  </h3>
+                  <p class="text-gray-600 text-sm mb-4">
+                    Schrijf het bedrag over naar onderstaand rekeningnummer. Vermeld duidelijk de mededeling.
+                  </p>
+                  <div class="bg-gray-50 p-4 rounded text-sm space-y-2 font-mono">
+                    <div class="flex justify-between">
+                      <span class="text-gray-500">Bedrag:</span>
+                      <span class="font-bold">€{membership.amount.toFixed(2)}</span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="text-gray-500">IBAN:</span>
+                      <span class="font-bold">BE12 3456 7890 1234</span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="text-gray-500">BIC:</span>
+                      <span class="font-bold">GEBABEBB</span>
+                    </div>
+                    <div class="flex justify-between border-t border-gray-200 pt-2 mt-2">
+                      <span class="text-gray-500">Mededeling:</span>
+                      <span class="font-bold text-animato-primary">LIDGELD {user.achternaam} {currentSeason}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="mt-8 text-center">
+                <a href="/leden/profiel" class="text-gray-500 hover:text-gray-700 text-sm">
+                  <i class="fas fa-arrow-left mr-1"></i> Terug naar profiel
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
+})
 
 export default app

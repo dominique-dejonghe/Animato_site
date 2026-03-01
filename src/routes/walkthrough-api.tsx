@@ -32,10 +32,14 @@ app.get('/api/walkthrough/tours', async (c) => {
     LEFT JOIN walkthrough_steps s ON s.tour_id = t.id
     LEFT JOIN walkthrough_progress p ON p.tour_id = t.id AND p.user_id = ?
     WHERE t.is_active = 1 
-      AND (t.target_role = ? OR t.target_role = 'all')
+      AND (
+        ? = 'admin' OR 
+        t.target_role = ? OR 
+        t.target_role = 'all'
+      )
     GROUP BY t.id
     ORDER BY t.sort_order ASC
-  `, [user.id, user.role])
+  `, [user.id, user.role, user.role])
 
   return c.json({ tours })
 })

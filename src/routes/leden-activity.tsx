@@ -176,6 +176,16 @@ app.get('/leden/activiteiten/:id', async (c) => {
                         {registration.dietary_requirements && <span class="italic text-sm">Dieetwensen: {registration.dietary_requirements}</span>}
                       </p>
                       
+                      {registration.answers && registration.answers.length > 0 && (
+                        <div class={`mt-3 pt-2 border-t ${registration.status === 'paid' ? 'border-green-200' : 'border-yellow-200'}`}>
+                          {registration.answers.map((ans: any) => (
+                            <div class="text-sm mb-1">
+                              <span class="font-semibold opacity-80">{ans.label}:</span> <span>{ans.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      
                       {registration.status !== 'paid' && registration.mollie_payment_id && (
                          <div class="mt-4">
                            <p class="text-sm text-yellow-700 mb-2">De betaling is nog niet afgerond.</p>

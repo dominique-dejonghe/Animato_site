@@ -1,14 +1,11 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "animato-koor",
+  "name": "animato-live",
   "compatibility_date": "2025-11-11",
   "pages_build_output_dir": "./dist",
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  // D1 Database - Production
-  // Run: npx wrangler d1 create animato-production
-  // Then replace database_id with output from command
   "d1_databases": [
     {
       "binding": "DB",
@@ -16,11 +13,4 @@
       "database_id": "758eef10-f55b-428f-81ca-4d7f87862811"
     }
   ]
-  // R2 Buckets - Uncomment when needed for file uploads
-  // "r2_buckets": [
-  //   {
-  //     "binding": "STORAGE",
-  //     "bucket_name": "animato-storage"
-  //   }
-  // ]
 }

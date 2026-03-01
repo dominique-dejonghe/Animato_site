@@ -135,6 +135,18 @@ async function startWalkthroughTour(tourId) {
       return
     }
 
+    // Check if we need to redirect to start page
+    const firstStep = data.steps[0]
+    const currentPath = window.location.pathname
+    
+    // Only redirect if target_url is defined and we are not on that page
+    if (firstStep.target_url && currentPath !== firstStep.target_url) {
+       const targetUrl = firstStep.target_url
+       const separator = targetUrl.includes('?') ? '&' : '?'
+       window.location.href = `${targetUrl}${separator}start_tour=${tourId}`
+       return
+    }
+
     // Initialize tour
     const tour = initWalkthroughTour(
       data,
@@ -142,6 +154,7 @@ async function startWalkthroughTour(tourId) {
       async () => {
         await fetch(`/api/walkthrough/tours/${tourId}/complete`, { method: 'POST' })
         showToast('Tour voltooid! 🎉', 'success')
+        // Refresh the list if modal is open (unlikely) or just update state for next open
       },
       // onSkip callback
       async () => {
@@ -251,39 +264,60 @@ async function showTourSelector() {
     modal.id = 'tour-selector-modal'
     
     const modalContent = document.createElement('div')
-    modalContent.className = 'bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-y-auto'
+    modalContent.className = 'bg-white rounded-lg shadow-xl max-w-2xl w-full overflow-hidden'
     
     modalContent.innerHTML = `
-      <div class="p-6 border-b border-gray-200">
+      <div class="p-5 border-b border-gray-200">
         <div class="flex items-center justify-between">
-          <h2 class="text-2xl font-bold text-gray-900">
-            <i class="fas fa-route text-animato-primary mr-2"></i>
+          <h2 class="text-2xl font-bold text-gray-900 flex items-center">
+            <i class="fas fa-route text-animato-primary mr-3"></i>
             Kies een Tour
           </h2>
-          <button onclick="document.getElementById('tour-selector-modal').remove()" class="text-gray-400 hover:text-gray-600">
+          <button onclick="document.getElementById('tour-selector-modal').remove()" class="text-gray-400 hover:text-gray-600 transition">
             <i class="fas fa-times text-xl"></i>
           </button>
         </div>
       </div>
-      <div class="p-6">
-        <div class="space-y-3">
-          ${data.tours.map(tour => `
-            <div class="border border-gray-200 rounded-lg p-4 hover:border-animato-primary transition cursor-pointer" onclick="startWalkthroughTour(${tour.id}); document.getElementById('tour-selector-modal').remove();">
+      <div class="p-5 bg-gray-50 max-h-[60vh] overflow-y-auto">
+        ${data.tours.length > 0 ? `<div class="mb-4 text-xs font-semibold text-gray-500 uppercase tracking-wider">Beschikbare Tours</div>` : ''}
+        <div class="space-y-4">
+          ${data.tours.map(tour => {
+            const isCompleted = tour.completed === 1;
+            return `
+            <div class="bg-white border border-gray-200 rounded-xl p-5 hover:border-animato-primary hover:shadow-md transition-all cursor-pointer relative group" onclick="startWalkthroughTour(${tour.id}); document.getElementById('tour-selector-modal').remove();">
               <div class="flex items-start">
-                <div class="w-10 h-10 bg-animato-primary text-white rounded-lg flex items-center justify-center mr-3 flex-shrink-0">
+                <div class="w-12 h-12 ${isCompleted ? 'bg-green-100 text-green-600' : 'bg-animato-primary text-white'} rounded-xl flex items-center justify-center mr-4 flex-shrink-0 text-xl shadow-sm">
                   <i class="${tour.icon}"></i>
                 </div>
-                <div class="flex-1">
-                  <h3 class="font-semibold text-gray-900 mb-1">${tour.title}</h3>
-                  <p class="text-sm text-gray-600 mb-2">${tour.description || ''}</p>
-                  <div class="flex items-center gap-4 text-xs text-gray-500">
-                    <span><i class="fas fa-list-ol mr-1"></i>${tour.step_count} steps</span>
-                    ${tour.completed ? '<span class="text-green-600"><i class="fas fa-check-circle mr-1"></i>Voltooid</span>' : ''}
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center justify-between mb-1">
+                    <h3 class="font-bold text-gray-900 truncate pr-2 text-lg">${tour.title}</h3>
+                    ${isCompleted 
+                      ? '<span class="px-2.5 py-1 bg-green-100 text-green-700 text-xs font-bold rounded-full flex items-center flex-shrink-0 border border-green-200"><i class="fas fa-check mr-1.5"></i>Voltooid</span>' 
+                      : '<span class="px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-full flex-shrink-0 border border-blue-100">Nieuw</span>'
+                    }
                   </div>
+                  <p class="text-sm text-gray-600 mb-4 line-clamp-2">${tour.description || ''}</p>
+                  
+                  <div class="flex items-center justify-between mt-auto pt-2 border-t border-gray-50">
+                    <div class="flex items-center gap-4 text-xs font-medium text-gray-500">
+                      <span class="flex items-center"><i class="fas fa-list-ol mr-1.5 text-gray-400"></i>${tour.step_count} stappen</span>
+                      ${tour.current_step > 1 && !isCompleted ? `<span class="text-animato-primary"><i class="fas fa-spinner mr-1.5 fa-pulse"></i>${Math.round((tour.current_step / tour.step_count) * 100)}%</span>` : ''}
+                    </div>
+                    <button class="px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors ${isCompleted ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' : 'bg-animato-primary text-white hover:bg-animato-secondary shadow-sm'}">
+                      ${isCompleted ? '<i class="fas fa-redo-alt mr-1.5"></i>Opnieuw' : '<i class="fas fa-play mr-1.5"></i>Starten'}
+                    </button>
+                  </div>
+                  
+                  ${!isCompleted && tour.current_step > 1 ? `
+                    <div class="absolute bottom-0 left-0 right-0 h-1 bg-gray-100 rounded-b-xl overflow-hidden">
+                      <div class="bg-animato-primary h-full rounded-r-full" style="width: ${(tour.current_step / tour.step_count) * 100}%"></div>
+                    </div>
+                  ` : ''}
                 </div>
               </div>
             </div>
-          `).join('')}
+          `}).join('')}
         </div>
       </div>
     `
@@ -312,11 +346,30 @@ if (document.readyState === 'loading') {
     if (window.location.search.includes('first_login=1')) {
       checkAutoStartTour()
     }
+    
+    // Check for direct start via URL param (e.g. from admin preview)
+    const urlParams = new URLSearchParams(window.location.search)
+    const startTourId = urlParams.get('start_tour')
+    if (startTourId) {
+      // Small delay to ensure page is ready
+      setTimeout(() => {
+        startWalkthroughTour(startTourId)
+      }, 1000)
+    }
   })
 } else {
   initFloatingHelpButton()
   if (window.location.search.includes('first_login=1')) {
     checkAutoStartTour()
+  }
+  
+  // Check for direct start via URL param
+  const urlParams = new URLSearchParams(window.location.search)
+  const startTourId = urlParams.get('start_tour')
+  if (startTourId) {
+    setTimeout(() => {
+      startWalkthroughTour(startTourId)
+    }, 1000)
   }
 }
 

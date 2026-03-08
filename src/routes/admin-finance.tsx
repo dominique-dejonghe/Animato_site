@@ -116,6 +116,22 @@ app.get('/admin/lidgelden', async (c) => {
 
           {activeSeason ? (
             <>
+              {/* Season Settings */}
+              <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6">
+                 <div class="flex justify-between items-center mb-2">
+                    <h3 class="font-bold text-gray-800">Seizoen Instellingen</h3>
+                    <button onclick="document.getElementById('editSeasonModal').classList.remove('hidden')" class="text-blue-600 hover:underline text-sm">
+                        <i class="fas fa-edit"></i> Bewerk Prijzen & Details
+                    </button>
+                 </div>
+                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <div><span class="text-gray-500">Naam:</span> <span class="font-medium">{activeSeason.season}</span></div>
+                    <div><span class="text-gray-500">Status:</span> <span class={`font-medium ${activeSeason.is_active ? 'text-green-600' : 'text-gray-500'}`}>{activeSeason.is_active ? 'Actief' : 'Gearchiveerd'}</span></div>
+                    <div><span class="text-gray-500">Basis Lidgeld:</span> <span class="font-medium">€ {activeSeason.fee_base.toFixed(2)}</span></div>
+                    <div><span class="text-gray-500">Full Lidgeld:</span> <span class="font-medium">€ {activeSeason.fee_full.toFixed(2)}</span></div>
+                 </div>
+              </div>
+
               {/* Stats Cards */}
               <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
                 <div class="bg-white p-4 rounded shadow border-l-4 border-blue-500">
@@ -270,6 +286,52 @@ app.get('/admin/lidgelden', async (c) => {
         </div>
       )}
 
+      {/* Edit Season Modal */}
+      {activeSeason && (
+        <div id="editSeasonModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 class="text-xl font-bold mb-4">Seizoen Bewerken ({activeSeason.season})</h3>
+            <form action="/api/admin/seasons/update" method="POST">
+              <input type="hidden" name="id" value={activeSeason.id} />
+              <div class="mb-4">
+                <label class="block text-sm font-medium mb-1">Seizoen Naam</label>
+                <input type="text" name="season" value={activeSeason.season} class="w-full border rounded p-2" required />
+              </div>
+              <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">Start Datum</label>
+                  <input type="date" name="start_date" value={activeSeason.start_date.split('T')[0]} class="w-full border rounded p-2" required />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">Eind Datum</label>
+                  <input type="date" name="end_date" value={activeSeason.end_date.split('T')[0]} class="w-full border rounded p-2" required />
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label class="block text-sm font-medium mb-1">Basis Lidgeld (€)</label>
+                  <input type="number" step="0.01" name="fee_base" value={activeSeason.fee_base} class="w-full border rounded p-2" required />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium mb-1">Full Lidgeld (€)</label>
+                  <input type="number" step="0.01" name="fee_full" value={activeSeason.fee_full} class="w-full border rounded p-2" required />
+                </div>
+              </div>
+              <div class="mb-4">
+                 <label class="flex items-center gap-2">
+                   <input type="checkbox" name="is_active" value="1" checked={activeSeason.is_active === 1} />
+                   <span class="text-sm font-medium">Instellen als actief seizoen</span>
+                 </label>
+              </div>
+              <div class="flex justify-end gap-2">
+                <button type="button" onclick="document.getElementById('editSeasonModal').classList.add('hidden')" class="px-4 py-2 border rounded">Annuleren</button>
+                <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded">Opslaan</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Create Season Modal */}
       <div id="createSeasonModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
         <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
@@ -318,6 +380,32 @@ app.get('/admin/lidgelden', async (c) => {
 })
 
 // === API ACTIONS ===
+
+// Update Season
+app.post('/api/admin/seasons/update', async (c) => {
+  const body = await c.req.parseBody()
+  const db = c.env.DB
+  
+  const isActive = body.is_active ? 1 : 0
+
+  if (isActive) {
+    // Deactivate other seasons
+    await execute(db, "UPDATE membership_years SET is_active = 0 WHERE id != ?", [body.id])
+  }
+
+  await execute(db, `
+    UPDATE membership_years 
+    SET season = ?, start_date = ?, end_date = ?, fee_base = ?, fee_full = ?, is_active = ?
+    WHERE id = ?
+  `, [body.season, body.start_date, body.end_date, body.fee_base, body.fee_full, isActive, body.id])
+
+  // Update system setting if active
+  if (isActive) {
+      await execute(db, "INSERT INTO system_settings (key, value) VALUES ('current_season', ?) ON CONFLICT(key) DO UPDATE SET value = ?", [body.season, body.season])
+  }
+
+  return c.redirect('/admin/lidgelden?season_id=' + body.id)
+})
 
 // Create Season
 app.post('/api/admin/seasons/create', async (c) => {

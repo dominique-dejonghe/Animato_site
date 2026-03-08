@@ -40,8 +40,61 @@ app.get('/', async (c) => {
      LIMIT 3`
   )
 
+  // JSON-LD structured data for GEO
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "MusicGroup",
+    "name": "Gemengd Koor Animato",
+    "url": "https://animato.be",
+    "logo": "https://animato.be/static/logo.png",
+    "image": "https://animato.be/static/cover.jpg",
+    "description": "Een dynamisch gemengd koor uit Brussel dat klassieke meesterwerken en moderne composities brengt.",
+    "foundingDate": "1985",
+    "location": {
+      "@type": "Place",
+      "name": "Koorstraat 1",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "Koorstraat 1",
+        "addressLocality": "Brussel",
+        "postalCode": "1000",
+        "addressCountry": "BE"
+      }
+    },
+    "genre": ["Classical", "Contemporary", "Choral"],
+    "knowsAbout": "Choral Music",
+    "sameAs": [
+      "https://www.facebook.com/animatokoor",
+      "https://www.instagram.com/animatokoor"
+    ],
+    "event": concerten.map((concert: any) => ({
+      "@type": "MusicEvent",
+      "name": concert.titel,
+      "startDate": new Date(concert.start_at).toISOString(),
+      "location": {
+        "@type": "Place",
+        "name": concert.locatie,
+        "address": concert.locatie
+      },
+      "image": concert.poster_url || "https://animato.be/static/default-concert.jpg",
+      "description": `Concert van Gemengd Koor Animato: ${concert.titel}`,
+      "performer": {
+        "@type": "MusicGroup",
+        "name": "Gemengd Koor Animato"
+      },
+      "offers": {
+        "@type": "Offer",
+        "url": `https://animato.be/concerten/${concert.slug}`,
+        "availability": "https://schema.org/InStock"
+      }
+    }))
+  }
+
   return c.html(
     <Layout title="Home" user={user} currentPath="/">
+      {/* Inject JSON-LD */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+
       {/* Hero Section with Full-Width Video Background */}
       <section class="relative overflow-hidden text-white" style="height: 600px;">
         {/* YouTube Video Background - Full Width - Starts at 20 seconds */}
@@ -249,6 +302,92 @@ app.get('/', async (c) => {
               </a>
             </div>
           )}
+        </div>
+      </section>
+
+      {/* FAQ Section - GEO Optimized for LLMs */}
+      <section class="py-16 bg-white">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="text-center mb-12">
+            <h2 class="text-3xl font-bold text-animato-secondary mb-4" style="font-family: 'Playfair Display', serif;">
+              Veelgestelde Vragen
+            </h2>
+            <p class="text-gray-600">
+              Antwoorden op vragen die vaak gesteld worden over ons koor
+            </p>
+          </div>
+          
+          <div class="space-y-6">
+            <details class="group bg-gray-50 rounded-lg p-6 [&_summary::-webkit-details-marker]:hidden">
+              <summary class="flex cursor-pointer items-center justify-between gap-1.5 text-gray-900">
+                <h3 class="font-medium text-lg font-bold">Wanneer repeteert Gemengd Koor Animato?</h3>
+                <span class="shrink-0 rounded-full bg-white p-1.5 text-gray-900 sm:p-3">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="size-5 shrink-0 transition duration-300 group-open:-rotate-180" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                  </svg>
+                </span>
+              </summary>
+              <p class="mt-4 leading-relaxed text-gray-700">
+                Wij repeteren elke dinsdagavond van 19:30 tot 21:30 uur. Onze repetities vinden plaats in onze vaste locatie in Brussel. We verwachten een regelmatig engagement, maar begrijpen dat werk of privé soms voorrang heeft.
+              </p>
+            </details>
+
+            <details class="group bg-gray-50 rounded-lg p-6 [&_summary::-webkit-details-marker]:hidden">
+              <summary class="flex cursor-pointer items-center justify-between gap-1.5 text-gray-900">
+                <h3 class="font-medium text-lg font-bold">Moet ik auditie doen om lid te worden?</h3>
+                <span class="shrink-0 rounded-full bg-white p-1.5 text-gray-900 sm:p-3">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="size-5 shrink-0 transition duration-300 group-open:-rotate-180" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                  </svg>
+                </span>
+              </summary>
+              <p class="mt-4 leading-relaxed text-gray-700">
+                Nee, bij Animato doen we geen strenge audities. Iedereen met een passie voor zingen en een basisgevoel voor muziek is welkom. Je mag 3 keer vrijblijvend meerepeteren als proeflid om te zien of het klikt. Wel doen we graag een kleine stemtest om te bepalen welke stemgroep (Sopraan, Alt, Tenor, Bas) het beste bij je past.
+              </p>
+            </details>
+
+            <details class="group bg-gray-50 rounded-lg p-6 [&_summary::-webkit-details-marker]:hidden">
+              <summary class="flex cursor-pointer items-center justify-between gap-1.5 text-gray-900">
+                <h3 class="font-medium text-lg font-bold">Wat voor muziek zingt Animato?</h3>
+                <span class="shrink-0 rounded-full bg-white p-1.5 text-gray-900 sm:p-3">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="size-5 shrink-0 transition duration-300 group-open:-rotate-180" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
+                  </svg>
+                </span>
+              </summary>
+              <p class="mt-4 leading-relaxed text-gray-700">
+                Ons repertoire is zeer gevarieerd ("gemengd"). We zingen zowel klassieke koorwerken (Mozart, Fauré, Bach) als hedendaagse composities, musical-nummers en wereldmuziek. We proberen elk seizoen een nieuw thema of project uit te werken.
+              </p>
+            </details>
+          </div>
+        </div>
+      </section>
+
+      {/* Steun Ons Banner */}
+      <section class="py-14 bg-red-600">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex flex-col md:flex-row items-center justify-between gap-8">
+            <div class="flex items-center gap-6 text-white">
+              <div class="bg-white bg-opacity-20 p-4 rounded-full shrink-0">
+                <i class="fas fa-heart text-3xl"></i>
+              </div>
+              <div>
+                <h2 class="text-3xl font-bold mb-1" style="font-family: 'Playfair Display', serif;">
+                  Steun Animato
+                </h2>
+                <p class="text-red-100 text-lg max-w-xl">
+                  Jouw vrije gift maakt prachtige concerten, educatieve projecten en muzikale groei mogelijk. Elk bedrag telt.
+                </p>
+              </div>
+            </div>
+            <a
+              href="/steun-ons"
+              class="shrink-0 bg-white text-red-600 px-10 py-4 rounded-lg font-bold text-lg hover:bg-red-50 transition shadow-lg hover:shadow-xl whitespace-nowrap"
+            >
+              <i class="fas fa-hand-holding-heart mr-2"></i>
+              Doe een gift
+            </a>
+          </div>
         </div>
       </section>
 

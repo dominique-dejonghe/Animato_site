@@ -284,6 +284,183 @@ export const Layout: FC<LayoutProps> = ({
         
         {/* Walkthrough Tours */}
         <script src="/static/walkthrough.js"></script>
+
+        {/* Beta Feedback Bubble */}
+        <div id="beta-bubble-container" class="fixed bottom-6 right-6 z-50 hidden">
+            <button id="beta-bubble-btn" class="bg-animato-accent text-white p-4 rounded-full shadow-lg hover:bg-yellow-600 transition flex items-center justify-center w-14 h-14">
+                <i class="fas fa-bug text-xl"></i>
+            </button>
+            <div id="beta-popup" class="absolute bottom-16 right-0 bg-white rounded-lg shadow-xl p-4 w-96 border border-gray-200 hidden">
+                <div class="flex justify-between items-center mb-2">
+                    <h3 class="font-bold text-gray-900">Beta Feedback</h3>
+                    <button id="beta-close" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+                </div>
+                <p class="text-xs text-gray-600 mb-3">Spoor je een bug op of heb je een idee? Laat het ons weten!</p>
+                <form id="beta-form" onsubmit="submitBetaFeedback(event)">
+                    <div class="mb-2">
+                        <select name="type" class="w-full text-sm border rounded p-1.5 bg-gray-50">
+                            <option value="bug">🐛 Bug Melden</option>
+                            <option value="feature">💡 Idee / Feature</option>
+                            <option value="other">📝 Anders</option>
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <textarea name="message" rows={3} class="w-full text-sm border rounded p-2" placeholder="Beschrijf het probleem..." required></textarea>
+                    </div>
+                    {/* Screenshot plakzone */}
+                    <div class="mb-3">
+                        <div id="screenshot-zone"
+                            class="border-2 border-dashed border-gray-300 rounded p-3 text-center text-xs text-gray-400 cursor-pointer hover:border-animato-primary hover:text-animato-primary transition relative"
+                            title="Klik of plak een screenshot (Ctrl+V)">
+                            <i class="fas fa-image mr-1"></i>
+                            Screenshot plakken <span class="font-mono bg-gray-100 px-1 rounded">Ctrl+V</span> of klik om te uploaden
+                            <input type="file" id="screenshot-file" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer" />
+                        </div>
+                        <div id="screenshot-preview" class="hidden mt-2 relative">
+                            <img id="screenshot-img" class="w-full rounded border max-h-40 object-contain" src="" alt="Screenshot preview" />
+                            <button type="button" onclick="clearScreenshot()" class="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center hover:bg-red-600">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <button type="submit" class="w-full bg-animato-primary text-white text-sm font-bold py-2 rounded hover:bg-opacity-90">
+                        <i class="fas fa-paper-plane mr-1"></i> Versturen
+                    </button>
+                </form>
+            </div>
+        </div>
+        <script dangerouslySetInnerHTML={{__html: `
+            let betaScreenshotData = null;
+
+            (async function() {
+                try {
+                    const res = await fetch('/api/system/beta-status');
+                    const data = await res.json();
+                    if (data.enabled) {
+                        const container = document.getElementById('beta-bubble-container');
+                        const btn = document.getElementById('beta-bubble-btn');
+                        const popup = document.getElementById('beta-popup');
+                        const close = document.getElementById('beta-close');
+                        const zone = document.getElementById('screenshot-zone');
+                        const fileInput = document.getElementById('screenshot-file');
+
+                        container.classList.remove('hidden');
+                        btn.onclick = () => popup.classList.toggle('hidden');
+                        close.onclick = () => {
+                            popup.classList.add('hidden');
+                            clearScreenshot();
+                        };
+
+                        // Paste event (Ctrl+V anywhere in popup)
+                        popup.addEventListener('paste', function(e) {
+                            const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                            for (const item of items) {
+                                if (item.type.startsWith('image/')) {
+                                    e.preventDefault();
+                                    const blob = item.getAsFile();
+                                    loadScreenshot(blob);
+                                    break;
+                                }
+                            }
+                        });
+
+                        // Also listen for global paste when popup is open
+                        document.addEventListener('paste', function(e) {
+                            if (popup.classList.contains('hidden')) return;
+                            const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+                            for (const item of items) {
+                                if (item.type.startsWith('image/')) {
+                                    e.preventDefault();
+                                    const blob = item.getAsFile();
+                                    loadScreenshot(blob);
+                                    break;
+                                }
+                            }
+                        });
+
+                        // File input (click to upload)
+                        fileInput.addEventListener('change', function(e) {
+                            const file = e.target.files[0];
+                            if (file) loadScreenshot(file);
+                        });
+
+                        // Drag & drop
+                        zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('border-animato-primary'); });
+                        zone.addEventListener('dragleave', () => zone.classList.remove('border-animato-primary'));
+                        zone.addEventListener('drop', (e) => {
+                            e.preventDefault();
+                            zone.classList.remove('border-animato-primary');
+                            const file = e.dataTransfer.files[0];
+                            if (file && file.type.startsWith('image/')) loadScreenshot(file);
+                        });
+                    }
+                } catch(e) { console.error('Beta status check failed', e); }
+            })();
+
+            function loadScreenshot(blob) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    betaScreenshotData = e.target.result; // base64 data URL
+                    document.getElementById('screenshot-img').src = betaScreenshotData;
+                    document.getElementById('screenshot-preview').classList.remove('hidden');
+                    document.getElementById('screenshot-zone').classList.add('hidden');
+                };
+                reader.readAsDataURL(blob);
+            }
+
+            function clearScreenshot() {
+                betaScreenshotData = null;
+                document.getElementById('screenshot-img').src = '';
+                document.getElementById('screenshot-preview').classList.add('hidden');
+                document.getElementById('screenshot-zone').classList.remove('hidden');
+                document.getElementById('screenshot-file').value = '';
+            }
+
+            async function submitBetaFeedback(e) {
+                e.preventDefault();
+                const form = e.target;
+                const submitBtn = form.querySelector('button[type="submit"]');
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Versturen...';
+
+                const formData = new FormData(form);
+                const data = {
+                    type: formData.get('type'),
+                    message: formData.get('message'),
+                    url: window.location.href,
+                    screenshot: betaScreenshotData || ''
+                };
+
+                try {
+                    const res = await fetch('/api/feedback', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(data)
+                    });
+
+                    if (res.ok) {
+                        submitBtn.innerHTML = '<i class="fas fa-check mr-1"></i> Verzonden!';
+                        setTimeout(() => {
+                            document.getElementById('beta-popup').classList.add('hidden');
+                            form.reset();
+                            clearScreenshot();
+                            submitBtn.disabled = false;
+                            submitBtn.innerHTML = '<i class="fas fa-paper-plane mr-1"></i> Versturen';
+                        }, 1500);
+                    } else {
+                        const err = await res.json();
+                        submitBtn.disabled = false;
+                        submitBtn.innerHTML = '<i class="fas fa-paper-plane mr-1"></i> Versturen';
+                        if(err.error === 'Unauthorized') alert('Je moet ingelogd zijn om feedback te geven.');
+                        else alert('Er ging iets mis: ' + (err.error || 'Onbekende fout'));
+                    }
+                } catch(e) {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-paper-plane mr-1"></i> Versturen';
+                    alert('Verbindingsfout');
+                }
+            }
+        `}} />
       </body>
     </html>
   )

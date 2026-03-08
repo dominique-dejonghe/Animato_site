@@ -575,6 +575,10 @@ app.get('/admin/leden', async (c) => {
                   <i class="fas fa-arrow-left mr-2"></i>
                   Terug
                 </a>
+                <a href="/admin/leden/import" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg transition">
+                  <i class="fas fa-file-import mr-2"></i>
+                  Importeren
+                </a>
                 <a href="/admin/leden/nieuw" class="px-4 py-2 bg-animato-primary text-white hover:bg-animato-secondary rounded-lg transition">
                   <i class="fas fa-user-plus mr-2"></i>
                   Nieuw Lid
@@ -718,6 +722,8 @@ app.get('/admin/leden', async (c) => {
                     <option value="stemleider" selected={role === 'stemleider'}>Stemleider</option>
                     <option value="moderator" selected={role === 'moderator'}>Moderator</option>
                     <option value="admin" selected={role === 'admin'}>Admin</option>
+                    <option value="dirigent" selected={role === 'dirigent'}>Dirigent</option>
+                    <option value="pianist" selected={role === 'pianist'}>Pianist</option>
                   </select>
                 </div>
                 <div>
@@ -802,7 +808,9 @@ app.get('/admin/leden', async (c) => {
                         'moderator': 'Moderator',
                         'stemleider': 'Stemleider',
                         'lid': 'Lid',
-                        'bezoeker': 'Bezoeker'
+                        'bezoeker': 'Bezoeker',
+                        'dirigent': 'Dirigent',
+                        'pianist': 'Pianist'
                       }
                       
                       const stemgroepLabels: Record<string, string> = {
@@ -817,7 +825,9 @@ app.get('/admin/leden', async (c) => {
                         'moderator': 'bg-amber-100 text-amber-800',
                         'stemleider': 'bg-purple-100 text-purple-800',
                         'lid': 'bg-blue-100 text-blue-800',
-                        'bezoeker': 'bg-gray-100 text-gray-800'
+                        'bezoeker': 'bg-gray-100 text-gray-800',
+                        'dirigent': 'bg-pink-100 text-pink-800',
+                        'pianist': 'bg-purple-100 text-purple-800'
                       }
                       
                       const lastLogin = lid.last_login_at 
@@ -970,9 +980,24 @@ app.get('/admin/leden', async (c) => {
           document.getElementById('deleteModal').classList.add('hidden');
         }
 
-        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+        document.getElementById('confirmDeleteBtn').addEventListener('click', async function() {
           if (deleteUrl) {
-            window.location.href = deleteUrl;
+            this.disabled = true;
+            this.innerText = 'Verwijderen...';
+            try {
+              const res = await fetch(deleteUrl, { method: 'POST' });
+              if (res.ok) {
+                closeDeleteModal();
+                window.location.reload();
+              } else {
+                alert('Verwijderen mislukt. Probeer opnieuw.');
+                this.disabled = false;
+                this.innerText = 'Verwijderen';
+              }
+            } catch(e) {
+              // Fallback: navigate directly
+              window.location.href = deleteUrl;
+            }
           }
           closeDeleteModal();
         });
@@ -1097,6 +1122,17 @@ app.get('/admin/leden/nieuw', async (c) => {
                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                     />
                   </div>
+
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                      Geboortedatum
+                    </label>
+                    <input
+                      type="date"
+                      name="geboortedatum"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    />
+                  </div>
                 </div>
 
                 <div class="mt-4">
@@ -1133,6 +1169,8 @@ app.get('/admin/leden/nieuw', async (c) => {
                       <option value="stemleider">Stemleider</option>
                       <option value="moderator">Moderator</option>
                       <option value="admin">Admin</option>
+                      <option value="dirigent">Dirigent</option>
+                      <option value="pianist">Pianist</option>
                     </select>
                   </div>
 
@@ -1149,6 +1187,8 @@ app.get('/admin/leden/nieuw', async (c) => {
                       <option value="A">Alt (A)</option>
                       <option value="T">Tenor (T)</option>
                       <option value="B">Bas (B)</option>
+                      <option value="Dirigent">Dirigent</option>
+                      <option value="Pianist">Pianist</option>
                     </select>
                   </div>
 
@@ -1273,10 +1313,10 @@ app.get('/admin/leden/:id', async (c) => {
   const success = c.req.query('success')
   const error = c.req.query('error')
 
-  // Get member details
+    // Get member details
   const member = await queryOne<any>(
     c.env.DB,
-    `SELECT u.*, p.voornaam, p.achternaam, p.telefoon, p.adres, p.bio, p.muzikale_ervaring
+    `SELECT u.*, p.voornaam, p.achternaam, p.telefoon, p.adres, p.straat, p.huisnummer, p.bus, p.postcode, COALESCE(p.gemeente, p.stad) as gemeente, p.bio, p.muzikale_ervaring, p.geboortedatum
      FROM users u
      LEFT JOIN profiles p ON p.user_id = u.id
      WHERE u.id = ?`,
@@ -1286,6 +1326,8 @@ app.get('/admin/leden/:id', async (c) => {
   if (!member) {
     return c.redirect('/admin/leden?error=not_found')
   }
+
+  const relations = await queryAll(c.env.DB, `SELECT * FROM user_relations WHERE user_id = ? ORDER BY start_date DESC`, [userId])
 
   return c.html(
     <Layout 
@@ -1349,7 +1391,69 @@ app.get('/admin/leden/:id', async (c) => {
             </div>
           )}
 
-          {/* Profile Card */}
+              {/* CRM Relations */}
+              <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <div class="flex items-center justify-between mb-4">
+                  <h3 class="text-xl font-bold text-gray-900">
+                    <i class="fas fa-tags text-animato-secondary mr-2"></i>
+                    Relaties & Rollen
+                  </h3>
+                  <button onclick="document.getElementById('addRelationModal').classList.remove('hidden')" class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded">
+                    + Toevoegen
+                  </button>
+                </div>
+                
+                {relations.length > 0 ? (
+                  <div class="flex flex-wrap gap-2">
+                    {relations.map((rel: any) => (
+                      <div class="inline-flex items-center bg-blue-50 border border-blue-200 rounded-full px-3 py-1 text-sm text-blue-800">
+                        <span class="font-semibold mr-2">{rel.type.charAt(0).toUpperCase() + rel.type.slice(1)}</span>
+                        {rel.notes && <span class="text-xs text-gray-500 mr-2 border-l border-gray-300 pl-2">{rel.notes}</span>}
+                        <form action="/api/admin/leden/relations/delete" method="POST" class="inline" onsubmit="return confirm('Verwijderen?')">
+                          <input type="hidden" name="relation_id" value={rel.id} />
+                          <input type="hidden" name="user_id" value={userId} />
+                          <button type="submit" class="text-blue-400 hover:text-red-500 ml-1">
+                            <i class="fas fa-times"></i>
+                          </button>
+                        </form>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p class="text-gray-500 italic text-sm">Geen relaties gedefinieerd (behalve de hoofdrol).</p>
+                )}
+
+                {/* Add Relation Modal */}
+                <div id="addRelationModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                  <div class="bg-white rounded-lg shadow-xl max-w-sm w-full p-6">
+                    <h3 class="font-bold mb-4">Relatie Toevoegen</h3>
+                    <form action="/api/admin/leden/relations/create" method="POST">
+                      <input type="hidden" name="user_id" value={userId} />
+                      <div class="mb-3">
+                        <label class="block text-sm font-medium mb-1">Type</label>
+                        <select name="type" class="w-full border rounded p-2">
+                          <option value="lid">Lid</option>
+                          <option value="sympathisant">Sympathisant</option>
+                          <option value="vrijwilliger">Vrijwilliger</option>
+                          <option value="sponsor">Sponsor</option>
+                          <option value="oud_lid">Oud-lid</option>
+                          <option value="erelid">Erelid</option>
+                        </select>
+                      </div>
+                      <div class="mb-3">
+                        <label class="block text-sm font-medium mb-1">Notitie</label>
+                        <input type="text" name="notes" class="w-full border rounded p-2" placeholder="bv. bardienst" />
+                      </div>
+                      <div class="flex justify-end gap-2">
+                        <button type="button" onclick="document.getElementById('addRelationModal').classList.add('hidden')" class="px-3 py-1 border rounded">Annuleren</button>
+                        <button type="submit" class="px-3 py-1 bg-animato-primary text-white rounded">Opslaan</button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              </div>
+
+              {/* Profile Card */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <div class="flex items-center mb-6 pb-6 border-b border-gray-200">
               <div class="w-20 h-20 bg-gradient-to-br from-animato-primary to-animato-secondary rounded-full flex items-center justify-center text-white text-2xl font-bold">
@@ -1439,15 +1543,43 @@ app.get('/admin/leden/:id', async (c) => {
                 </div>
 
                 <div class="mt-4">
+                  <h4 class="text-sm font-medium text-gray-700 mb-2">Adres</h4>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="block text-xs text-gray-500 mb-1">Straat</label>
+                      <input type="text" name="straat" value={member.straat || ''} placeholder="Koorstraat" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Nr</label>
+                            <input type="text" name="huisnummer" value={member.huisnummer || ''} placeholder="1" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Bus</label>
+                            <input type="text" name="bus" value={member.bus || ''} placeholder="A" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+                        </div>
+                    </div>
+                    <div>
+                      <label class="block text-xs text-gray-500 mb-1">Postcode</label>
+                      <input type="text" name="postcode" value={member.postcode || ''} placeholder="1000" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+                    </div>
+                    <div>
+                      <label class="block text-xs text-gray-500 mb-1">Gemeente</label>
+                      <input type="text" name="gemeente" value={member.gemeente || ''} placeholder="Brussel" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+                    </div>
+                  </div>
+                </div>
+
+                <div>
                   <label class="block text-sm font-medium text-gray-700 mb-1">
-                    Adres
+                    Geboortedatum
                   </label>
-                  <textarea
-                    name="adres"
-                    rows={2}
-                    placeholder="Straat 123, 1000 Brussel"
+                  <input
+                    type="date"
+                    name="geboortedatum"
+                    value={member.geboortedatum || ''}
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                  >{member.adres || ''}</textarea>
+                  />
                 </div>
               </div>
 
@@ -1472,6 +1604,8 @@ app.get('/admin/leden/:id', async (c) => {
                       <option value="stemleider" selected={member.role === 'stemleider'}>Stemleider</option>
                       <option value="moderator" selected={member.role === 'moderator'}>Moderator</option>
                       <option value="admin" selected={member.role === 'admin'}>Admin</option>
+                      <option value="dirigent" selected={member.role === 'dirigent'}>Dirigent</option>
+                      <option value="pianist" selected={member.role === 'pianist'}>Pianist</option>
                     </select>
                   </div>
 
@@ -1488,6 +1622,8 @@ app.get('/admin/leden/:id', async (c) => {
                       <option value="A" selected={member.stemgroep === 'A'}>Alt (A)</option>
                       <option value="T" selected={member.stemgroep === 'T'}>Tenor (T)</option>
                       <option value="B" selected={member.stemgroep === 'B'}>Bas (B)</option>
+                      <option value="Dirigent" selected={member.stemgroep === 'Dirigent'}>Dirigent</option>
+                      <option value="Pianist" selected={member.stemgroep === 'Pianist'}>Pianist</option>
                     </select>
                   </div>
 
@@ -1619,15 +1755,46 @@ app.get('/admin/leden/:id', async (c) => {
           document.getElementById('deleteModal').classList.add('hidden');
         }
 
-        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+        document.getElementById('confirmDeleteBtn').addEventListener('click', async function() {
           if (deleteUrl) {
-            window.location.href = deleteUrl;
+            this.disabled = true;
+            this.innerText = 'Verwijderen...';
+            try {
+              const res = await fetch(deleteUrl, { method: 'POST' });
+              if (res.ok) {
+                closeDeleteModal();
+                window.location.reload();
+              } else {
+                alert('Verwijderen mislukt. Probeer opnieuw.');
+                this.disabled = false;
+                this.innerText = 'Verwijderen';
+              }
+            } catch(e) {
+              // Fallback: navigate directly
+              window.location.href = deleteUrl;
+            }
           }
           closeDeleteModal();
         });
       ` }} />
     </Layout>
   )
+})
+
+// =====================================================
+// RELATIONS API
+// =====================================================
+
+app.post('/api/admin/leden/relations/create', async (c) => {
+  const body = await c.req.parseBody()
+  await execute(c.env.DB, `INSERT INTO user_relations (user_id, type, notes) VALUES (?, ?, ?)`, [body.user_id, body.type, body.notes])
+  return c.redirect(`/admin/leden/${body.user_id}`)
+})
+
+app.post('/api/admin/leden/relations/delete', async (c) => {
+  const body = await c.req.parseBody()
+  await execute(c.env.DB, `DELETE FROM user_relations WHERE id = ?`, [body.relation_id])
+  return c.redirect(`/admin/leden/${body.user_id}`)
 })
 
 // =====================================================
@@ -1651,7 +1818,13 @@ app.post('/api/admin/leden/create', async (c) => {
       password,
       password_confirm,
       bio,
-      muzikale_ervaring
+      muzikale_ervaring,
+      geboortedatum,
+      straat,
+      huisnummer,
+      bus,
+      postcode,
+      gemeente
     } = body
 
     // Validation
@@ -1690,9 +1863,9 @@ app.post('/api/admin/leden/create', async (c) => {
 
     // Insert profile
     await c.env.DB.prepare(
-      `INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, adres, bio, muzikale_ervaring)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).bind(newUserId, voornaam, achternaam, telefoon || null, adres || null, bio || null, muzikale_ervaring || null).run()
+      `INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, adres, straat, huisnummer, bus, postcode, gemeente, stad, bio, muzikale_ervaring, geboortedatum)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(newUserId, voornaam, achternaam, telefoon || null, adres || null, straat || null, huisnummer || null, bus || null, postcode || null, gemeente || null, gemeente || null, bio || null, muzikale_ervaring || null, geboortedatum || null).run()
 
     // Audit log
     await c.env.DB.prepare(
@@ -1731,7 +1904,13 @@ app.post('/api/admin/leden/update', async (c) => {
       stemgroep,
       status,
       bio,
-      muzikale_ervaring
+      muzikale_ervaring,
+      geboortedatum,
+      straat,
+      huisnummer,
+      bus,
+      postcode,
+      gemeente
     } = body
 
     // Validation
@@ -1749,9 +1928,9 @@ app.post('/api/admin/leden/update', async (c) => {
     // Update profile table
     await c.env.DB.prepare(
       `UPDATE profiles 
-       SET voornaam = ?, achternaam = ?, telefoon = ?, adres = ?, bio = ?, muzikale_ervaring = ?
+       SET voornaam = ?, achternaam = ?, telefoon = ?, straat = ?, huisnummer = ?, bus = ?, postcode = ?, gemeente = ?, stad = ?, bio = ?, muzikale_ervaring = ?, geboortedatum = ?
        WHERE user_id = ?`
-    ).bind(voornaam, achternaam, telefoon || null, adres || null, bio || null, muzikale_ervaring || null, user_id).run()
+    ).bind(voornaam, achternaam, telefoon || null, straat || null, huisnummer || null, bus || null, postcode || null, gemeente || null, gemeente || null, bio || null, muzikale_ervaring || null, geboortedatum || null, user_id).run()
 
     // Audit log
     await c.env.DB.prepare(
@@ -1821,16 +2000,59 @@ app.get('/api/admin/leden/:id/delete', async (c) => {
        VALUES (?, 'user_delete', 'user', ?, ?)`
     ).bind(user.id, userId, JSON.stringify({ deleted_by: 'admin' })).run()
 
-    // Delete profile first (foreign key)
+    // Delete all related data first
+    await c.env.DB.prepare('DELETE FROM user_sessions WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM user_memberships WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM event_attendance WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM poll_votes WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM notifications WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM user_relations WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM member_favorites WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM walkthrough_progress WHERE user_id = ?').bind(userId).run()
     await c.env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(userId).run()
 
-    // Delete user
+    // Finally delete user
     await c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run()
 
     return c.redirect('/admin/leden?success=deleted')
   } catch (error) {
     console.error('Member delete error:', error)
     return c.redirect('/admin/leden?error=delete_failed')
+  }
+})
+
+// DELETE via POST/JSON (for fetch-based delete from UI)
+app.post('/api/admin/leden/:id/delete', async (c) => {
+  const user = c.get('user') as SessionUser
+  const userId = c.req.param('id')
+
+  try {
+    if (userId === user.id.toString()) {
+      return c.json({ success: false, error: 'cannot_delete_self' }, 400)
+    }
+
+    await c.env.DB.prepare(
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
+       VALUES (?, 'user_delete', 'user', ?, ?)`
+    ).bind(user.id, userId, JSON.stringify({ deleted_by: 'admin' })).run()
+
+    await c.env.DB.prepare('DELETE FROM user_sessions WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM user_memberships WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM event_attendance WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM poll_votes WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM notifications WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM user_relations WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM member_favorites WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM walkthrough_progress WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(userId).run()
+    await c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run()
+
+    return c.json({ success: true })
+  } catch (error) {
+    console.error('Member delete error:', error)
+    return c.json({ success: false, error: 'delete_failed' }, 500)
   }
 })
 
@@ -2279,9 +2501,24 @@ app.get('/admin/content', async (c) => {
           document.getElementById('deleteModal').classList.add('hidden');
         }
 
-        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+        document.getElementById('confirmDeleteBtn').addEventListener('click', async function() {
           if (deleteUrl) {
-            window.location.href = deleteUrl;
+            this.disabled = true;
+            this.innerText = 'Verwijderen...';
+            try {
+              const res = await fetch(deleteUrl, { method: 'POST' });
+              if (res.ok) {
+                closeDeleteModal();
+                window.location.reload();
+              } else {
+                alert('Verwijderen mislukt. Probeer opnieuw.');
+                this.disabled = false;
+                this.innerText = 'Verwijderen';
+              }
+            } catch(e) {
+              // Fallback: navigate directly
+              window.location.href = deleteUrl;
+            }
           }
           closeDeleteModal();
         });
@@ -2777,9 +3014,24 @@ app.get('/admin/content/:id', async (c) => {
           document.getElementById('deleteModal').classList.add('hidden');
         }
 
-        document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+        document.getElementById('confirmDeleteBtn').addEventListener('click', async function() {
           if (deleteUrl) {
-            window.location.href = deleteUrl;
+            this.disabled = true;
+            this.innerText = 'Verwijderen...';
+            try {
+              const res = await fetch(deleteUrl, { method: 'POST' });
+              if (res.ok) {
+                closeDeleteModal();
+                window.location.reload();
+              } else {
+                alert('Verwijderen mislukt. Probeer opnieuw.');
+                this.disabled = false;
+                this.innerText = 'Verwijderen';
+              }
+            } catch(e) {
+              // Fallback: navigate directly
+              window.location.href = deleteUrl;
+            }
           }
           closeDeleteModal();
         });

@@ -37,11 +37,14 @@ import adminFinanceRoutes from './routes/admin-finance'
 import adminPrintsRoutes from './routes/admin-prints'
 import adminSeatingRoutes from './routes/admin-seating'
 import ledenActivityRoutes from './routes/leden-activity'
-import adminKaraokeRoutes from './routes/admin-karaoke'
-import karaokeLedenRoutes from './routes/karaoke-leden'
+import adminCommunicationsRoutes from './routes/admin-communications' // Imported
+import feedbackRoutes from './routes/feedback'
+import adminFeedbackRoutes from './routes/admin-feedback'
+import adminLedenImportRoutes from './routes/admin-leden-import'
 import adminModulesRoutes from './routes/admin-modules'
 import adminWalkthroughRoutes from './routes/admin-walkthrough'
 import walkthroughApiRoutes from './routes/walkthrough-api'
+import publicDonationRoutes from './routes/public-donation'
 
 // =====================================================
 // APP INITIALIZATION
@@ -73,6 +76,7 @@ app.use('/static/*', serveStatic({ root: './' }))
 
 // Public routes (homepage, nieuws, contact, etc.)
 app.route('/', publicRoutes)
+app.route('/', publicDonationRoutes)
 
 // Auth routes (login, register, logout)
 app.route('/', authRoutes)
@@ -85,6 +89,9 @@ app.route('/', agendaRoutes)
 
 // Voice Analyzer (MUST be before leden - no auth required)
 app.route('/', voiceAnalyzerRoutes)
+
+// Feedback routes (MUST be before auth-protected routes - beta-status is public)
+app.route('/', feedbackRoutes)
 
 // Leden portal routes
 app.route('/', ledenRoutes)
@@ -111,8 +118,9 @@ app.route('/', adminModulesRoutes)
 app.route('/', adminWalkthroughRoutes)
 app.route('/', walkthroughApiRoutes)
 app.route('/', ledenActivityRoutes)
-app.route('/', adminKaraokeRoutes)
-app.route('/', karaokeLedenRoutes)
+app.route('/', adminCommunicationsRoutes) // Added route
+app.route('/', adminFeedbackRoutes)
+app.route('/', adminLedenImportRoutes)
 
 // Tickets & Webhooks
 app.route('/', ticketsRoutes)

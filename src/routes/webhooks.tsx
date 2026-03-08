@@ -25,6 +25,34 @@ app.post('/api/webhooks/mollie', async (c) => {
     // 2. Check metadata to route properly
     const type = molliePayment.metadata?.type
 
+    // === DONATION FLOW ===
+    if (type === 'donation') {
+      const donationId = molliePayment.metadata.donation_id
+      const status = molliePayment.status
+      const newStatus = status === 'paid' ? 'paid' : status === 'open' ? 'pending' : 'cancelled'
+
+      await execute(c.env.DB, `
+        UPDATE donations 
+        SET status = ? 
+        WHERE id = ?
+      `, [newStatus, donationId])
+
+      if (newStatus === 'paid') {
+        // Optional: Send thank you email
+        const user = molliePayment.metadata.user_id ? await queryOne(c.env.DB, "SELECT email, voornaam FROM users JOIN profiles ON users.id=profiles.user_id WHERE users.id=?", [molliePayment.metadata.user_id]) : null;
+        
+        if (user) {
+            await sendEmail({
+                to: user.email,
+                subject: 'Bedankt voor je donatie aan Animato!',
+                html: `<h1>Bedankt ${user.voornaam}!</h1><p>We hebben je donatie van €${molliePayment.amount.value} goed ontvangen.</p><p>Met muzikale groet,<br>Het Bestuur</p>`
+            }, c.env.RESEND_API_KEY);
+        }
+      }
+
+      return c.json({ success: true, type: 'donation', status: newStatus })
+    }
+
     if (type === 'activity') {
       // === ACTIVITY REGISTRATION FLOW ===
       const userId = molliePayment.metadata.user_id
@@ -40,11 +68,6 @@ app.post('/api/webhooks/mollie', async (c) => {
         SET status = ? 
         WHERE activity_id = ? AND user_id = ?
       `, [newStatus, activityId, userId])
-
-      // If paid, maybe send confirmation email? (Optional for now)
-      if (newStatus === 'paid') {
-        // ... send email logic ...
-      }
 
       return c.json({ success: true, type: 'activity', status: newStatus })
     }
@@ -62,6 +85,47 @@ app.post('/api/webhooks/mollie', async (c) => {
       `, [newStatus, newStatus, membershipId])
 
       return c.json({ success: true, type: 'membership', status: newStatus })
+    }
+
+    if (type === 'membership_donation') {
+      // === MEMBERSHIP + DONATION FLOW ===
+      const membershipId = molliePayment.metadata.membership_id
+      const donationId = molliePayment.metadata.donation_id
+      const status = molliePayment.status
+      const newStatus = status === 'paid' ? 'paid' : status === 'open' ? 'pending' : 'cancelled'
+
+      // Update Membership
+      await execute(c.env.DB, `
+        UPDATE user_memberships
+        SET status = ?, paid_at = CASE WHEN ? = 'paid' THEN CURRENT_TIMESTAMP ELSE paid_at END
+        WHERE id = ?
+      `, [newStatus, newStatus, membershipId])
+
+      // Update Donation
+      if (donationId) {
+        await execute(c.env.DB, `
+          UPDATE donations 
+          SET status = ? 
+          WHERE id = ?
+        `, [newStatus, donationId])
+      }
+
+      // Send combined email if paid
+      if (newStatus === 'paid') {
+         const user = molliePayment.metadata.user_id ? await queryOne(c.env.DB, "SELECT email, voornaam FROM users JOIN profiles ON users.id=profiles.user_id WHERE users.id=?", [molliePayment.metadata.user_id]) : null;
+         if (user) {
+            await sendEmail({
+                to: user.email,
+                subject: 'Bedankt voor je lidmaatschap en gift!',
+                html: `<h1>Bedankt ${user.voornaam}!</h1>
+                       <p>We hebben je betaling van €${molliePayment.amount.value} goed ontvangen.</p>
+                       <p>Je lidmaatschap is nu actief en bedankt voor je extra steun!</p>
+                       <p>Met muzikale groet,<br>Het Bestuur</p>`
+            }, c.env.RESEND_API_KEY);
+         }
+      }
+
+      return c.json({ success: true, type: 'membership_donation', status: newStatus })
     }
 
     // === TICKET FLOW (Default fallback) ===

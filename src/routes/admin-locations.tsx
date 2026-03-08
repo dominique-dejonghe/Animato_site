@@ -14,6 +14,35 @@ app.use('*', requireAuth)
 app.use('*', requireRole('admin', 'moderator'))
 
 // =====================================================
+// HELPER: BUILD MAP EMBED URL (no API key needed)
+// =====================================================
+
+function buildMapEmbedUrl(loc: any): string {
+  // Priority 1: if they saved a proper Google embed URL directly
+  if (loc.google_maps_embed && loc.google_maps_embed.includes('/embed')) {
+    return loc.google_maps_embed
+  }
+  // Priority 2: extract lat/lng from google_maps_url and use OSM embed
+  if (loc.google_maps_url) {
+    const atMatch  = loc.google_maps_url.match(/@([-\d.]+),([-\d.]+)/)
+    const qMatch   = loc.google_maps_url.match(/[?&]q=([-\d.]+),([-\d.]+)/)
+    const match    = atMatch || qMatch
+    if (match) {
+      const lat = parseFloat(match[1]), lng = parseFloat(match[2])
+      const delta = 0.003
+      return `https://www.openstreetmap.org/export/embed.html?bbox=${lng-delta}%2C${lat-delta}%2C${lng+delta}%2C${lat+delta}&layer=mapnik&marker=${lat}%2C${lng}`
+    }
+  }
+  // Priority 3: build from address fields via OSM search embed
+  const parts = [loc.adres, loc.postcode, loc.stad, loc.land].filter(Boolean)
+  if (parts.length >= 2) {
+    const q = encodeURIComponent(parts.join(', '))
+    return `https://www.openstreetmap.org/export/embed.html?query=${q}&layer=mapnik`
+  }
+  return ''
+}
+
+// =====================================================
 // LOCATIONS OVERVIEW
 // =====================================================
 
@@ -144,23 +173,36 @@ app.get('/admin/locations', async (c) => {
             ) : (
               locations.map((loc: any) => (
                 <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition">
-                  {/* Map Preview */}
-                  {loc.google_maps_embed ? (
-                    <div class="h-48 bg-gray-200">
-                      <iframe
-                        src={loc.google_maps_embed}
-                        width="100%"
-                        height="100%"
-                        style="border:0;"
-                        loading="lazy"
-                        referrerpolicy="no-referrer-when-downgrade"
-                      ></iframe>
-                    </div>
-                  ) : (
-                    <div class="h-48 bg-gradient-to-br from-red-100 to-red-200 flex items-center justify-center">
-                      <i class="fas fa-map-marker-alt text-6xl text-red-400"></i>
-                    </div>
-                  )}
+                  {/* Map Preview – always show OSM embed when address is known */}
+                  {(() => {
+                    const mapUrl = buildMapEmbedUrl(loc)
+                    return mapUrl ? (
+                      <div class="relative h-48 bg-gray-200 overflow-hidden">
+                        <iframe
+                          src={mapUrl}
+                          width="100%"
+                          height="100%"
+                          style="border:0;display:block;"
+                          loading="lazy"
+                          referrerpolicy="no-referrer-when-downgrade"
+                          title={`Kaart van ${loc.naam}`}
+                        ></iframe>
+                        {/* Clickable overlay so the card link still works */}
+                        <a
+                          href={loc.google_maps_url || `https://www.openstreetmap.org/search?query=${encodeURIComponent([loc.adres,loc.postcode,loc.stad].filter(Boolean).join(', '))}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="absolute inset-0"
+                          title="Bekijk op kaart"
+                        ></a>
+                      </div>
+                    ) : (
+                      <div class="h-48 bg-gradient-to-br from-gray-100 to-gray-200 flex flex-col items-center justify-center gap-2">
+                        <i class="fas fa-map-marker-alt text-4xl text-gray-400"></i>
+                        <span class="text-xs text-gray-400">Geen adres beschikbaar</span>
+                      </div>
+                    )
+                  })()}
 
                   {/* Content */}
                   <div class="p-6">

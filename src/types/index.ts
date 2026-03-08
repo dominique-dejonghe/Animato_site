@@ -18,6 +18,8 @@ export type Bindings = {
   STRIPE_WEBHOOK_SECRET: string
   SITE_URL: string
   ADMIN_EMAIL: string
+  GOOGLE_CLIENT_ID: string
+  GOOGLE_CLIENT_SECRET: string
 }
 
 // =====================================================

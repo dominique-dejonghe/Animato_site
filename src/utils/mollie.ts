@@ -9,13 +9,27 @@ interface PaymentData {
   metadata: any
 }
 
+// In-memory store for mock payments (works in persistent Node process)
+const mockPayments = new Map<string, any>();
+
 export async function createMolliePayment(apiKey: string, data: PaymentData) {
-  if (!apiKey) {
-    console.warn('Mollie API Key missing. Simulating payment.')
+  if (!apiKey || apiKey === 'mock') {
+    console.warn('Mollie API Key missing or mock. Simulating payment.')
+    const id = 'tr_MOCK_' + Math.random().toString(36).substr(2, 9)
+    
+    // Store metadata for retrieval
+    mockPayments.set(id, {
+        id,
+        status: 'paid', // Auto-set to paid for convenience in dev
+        amount: { value: data.amount.toFixed(2), currency: 'EUR' },
+        metadata: data.metadata,
+        createdAt: new Date().toISOString()
+    })
+
     return {
-      id: 'tr_TEST_' + Math.random().toString(36).substr(2, 9),
+      id,
       status: 'open',
-      checkoutUrl: data.redirectUrl + '?payment=simulated_success' // Auto-redirect for testing
+      checkoutUrl: data.redirectUrl + '?payment_id=' + id // Pass ID for tracking
     }
   }
 
@@ -31,10 +45,15 @@ export async function createMolliePayment(apiKey: string, data: PaymentData) {
 
 export async function getMolliePayment(apiKey: string, paymentId: string) {
   if (!apiKey || paymentId.startsWith('tr_MOCK_')) {
-    // Mock response
+    // Return stored mock payment if available
+    if (mockPayments.has(paymentId)) {
+        return mockPayments.get(paymentId);
+    }
+    
+    // Fallback for untracked mocks
     return {
       id: paymentId,
-      status: 'paid', // Always return paid for mock for now
+      status: 'paid', 
       amount: { value: '10.00', currency: 'EUR' }
     }
   }

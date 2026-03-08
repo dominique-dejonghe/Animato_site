@@ -36,10 +36,10 @@ app.get('/agenda', async (c) => {
   let query = `
     SELECT e.id, e.type, e.titel, e.slug, e.start_at, e.end_at, e.locatie, e.doelgroep, e.location_id
     FROM events e
-    WHERE e.is_publiek = 1
+    WHERE (e.is_publiek = 1 OR (e.is_publiek = 0 AND ? IS NOT NULL))
   `
 
-  const filters: any[] = []
+  const filters: any[] = [user ? user.id : null]
 
   if (view === 'list') {
     // List view: only show upcoming events

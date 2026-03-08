@@ -163,6 +163,7 @@ app.get('/admin/events', async (c) => {
                   <option value="all" selected={type === 'all'}>Alle Types</option>
                   <option value="repetitie" selected={type === 'repetitie'}>Repetitie</option>
                   <option value="concert" selected={type === 'concert'}>Concert</option>
+                  <option value="activiteit" selected={type === 'activiteit'}>Activiteit / Jaarfeest</option>
                   <option value="ander" selected={type === 'ander'}>Ander</option>
                 </select>
               </div>
@@ -323,10 +324,12 @@ app.get('/admin/events', async (c) => {
                           <span class={`px-2 py-1 text-xs font-semibold rounded-full ${
                             event.type === 'repetitie' ? 'bg-blue-100 text-blue-800' :
                             event.type === 'concert' ? 'bg-purple-100 text-purple-800' :
+                            event.type === 'activiteit' ? 'bg-orange-100 text-orange-800' :
                             'bg-gray-100 text-gray-800'
                           }`}>
                             {event.type === 'repetitie' ? 'Repetitie' :
-                             event.type === 'concert' ? 'Concert' : 'Ander'}
+                             event.type === 'concert' ? 'Concert' :
+                             event.type === 'activiteit' ? '🎉 Activiteit' : 'Ander'}
                           </span>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -355,7 +358,7 @@ app.get('/admin/events', async (c) => {
                         <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <div class="flex items-center justify-end gap-2">
                             <a
-                              href={event.type === 'activiteit' ? `/admin/activities/${event.id}/edit` : `/admin/events/${event.id}`}
+                              href={event.type === 'activiteit' ? `/admin/events/${event.id}` : `/admin/events/${event.id}`}
                               class="text-animato-primary hover:text-animato-secondary"
                               title="Bewerken"
                             >
@@ -429,6 +432,12 @@ app.get('/admin/events', async (c) => {
               <div class="text-sm text-gray-600">Terugkerend</div>
               <div class="text-2xl font-bold text-green-600">
                 {events.filter((e: any) => e.is_recurring).length}
+              </div>
+            </div>
+            <div class="bg-white p-4 rounded-lg shadow">
+              <div class="text-sm text-gray-600">Activiteiten</div>
+              <div class="text-2xl font-bold text-orange-600">
+                {events.filter((e: any) => e.type === 'activiteit').length}
               </div>
             </div>
           </div>
@@ -669,6 +678,7 @@ app.get('/admin/events', async (c) => {
 
 app.get('/admin/events/nieuw', async (c) => {
   const user = c.get('user') as SessionUser
+  const preselectedType = c.req.query('type') || null
   
   // Get all active locations
   const locations = await queryAll(
@@ -692,7 +702,7 @@ app.get('/admin/events/nieuw', async (c) => {
       <div class="flex min-h-screen bg-gray-50">
         <AdminSidebar activeSection="events" />
         <div class="flex-1 min-w-0">
-          {renderEventForm(null, locations)}
+          {renderEventForm(null, locations, null, preselectedType)}
         </div>
       </div>
     </Layout>
@@ -703,13 +713,15 @@ app.get('/admin/events/:id', async (c) => {
   const user = c.get('user') as SessionUser
   const id = c.req.param('id')
 
-  // Get activity ID if type is 'activiteit'
-  let activityId = null
-  if (event.type === 'activiteit') {
-    const activity = await queryOne<any>(c.env.DB, "SELECT id FROM activities WHERE event_id = ?", [event.id])
-    if (activity) {
-      return c.redirect(`/admin/activities/${activity.id}/edit`)
-    }
+  // Laad het event uit de database
+  const event = await queryOne<any>(
+    c.env.DB,
+    `SELECT * FROM events WHERE id = ?`,
+    [id]
+  )
+
+  if (!event) {
+    return c.json({ error: 'Event niet gevonden', id }, 404)
   }
 
   // Get all active locations
@@ -717,6 +729,11 @@ app.get('/admin/events/:id', async (c) => {
     c.env.DB,
     `SELECT * FROM locations WHERE is_actief = 1 ORDER BY naam ASC`
   )
+
+  // Load activity details if type = activiteit
+  const activity = event.type === 'activiteit'
+    ? await queryOne<any>(c.env.DB, `SELECT * FROM activities WHERE event_id = ?`, [id])
+    : null
 
   // Disable caching for admin pages
   noCacheHeaders(c)
@@ -734,7 +751,7 @@ app.get('/admin/events/:id', async (c) => {
       <div class="flex min-h-screen bg-gray-50">
         <AdminSidebar activeSection="events" />
         <div class="flex-1 min-w-0">
-          {renderEventForm(event, locations)}
+          {renderEventForm(event, locations, activity)}
         </div>
       </div>
       {/* Delete Confirmation Modal */}
@@ -830,7 +847,10 @@ app.post('/admin/events/save', async (c) => {
     start_at, end_at, max_deelnemers, aanmelden_verplicht, doelgroep,
     zichtbaar_publiek, toon_op_homepage,
     is_recurring, recurrence_frequency, recurrence_interval,
-    recurrence_end_date, recurrence_count, recurrence_days
+    recurrence_end_date, recurrence_count, recurrence_days,
+    // Activity fields (only used when type === 'activiteit')
+    act_price_member, act_price_guest, act_deadline, act_max_guests,
+    act_intro_text, act_payment_instruction
   } = body
 
   try {
@@ -969,6 +989,43 @@ app.post('/admin/events/save', async (c) => {
       }
     }
 
+    // If type is activiteit, upsert activities record
+    if (type === 'activiteit') {
+      const eventId = id || (await queryOne<any>(c.env.DB, 
+        `SELECT id FROM events WHERE slug = ? ORDER BY id DESC LIMIT 1`, [String(titel).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')]
+      ))?.id
+      if (eventId) {
+        const existingActivity = await queryOne<any>(c.env.DB, `SELECT id FROM activities WHERE event_id = ?`, [eventId])
+        if (existingActivity) {
+          await execute(c.env.DB,
+            `UPDATE activities SET price_member=?, price_guest=?, deadline=?, max_guests=?, intro_text=?, payment_instruction=? WHERE event_id=?`,
+            [
+              parseFloat(String(act_price_member)) || 0,
+              parseFloat(String(act_price_guest)) || 0,
+              act_deadline || null,
+              parseInt(String(act_max_guests)) || 1,
+              act_intro_text || null,
+              act_payment_instruction || null,
+              eventId
+            ]
+          )
+        } else {
+          await execute(c.env.DB,
+            `INSERT INTO activities (event_id, price_member, price_guest, deadline, max_guests, intro_text, payment_instruction, is_active) VALUES (?,?,?,?,?,?,?,1)`,
+            [
+              eventId,
+              parseFloat(String(act_price_member)) || 0,
+              parseFloat(String(act_price_guest)) || 0,
+              act_deadline || null,
+              parseInt(String(act_max_guests)) || 1,
+              act_intro_text || null,
+              act_payment_instruction || null
+            ]
+          )
+        }
+      }
+    }
+
     return c.redirect('/admin/events')
   } catch (error: any) {
     console.error('Error saving event:', error)
@@ -1059,10 +1116,11 @@ app.post('/admin/events/:id/delete', async (c) => {
 // HELPER: RENDER EVENT FORM
 // =====================================================
 
-function renderEventForm(event: any | null, locations: any[]) {
+function renderEventForm(event: any | null, locations: any[], activity: any | null = null, preselectedType: string | null = null) {
   const isEdit = !!event
   const recurrenceRule: RecurrenceRule | null = event?.recurrence_rule ? 
     JSON.parse(event.recurrence_rule) : null
+  const deadline = activity?.deadline ? new Date(activity.deadline).toISOString().split('T')[0] : ''
 
   return (
     <div class="bg-gray-50 min-h-screen">
@@ -1089,9 +1147,17 @@ function renderEventForm(event: any | null, locations: any[]) {
                   required
                   class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary"
                 >
-                  <option value="repetitie" selected={event?.type === 'repetitie'}>Repetitie</option>
-                  <option value="concert" selected={event?.type === 'concert'}>Concert</option>
-                  <option value="ander" selected={event?.type === 'ander'}>Ander</option>
+                  {(() => {
+                    const activeType = event?.type || preselectedType || 'repetitie'
+                    return (
+                      <>
+                        <option value="repetitie" selected={activeType === 'repetitie'}>Repetitie</option>
+                        <option value="concert" selected={activeType === 'concert'}>Concert</option>
+                        <option value="activiteit" selected={activeType === 'activiteit'}>Activiteit / Jaarfeest</option>
+                        <option value="ander" selected={activeType === 'ander'}>Ander</option>
+                      </>
+                    )
+                  })()}
                 </select>
               </div>
 
@@ -1581,6 +1647,59 @@ function renderEventForm(event: any | null, locations: any[]) {
               </div>
             </div>
 
+            {/* ── Activiteit / Jaarfeest Details ─────────────── */}
+            <div id="activity-section" style={`display:${(event?.type === 'activiteit' || preselectedType === 'activiteit') ? 'block' : 'none'}`}>
+              <div class="mb-8 mt-2">
+                <h2 class="text-xl font-bold text-gray-900 mb-4 pb-2 border-b">
+                  <i class="fas fa-glass-cheers text-orange-500 mr-2"></i>
+                  Inschrijfdetails Activiteit
+                </h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Prijs per Lid (€)</label>
+                    <input type="number" step="0.01" name="act_price_member"
+                      value={activity?.price_member ?? '0.00'}
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Prijs per Gast (€)</label>
+                    <input type="number" step="0.01" name="act_price_guest"
+                      value={activity?.price_guest ?? '0.00'}
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Deadline Inschrijven</label>
+                    <input type="date" name="act_deadline" value={deadline}
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Max. gasten per lid</label>
+                    <select name="act_max_guests" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary">
+                      <option value="0" selected={activity?.max_guests === 0}>Geen gasten (alleen leden)</option>
+                      <option value="1" selected={!activity || activity.max_guests === 1}>1 Partner / Gast</option>
+                      <option value="2" selected={activity?.max_guests === 2}>Max. 2 gasten</option>
+                      <option value="99" selected={activity?.max_guests > 2}>Onbeperkt</option>
+                    </select>
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Uitnodigingstekst (voor e-mail & pagina)</label>
+                    <textarea name="act_intro_text" rows={4}
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary"
+                      placeholder="Beste leden, we nodigen jullie graag uit..."
+                    >{activity?.intro_text || ''}</textarea>
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Betaalinstructies</label>
+                    <textarea name="act_payment_instruction" rows={3}
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary"
+                      placeholder="bv. Overschrijven op BE12… met mededeling 'Naam + Jaarfeest'"
+                    >{activity?.payment_instruction || ''}</textarea>
+                    <p class="text-xs text-gray-500 mt-1">Wordt getoond na inschrijving als er betaald moet worden.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Submit Buttons */}
             <div class="flex items-center justify-between pt-6 border-t">
               <div class="flex items-center gap-3">
@@ -1771,6 +1890,20 @@ function renderEventForm(event: any | null, locations: any[]) {
             if (hiddenInput && hiddenInput.value) {
               img.src = hiddenInput.value;
               preview.classList.remove('hidden');
+            }
+
+            // Toggle activity section based on event type
+            function updateActivitySection() {
+              const typeSelect = document.querySelector('select[name="type"]');
+              const actSection = document.getElementById('activity-section');
+              if (typeSelect && actSection) {
+                actSection.style.display = typeSelect.value === 'activiteit' ? 'block' : 'none';
+              }
+            }
+            const typeSelect = document.querySelector('select[name="type"]');
+            if (typeSelect) {
+              typeSelect.addEventListener('change', updateActivitySection);
+              updateActivitySection();
             }
           });
 

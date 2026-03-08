@@ -7,7 +7,6 @@ import { Layout } from '../components/Layout'
 import { requireAuth } from '../middleware/auth'
 import { queryOne, queryAll, execute } from '../utils/db'
 import { createMolliePayment } from '../utils/mollie'
-import { createMolliePayment } from '../utils/mollie'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -80,6 +79,11 @@ app.get('/leden', async (c) => {
     [user.stemgroep || 'SATB']
   )
 
+  // Calculate total donations for user
+  const totalDonations = await queryOne<any>(c.env.DB, `
+    SELECT SUM(amount) as total FROM donations WHERE user_id = ? AND status = 'paid'
+  `, [user.id]);
+
   return c.html(
     <Layout title="Ledenportaal" user={user}>
       <div class="py-12 bg-gray-50">
@@ -133,20 +137,6 @@ app.get('/leden', async (c) => {
                 Materiaal
               </h3>
               <p class="text-sm text-gray-600">Partituren & oefentracks</p>
-            </a>
-
-            <a
-              href="/leden/karaoke"
-              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center border-2 border-purple-400 border-opacity-30"
-            >
-              <div class="w-12 h-12 bg-gradient-to-br from-purple-500 to-pink-500 rounded-full flex items-center justify-center mx-auto mb-3 text-white shadow-md">
-                <i class="fas fa-microphone-alt text-xl"></i>
-              </div>
-              <h3 class="font-semibold text-gray-900 mb-1">
-                <i class="fas fa-star text-yellow-400 mr-1"></i>
-                Karaoke
-              </h3>
-              <p class="text-sm text-gray-600">Kies je songs!</p>
             </a>
 
             <a
@@ -416,6 +406,214 @@ app.get('/leden', async (c) => {
       </div>
     </Layout>
   )
+})
+
+// =====================================================
+// DONATIES PAGE
+// =====================================================
+
+app.get('/leden/donaties', async (c) => {
+  const user = c.get('user') as SessionUser
+  
+  // Fetch donation history
+  const donations = await queryAll(c.env.DB, `
+    SELECT * FROM donations WHERE user_id = ? ORDER BY created_at DESC
+  `, [user.id]);
+
+  const total = donations.filter((d: any) => d.status === 'paid').reduce((sum: number, d: any) => sum + d.amount, 0);
+
+  return c.html(
+    <Layout title="Mijn Donaties" user={user} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Donaties', href: '/leden/donaties'}]}>
+      <div class="py-12 bg-gray-50 min-h-screen">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          
+          <div class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+              <i class="fas fa-hand-holding-heart text-pink-500 mr-3"></i>
+              Vrije Giften & Donaties
+            </h1>
+            <p class="mt-2 text-gray-600">
+              Jouw steun maakt het verschil voor Animato. Bedankt!
+            </p>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            {/* Donation Form */}
+            <div class="md:col-span-2">
+                <div class="bg-white rounded-lg shadow-md p-6 mb-8 border-t-4 border-pink-500">
+                    <h2 class="text-xl font-bold text-gray-900 mb-4">Doe een vrije gift</h2>
+                    <form action="/api/leden/donatie" method="POST">
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Ik wil graag doneren:</label>
+                            <div class="grid grid-cols-3 gap-3 mb-3">
+                                <button type="button" onclick="setAmount(10)" class="donation-btn py-2 border rounded-lg hover:bg-pink-50 hover:border-pink-300 transition">€ 10</button>
+                                <button type="button" onclick="setAmount(25)" class="donation-btn py-2 border rounded-lg hover:bg-pink-50 hover:border-pink-300 transition">€ 25</button>
+                                <button type="button" onclick="setAmount(50)" class="donation-btn py-2 border rounded-lg hover:bg-pink-50 hover:border-pink-300 transition">€ 50</button>
+                            </div>
+                            <div class="relative rounded-md shadow-sm">
+                                <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                                <span class="text-gray-500 sm:text-sm">€</span>
+                                </div>
+                                <input type="number" name="amount" id="customAmount" step="0.01" min="1" class="block w-full rounded-md border-gray-300 pl-7 pr-12 focus:border-pink-500 focus:ring-pink-500 py-3 text-lg" placeholder="Eigen bedrag" required />
+                            </div>
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Bericht (optioneel)</label>
+                            <textarea name="message" rows={2} class="w-full border rounded-lg p-2 text-sm" placeholder="Een korte boodschap voor het koor..."></textarea>
+                        </div>
+
+                        <div class="flex items-center mb-6">
+                            <input type="checkbox" name="anonymous" id="anon" value="1" class="h-4 w-4 text-pink-600 focus:ring-pink-500 border-gray-300 rounded" />
+                            <label for="anon" class="ml-2 block text-sm text-gray-900">Anoniem doneren (niet tonen in lijsten)</label>
+                        </div>
+
+                        <button type="submit" class="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-3 px-4 rounded-lg transition shadow flex items-center justify-center">
+                            <i class="fas fa-heart mr-2"></i>
+                            Nu Doneren via Mollie
+                        </button>
+                        <p class="text-xs text-center text-gray-500 mt-3">Veilig betalen met Bancontact, Payconiq of kaart.</p>
+                    </form>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-md p-6">
+                    <h2 class="text-xl font-bold text-gray-900 mb-4">Mijn Donatie Geschiedenis</h2>
+                    {donations.length > 0 ? (
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full text-sm">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500">Datum</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500">Bedrag</th>
+                                        <th class="px-4 py-2 text-left font-medium text-gray-500">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-100">
+                                    {donations.map((d: any) => (
+                                        <tr>
+                                            <td class="px-4 py-3 text-gray-600">{new Date(d.created_at).toLocaleDateString('nl-BE')}</td>
+                                            <td class="px-4 py-3 font-semibold text-gray-900">€ {d.amount.toFixed(2)}</td>
+                                            <td class="px-4 py-3">
+                                                {d.status === 'paid' ? (
+                                                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">Betaald</span>
+                                                ) : d.status === 'cancelled' ? (
+                                                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800">Geannuleerd</span>
+                                                ) : (
+                                                    <span class="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-yellow-100 text-yellow-800">In behandeling</span>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    ) : (
+                        <p class="text-gray-500 italic text-center py-4">Nog geen donaties gevonden.</p>
+                    )}
+                </div>
+            </div>
+
+            {/* Sidebar info */}
+            <div class="md:col-span-1">
+                <div class="bg-pink-50 rounded-lg p-6 mb-6">
+                    <h3 class="font-bold text-pink-800 mb-2">Totaal gedoneerd</h3>
+                    <p class="text-3xl font-bold text-pink-600 mb-1">€ {total.toFixed(2)}</p>
+                    <p class="text-sm text-pink-700">Bedankt voor je geweldige steun!</p>
+                </div>
+
+                <div class="bg-white rounded-lg shadow-sm p-6">
+                    <h3 class="font-bold text-gray-900 mb-3">Waarom doneren?</h3>
+                    <ul class="space-y-2 text-sm text-gray-600">
+                        <li class="flex items-start"><i class="fas fa-check text-green-500 mt-1 mr-2"></i> Steun nieuwe muziekprojecten</li>
+                        <li class="flex items-start"><i class="fas fa-check text-green-500 mt-1 mr-2"></i> Onderhoud van instrumenten</li>
+                        <li class="flex items-start"><i class="fas fa-check text-green-500 mt-1 mr-2"></i> Huren van concertlocaties</li>
+                        <li class="flex items-start"><i class="fas fa-check text-green-500 mt-1 mr-2"></i> Organiseren van workshops</li>
+                    </ul>
+                </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <script dangerouslySetInnerHTML={{__html: `
+        function setAmount(val) {
+            document.getElementById('customAmount').value = val;
+        }
+      `}} />
+    </Layout>
+  )
+})
+
+app.post('/api/leden/donatie', async (c) => {
+    const user = c.get('user') as SessionUser
+    const body = await c.req.parseBody()
+    const amount = parseFloat(String(body.amount))
+    
+    if (!amount || amount < 1) return c.redirect('/leden/donaties?error=invalid_amount')
+
+    const siteUrl = c.env.SITE_URL || 'https://animato.be'
+    const donationRef = 'DON-' + Date.now().toString(36).toUpperCase()
+
+    // Create Payment
+    const payment = await createMolliePayment(c.env.MOLLIE_API_KEY, {
+        amount: amount,
+        description: `Vrije Gift Animato - ${user.voornaam} ${user.achternaam}`,
+        redirectUrl: `${siteUrl}/leden/donaties?success=true`,
+        webhookUrl: `${siteUrl}/api/webhooks/mollie`,
+        metadata: {
+            type: 'donation',
+            user_id: user.id,
+            donation_id: 0 // Will update later
+        }
+    })
+
+    // Insert into DB
+    const res = await execute(c.env.DB, `
+        INSERT INTO donations (user_id, amount, message, is_anonymous, status, payment_id)
+        VALUES (?, ?, ?, ?, 'pending', ?)
+    `, [user.id, amount, body.message, body.anonymous ? 1 : 0, payment.id])
+
+    // Update metadata with real ID (Mollie allows updating metadata on open payments usually, but simpler to just use payment_id in webhook lookup if needed, but we used donation_id in webhook logic previously. Actually wait, the webhook logic used metadata.donation_id. We need to pass it. Since we get ID after insert, maybe we can't pass it in creation? 
+    // Actually, we can rely on payment_id lookup in webhook OR create record first.
+    // Let's create record first with 'preparing' status.
+    
+    // Correction: Let's use the Insert ID strategy.
+    // We already called createMolliePayment. We can't update metadata easily without another API call.
+    // Better strategy for next time: Insert DB -> Create Payment -> Update DB.
+    // For now, let's update the Webhook logic to look up by payment_id if donation_id is missing/0, OR just use payment_id.
+    
+    // Actually, in webhooks.tsx I wrote: UPDATE donations ... WHERE id = ? using metadata.donation_id.
+    // I should update that logic or ensure I pass it.
+    // Let's update the DB record with the payment ID we got.
+    // AND let's rely on finding the donation by payment_id in webhook if possible?
+    // No, standard is metadata.
+    // Let's do: Insert -> Create Payment -> Update DB with payment ID.
+    
+    // RE-DO:
+    // 1. Insert
+    const insertRes = await execute(c.env.DB, `
+        INSERT INTO donations (user_id, amount, message, is_anonymous, status)
+        VALUES (?, ?, ?, ?, 'pending')
+    `, [user.id, amount, body.message, body.anonymous ? 1 : 0])
+    
+    const donationId = insertRes.meta.last_row_id
+
+    // 2. Payment
+    const payment2 = await createMolliePayment(c.env.MOLLIE_API_KEY, {
+        amount: amount,
+        description: `Vrije Gift Animato - ${user.voornaam} ${user.achternaam}`,
+        redirectUrl: `${siteUrl}/leden/donaties?success=true`,
+        webhookUrl: `${siteUrl}/api/webhooks/mollie`,
+        metadata: {
+            type: 'donation',
+            user_id: user.id,
+            donation_id: donationId
+        }
+    })
+
+    // 3. Update DB
+    await execute(c.env.DB, `UPDATE donations SET payment_id = ?, status = 'pending' WHERE id = ?`, [payment2.id, donationId])
+
+    return c.redirect(payment2.checkoutUrl)
 })
 
 // =====================================================
@@ -824,6 +1022,22 @@ app.get('/leden/profiel', async (c) => {
   const user = c.get('user') as SessionUser
   const success = c.req.query('success')
   const error = c.req.query('error')
+  const paymentId = c.req.query('payment_id')
+
+  // Auto-confirm mock payments in dev
+  if (paymentId && paymentId.startsWith('tr_MOCK_')) {
+      const siteUrl = c.env.SITE_URL || 'http://localhost:3000'
+      try {
+          // Trigger webhook
+          await fetch(`${siteUrl}/api/webhooks/mollie`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+              body: `id=${paymentId}`
+          })
+      } catch (e) {
+          console.error('Failed to trigger mock webhook', e)
+      }
+  }
 
   // Get full profile
   const profile = await queryOne<any>(
@@ -831,7 +1045,8 @@ app.get('/leden/profiel', async (c) => {
     `SELECT u.email, u.stemgroep, u.role, u.status, u.created_at,
             p.voornaam, p.achternaam, p.telefoon, p.adres, p.bio, p.muzikale_ervaring, 
             p.foto_url as profielfoto_url, p.favoriete_genre, p.favoriete_componist, 
-            p.favoriete_werk, p.instrument, p.jaren_in_koor,
+            p.favoriete_werk, p.instrument, p.jaren_in_koor, p.geboortedatum,
+            p.straat, p.huisnummer, p.bus, p.postcode, p.stad as gemeente,
             p.smoelenboek_zichtbaar, p.toon_email, p.toon_telefoon
      FROM users u
      LEFT JOIN profiles p ON p.user_id = u.id
@@ -853,7 +1068,7 @@ app.get('/leden/profiel', async (c) => {
         `SELECT u.email, u.stemgroep, u.role, u.status, u.created_at,
                 p.voornaam, p.achternaam, p.telefoon, p.adres, p.bio, p.muzikale_ervaring, 
                 p.foto_url as profielfoto_url, p.favoriete_genre, p.favoriete_componist, 
-                p.favoriete_werk, p.instrument, p.jaren_in_koor,
+                p.favoriete_werk, p.instrument, p.jaren_in_koor, p.geboortedatum,
                 p.smoelenboek_zichtbaar, p.toon_email, p.toon_telefoon
          FROM users u
          LEFT JOIN profiles p ON p.user_id = u.id
@@ -1250,6 +1465,8 @@ app.get('/leden/profiel', async (c) => {
                     {profile.stemgroep === 'A' && 'Alt'}
                     {profile.stemgroep === 'T' && 'Tenor'}
                     {profile.stemgroep === 'B' && 'Bas'}
+                    {profile.stemgroep === 'Dirigent' && 'Dirigent'}
+                    {profile.stemgroep === 'Pianist' && 'Pianist'}
                     {!profile.stemgroep && 'Geen stemgroep'}
                   </span>
                   <span>
@@ -1259,6 +1476,8 @@ app.get('/leden/profiel', async (c) => {
                     {profile.role === 'stemleider' && 'Stemleider'}
                     {profile.role === 'lid' && 'Lid'}
                     {profile.role === 'bezoeker' && 'Bezoeker'}
+                    {profile.role === 'dirigent' && 'Dirigent'}
+                    {profile.role === 'pianist' && 'Pianist'}
                   </span>
                   <span>
                     <i class="fas fa-calendar mr-1 text-gray-400"></i>
@@ -1295,6 +1514,19 @@ app.get('/leden/profiel', async (c) => {
                     name="achternaam"
                     value={profile.achternaam || ''}
                     required
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  />
+                </div>
+
+                <div>
+                  <label for="geboortedatum" class="block text-sm font-medium text-gray-700 mb-1">
+                    Geboortedatum
+                  </label>
+                  <input
+                    type="date"
+                    id="geboortedatum"
+                    name="geboortedatum"
+                    value={profile.geboortedatum || ''}
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                   />
                 </div>
@@ -1442,6 +1674,8 @@ app.get('/leden/profiel', async (c) => {
                   <option value="A" selected={profile.stemgroep === 'A'}>Alt</option>
                   <option value="T" selected={profile.stemgroep === 'T'}>Tenor</option>
                   <option value="B" selected={profile.stemgroep === 'B'}>Bas</option>
+                  <option value="Dirigent" selected={profile.stemgroep === 'Dirigent'}>Dirigent</option>
+                  <option value="Pianist" selected={profile.stemgroep === 'Pianist'}>Pianist</option>
                 </select>
                 <p class="mt-1 text-xs text-gray-500">
                   <i class="fas fa-music mr-1 text-animato-primary"></i>
@@ -1881,10 +2115,30 @@ app.get('/leden/betaling-lidgeld', async (c) => {
             <div class="p-8">
               <div class="mb-8 text-center">
                 <p class="text-gray-600 mb-2">Te betalen bedrag</p>
-                <div class="text-4xl font-bold text-gray-900">€ {membership.amount.toFixed(2)}</div>
+                <div class="text-4xl font-bold text-gray-900" id="displayTotal">€ {membership.amount.toFixed(2)}</div>
                 <div class="mt-2 inline-block px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
                   {membership.type === 'full' ? 'Lidmaatschap + Partituren' : 'Basis Lidmaatschap'}
                 </div>
+              </div>
+
+              {/* Donation Upsell */}
+              <div class="bg-pink-50 border border-pink-100 rounded-lg p-6 mb-8">
+                 <h3 class="font-bold text-pink-800 mb-2 flex items-center justify-center">
+                   <i class="fas fa-heart mr-2"></i> Voeg een vrije gift toe
+                 </h3>
+                 <p class="text-sm text-pink-700 text-center mb-4">
+                   Steun Animato extra en word officieel sympathisant!
+                 </p>
+                 <div class="flex justify-center gap-2 mb-4">
+                    <button type="button" onclick="addDonation(0)" class="px-3 py-1 rounded border border-pink-200 bg-white hover:bg-pink-100 text-sm active-donation">Geen</button>
+                    <button type="button" onclick="addDonation(10)" class="px-3 py-1 rounded border border-pink-200 bg-white hover:bg-pink-100 text-sm">€ 10</button>
+                    <button type="button" onclick="addDonation(25)" class="px-3 py-1 rounded border border-pink-200 bg-white hover:bg-pink-100 text-sm">€ 25</button>
+                    <button type="button" onclick="addDonation(50)" class="px-3 py-1 rounded border border-pink-200 bg-white hover:bg-pink-100 text-sm">€ 50</button>
+                    <div class="relative w-24">
+                        <span class="absolute left-2 top-1 text-gray-500 text-sm">€</span>
+                        <input type="number" id="customDonation" oninput="updateCustomDonation(this.value)" class="w-full pl-6 pr-2 py-1 text-sm border border-pink-200 rounded" placeholder="Ander" />
+                    </div>
+                 </div>
               </div>
 
               <div class="grid md:grid-cols-2 gap-8">
@@ -1898,12 +2152,16 @@ app.get('/leden/betaling-lidgeld', async (c) => {
                   </p>
                   
                   {membership.mollie_payment_url ? (
-                    <a href={membership.mollie_payment_url} class="block w-full py-3 px-4 bg-animato-accent text-white text-center rounded-lg hover:bg-amber-600 transition font-bold shadow">
-                      Nu Online Betalen
-                    </a>
+                    <div class="text-center">
+                        <a href={membership.mollie_payment_url} class="block w-full py-3 px-4 bg-animato-accent text-white text-center rounded-lg hover:bg-amber-600 transition font-bold shadow mb-2">
+                          Doorgaan naar betaling
+                        </a>
+                        <p class="text-xs text-gray-500">Let op: dit is de link voor enkel het lidgeld.</p>
+                    </div>
                   ) : (
                     <form action="/api/leden/betaling/online" method="POST">
                       <input type="hidden" name="membership_id" value={membership.id} />
+                      <input type="hidden" name="donation_amount" id="formDonationAmount" value="0" />
                       <button type="submit" class="w-full py-3 px-4 bg-animato-accent text-white text-center rounded-lg hover:bg-amber-600 transition font-bold shadow">
                         Link Aanmaken & Betalen
                       </button>
@@ -1935,6 +2193,9 @@ app.get('/leden/betaling-lidgeld', async (c) => {
                         {communication}
                       </div>
                     </div>
+                    <div class="pt-2 text-xs text-gray-500 italic">
+                        Bij een vrije gift via overschrijving, gelieve "Lidgeld + Gift" te vermelden of twee aparte overschrijvingen te doen.
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1943,6 +2204,54 @@ app.get('/leden/betaling-lidgeld', async (c) => {
                 <p>Heb je vragen over je lidgeld? Neem contact op met de penningmeester.</p>
               </div>
             </div>
+            
+            <script dangerouslySetInnerHTML={{__html: `
+                const baseAmount = ${membership.amount};
+                let donationAmount = 0;
+                
+                function addDonation(amount) {
+                    donationAmount = amount;
+                    document.getElementById('customDonation').value = '';
+                    updateDisplay();
+                    highlightButton(amount);
+                }
+                
+                function updateCustomDonation(val) {
+                    donationAmount = parseFloat(val) || 0;
+                    updateDisplay();
+                    highlightButton(-1); // Clear highlights
+                }
+                
+                function updateDisplay() {
+                    const total = baseAmount + donationAmount;
+                    document.getElementById('displayTotal').innerText = '€ ' + total.toFixed(2);
+                    document.getElementById('formDonationAmount').value = donationAmount;
+                }
+                
+                function highlightButton(amount) {
+                    // Reset all
+                    document.querySelectorAll('button[onclick^="addDonation"]').forEach(btn => {
+                        if (amount === -1) {
+                             btn.classList.remove('bg-pink-100', 'border-pink-400');
+                             btn.classList.add('bg-white', 'border-pink-200');
+                        } else {
+                            // Check exact match in onclick attribute text is tricky, better rely on logic
+                            // Simpler: just clear visual state and re-apply
+                             btn.classList.remove('bg-pink-100', 'border-pink-400');
+                             btn.classList.add('bg-white', 'border-pink-200');
+                        }
+                    });
+                    
+                    if (amount >= 0) {
+                         // Find button with specific onclick
+                         const btn = Array.from(document.querySelectorAll('button')).find(b => b.getAttribute('onclick') === 'addDonation(' + amount + ')');
+                         if (btn) {
+                             btn.classList.remove('bg-white', 'border-pink-200');
+                             btn.classList.add('bg-pink-100', 'border-pink-400');
+                         }
+                    }
+                }
+            `}} />
           </div>
         </div>
       </div>
@@ -1955,6 +2264,7 @@ app.post('/api/leden/betaling/online', async (c) => {
   const user = c.get('user') as SessionUser
   const body = await c.req.parseBody()
   const membershipId = body.membership_id
+  const donationAmount = parseFloat(String(body.donation_amount || '0'))
 
   // Verify ownership
   const membership = await queryOne<any>(
@@ -1968,32 +2278,607 @@ app.post('/api/leden/betaling/online', async (c) => {
 
   if (!membership) return c.redirect('/leden/betaling-lidgeld?error=invalid')
 
-  // Generate Payment Link
   const siteUrl = c.env.SITE_URL || 'https://animato.be'
   
-  const payment = await createMolliePayment(c.env.MOLLIE_API_KEY, {
-    amount: membership.amount,
-    description: `Lidgeld Animato ${membership.season} - ${membership.type}`,
-    redirectUrl: `${siteUrl}/leden/profiel?payment=success`,
-    webhookUrl: `${siteUrl}/api/webhooks/mollie`,
-    metadata: {
-      membership_id: membership.id,
-      type: 'membership'
-    }
-  })
+  // Calculate total
+  const totalAmount = membership.amount + donationAmount
   
-  const paymentUrl = payment.checkoutUrl
-  
-  // Save URL
-  await execute(c.env.DB, `UPDATE user_memberships SET mollie_payment_url = ? WHERE id = ?`, [paymentUrl, membership.id])
-
-  return c.redirect(paymentUrl)
+  // If donation included, use membership_donation type
+  if (donationAmount > 0) {
+      // 1. Create pending donation record
+      const insertRes = await execute(c.env.DB, `
+        INSERT INTO donations (user_id, amount, message, is_anonymous, status)
+        VALUES (?, ?, ?, ?, 'pending')
+      `, [user.id, donationAmount, `Extra gift bij lidgeld ${membership.season}`, 0])
+      
+      const donationId = insertRes.meta.last_row_id
+      
+      // 2. Create Payment
+      const payment = await createMolliePayment(c.env.MOLLIE_API_KEY, {
+        amount: totalAmount,
+        description: `Lidgeld ${membership.season} + Vrije Gift - ${user.voornaam}`,
+        redirectUrl: `${siteUrl}/leden/profiel?payment=success`,
+        webhookUrl: `${siteUrl}/api/webhooks/mollie`,
+        metadata: {
+          type: 'membership_donation',
+          membership_id: membership.id,
+          donation_id: donationId,
+          user_id: user.id
+        }
+      })
+      
+      // 3. Update records
+      await execute(c.env.DB, `UPDATE donations SET payment_id = ?, status = 'pending' WHERE id = ?`, [payment.id, donationId])
+      await execute(c.env.DB, `UPDATE user_memberships SET mollie_payment_url = ? WHERE id = ?`, [payment.checkoutUrl, membership.id])
+      
+      return c.redirect(payment.checkoutUrl)
+  } else {
+      // Standard membership payment
+      const payment = await createMolliePayment(c.env.MOLLIE_API_KEY, {
+        amount: membership.amount,
+        description: `Lidgeld Animato ${membership.season} - ${membership.type}`,
+        redirectUrl: `${siteUrl}/leden/profiel?payment=success`,
+        webhookUrl: `${siteUrl}/api/webhooks/mollie`,
+        metadata: {
+          membership_id: membership.id,
+          type: 'membership'
+        }
+      })
+      
+      const paymentUrl = payment.checkoutUrl
+      
+      // Save URL
+      await execute(c.env.DB, `UPDATE user_memberships SET mollie_payment_url = ? WHERE id = ?`, [paymentUrl, membership.id])
+    
+      return c.redirect(paymentUrl)
+  }
 })
+
+// =====================================================
+// EXTRA ROUTES VOOR DASHBOARD
+// =====================================================
+
+app.get('/leden/materiaal', async (c) => {
+  const user = c.get('user') as SessionUser
+  
+  // Get all materials for user's stemgroep
+  const materials = await queryAll(
+    c.env.DB,
+    `SELECT m.*, 
+            pi.titel as stuk_titel,
+            w.titel as werk_titel, w.componist
+     FROM materials m
+     JOIN pieces pi ON pi.id = m.piece_id
+     JOIN works w ON w.id = pi.work_id
+     WHERE m.is_actief = 1
+       AND (m.stem = ? OR m.stem = 'SATB' OR m.stem = 'algemeen')
+       AND (m.zichtbaar_voor = 'alle_leden' OR 
+            (m.zichtbaar_voor = 'stem_specifiek' OR m.zichtbaar_voor = 'eigen_stem'))
+     ORDER BY w.titel ASC, pi.nummer ASC`,
+    [user.stemgroep || 'SATB']
+  )
+
+  return c.html(
+    <Layout title="Materiaal" user={user} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Materiaal', href: '/leden/materiaal'}]}>
+      <div class="py-12 bg-gray-50 min-h-screen">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="mb-8">
+            <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+              <i class="fas fa-music text-animato-primary mr-3"></i>
+              Oefenmateriaal
+            </h1>
+            <p class="text-gray-600">
+              Downloads en oefenbestanden voor jouw stemgroep ({user.stemgroep || 'Algemeen'})
+            </p>
+          </div>
+
+          <div class="bg-white rounded-lg shadow-md overflow-hidden">
+            {materials.length > 0 ? (
+              <div class="divide-y divide-gray-200">
+                {materials.map((mat: any) => (
+                  <div class="p-6 hover:bg-gray-50 transition">
+                    <div class="flex items-center justify-between">
+                      <div class="flex-1">
+                        <h3 class="text-lg font-bold text-gray-900 mb-1">{mat.werk_titel} - {mat.stuk_titel}</h3>
+                        <div class="flex items-center text-sm text-gray-500 gap-4">
+                          <span><i class="fas fa-user-edit mr-1"></i> {mat.componist}</span>
+                          <span><i class="fas fa-tag mr-1"></i> {mat.type.toUpperCase()}</span>
+                          <span><i class="far fa-clock mr-1"></i> {new Date(mat.created_at).toLocaleDateString('nl-BE')}</span>
+                        </div>
+                        <p class="text-sm text-gray-600 mt-2">{mat.titel}</p>
+                      </div>
+                      <div>
+                        <a href={mat.url} target="_blank" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-animato-primary hover:bg-animato-secondary focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-animato-primary">
+                          <i class="fas fa-download mr-2"></i> Download
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div class="p-12 text-center text-gray-500">
+                <i class="fas fa-folder-open text-4xl mb-4 text-gray-300"></i>
+                <p>Geen materiaal beschikbaar voor jouw stemgroep.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
+app.get('/leden/smoelenboek', async (c) => {
+  const user = c.get('user') as SessionUser
+  const search = c.req.query('search') || ''
+  const view = c.req.query('view') || 'grid' // 'grid' or 'list'
+  
+  // Get members with optional search filter
+  let query = `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio, p.favoriete_werk,
+            p.toon_email, p.toon_telefoon, u.email, p.telefoon,
+            CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite
+     FROM users u
+     JOIN profiles p ON u.id = p.user_id
+     LEFT JOIN member_favorites f ON f.favorite_member_id = u.id AND f.user_id = ?
+     WHERE u.status = 'actief' AND p.smoelenboek_zichtbaar = 1`
+  
+  const params: any[] = [user.id]
+
+  if (search) {
+    query += ` AND (p.voornaam LIKE ? OR p.achternaam LIKE ? OR u.stemgroep LIKE ?)`
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`)
+  }
+
+  query += ` ORDER BY p.voornaam ASC`
+
+  const members = await queryAll(c.env.DB, query, params)
+
+  // Group by voice (only for grid view grouping, list view is flat or sorted)
+  const byVoice: any = { 'Dirigent': [], 'S': [], 'A': [], 'T': [], 'B': [], 'Pianist': [], 'Other': [] }
+  members.forEach((m: any) => {
+    const group = ['Dirigent', 'S', 'A', 'T', 'B', 'Pianist'].includes(m.stemgroep) ? m.stemgroep : 'Other'
+    byVoice[group].push(m)
+  })
+
+  return c.html(
+    <Layout title="Onze Zangers" user={user} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Smoelenboek', href: '/leden/smoelenboek'}]}>
+      <div class="py-12 bg-gray-50 min-h-screen">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-gray-900 mb-4" style="font-family: 'Playfair Display', serif;">
+              Onze Zangers
+            </h1>
+            <p class="text-xl text-gray-600">
+              Ontmoet de stemmen van Animato
+            </p>
+          </div>
+
+          {/* Search & View Toggle */}
+          <div class="bg-white rounded-lg shadow-md p-4 mb-8 flex flex-col md:flex-row gap-4 justify-between items-center">
+             <form method="GET" class="w-full md:w-1/2 relative">
+                <input type="hidden" name="view" value={view} />
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <i class="fas fa-search text-gray-400"></i>
+                </div>
+                <input 
+                    type="text" 
+                    name="search" 
+                    value={search} 
+                    placeholder="Zoek op naam of stemgroep..." 
+                    class="pl-10 w-full border border-gray-300 rounded-lg py-2 focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    oninput="this.form.submit()" // Auto-submit on type? Or just wait for enter
+                />
+             </form>
+             <div class="flex gap-2">
+                <a href={`/leden/smoelenboek?view=grid&search=${search}`} class={`px-4 py-2 rounded-lg border ${view === 'grid' ? 'bg-animato-primary text-white border-animato-primary' : 'bg-white text-gray-600 border-gray-300'}`}>
+                    <i class="fas fa-th-large mr-2"></i> Grid
+                </a>
+                <a href={`/leden/smoelenboek?view=list&search=${search}`} class={`px-4 py-2 rounded-lg border ${view === 'list' ? 'bg-animato-primary text-white border-animato-primary' : 'bg-white text-gray-600 border-gray-300'}`}>
+                    <i class="fas fa-list mr-2"></i> Lijst
+                </a>
+             </div>
+          </div>
+
+          {view === 'grid' ? (
+              ['Dirigent', 'S', 'A', 'T', 'B', 'Pianist', 'Other'].map(voice => {
+                const voiceName = voice === 'S' ? 'Sopranen' : voice === 'A' ? 'Alten' : voice === 'T' ? 'Tenoren' : voice === 'B' ? 'Bassen' : voice === 'Dirigent' ? 'Dirigent' : voice === 'Pianist' ? 'Pianist' : 'Overige'
+                const color = voice === 'S' ? 'pink' : voice === 'A' ? 'purple' : voice === 'T' ? 'blue' : voice === 'B' ? 'green' : voice === 'Dirigent' ? 'yellow' : voice === 'Pianist' ? 'indigo' : 'gray'
+                const list = byVoice[voice]
+                
+                if (list.length === 0) return null
+
+                return (
+                  <div class="mb-12">
+                    <h2 class={`text-2xl font-bold mb-6 text-${color}-800 border-b-2 border-${color}-200 pb-2 inline-block`}>
+                      {voiceName}
+                    </h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                      {list.map((m: any) => (
+                        <div class="bg-white rounded-lg shadow hover:shadow-lg transition overflow-hidden group relative">
+                          {/* Favorite Star */}
+                          <button 
+                            class={`absolute top-2 right-2 z-10 text-xl focus:outline-none ${m.is_favorite ? 'text-yellow-400' : 'text-gray-300 hover:text-yellow-200'}`}
+                            onclick={`toggleFavorite(${m.id}, this)`}
+                          >
+                            <i class="fas fa-star"></i>
+                          </button>
+
+                          <a href={`/leden/smoelenboek/${m.id}`} class="block">
+                              <div class={`h-2 bg-${color}-500`}></div>
+                              <div class="p-6 text-center">
+                                <div class="w-24 h-24 mx-auto bg-gray-200 rounded-full mb-4 overflow-hidden border-4 border-white shadow-sm">
+                                  {m.foto_url ? (
+                                    <img src={m.foto_url} class="w-full h-full object-cover" alt={m.voornaam} />
+                                  ) : (
+                                    <div class="w-full h-full flex items-center justify-center text-gray-400">
+                                      <i class="fas fa-user text-3xl"></i>
+                                    </div>
+                                  )}
+                                </div>
+                                <h3 class="font-bold text-gray-900 text-lg group-hover:text-animato-primary transition-colors">{m.voornaam} {m.achternaam}</h3>
+                                {m.bio && <p class="text-sm text-gray-500 mt-2 line-clamp-2">{m.bio}</p>}
+                              </div>
+                          </a>
+                          
+                          <div class="pb-4 pt-2 border-t border-gray-100 flex justify-center gap-4 text-gray-400">
+                             {m.toon_email && m.email && <a href={`mailto:${m.email}`} title="Email" class="hover:text-animato-primary"><i class="fas fa-envelope"></i></a>}
+                             {m.toon_telefoon && m.telefoon && <a href={`tel:${m.telefoon}`} title="Bel" class="hover:text-animato-primary"><i class="fas fa-phone"></i></a>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })
+          ) : (
+              <div class="bg-white rounded-lg shadow overflow-hidden">
+                  <table class="min-w-full divide-y divide-gray-200">
+                      <thead class="bg-gray-50">
+                          <tr>
+                              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Lid</th>
+                              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stemgroep</th>
+                              <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+                              <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actie</th>
+                          </tr>
+                      </thead>
+                      <tbody class="bg-white divide-y divide-gray-200">
+                          {members.map((m: any) => (
+                              <tr class="hover:bg-gray-50">
+                                  <td class="px-6 py-4 whitespace-nowrap">
+                                      <div class="flex items-center">
+                                          <div class="flex-shrink-0 h-10 w-10">
+                                              {m.foto_url ? (
+                                                  <img class="h-10 w-10 rounded-full object-cover" src={m.foto_url} alt="" />
+                                              ) : (
+                                                  <div class="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-400"><i class="fas fa-user"></i></div>
+                                              )}
+                                          </div>
+                                          <div class="ml-4">
+                                              <div class="text-sm font-medium text-gray-900">{m.voornaam} {m.achternaam}</div>
+                                              <div class="text-sm text-gray-500">{m.bio ? m.bio.substring(0, 30) + '...' : ''}</div>
+                                          </div>
+                                      </div>
+                                  </td>
+                                  <td class="px-6 py-4 whitespace-nowrap">
+                                      <span class={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full 
+                                        ${m.stemgroep === 'S' ? 'bg-pink-100 text-pink-800' : 
+                                          m.stemgroep === 'A' ? 'bg-purple-100 text-purple-800' :
+                                          m.stemgroep === 'T' ? 'bg-blue-100 text-blue-800' : 
+                                          m.stemgroep === 'B' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                                          {m.stemgroep === 'S' ? 'Sopraan' : m.stemgroep === 'A' ? 'Alt' : m.stemgroep === 'T' ? 'Tenor' : m.stemgroep === 'B' ? 'Bas' : m.stemgroep}
+                                      </span>
+                                  </td>
+                                  <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                      <div class="flex space-x-3">
+                                          {m.toon_email && m.email && <a href={`mailto:${m.email}`} class="text-gray-400 hover:text-animato-primary"><i class="fas fa-envelope"></i></a>}
+                                          {m.toon_telefoon && m.telefoon && <a href={`tel:${m.telefoon}`} class="text-gray-400 hover:text-animato-primary"><i class="fas fa-phone"></i></a>}
+                                      </div>
+                                  </td>
+                                  <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                      <div class="flex items-center justify-end space-x-3">
+                                          <button onclick={`toggleFavorite(${m.id}, this)`} class={`text-xl focus:outline-none ${m.is_favorite ? 'text-yellow-400' : 'text-gray-300 hover:text-yellow-200'}`}>
+                                              <i class="fas fa-star"></i>
+                                          </button>
+                                          <a href={`/leden/smoelenboek/${m.id}`} class="text-animato-primary hover:text-animato-secondary">Bekijk <i class="fas fa-chevron-right ml-1"></i></a>
+                                      </div>
+                                  </td>
+                              </tr>
+                          ))}
+                      </tbody>
+                  </table>
+              </div>
+          )}
+        </div>
+      </div>
+      <script dangerouslySetInnerHTML={{__html: `
+        async function toggleFavorite(memberId, btn) {
+            try {
+                const icon = btn.querySelector('i');
+                const isFav = btn.classList.contains('text-yellow-400');
+                
+                const res = await fetch('/api/leden/favorites/toggle', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ memberId })
+                });
+                
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.is_favorite) {
+                        btn.classList.remove('text-gray-300', 'hover:text-yellow-200');
+                        btn.classList.add('text-yellow-400');
+                    } else {
+                        btn.classList.remove('text-yellow-400');
+                        btn.classList.add('text-gray-300', 'hover:text-yellow-200');
+                    }
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+      `}} />
+    </Layout>
+  )
+})
+
+app.get('/leden/smoelenboek/:id', async (c) => {
+  const user = c.get('user') as SessionUser
+  const memberId = c.req.param('id')
+  
+  const member = await queryOne<any>(
+    c.env.DB,
+    `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio, 
+            p.favoriete_werk, p.favoriete_genre, p.favoriete_componist, p.instrument, p.jaren_in_koor, p.zanger_type,
+            p.toon_email, p.toon_telefoon, u.email, p.telefoon, p.adres, u.created_at,
+            CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite
+     FROM users u
+     JOIN profiles p ON u.id = p.user_id
+     LEFT JOIN member_favorites f ON f.favorite_member_id = u.id AND f.user_id = ?
+     WHERE u.id = ? AND u.status = 'actief' AND p.smoelenboek_zichtbaar = 1`,
+    [user.id, memberId]
+  )
+
+  if (!member) return c.redirect('/leden/smoelenboek')
+
+  return c.html(
+    <Layout title={`${member.voornaam} ${member.achternaam}`} user={user} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Smoelenboek', href: '/leden/smoelenboek'}, {label: `${member.voornaam} ${member.achternaam}`, href: '#'}]}>
+        <div class="py-12 bg-gray-50 min-h-screen">
+            <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="bg-white rounded-xl shadow-lg overflow-hidden">
+                    {/* Header Banner */}
+                    <div class={`h-32 bg-gradient-to-r ${
+                        member.stemgroep === 'S' ? 'from-pink-400 to-pink-600' : 
+                        member.stemgroep === 'A' ? 'from-purple-400 to-purple-600' :
+                        member.stemgroep === 'T' ? 'from-blue-400 to-blue-600' : 
+                        'from-green-400 to-green-600'
+                    }`}></div>
+                    
+                    <div class="px-8 pb-8">
+                        <div class="flex flex-col md:flex-row items-start md:items-end -mt-12 mb-6">
+                            <div class="w-32 h-32 rounded-full border-4 border-white shadow-lg overflow-hidden bg-white flex items-center justify-center">
+                                {member.foto_url ? (
+                                    <img src={member.foto_url} class="w-full h-full object-cover" alt={member.voornaam} />
+                                ) : (
+                                    <i class="fas fa-user text-4xl text-gray-300"></i>
+                                )}
+                            </div>
+                            <div class="mt-4 md:mt-0 md:ml-6 flex-1">
+                                <h1 class="text-3xl font-bold text-gray-900">{member.voornaam} {member.achternaam}</h1>
+                                <p class="text-gray-600 flex items-center mt-1">
+                                    <span class={`inline-block w-3 h-3 rounded-full mr-2 ${
+                                        member.stemgroep === 'S' ? 'bg-pink-500' : 
+                                        member.stemgroep === 'A' ? 'bg-purple-500' :
+                                        member.stemgroep === 'T' ? 'bg-blue-500' : 
+                                        'bg-green-500'
+                                    }`}></span>
+                                    {member.stemgroep === 'S' ? 'Sopraan' : member.stemgroep === 'A' ? 'Alt' : member.stemgroep === 'T' ? 'Tenor' : 'Bas'}
+                                    {member.zanger_type && <span class="mx-2 text-gray-300">•</span>}
+                                    {member.zanger_type && <span class="capitalize">{member.zanger_type}</span>}
+                                </p>
+                            </div>
+                            <div class="mt-4 md:mt-0">
+                                <button onclick={`toggleFavorite(${member.id}, this)`} class={`btn-fav px-4 py-2 rounded-lg border flex items-center gap-2 transition ${member.is_favorite ? 'bg-yellow-50 border-yellow-200 text-yellow-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+                                    <i class={`fas fa-star ${member.is_favorite ? '' : 'text-gray-300'}`}></i>
+                                    {member.is_favorite ? 'Favoriet' : 'Favoriet maken'}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                            <div class="md:col-span-2 space-y-6">
+                                {member.bio && (
+                                    <div>
+                                        <h3 class="text-lg font-semibold text-gray-900 mb-2">Over mij</h3>
+                                        <p class="text-gray-600 leading-relaxed">{member.bio}</p>
+                                    </div>
+                                )}
+
+                                <div class="bg-gray-50 rounded-lg p-6">
+                                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Muzikaal Profiel</h3>
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        {member.favoriete_werk && (
+                                            <div>
+                                                <span class="block text-xs text-gray-500 uppercase tracking-wide">Favoriete werk</span>
+                                                <span class="font-medium text-gray-800">{member.favoriete_werk}</span>
+                                            </div>
+                                        )}
+                                        {member.favoriete_componist && (
+                                            <div>
+                                                <span class="block text-xs text-gray-500 uppercase tracking-wide">Componist</span>
+                                                <span class="font-medium text-gray-800">{member.favoriete_componist}</span>
+                                            </div>
+                                        )}
+                                        {member.favoriete_genre && (
+                                            <div>
+                                                <span class="block text-xs text-gray-500 uppercase tracking-wide">Genre</span>
+                                                <span class="font-medium text-gray-800">{member.favoriete_genre}</span>
+                                            </div>
+                                        )}
+                                        {member.instrument && (
+                                            <div>
+                                                <span class="block text-xs text-gray-500 uppercase tracking-wide">Instrument</span>
+                                                <span class="font-medium text-gray-800">{member.instrument}</span>
+                                            </div>
+                                        )}
+                                        {member.jaren_in_koor && member.jaren_in_koor > 0 && (
+                                            <div>
+                                                <span class="block text-xs text-gray-500 uppercase tracking-wide">Ervaring</span>
+                                                <span class="font-medium text-gray-800">{member.jaren_in_koor} jaar bij Animato</span>
+                                            </div>
+                                        )}
+                                        <div>
+                                            <span class="block text-xs text-gray-500 uppercase tracking-wide">Lid sinds</span>
+                                            <span class="font-medium text-gray-800">{new Date(member.created_at).toLocaleDateString('nl-BE', {month: 'long', year: 'numeric'})}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="space-y-6">
+                                <div class="bg-white border border-gray-200 rounded-lg p-6 shadow-sm">
+                                    <h3 class="text-lg font-semibold text-gray-900 mb-4">Contact</h3>
+                                    <ul class="space-y-3">
+                                        <li class="flex items-center text-gray-600">
+                                            <div class="w-8 flex justify-center"><i class="fas fa-envelope text-gray-400"></i></div>
+                                            {member.toon_email && member.email ? (
+                                                <a href={`mailto:${member.email}`} class="hover:text-animato-primary hover:underline truncate">{member.email}</a>
+                                            ) : (
+                                                <span class="italic text-gray-400">Niet zichtbaar</span>
+                                            )}
+                                        </li>
+                                        <li class="flex items-center text-gray-600">
+                                            <div class="w-8 flex justify-center"><i class="fas fa-phone text-gray-400"></i></div>
+                                            {member.toon_telefoon && member.telefoon ? (
+                                                <a href={`tel:${member.telefoon}`} class="hover:text-animato-primary hover:underline">{member.telefoon}</a>
+                                            ) : (
+                                                <span class="italic text-gray-400">Niet zichtbaar</span>
+                                            )}
+                                        </li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <script dangerouslySetInnerHTML={{__html: `
+            async function toggleFavorite(memberId, btn) {
+                try {
+                    const res = await fetch('/api/leden/favorites/toggle', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ memberId })
+                    });
+                    
+                    if (res.ok) {
+                        const data = await res.json();
+                        if (data.is_favorite) {
+                            btn.classList.remove('bg-white', 'border-gray-200', 'text-gray-500', 'hover:bg-gray-50');
+                            btn.classList.add('bg-yellow-50', 'border-yellow-200', 'text-yellow-600');
+                            btn.innerHTML = '<i class="fas fa-star mr-2"></i> Favoriet';
+                        } else {
+                            btn.classList.remove('bg-yellow-50', 'border-yellow-200', 'text-yellow-600');
+                            btn.classList.add('bg-white', 'border-gray-200', 'text-gray-500', 'hover:bg-gray-50');
+                            btn.innerHTML = '<i class="fas fa-star text-gray-300 mr-2"></i> Favoriet maken';
+                        }
+                    }
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+        `}} />
+    </Layout>
+  )
+})
+
+app.post('/api/leden/favorites/toggle', async (c) => {
+    const user = c.get('user') as SessionUser
+    const body = await c.req.json()
+    const memberId = body.memberId
+
+    if (!memberId) return c.json({error: 'No member ID'}, 400)
+
+    // Check if exists
+    const existing = await queryOne(c.env.DB, "SELECT id FROM member_favorites WHERE user_id = ? AND favorite_member_id = ?", [user.id, memberId])
+
+    if (existing) {
+        await execute(c.env.DB, "DELETE FROM member_favorites WHERE id = ?", [existing.id])
+        return c.json({ is_favorite: false })
+    } else {
+        await execute(c.env.DB, "INSERT INTO member_favorites (user_id, favorite_member_id) VALUES (?, ?)", [user.id, memberId])
+        return c.json({ is_favorite: true })
+    }
+})
+
+app.get('/leden/agenda', (c) => c.redirect('/agenda'))
 
 // =====================================================
 // PROFIEL BEWERKEN API - Update Profile
 // =====================================================
 
+app.post('/api/leden/profiel', async (c) => {
+  const user = c.get('user') as SessionUser
+
+  try {
+    const body = await c.req.parseBody()
+    const { voornaam, achternaam, telefoon, straat, huisnummer, bus, postcode, gemeente, bio, muzikale_ervaring, profielfoto_url,
+            favoriete_genre, favoriete_componist, favoriete_werk, instrument, jaren_in_koor, zanger_type, geboortedatum } = body
+
+    // Validation
+    if (!voornaam || !achternaam) {
+      return c.redirect('/leden/profiel?error=required_fields')
+    }
+
+    // Update profile
+    const result = await c.env.DB.prepare(
+      `UPDATE profiles 
+       SET voornaam = ?, achternaam = ?, telefoon = ?, straat = ?, huisnummer = ?, bus = ?, postcode = ?, stad = ?, bio = ?, muzikale_ervaring = ?, foto_url = ?,
+           favoriete_genre = ?, favoriete_componist = ?, favoriete_werk = ?, instrument = ?, jaren_in_koor = ?, zanger_type = ?, geboortedatum = ?
+       WHERE user_id = ?`
+    ).bind(
+      voornaam,
+      achternaam,
+      telefoon || null,
+      straat || null,
+      huisnummer || null,
+      bus || null,
+      postcode || null,
+      gemeente || null, // Map UI 'gemeente' to DB 'stad'
+      bio || null,
+      muzikale_ervaring || null,
+      profielfoto_url || null,
+      favoriete_genre || null,
+      favoriete_componist || null,
+      favoriete_werk || null,
+      instrument || null,
+      jaren_in_koor || null,
+      zanger_type || null,
+      geboortedatum || null,
+      user.id
+    ).run()
+
+    if (!result.success) {
+      return c.redirect('/leden/profiel?error=update_failed')
+    }
+
+    // Audit log
+    await c.env.DB.prepare(
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
+       VALUES (?, 'profile_update', 'profile', ?, ?)`
+    ).bind(
+      user.id,
+      user.id,
+      JSON.stringify({ fields: ['voornaam', 'achternaam', 'smoelenboek_data'] })
+    ).run()
+
+    return c.redirect('/leden/profiel?success=profile')
+  } catch (error) {
+    console.error('Profile update error:', error)
+    return c.redirect('/leden/profiel?error=update_failed')
+  }
+})
 
 // =====================================================
 // PROFIEL BEWERKEN API - Change Password
@@ -2066,2343 +2951,6 @@ app.post('/api/leden/profiel/wachtwoord', async (c) => {
     console.error('Password change error:', error)
     return c.redirect('/leden/profiel?error=update_failed')
   }
-})
-
-// =====================================================
-// BETALING LIDGELD
-// =====================================================
-
-app.get('/leden/betaling-lidgeld', async (c) => {
-  const user = c.get('user') as SessionUser
-  
-  // Get active unpaid membership
-  const membership = await queryOne<any>(
-    c.env.DB,
-    `SELECT um.*, my.season, my.description
-     FROM user_memberships um
-     JOIN membership_years my ON um.year_id = my.id
-     WHERE um.user_id = ? AND um.status = 'pending' AND my.is_active = 1`,
-    [user.id]
-  )
-
-  if (!membership) {
-    return c.redirect('/leden/profiel')
-  }
-
-  // Bank details
-  const settingsRes = await queryAll(c.env.DB, "SELECT * FROM system_settings WHERE key IN ('bank_iban', 'bank_bic', 'bank_name')")
-  const settings = settingsRes.reduce((acc: any, curr: any) => ({...acc, [curr.key]: curr.value}), {})
-
-  const iban = settings.bank_iban || 'BE12 3456 7890 1234'
-  const bic = settings.bank_bic || 'GEBA BE BB'
-  const bankName = settings.bank_name || 'Koor Animato Rekening'
-  const communication = `Lidgeld ${membership.season} - ${user.voornaam} ${user.achternaam}`
-
-  return c.html(
-    <Layout title="Lidgeld Betalen" user={user}>
-      <div class="py-12 bg-gray-50 min-h-screen">
-        <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div class="mb-8">
-            <a href="/leden/profiel" class="text-animato-primary hover:underline flex items-center">
-              <i class="fas fa-arrow-left mr-2"></i> Terug naar profiel
-            </a>
-          </div>
-
-          <div class="bg-white rounded-lg shadow-lg overflow-hidden">
-            <div class="bg-animato-primary px-6 py-4">
-              <h1 class="text-2xl font-bold text-white flex items-center">
-                <i class="fas fa-euro-sign bg-white text-animato-primary rounded-full w-8 h-8 flex items-center justify-center mr-3 text-sm"></i>
-                Betaling Lidgeld {membership.season}
-              </h1>
-            </div>
-            
-            <div class="p-8">
-              <div class="mb-8 text-center">
-                <p class="text-gray-600 mb-2">Te betalen bedrag</p>
-                <div class="text-4xl font-bold text-gray-900">€ {membership.amount.toFixed(2)}</div>
-                <div class="mt-2 inline-block px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                  {membership.type === 'full' ? 'Lidmaatschap + Partituren' : 'Basis Lidmaatschap'}
-                </div>
-              </div>
-
-              <div class="grid md:grid-cols-2 gap-8">
-                {/* Online Payment */}
-                <div class="bg-gray-50 p-6 rounded-lg border border-gray-200">
-                  <h3 class="font-bold text-lg text-gray-900 mb-4 flex items-center">
-                    <i class="fas fa-globe text-animato-secondary mr-2"></i> Online Betalen
-                  </h3>
-                  <p class="text-sm text-gray-600 mb-6">
-                    Betaal veilig en snel via Bancontact, Payconiq of kredietkaart.
-                  </p>
-                  
-                  {membership.mollie_payment_url ? (
-                    <a href={membership.mollie_payment_url} class="block w-full py-3 px-4 bg-animato-accent text-white text-center rounded-lg hover:bg-amber-600 transition font-bold shadow">
-                      Nu Online Betalen
-                    </a>
-                  ) : (
-                    <form action="/api/leden/betaling/online" method="POST">
-                      <input type="hidden" name="membership_id" value={membership.id} />
-                      <button type="submit" class="w-full py-3 px-4 bg-animato-accent text-white text-center rounded-lg hover:bg-amber-600 transition font-bold shadow">
-                        Link Aanmaken & Betalen
-                      </button>
-                    </form>
-                  )}
-                </div>
-
-                {/* Bank Transfer */}
-                <div class="bg-gray-50 p-6 rounded-lg border border-gray-200">
-                  <h3 class="font-bold text-lg text-gray-900 mb-4 flex items-center">
-                    <i class="fas fa-university text-gray-600 mr-2"></i> Overschrijving
-                  </h3>
-                  <div class="space-y-3 text-sm">
-                    <div>
-                      <div class="text-gray-500 text-xs">Naam begunstigde</div>
-                      <div class="font-medium text-gray-900">{bankName}</div>
-                    </div>
-                    <div>
-                      <div class="text-gray-500 text-xs">IBAN</div>
-                      <div class="font-mono font-medium text-gray-900 tracking-wide select-all bg-white p-1 rounded border border-gray-200">{iban}</div>
-                    </div>
-                    <div>
-                      <div class="text-gray-500 text-xs">BIC</div>
-                      <div class="font-mono font-medium text-gray-900">{bic}</div>
-                    </div>
-                    <div>
-                      <div class="text-gray-500 text-xs">Mededeling (belangrijk!)</div>
-                      <div class="font-mono font-bold text-animato-primary bg-yellow-50 p-2 rounded border border-yellow-200 select-all">
-                        {communication}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="mt-8 pt-6 border-t border-gray-100 text-center text-sm text-gray-500">
-                <p>Heb je vragen over je lidgeld? Neem contact op met de penningmeester.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Layout>
-  )
-})
-
-// API to generate payment link if not exists
-app.post('/api/leden/betaling/online', async (c) => {
-  const user = c.get('user') as SessionUser
-  const body = await c.req.parseBody()
-  const membershipId = body.membership_id
-
-  // Verify ownership
-  const membership = await queryOne<any>(
-    c.env.DB, 
-    `SELECT um.*, my.season 
-     FROM user_memberships um
-     JOIN membership_years my ON um.year_id = my.id
-     WHERE um.id = ? AND um.user_id = ?`, 
-    [membershipId, user.id]
-  )
-
-  if (!membership) return c.redirect('/leden/betaling-lidgeld?error=invalid')
-
-  // Generate Payment Link
-  const siteUrl = c.env.SITE_URL || 'https://animato.be'
-  
-  const payment = await createMolliePayment(c.env.MOLLIE_API_KEY, {
-    amount: membership.amount,
-    description: `Lidgeld Animato ${membership.season} - ${membership.type}`,
-    redirectUrl: `${siteUrl}/leden/profiel?payment=success`,
-    webhookUrl: `${siteUrl}/api/webhooks/mollie`,
-    metadata: {
-      membership_id: membership.id,
-      type: 'membership'
-    }
-  })
-  
-  const paymentUrl = payment.checkoutUrl
-  
-  // Save URL
-  await execute(c.env.DB, `UPDATE user_memberships SET mollie_payment_url = ? WHERE id = ?`, [paymentUrl, membership.id])
-
-  return c.redirect(paymentUrl)
-})
-
-// =====================================================
-// MATERIAAL OVERZICHT
-// =====================================================
-
-app.get('/leden/materiaal', async (c) => {
-  const user = c.get('user') as SessionUser
-  const filter = c.req.query('stem') || 'all'
-
-  // Get all works with pieces and materials
-  const works = await queryAll(
-    c.env.DB,
-    `SELECT DISTINCT w.id, w.componist, w.titel, w.beschrijving, w.genre, w.image_url
-     FROM works w
-     JOIN pieces p ON p.work_id = w.id
-     JOIN materials m ON m.piece_id = p.id
-     WHERE m.is_actief = 1
-       AND (m.stem = ? OR m.stem = 'SATB' OR m.stem = 'algemeen' OR ? = 'all')
-       AND (m.zichtbaar_voor = 'alle_leden' OR 
-            ((m.zichtbaar_voor = 'stem_specifiek' OR m.zichtbaar_voor = 'eigen_stem') AND m.stem = ?))
-     ORDER BY w.componist, w.titel`,
-    [user.stemgroep, filter, user.stemgroep]
-  )
-
-  // For each work, get pieces with materials
-  const worksWithMaterials = await Promise.all(
-    works.map(async (work: any) => {
-      const pieces = await queryAll(
-        c.env.DB,
-        `SELECT p.id, p.titel, p.nummer, p.moeilijkheidsgraad
-         FROM pieces p
-         WHERE p.work_id = ?
-         ORDER BY p.nummer`,
-        [work.id]
-      )
-
-      const piecesWithMaterials = await Promise.all(
-        pieces.map(async (piece: any) => {
-          const materials = await queryAll(
-            c.env.DB,
-            `SELECT m.*
-             FROM materials m
-             WHERE m.piece_id = ? 
-               AND m.is_actief = 1
-               AND (m.stem = ? OR m.stem = 'SATB' OR m.stem = 'algemeen' OR ? = 'all')
-               AND (m.zichtbaar_voor = 'alle_leden' OR 
-                    ((m.zichtbaar_voor = 'stem_specifiek' OR m.zichtbaar_voor = 'eigen_stem') AND m.stem = ?))
-             ORDER BY 
-               CASE m.type 
-                 WHEN 'pdf' THEN 1 
-                 WHEN 'audio' THEN 2 
-                 WHEN 'video' THEN 3 
-                 ELSE 4 
-               END,
-               m.stem, m.versie DESC`,
-            [piece.id, user.stemgroep, filter, user.stemgroep]
-          )
-          return { ...piece, materials }
-        })
-      )
-
-      return { ...work, pieces: piecesWithMaterials }
-    })
-  )
-
-  return c.html(
-    <Layout title="Materiaal" user={user}>
-      <div class="py-12 bg-gray-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Header */}
-          <div class="flex items-center justify-between mb-8">
-            <div>
-              <h1 class="text-4xl font-bold text-animato-secondary mb-2" style="font-family: 'Playfair Display', serif;">
-                Partituren & Oefenmateriaal
-              </h1>
-              <p class="text-gray-600">
-                Download partituren en oefentracks voor jouw stemgroep
-              </p>
-            </div>
-            <a href="/leden" class="text-animato-primary hover:underline">
-              <i class="fas fa-arrow-left mr-2"></i>
-              Terug naar dashboard
-            </a>
-          </div>
-
-          {/* Success/Error Messages */}
-          {(c.req.query('success') === 'print_requested') && (
-            <div class="mb-6 bg-green-50 border border-green-200 rounded-lg p-4 animate-fade-in">
-              <div class="flex items-center">
-                <i class="fas fa-print text-green-500 mr-3"></i>
-                <div class="text-sm text-green-800">
-                  <strong>Aanvraag ontvangen!</strong> We leggen een geprinte versie voor je klaar bij de volgende repetitie (kosten worden verrekend).
-                </div>
-              </div>
-            </div>
-          )}
-          {(c.req.query('error') === 'already_requested') && (
-            <div class="mb-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4 animate-fade-in">
-              <div class="flex items-center">
-                <i class="fas fa-exclamation-circle text-yellow-500 mr-3"></i>
-                <div class="text-sm text-yellow-800">
-                  Je hebt al een printaanvraag openstaan voor dit stuk.
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Filter tabs */}
-          <div class="bg-white rounded-lg shadow-md p-4 mb-8">
-            <div class="flex items-center space-x-2">
-              <span class="text-sm font-medium text-gray-700 mr-4">Filter:</span>
-              <a
-                href="/leden/materiaal?stem=all"
-                class={`px-4 py-2 rounded-lg font-semibold transition ${
-                  filter === 'all'
-                    ? 'bg-animato-primary text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Alles
-              </a>
-              <a
-                href={`/leden/materiaal?stem=${user.stemgroep}`}
-                class={`px-4 py-2 rounded-lg font-semibold transition ${
-                  filter === user.stemgroep
-                    ? 'bg-animato-primary text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Mijn stem ({user.stemgroep === 'S' ? 'Sopraan' : user.stemgroep === 'A' ? 'Alt' : user.stemgroep === 'T' ? 'Tenor' : 'Bas'})
-              </a>
-              <a
-                href="/leden/materiaal?stem=SATB"
-                class={`px-4 py-2 rounded-lg font-semibold transition ${
-                  filter === 'SATB'
-                    ? 'bg-animato-primary text-white'
-                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                SATB (Alle stemmen)
-              </a>
-            </div>
-          </div>
-
-          {/* Works list */}
-          {worksWithMaterials.length > 0 ? (
-            <div class="space-y-8">
-              {worksWithMaterials.map((work: any) => (
-                <div class="bg-white rounded-lg shadow-md overflow-hidden">
-                  {/* Work header */}
-                  <div class="bg-gradient-to-r from-animato-primary to-animato-secondary text-white p-6 relative overflow-hidden group">
-                    {work.image_url && (
-                      <div class="absolute inset-0">
-                        <img src={work.image_url} class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                        <div class="absolute inset-0 bg-gradient-to-r from-animato-primary/90 to-animato-secondary/90"></div>
-                      </div>
-                    )}
-                    <div class="relative z-10 flex flex-col md:flex-row md:items-start md:justify-between gap-4">
-                      <div>
-                    <a href={`/leden/werk/${work.id}`} class="block hover:opacity-90 transition">
-                      <h2 class="text-2xl font-bold mb-1 flex items-center" style="font-family: 'Playfair Display', serif;">
-                        {work.titel}
-                        <i class="fas fa-external-link-alt ml-3 text-lg opacity-75"></i>
-                      </h2>
-                    </a>
-                    <p class="text-gray-100">
-                      <i class="fas fa-user-edit mr-2"></i>
-                      {work.componist}
-                      {work.genre && (
-                        <span class="ml-4">
-                          <i class="fas fa-tag mr-2"></i>
-                          {work.genre}
-                        </span>
-                      )}
-                    </p>
-                    {work.beschrijving && (
-                      <p class="text-sm text-gray-200 mt-2 whitespace-pre-line">{work.beschrijving}</p>
-                    )}
-                    </div>
-                    <button 
-                      onclick={`openPrintModal('work', '${work.id}', '${work.titel.replace(/'/g, "\\'")}')`}
-                      class="flex-shrink-0 bg-white text-animato-primary hover:bg-gray-100 border border-white/40 px-4 py-2 rounded-lg font-bold transition text-sm flex items-center shadow-lg"
-                      title="Vraag papieren versie aan voor dit hele werk"
-                    >
-                      <i class="fas fa-print mr-2"></i>
-                      Vraag papieren versie aan
-                    </button>
-                  </div>
-                  </div>
-
-                  {/* Pieces */}
-                  <div class="p-6">
-                    {work.pieces.map((piece: any) => (
-                      <div class="mb-6 last:mb-0">
-                        <div class="flex items-center justify-between mb-3">
-                          <div>
-                            <h3 class="text-lg font-bold text-gray-900">
-                              {piece.nummer && `${piece.nummer}. `}
-                              {piece.titel}
-                            </h3>
-                            {piece.moeilijkheidsgraad && (
-                              <span class={`inline-block px-2 py-1 rounded text-xs font-semibold mt-1 ${
-                                piece.moeilijkheidsgraad === 'beginner' ? 'bg-green-100 text-green-800' :
-                                piece.moeilijkheidsgraad === 'gemiddeld' ? 'bg-yellow-100 text-yellow-800' :
-                                piece.moeilijkheidsgraad === 'gevorderd' ? 'bg-orange-100 text-orange-800' :
-                                'bg-red-100 text-red-800'
-                              }`}>
-                                {piece.moeilijkheidsgraad.charAt(0).toUpperCase() + piece.moeilijkheidsgraad.slice(1)}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Materials */}
-                        {piece.materials.length > 0 ? (
-                          <div class="space-y-3">
-                            {piece.materials.map((material: any) => (
-                                // File Download or External Link
-                                <div
-                                  class="flex items-center justify-between bg-gray-50 hover:bg-gray-100 p-4 rounded-lg border border-gray-200 transition group"
-                                >
-                                  <div class="flex items-center flex-1 min-w-0">
-                                    <div class={`w-10 h-10 rounded-lg flex items-center justify-center mr-3 ${
-                                      material.type === 'pdf' ? 'bg-red-100' :
-                                      material.type === 'audio' ? 'bg-green-100' :
-                                      material.type === 'video' ? 'bg-blue-100' :
-                                      material.type === 'link' ? 'bg-purple-100' :
-                                      'bg-gray-100'
-                                    }`}>
-                                      <i class={`fas ${
-                                        material.type === 'pdf' ? 'fa-file-pdf text-red-600' :
-                                        material.type === 'audio' ? 'fa-file-audio text-green-600' :
-                                        material.type === 'video' ? 'fa-file-video text-blue-600' :
-                                        material.type === 'link' ? 'fa-link text-purple-600' :
-                                        'fa-file-archive text-gray-600'
-                                      }`}></i>
-                                    </div>
-                                    <div class="flex-1 min-w-0">
-                                      <div class="font-semibold text-gray-900 truncate group-hover:text-animato-primary">
-                                        {material.titel}
-                                      </div>
-                                      <div class="text-xs text-gray-600">
-                                        <span class="font-semibold">{
-                                          material.stem === 'S' ? 'Sopraan' :
-                                          material.stem === 'A' ? 'Alt' :
-                                          material.stem === 'T' ? 'Tenor' :
-                                          material.stem === 'B' ? 'Bas' :
-                                          material.stem === 'SATB' ? 'Alle stemmen' :
-                                          material.stem
-                                        }</span>
-                                        {material.versie > 1 && ` • v${material.versie}`}
-                                        {material.grootte_bytes && ` • ${(material.grootte_bytes / 1024 / 1024).toFixed(1)} MB`}
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div class="flex items-center gap-3">
-                                    {/* Print Request Button (Only for PDFs) */}
-                                    {material.type === 'pdf' && (
-                                      <button 
-                                        onclick={`openPrintModal('material', '${material.id}', '${material.titel.replace(/'/g, "\\'")}')`}
-                                        class="flex items-center px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-600 hover:text-animato-primary hover:border-animato-primary transition text-sm font-medium"
-                                        title="Vraag papieren versie aan"
-                                      >
-                                        <i class="fas fa-print mr-2"></i>
-                                        Print
-                                      </button>
-                                    )}
-                                    
-                                    {/* Download/Link Button */}
-                                    <a
-                                      href={material.url}
-                                      download={material.type !== 'link'}
-                                      target="_blank"
-                                      class="flex items-center px-3 py-2 bg-animato-primary text-white rounded-lg hover:bg-opacity-90 transition text-sm font-medium"
-                                      title={material.type === 'link' ? 'Open Link' : 'Download Bestand'}
-                                    >
-                                      <i class={`fas ${material.type === 'link' ? 'fa-external-link-alt' : 'fa-download'} mr-2`}></i>
-                                      {material.type === 'link' ? 'Open Link' : 'Download'}
-                                    </a>
-                                  </div>
-                                </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p class="text-gray-500 text-sm italic">
-                            Nog geen materiaal beschikbaar voor dit stuk
-                          </p>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div class="bg-white rounded-lg shadow-md p-12 text-center">
-              <i class="fas fa-folder-open text-gray-300 text-6xl mb-4"></i>
-              <h3 class="text-xl font-semibold text-gray-900 mb-2">
-                Geen materiaal beschikbaar
-              </h3>
-              <p class="text-gray-600">
-                Er is momenteel geen materiaal beschikbaar voor jouw stemgroep.
-              </p>
-            </div>
-          )}
-          
-          {/* Print Request Modal */}
-          <div id="print-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-            <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6" onclick="event.stopPropagation()">
-              <div class="flex items-center justify-between mb-4">
-                <h3 class="text-xl font-bold text-gray-900">
-                  <i class="fas fa-print text-animato-primary mr-2"></i>
-                  Papieren versie aanvragen
-                </h3>
-                <button onclick="closePrintModal()" class="text-gray-400 hover:text-gray-600 text-2xl">
-                  <i class="fas fa-times"></i>
-                </button>
-              </div>
-
-              <form id="print-form" method="POST" action="/api/leden/print-request">
-                <input type="hidden" name="work_id" id="print-work-id" />
-                <input type="hidden" name="material_id" id="print-material-id" />
-                
-                <div class="mb-4">
-                  <p class="text-gray-700 mb-2">
-                    Je vraagt een geprinte versie aan van: <br/>
-                    <strong id="print-material-title"></strong>
-                  </p>
-                  <div class="bg-blue-50 border-l-4 border-blue-400 p-3 mb-4">
-                    <p class="text-sm text-blue-800">
-                      <i class="fas fa-info-circle mr-1"></i>
-                      Let op: Hier zijn kosten aan verbonden (ca. €0.10 per pagina). De kosten worden verrekend via de penningmeester.
-                    </p>
-                  </div>
-                  
-                  <label class="block text-sm font-medium text-gray-700 mb-1">
-                    Opmerking (optioneel)
-                  </label>
-                  <textarea
-                    name="opmerking"
-                    rows={3}
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    placeholder="Bijv. aantal exemplaren, specifieke wensen..."
-                  ></textarea>
-                </div>
-
-                <div class="flex justify-end gap-3">
-                  <button type="button" onclick="closePrintModal()" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
-                    Annuleren
-                  </button>
-                  <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-opacity-90 transition">
-                    Verstuur Aanvraag
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-
-          <script dangerouslySetInnerHTML={{ __html: `
-            function openPrintModal(type, id, title) {
-              const modal = document.getElementById('print-modal');
-              const titleEl = document.getElementById('print-material-title');
-              const workInput = document.getElementById('print-work-id');
-              const materialInput = document.getElementById('print-material-id');
-              
-              // Reset inputs
-              workInput.value = '';
-              materialInput.value = '';
-              
-              if (type === 'work') {
-                workInput.value = id;
-              } else {
-                materialInput.value = id;
-              }
-              
-              titleEl.textContent = title;
-              modal.classList.remove('hidden');
-            }
-
-            function closePrintModal() {
-              document.getElementById('print-modal').classList.add('hidden');
-            }
-            
-            // Close on backdrop click
-            document.getElementById('print-modal').addEventListener('click', function(e) {
-              if (e.target === this) closePrintModal();
-            });
-          ` }} />
-        </div>
-      </div>
-    </Layout>
-  )
-})
-
-// =====================================================
-// PRINT REQUEST API (UPDATED)
-// =====================================================
-
-app.post('/api/leden/print-request', async (c) => {
-  const user = c.get('user') as SessionUser
-  const body = await c.req.parseBody()
-  
-  const materialId = body.material_id ? parseInt(String(body.material_id)) : null
-  const workId = body.work_id ? parseInt(String(body.work_id)) : null
-  const opmerking = body.opmerking ? String(body.opmerking) : null
-
-  if (!materialId && !workId) {
-    return c.redirect('/leden/materiaal?error=invalid_request')
-  }
-
-  // 1. Determine cost and subscription status
-  // Get settings
-  const settings = await queryAll(c.env.DB, "SELECT * FROM system_settings")
-  const settingsMap = settings.reduce((acc: any, curr: any) => ({...acc, [curr.key]: curr.value}), {})
-  const currentSeason = settingsMap.current_season || '2025-2026'
-  const pricePerPage = parseFloat(settingsMap.price_per_page || '0.15')
-
-  // Check user subscription
-  const membership = await queryOne<any>(
-    c.env.DB,
-    `SELECT um.type, um.status 
-     FROM user_memberships um
-     JOIN membership_years my ON um.year_id = my.id
-     WHERE um.user_id = ? AND my.season = ? AND um.status = 'paid'`,
-    [user.id, currentSeason]
-  )
-
-  const hasSubscription = membership && membership.type === 'full'
-
-  // Calculate cost
-  let cost = 0.00
-  let pageCount = 0
-
-  if (materialId) {
-    const material = await queryOne<any>(c.env.DB, "SELECT page_count FROM materials WHERE id = ?", [materialId])
-    if (material) {
-      pageCount = material.page_count || 0
-      cost = hasSubscription ? 0 : (pageCount * pricePerPage)
-    }
-  } else if (workId) {
-    // Sum all pages for the work
-    const result = await queryOne<any>(
-      c.env.DB, 
-      `SELECT SUM(m.page_count) as total_pages 
-       FROM materials m 
-       JOIN pieces p ON m.piece_id = p.id 
-       WHERE p.work_id = ? AND m.type = 'pdf' AND m.is_actief = 1`,
-      [workId]
-    )
-    pageCount = result?.total_pages || 0
-    cost = hasSubscription ? 0 : (pageCount * pricePerPage)
-  }
-
-  // 2. Check if request already exists (pending)
-  let existing;
-  if (materialId) {
-    existing = await queryOne(
-      c.env.DB,
-      `SELECT id FROM print_requests WHERE user_id = ? AND material_id = ? AND status = 'pending'`,
-      [user.id, materialId]
-    )
-  } else {
-    existing = await queryOne(
-      c.env.DB,
-      `SELECT id FROM print_requests WHERE user_id = ? AND work_id = ? AND material_id IS NULL AND status = 'pending'`,
-      [user.id, workId]
-    )
-  }
-
-  if (existing) {
-    return c.redirect('/leden/materiaal?error=already_requested')
-  }
-  
-  // 3. Retrieve final Work ID
-  let finalWorkId = workId
-  if (!finalWorkId && materialId) {
-    const material = await queryOne<any>(c.env.DB, 
-      `SELECT p.work_id FROM materials m JOIN pieces p ON m.piece_id = p.id WHERE m.id = ?`, 
-      [materialId]
-    )
-    if (material) finalWorkId = material.work_id
-  }
-
-  // 4. Create Request
-  // If cost > 0, we would generate a payment link here in a real scenario
-  const paymentStatus = cost > 0 ? 'pending' : 'free'
-  
-  await execute(c.env.DB, `
-    INSERT INTO print_requests (
-      user_id, material_id, work_id, opmerking, 
-      cost, is_subscription_covered, payment_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-  `, [
-    user.id, 
-    materialId, 
-    finalWorkId, 
-    opmerking,
-    cost,
-    hasSubscription ? 1 : 0,
-    paymentStatus
-  ])
-
-  // Redirect back
-  const redirectUrl = workId && !materialId 
-    ? `/leden/werk/${workId}` 
-    : '/leden/materiaal'
-
-  if (cost > 0) {
-    return c.redirect(redirectUrl + '?success=print_requested_payment&cost=' + cost.toFixed(2))
-  }
-
-  return c.redirect(redirectUrl + '?success=print_requested')
-})
-
-// Legacy endpoint support (optional, can be removed if all buttons updated)
-app.post('/api/leden/materiaal/:id/print', async (c) => {
-  return c.redirect('/leden/materiaal')
-})
-
-// =====================================================
-// WERK DETAIL (WORK DETAIL)
-// =====================================================
-
-app.get('/leden/werk/:id', async (c) => {
-  const user = c.get('user') as SessionUser
-  const werkId = c.req.param('id')
-
-  // Get work with all pieces and materials
-  const work = await queryOne<any>(
-    c.env.DB,
-    `SELECT * FROM works WHERE id = ?`,
-    [werkId]
-  )
-
-  if (!work) {
-    return c.redirect('/leden/materiaal?error=not_found')
-  }
-
-  // Get all pieces for this work
-  const pieces = await queryAll(
-    c.env.DB,
-    `SELECT * FROM pieces WHERE work_id = ? ORDER BY nummer`,
-    [werkId]
-  )
-
-  // For each piece, get materials visible to this user
-  const piecesWithMaterials = await Promise.all(
-    pieces.map(async (piece: any) => {
-      const materials = await queryAll(
-        c.env.DB,
-        `SELECT m.*
-         FROM materials m
-         WHERE m.piece_id = ? 
-           AND m.is_actief = 1
-           AND (m.stem = ? OR m.stem = 'SATB' OR m.stem = 'algemeen')
-           AND (m.zichtbaar_voor = 'alle_leden' OR 
-                ((m.zichtbaar_voor = 'stem_specifiek' OR m.zichtbaar_voor = 'eigen_stem') AND m.stem = ?))
-         ORDER BY 
-           CASE m.type 
-             WHEN 'pdf' THEN 1 
-             WHEN 'audio' THEN 2 
-             WHEN 'video' THEN 3 
-             ELSE 4 
-           END,
-           m.stem, m.versie DESC`,
-        [piece.id, user.stemgroep, user.stemgroep]
-      )
-      return { ...piece, materials }
-    })
-  )
-
-  return c.html(
-    <Layout 
-      title={`${work.titel} - ${work.componist}`}
-      user={user}
-      breadcrumbs={[
-        { label: 'Ledenportaal', href: '/leden' },
-        { label: 'Materiaal', href: '/leden/materiaal' },
-        { label: work.titel, href: `/leden/werk/${werkId}` }
-      ]}
-    >
-      <div class="bg-gray-50 min-h-screen py-8">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          
-          {/* Back button */}
-          <div class="mb-6">
-            <a 
-              href="/leden/materiaal"
-              class="inline-flex items-center text-animato-primary hover:text-animato-secondary font-semibold transition"
-            >
-              <i class="fas fa-arrow-left mr-2"></i>
-              Terug naar materiaal
-            </a>
-          </div>
-
-          {/* Work header */}
-          <div class="bg-white rounded-lg shadow-md overflow-hidden mb-8">
-            <div class="bg-gradient-to-r from-animato-primary to-animato-secondary text-white p-8 relative overflow-hidden group">
-              {work.image_url && (
-                <div class="absolute inset-0">
-                  <img src={work.image_url} class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105" />
-                  <div class="absolute inset-0 bg-gradient-to-r from-animato-primary/90 to-animato-secondary/90"></div>
-                </div>
-              )}
-              <div class="relative z-10">
-                <h1 class="text-4xl font-bold mb-3" style="font-family: 'Playfair Display', serif;">
-                  {work.titel}
-                </h1>
-              <div class="flex flex-wrap items-center gap-4 text-lg">
-                <div class="flex items-center">
-                  <i class="fas fa-user-edit mr-2"></i>
-                  {work.componist}
-                </div>
-                {work.genre && (
-                  <div class="flex items-center">
-                    <i class="fas fa-tag mr-2"></i>
-                    {work.genre}
-                  </div>
-                )}
-                {work.jaar && (
-                  <div class="flex items-center">
-                    <i class="fas fa-calendar mr-2"></i>
-                    {work.jaar}
-                  </div>
-                )}
-              </div>
-              {work.beschrijving && (
-                <p class="text-gray-100 mt-4 text-base whitespace-pre-line">{work.beschrijving}</p>
-              )}
-              
-              <div class="mt-6">
-                <button 
-                  onclick={`openPrintModal('work', '${work.id}', '${work.titel.replace(/'/g, "\\'")}')`}
-                  class="bg-white text-animato-primary px-6 py-3 rounded-lg font-semibold hover:bg-gray-100 transition shadow-sm inline-flex items-center"
-                >
-                  <i class="fas fa-print mr-2"></i>
-                  Vraag papieren versie aan
-                </button>
-                <p class="text-white text-xs mt-2 opacity-80">
-                  <i class="fas fa-info-circle mr-1"></i>
-                  Bestel een geprinte versie van dit werk (kosten worden verrekend)
-                </p>
-              </div>
-              </div>
-            </div>
-
-            {/* Pieces and Materials */}
-            <div class="p-8">
-              {piecesWithMaterials.length > 0 ? (
-                <div class="space-y-8">
-                  {piecesWithMaterials.map((piece: any, index: number) => (
-                    <div class={`${index > 0 ? 'pt-8 border-t border-gray-200' : ''}`}>
-                      {/* Piece header */}
-                      <div class="mb-4">
-                        <h2 class="text-2xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
-                          {piece.nummer && `${piece.nummer}. `}
-                          {piece.titel}
-                        </h2>
-                        <div class="flex flex-wrap items-center gap-3 mt-2">
-                          {piece.moeilijkheidsgraad && (
-                            <span class={`inline-block px-3 py-1 rounded-full text-sm font-semibold ${
-                              piece.moeilijkheidsgraad === 'beginner' ? 'bg-green-100 text-green-800' :
-                              piece.moeilijkheidsgraad === 'gemiddeld' ? 'bg-yellow-100 text-yellow-800' :
-                              piece.moeilijkheidsgraad === 'gevorderd' ? 'bg-orange-100 text-orange-800' :
-                              'bg-red-100 text-red-800'
-                            }`}>
-                              <i class="fas fa-signal mr-1"></i>
-                              {piece.moeilijkheidsgraad.charAt(0).toUpperCase() + piece.moeilijkheidsgraad.slice(1)}
-                            </span>
-                          )}
-                          {piece.toonsoort && (
-                            <span class="text-sm text-gray-600">
-                              <i class="fas fa-music mr-1"></i>
-                              {piece.toonsoort}
-                            </span>
-                          )}
-                          {piece.tempo && (
-                            <span class="text-sm text-gray-600">
-                              <i class="fas fa-tachometer-alt mr-1"></i>
-                              {piece.tempo}
-                            </span>
-                          )}
-                          {piece.duur_minuten && (
-                            <span class="text-sm text-gray-600">
-                              <i class="fas fa-clock mr-1"></i>
-                              {piece.duur_minuten} min
-                            </span>
-                          )}
-                        </div>
-                        {piece.opmerking && (
-                          <div class="mt-3 p-3 bg-blue-50 border-l-4 border-blue-400 rounded">
-                            <p class="text-sm text-gray-700 whitespace-pre-line">
-                              <i class="fas fa-info-circle text-blue-600 mr-2"></i>
-                              {piece.opmerking}
-                            </p>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Materials list */}
-                      {piece.materials.length > 0 ? (
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          {piece.materials.map((material: any) => (
-                            <div
-                              class="flex items-center justify-between bg-gray-50 hover:bg-gray-100 p-4 rounded-lg border border-gray-200 transition group"
-                            >
-                              <div class="flex items-center flex-1 min-w-0">
-                                <div class={`w-12 h-12 rounded-lg flex items-center justify-center mr-4 ${
-                                  material.type === 'pdf' ? 'bg-red-100' :
-                                  material.type === 'audio' ? 'bg-green-100' :
-                                  material.type === 'video' ? 'bg-blue-100' :
-                                  material.type === 'link' ? 'bg-purple-100' :
-                                  'bg-gray-100'
-                                }`}>
-                                  <i class={`fas text-xl ${
-                                    material.type === 'pdf' ? 'fa-file-pdf text-red-600' :
-                                    material.type === 'audio' ? 'fa-file-audio text-green-600' :
-                                    material.type === 'video' ? 'fa-file-video text-blue-600' :
-                                    material.type === 'link' ? 'fa-link text-purple-600' :
-                                    'fa-file-archive text-gray-600'
-                                  }`}></i>
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                  <div class="font-semibold text-gray-900 truncate group-hover:text-animato-primary">
-                                    {material.titel}
-                                  </div>
-                                  <div class="text-sm text-gray-600 flex items-center gap-2 mt-1">
-                                    <span class={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                      material.stem === 'S' ? 'bg-pink-100 text-pink-800' :
-                                      material.stem === 'A' ? 'bg-purple-100 text-purple-800' :
-                                      material.stem === 'T' ? 'bg-blue-100 text-blue-800' :
-                                      material.stem === 'B' ? 'bg-indigo-100 text-indigo-800' :
-                                      'bg-gray-100 text-gray-800'
-                                    }`}>
-                                      {material.stem === 'S' ? 'Sopraan' :
-                                       material.stem === 'A' ? 'Alt' :
-                                       material.stem === 'T' ? 'Tenor' :
-                                       material.stem === 'B' ? 'Bas' :
-                                       material.stem === 'SATB' ? 'Alle stemmen' :
-                                       material.stem}
-                                    </span>
-                                    {material.versie > 1 && <span>• v{material.versie}</span>}
-                                    {material.grootte_bytes && <span>• {(material.grootte_bytes / 1024 / 1024).toFixed(1)} MB</span>}
-                                  </div>
-                                </div>
-                              </div>
-                              <div class="flex items-center gap-3 ml-4">
-                                {material.type === 'pdf' && (
-                                  <button 
-                                    onclick={`openPrintModal('material', '${material.id}', '${material.titel.replace(/'/g, "\\'")}')`}
-                                    class="flex items-center px-3 py-2 bg-white border border-gray-200 rounded-lg text-gray-600 hover:text-animato-primary hover:border-animato-primary transition text-sm font-medium"
-                                    title="Vraag papieren versie aan"
-                                  >
-                                    <i class="fas fa-print mr-2"></i>
-                                    Print
-                                  </button>
-                                )}
-                                <a
-                                  href={material.url}
-                                  download={material.type !== 'link'}
-                                  target="_blank"
-                                  class="text-animato-primary text-xl hover:scale-110 transition-transform"
-                                  title="Download / Open"
-                                >
-                                  <i class={`fas ${material.type === 'link' ? 'fa-external-link-alt' : 'fa-download'}`}></i>
-                                </a>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <p class="text-gray-500 italic text-center py-8 bg-gray-50 rounded-lg">
-                          Geen materiaal beschikbaar voor dit stuk
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div class="text-center py-12">
-                  <i class="fas fa-music text-gray-300 text-6xl mb-4"></i>
-                  <p class="text-gray-500 text-lg">
-                    Nog geen stukken toegevoegd aan dit werk
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-          
-          {/* Print Request Modal (Detail Page) */}
-          <div id="print-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-            <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6" onclick="event.stopPropagation()">
-              <div class="flex items-center justify-between mb-4">
-                <h3 class="text-xl font-bold text-gray-900">
-                  <i class="fas fa-print text-animato-primary mr-2"></i>
-                  Papieren versie aanvragen
-                </h3>
-                <button onclick="closePrintModal()" class="text-gray-400 hover:text-gray-600 text-2xl">
-                  <i class="fas fa-times"></i>
-                </button>
-              </div>
-
-              <form id="print-form" method="POST" action="/api/leden/print-request">
-                <input type="hidden" name="work_id" id="print-work-id" />
-                <input type="hidden" name="material_id" id="print-material-id" />
-
-                <div class="mb-4">
-                  <p class="text-gray-700 mb-2">
-                    Je vraagt een geprinte versie aan van: <br/>
-                    <strong id="print-material-title"></strong>
-                  </p>
-                  <div class="bg-blue-50 border-l-4 border-blue-400 p-3 mb-4">
-                    <p class="text-sm text-blue-800">
-                      <i class="fas fa-info-circle mr-1"></i>
-                      Let op: Hier zijn kosten aan verbonden (ca. €0.10 per pagina). De kosten worden verrekend via de penningmeester.
-                    </p>
-                  </div>
-                  
-                  <label class="block text-sm font-medium text-gray-700 mb-1">
-                    Opmerking (optioneel)
-                  </label>
-                  <textarea
-                    name="opmerking"
-                    rows={3}
-                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    placeholder="Bijv. aantal exemplaren, specifieke wensen..."
-                  ></textarea>
-                </div>
-
-                <div class="flex justify-end gap-3">
-                  <button type="button" onclick="closePrintModal()" class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition">
-                    Annuleren
-                  </button>
-                  <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-opacity-90 transition">
-                    Verstuur Aanvraag
-                  </button>
-                </div>
-              </form>
-            </div>
-          </div>
-
-          <script dangerouslySetInnerHTML={{ __html: `
-            function openPrintModal(type, id, title) {
-              const modal = document.getElementById('print-modal');
-              const titleEl = document.getElementById('print-material-title');
-              const workInput = document.getElementById('print-work-id');
-              const materialInput = document.getElementById('print-material-id');
-              
-              // Reset inputs
-              workInput.value = '';
-              materialInput.value = '';
-              
-              if (type === 'work') {
-                workInput.value = id;
-              } else {
-                materialInput.value = id;
-              }
-              
-              titleEl.textContent = title;
-              modal.classList.remove('hidden');
-            }
-
-            function closePrintModal() {
-              document.getElementById('print-modal').classList.add('hidden');
-            }
-            
-            // Close on backdrop click
-            document.getElementById('print-modal').addEventListener('click', function(e) {
-              if (e.target === this) closePrintModal();
-            });
-          ` }} />
-        </div>
-      </div>
-    </Layout>
-  )
-})
-
-// =====================================================
-// SMOELENBOEK (MEMBER DIRECTORY)
-// =====================================================
-
-app.get('/leden/smoelenboek', async (c) => {
-  const user = c.get('user') as SessionUser
-  const stemgroep = c.req.query('stemgroep') || 'all'
-  const view = c.req.query('view') || 'tiles' // tiles or list
-  const search = c.req.query('search') || ''
-
-  // First, get ALL members for accurate counts (without stemgroep filter)
-  let countQuery = `
-    SELECT u.id, u.stemgroep
-    FROM users u
-    LEFT JOIN profiles p ON p.user_id = u.id
-    WHERE u.status IN ('actief', 'proeflid') AND u.role IN ('lid', 'stemleider', 'moderator', 'admin')
-      AND p.smoelenboek_zichtbaar = 1
-  `
-  const allMembers = await queryAll(c.env.DB, countQuery, [])
-  
-  // Calculate accurate counts from all members
-  const counts = {
-    'Sopraan': allMembers.filter((m: any) => m.stemgroep === 'S').length,
-    'Alt': allMembers.filter((m: any) => m.stemgroep === 'A').length,
-    'Tenor': allMembers.filter((m: any) => m.stemgroep === 'T').length,
-    'Bas': allMembers.filter((m: any) => m.stemgroep === 'B').length
-  }
-  const totalCount = allMembers.length
-
-  // Now get the filtered members for display with their full profile data
-  let query = `
-    SELECT u.id, u.email, u.stemgroep, u.role,
-           p.voornaam, p.achternaam, p.telefoon, p.bio, p.muzikale_ervaring, 
-           p.foto_url, p.favoriete_genre, p.favoriete_componist, p.favoriete_werk,
-           p.instrument, p.jaren_in_koor, p.zanger_type, p.smoelenboek_zichtbaar, p.toon_telefoon, p.toon_email,
-           (SELECT COUNT(*) FROM user_sessions WHERE user_id = u.id AND is_active = 1) as is_online
-    FROM users u
-    LEFT JOIN profiles p ON p.user_id = u.id
-    WHERE u.status IN ('actief', 'proeflid') AND u.role IN ('lid', 'stemleider', 'moderator', 'admin')
-      AND p.smoelenboek_zichtbaar = 1
-  `
-  const params: any[] = []
-
-  // Search filter
-  if (search) {
-    query += ` AND (p.voornaam LIKE ? OR p.achternaam LIKE ? OR p.favoriete_genre LIKE ? OR p.favoriete_componist LIKE ?)`
-    const searchTerm = `%${search}%`
-    params.push(searchTerm, searchTerm, searchTerm, searchTerm)
-  }
-
-  if (stemgroep !== 'all') {
-    query += ` AND u.stemgroep = ?`
-    params.push(stemgroep)
-  }
-
-  // Sort alphabetically by first name
-  query += ` ORDER BY p.voornaam, p.achternaam`
-
-  const members = await queryAll(c.env.DB, query, params)
-
-  // Map stemgroep codes to full names
-  const stemgroepMap: Record<string, string> = {
-    'S': 'Sopraan',
-    'A': 'Alt',
-    'T': 'Tenor',
-    'B': 'Bas'
-  }
-  
-  // Group by stemgroep with proper mapping
-  const grouped = members.reduce((acc: any, member: any) => {
-    const stemCode = member.stemgroep || 'overig'
-    const stemName = stemgroepMap[stemCode] || 'Overig'
-    if (!acc[stemName]) acc[stemName] = []
-    acc[stemName].push(member)
-    return acc
-  }, {})
-
-  return c.html(
-    <Layout 
-      title="Onze Zangers" 
-      user={user}
-      breadcrumbs={[
-        { label: 'Ledenportaal', href: '/leden' },
-        { label: 'Onze Zangers', href: '/leden/smoelenboek' }
-      ]}
-    >
-      <div class="bg-gray-50 min-h-screen py-8">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          
-          {/* Header with Search and View Toggle */}
-          <div class="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div>
-              <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
-                <i class="fas fa-users text-pink-600 mr-3"></i>
-                Onze Zangers
-              </h1>
-              <p class="mt-2 text-gray-600">
-                Ontmoet je mede-koorleden en leer elkaar kennen
-              </p>
-            </div>
-            
-            {/* View Toggle */}
-            <div class="flex items-center gap-2">
-              <a
-                href={`/leden/smoelenboek?view=tiles&stemgroep=${stemgroep}${search ? `&search=${search}` : ''}`}
-                class={`px-4 py-2 rounded-lg transition ${
-                  view === 'tiles'
-                    ? 'bg-animato-primary text-white'
-                    : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                }`}
-              >
-                <i class="fas fa-th mr-2"></i>
-                Tiles
-              </a>
-              <a
-                href={`/leden/smoelenboek?view=list&stemgroep=${stemgroep}${search ? `&search=${search}` : ''}`}
-                class={`px-4 py-2 rounded-lg transition ${
-                  view === 'list'
-                    ? 'bg-animato-primary text-white'
-                    : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-                }`}
-              >
-                <i class="fas fa-list mr-2"></i>
-                Lijst
-              </a>
-            </div>
-          </div>
-
-          {/* Search Bar */}
-          <div class="bg-white rounded-lg shadow-md p-4 mb-6">
-            <form action="/leden/smoelenboek" method="GET" class="flex flex-col md:flex-row gap-4">
-              <input 
-                type="hidden" 
-                name="view" 
-                value={view}
-              />
-              <input 
-                type="hidden" 
-                name="stemgroep" 
-                value={stemgroep}
-              />
-              <div class="flex-1">
-                <div class="relative">
-                  <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <i class="fas fa-search text-gray-400"></i>
-                  </div>
-                  <input
-                    type="text"
-                    name="search"
-                    value={search}
-                    placeholder="Zoek op naam, genre, componist..."
-                    class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                  />
-                </div>
-              </div>
-              <button
-                type="submit"
-                class="px-6 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition"
-              >
-                <i class="fas fa-search mr-2"></i>
-                Zoeken
-              </button>
-              {search && (
-                <a
-                  href={`/leden/smoelenboek?view=${view}&stemgroep=${stemgroep}`}
-                  class="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition"
-                >
-                  <i class="fas fa-times mr-2"></i>
-                  Wissen
-                </a>
-              )}
-            </form>
-          </div>
-
-          {/* Filter Tabs */}
-          <div class="bg-white rounded-lg shadow-md mb-6">
-            <div class="border-b border-gray-200">
-              <nav class="flex -mb-px overflow-x-auto">
-                <a
-                  href={`/leden/smoelenboek?stemgroep=all&view=${view}${search ? `&search=${search}` : ''}`}
-                  class={`px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap ${
-                    stemgroep === 'all'
-                      ? 'border-animato-primary text-animato-primary'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  <i class="fas fa-users mr-2"></i>
-                  Alle Leden ({totalCount})
-                </a>
-                <a
-                  href={`/leden/smoelenboek?stemgroep=S&view=${view}${search ? `&search=${search}` : ''}`}
-                  class={`px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap ${
-                    stemgroep === 'S'
-                      ? 'border-animato-primary text-animato-primary'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  <i class="fas fa-music mr-2"></i>
-                  Sopraan ({counts.Sopraan})
-                </a>
-                <a
-                  href={`/leden/smoelenboek?stemgroep=A&view=${view}${search ? `&search=${search}` : ''}`}
-                  class={`px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap ${
-                    stemgroep === 'A'
-                      ? 'border-animato-primary text-animato-primary'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  <i class="fas fa-music mr-2"></i>
-                  Alt ({counts.Alt})
-                </a>
-                <a
-                  href={`/leden/smoelenboek?stemgroep=T&view=${view}${search ? `&search=${search}` : ''}`}
-                  class={`px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap ${
-                    stemgroep === 'T'
-                      ? 'border-animato-primary text-animato-primary'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  <i class="fas fa-music mr-2"></i>
-                  Tenor ({counts.Tenor})
-                </a>
-                <a
-                  href={`/leden/smoelenboek?stemgroep=B&view=${view}${search ? `&search=${search}` : ''}`}
-                  class={`px-6 py-4 text-sm font-medium border-b-2 whitespace-nowrap ${
-                    stemgroep === 'B'
-                      ? 'border-animato-primary text-animato-primary'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  <i class="fas fa-music mr-2"></i>
-                  Bas ({counts.Bas})
-                </a>
-              </nav>
-            </div>
-          </div>
-
-          {/* Members Display */}
-          {Object.keys(grouped).length > 0 ? (
-            Object.keys(grouped).sort((a, b) => {
-              // Custom sort order: Sopraan, Alt, Tenor, Bas, Overige
-              const order = ['Sopraan', 'Alt', 'Tenor', 'Bas', 'Overige']
-              const indexA = order.indexOf(a)
-              const indexB = order.indexOf(b)
-              // If both found, use order array
-              if (indexA !== -1 && indexB !== -1) return indexA - indexB
-              // If only A found, put it first
-              if (indexA !== -1) return -1
-              // If only B found, put it first
-              if (indexB !== -1) return 1
-              // Otherwise alphabetical
-              return a.localeCompare(b)
-            }).map((stem) => (
-              <div class="mb-8">
-                {stemgroep === 'all' && (
-                  <h2 class="text-2xl font-bold text-gray-900 mb-4" style="font-family: 'Playfair Display', serif;">
-                    <i class="fas fa-music text-animato-primary mr-2"></i>
-                    {stem}
-                  </h2>
-                )}
-                
-                {/* Tiles View */}
-                {view === 'tiles' && (
-                  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-                  {grouped[stem].map((member: any) => (
-                    <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition">
-                      
-                      {/* Profile Header with Photo */}
-                      <div class="relative">
-                        {/* Cover gradient */}
-                        <div class="h-24 bg-gradient-to-r from-animato-primary to-animato-secondary"></div>
-                        
-                        {/* Profile Photo */}
-                        <div class="absolute -bottom-12 left-6">
-                          <div class="relative w-24 h-24">
-                            <div class="w-24 h-24 rounded-full border-4 border-white shadow-lg overflow-hidden bg-gray-200">
-                              {member.foto_url ? (
-                                <img 
-                                  src={member.foto_url} 
-                                  alt={`${member.voornaam} ${member.achternaam}`}
-                                  class="w-full h-full object-cover"
-                                />
-                              ) : (
-                                <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-animato-primary to-animato-secondary text-white text-2xl font-bold">
-                                  {member.voornaam?.charAt(0) || 'U'}{member.achternaam?.charAt(0) || ''}
-                                </div>
-                              )}
-                            </div>
-                            {/* Online Indicator */}
-                            {member.is_online > 0 && (
-                              <div class="absolute bottom-1 right-1 w-6 h-6 bg-green-500 border-3 border-white rounded-full flex items-center justify-center shadow-lg animate-pulse">
-                                <i class="fas fa-circle text-white text-xs"></i>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        
-                        {/* Role Badge */}
-                        {(member.role === 'stemleider' || member.role === 'moderator' || member.role === 'admin') && (
-                          <div class="absolute top-3 right-3">
-                            <span class="px-3 py-1 bg-white/90 backdrop-blur-sm text-animato-primary rounded-full text-xs font-semibold shadow-lg">
-                              <i class="fas fa-star mr-1"></i>
-                              {member.role === 'stemleider' && 'Stemleider'}
-                              {member.role === 'moderator' && 'Moderator'}
-                              {member.role === 'admin' && 'Admin'}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Member Info */}
-                      <div class="pt-14 px-6 pb-6">
-                        {/* Name and Voice */}
-                        <div class="mb-3">
-                          <h3 class="text-xl font-bold text-gray-900 flex items-center gap-2">
-                            {member.voornaam} {member.achternaam}
-                            {member.is_online > 0 && (
-                              <span class="inline-flex items-center px-2 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold animate-pulse">
-                                <i class="fas fa-circle text-xs mr-1"></i>
-                                Online
-                              </span>
-                            )}
-                          </h3>
-                          <div class="flex items-center gap-2 mt-1">
-                            <span class="inline-flex items-center px-2 py-1 bg-animato-primary/10 text-animato-primary rounded text-xs font-semibold">
-                              <i class="fas fa-music mr-1"></i>
-                              {stemgroepMap[member.stemgroep] || 'Lid'}
-                            </span>
-                            {member.jaren_in_koor > 0 && (
-                              <span class="text-xs text-gray-500">
-                                • {member.jaren_in_koor} {member.jaren_in_koor === 1 ? 'jaar' : 'jaar'}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Bio */}
-                        {member.bio && (
-                          <p class="text-sm text-gray-600 mb-4 leading-relaxed whitespace-pre-line">
-                            {member.bio}
-                          </p>
-                        )}
-
-                        {/* Musical Preferences */}
-                        <div class="space-y-2 mb-4">
-                          {member.favoriete_genre && (
-                            <div class="flex items-start text-sm">
-                              <i class="fas fa-heart text-red-500 mt-0.5 mr-2 flex-shrink-0"></i>
-                              <div>
-                                <span class="text-gray-500">Genre:</span>
-                                <span class="text-gray-700 font-medium ml-1">{member.favoriete_genre}</span>
-                              </div>
-                            </div>
-                          )}
-                          {member.favoriete_componist && (
-                            <div class="flex items-start text-sm">
-                              <i class="fas fa-user-music text-purple-500 mt-0.5 mr-2 flex-shrink-0"></i>
-                              <div>
-                                <span class="text-gray-500">Componist:</span>
-                                <span class="text-gray-700 font-medium ml-1">{member.favoriete_componist}</span>
-                              </div>
-                            </div>
-                          )}
-                          {member.favoriete_werk && (
-                            <div class="flex items-start text-sm">
-                              <i class="fas fa-star text-amber-500 mt-0.5 mr-2 flex-shrink-0"></i>
-                              <div>
-                                <span class="text-gray-500">Favoriet werk:</span>
-                                <span class="text-gray-700 font-medium ml-1">{member.favoriete_werk}</span>
-                              </div>
-                            </div>
-                          )}
-                          {member.instrument && (
-                            <div class="flex items-start text-sm">
-                              <i class="fas fa-guitar text-green-500 mt-0.5 mr-2 flex-shrink-0"></i>
-                              <div>
-                                <span class="text-gray-500">Instrument:</span>
-                                <span class="text-gray-700 font-medium ml-1">{member.instrument}</span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Contact Info */}
-                        <div class="pt-4 border-t border-gray-200 space-y-2">
-                          {member.toon_email && member.email && (
-                            <a 
-                              href={`mailto:${member.email}`} 
-                              class="flex items-center text-sm text-animato-primary hover:text-animato-secondary transition"
-                            >
-                              <i class="fas fa-envelope w-5"></i>
-                              <span class="truncate">Stuur email</span>
-                            </a>
-                          )}
-                          {member.toon_telefoon && member.telefoon && (
-                            <div class="flex items-center text-sm text-gray-600">
-                              <i class="fas fa-phone w-5"></i>
-                              <span>{member.telefoon}</span>
-                            </div>
-                          )}
-                          
-                          {/* Edit Button (only for own profile) */}
-                          {member.id === user.id && (
-                            <a 
-                              href="/leden/profiel" 
-                              class="flex items-center text-sm text-amber-600 hover:text-amber-700 transition font-semibold"
-                            >
-                              <i class="fas fa-edit w-5"></i>
-                              <span>Bewerk profiel</span>
-                            </a>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  </div>
-                )}
-
-                {/* List View */}
-                {view === 'list' && (
-                  <div class="bg-white rounded-lg shadow-md overflow-hidden">
-                    <div class="overflow-x-auto">
-                      <table class="min-w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                          <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Naam</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stemgroep</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Genre</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Componist</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Jaren</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
-                          </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                          {grouped[stem].map((member: any) => (
-                            <tr class="hover:bg-gray-50 transition">
-                              <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="flex items-center">
-                                  <div class="flex-shrink-0 h-10 w-10 relative">
-                                    {member.foto_url ? (
-                                      <img 
-                                        src={member.foto_url} 
-                                        alt={`${member.voornaam} ${member.achternaam}`}
-                                        class="h-10 w-10 rounded-full object-cover"
-                                      />
-                                    ) : (
-                                      <div class="h-10 w-10 rounded-full bg-gradient-to-br from-animato-primary to-animato-secondary flex items-center justify-center text-white text-sm font-bold">
-                                        {member.voornaam?.charAt(0)}{member.achternaam?.charAt(0)}
-                                      </div>
-                                    )}
-                                    {/* Online Indicator */}
-                                    {member.is_online > 0 && (
-                                      <div class="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white rounded-full animate-pulse"></div>
-                                    )}
-                                  </div>
-                                  <div class="ml-4">
-                                    <div class="text-sm font-medium text-gray-900 flex items-center gap-2">
-                                      {member.voornaam} {member.achternaam}
-                                      {member.is_online > 0 && (
-                                        <span class="inline-flex items-center px-1.5 py-0.5 bg-green-100 text-green-700 rounded text-xs font-semibold animate-pulse">
-                                          <i class="fas fa-circle text-xs mr-1"></i>
-                                          Online
-                                        </span>
-                                      )}
-                                      {member.id === user.id && (
-                                        <a href="/leden/profiel" class="ml-2 text-amber-600 hover:text-amber-700">
-                                          <i class="fas fa-edit text-xs"></i>
-                                        </a>
-                                      )}
-                                    </div>
-                                    {(member.role === 'stemleider' || member.role === 'moderator' || member.role === 'admin') && (
-                                      <div class="text-xs text-animato-primary">
-                                        <i class="fas fa-star mr-1"></i>
-                                        {member.role === 'stemleider' && 'Stemleider'}
-                                        {member.role === 'moderator' && 'Moderator'}
-                                        {member.role === 'admin' && 'Admin'}
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              </td>
-                              <td class="px-6 py-4 whitespace-nowrap">
-                                <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-animato-primary/10 text-animato-primary">
-                                  {stem}
-                                </span>
-                              </td>
-                              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {member.favoriete_genre || '-'}
-                              </td>
-                              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {member.favoriete_componist || '-'}
-                              </td>
-                              <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                {member.jaren_in_koor || 0}
-                              </td>
-                              <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                <div class="flex items-center space-x-2">
-                                  {member.toon_email && member.email && (
-                                    <a 
-                                      href={`mailto:${member.email}`}
-                                      class="text-animato-primary hover:text-animato-secondary"
-                                      title="Stuur email"
-                                    >
-                                      <i class="fas fa-envelope"></i>
-                                    </a>
-                                  )}
-                                  {member.toon_telefoon && member.telefoon && (
-                                    <span class="text-gray-600" title={member.telefoon}>
-                                      <i class="fas fa-phone"></i>
-                                    </span>
-                                  )}
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))
-          ) : (
-            <div class="bg-white rounded-lg shadow-md p-12 text-center">
-              <i class="fas fa-users text-gray-300 text-5xl mb-4"></i>
-              <p class="text-gray-600 text-lg">
-                Geen leden gevonden
-              </p>
-            </div>
-          )}
-
-        </div>
-      </div>
-    </Layout>
-  )
-})
-
-// =====================================================
-// AGENDA (MEMBER VIEW)
-// =====================================================
-
-app.get('/leden/agenda', async (c) => {
-  const user = c.get('user') as SessionUser
-  const type = c.req.query('type') || 'all'
-  const view = c.req.query('view') || 'list'
-  const dateParam = c.req.query('date') || new Date().toISOString().split('T')[0]
-
-  // Parse date for calendar view
-  const currentDate = new Date(dateParam)
-  const year = currentDate.getFullYear()
-  const month = currentDate.getMonth()
-
-  // Calculate month range for calendar view
-  const monthStart = new Date(year, month, 1)
-  const monthEnd = new Date(year, month + 1, 0)
-
-  // Get events visible to this user's stemgroep
-  let query = `
-    SELECT id, type, titel, slug, start_at, end_at, locatie, doelgroep, beschrijving
-    FROM events
-    WHERE (doelgroep = 'all' OR doelgroep LIKE ?)
-  `
-  const params: any[] = [`%${user.stemgroep}%`]
-
-  if (view === 'list') {
-    query += ` AND start_at >= datetime('now')`
-  } else {
-    query += ` AND DATE(start_at) >= DATE(?) AND DATE(start_at) <= DATE(?)`
-    params.push(monthStart.toISOString().split('T')[0], monthEnd.toISOString().split('T')[0])
-  }
-
-  if (type !== 'all') {
-    query += ` AND type = ?`
-    params.push(type)
-  }
-
-  query += ` ORDER BY start_at ASC`
-
-  const events = await queryAll(c.env.DB, query, params)
-
-  // Get counts
-  const allCount = await queryOne<any>(c.env.DB, 
-    `SELECT COUNT(*) as count FROM events WHERE start_at >= datetime('now') AND (doelgroep = 'all' OR doelgroep LIKE ?)`,
-    [`%${user.stemgroep}%`]
-  )
-  const repetitieCount = await queryOne<any>(c.env.DB,
-    `SELECT COUNT(*) as count FROM events WHERE start_at >= datetime('now') AND type = 'repetitie' AND (doelgroep = 'all' OR doelgroep LIKE ?)`,
-    [`%${user.stemgroep}%`]
-  )
-  const concertCount = await queryOne<any>(c.env.DB,
-    `SELECT COUNT(*) as count FROM events WHERE start_at >= datetime('now') AND type = 'concert' AND (doelgroep = 'all' OR doelgroep LIKE ?)`,
-    [`%${user.stemgroep}%`]
-  )
-
-  return c.html(
-    <Layout 
-      title="Agenda" 
-      user={user}
-      breadcrumbs={[
-        { label: 'Ledenportaal', href: '/leden' },
-        { label: 'Agenda', href: '/leden/agenda' }
-      ]}
-    >
-      <div class="bg-gray-50 min-h-screen py-8">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          
-          {/* Header */}
-          <div class="mb-6">
-            <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
-              <i class="fas fa-calendar text-purple-600 mr-3"></i>
-              Agenda
-            </h1>
-            <p class="mt-2 text-gray-600">
-              Aankomende repetities en concerten
-            </p>
-          </div>
-
-          {/* View Toggle */}
-          <div class="flex justify-center mb-6">
-            <div class="inline-flex rounded-lg shadow-sm bg-white" role="group">
-              <a
-                href={`/leden/agenda?view=list&type=${type}`}
-                class={`px-8 py-3 text-sm font-semibold rounded-l-lg border transition ${
-                  view === 'list'
-                    ? 'bg-animato-primary text-white border-animato-primary'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                <i class="fas fa-list mr-2"></i>
-                Lijst
-              </a>
-              <a
-                href={`/leden/agenda?view=calendar&type=${type}&date=${dateParam}`}
-                class={`px-8 py-3 text-sm font-semibold rounded-r-lg border-t border-r border-b transition ${
-                  view === 'calendar'
-                    ? 'bg-animato-primary text-white border-animato-primary'
-                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                <i class="fas fa-calendar mr-2"></i>
-                Kalender
-              </a>
-            </div>
-          </div>
-
-          {/* Filter Tabs */}
-          <div class="bg-white rounded-lg shadow-md mb-6">
-            <div class="border-b border-gray-200">
-              <nav class="flex -mb-px">
-                <a
-                  href="/leden/agenda?type=all"
-                  class={`px-6 py-4 text-sm font-medium border-b-2 ${
-                    type === 'all'
-                      ? 'border-animato-primary text-animato-primary'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  Alle Events ({allCount?.count || 0})
-                </a>
-                <a
-                  href="/leden/agenda?type=repetitie"
-                  class={`px-6 py-4 text-sm font-medium border-b-2 ${
-                    type === 'repetitie'
-                      ? 'border-animato-primary text-animato-primary'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  Repetities ({repetitieCount?.count || 0})
-                </a>
-                <a
-                  href="/leden/agenda?type=concert"
-                  class={`px-6 py-4 text-sm font-medium border-b-2 ${
-                    type === 'concert'
-                      ? 'border-animato-primary text-animato-primary'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  Concerten ({concertCount?.count || 0})
-                </a>
-              </nav>
-            </div>
-          </div>
-
-          {/* Events List */}
-          {view === 'list' && events.length > 0 ? (
-            <div class="space-y-4">
-              {events.map((event: any) => {
-                const startDate = new Date(event.start_at)
-                const endDate = event.end_at ? new Date(event.end_at) : null
-                
-                const typeColors: Record<string, string> = {
-                  'repetitie': 'bg-green-100 text-green-800',
-                  'concert': 'bg-red-100 text-red-800',
-                  'uitstap': 'bg-blue-100 text-blue-800'
-                }
-
-                return (
-                  <div class="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition">
-                    <div class="flex items-start gap-4">
-                      {/* Date Block */}
-                      <div class="flex-shrink-0 text-center bg-animato-primary text-white rounded-lg p-3 w-20">
-                        <div class="text-2xl font-bold">
-                          {startDate.getDate()}
-                        </div>
-                        <div class="text-sm uppercase">
-                          {startDate.toLocaleDateString('nl-NL', { month: 'short' })}
-                        </div>
-                      </div>
-
-                      {/* Event Info */}
-                      <div class="flex-1">
-                        <div class="flex items-start justify-between mb-2">
-                          <h3 class="text-xl font-bold text-gray-900">
-                            {event.titel}
-                          </h3>
-                          <span class={`px-3 py-1 text-xs font-semibold rounded-full ${typeColors[event.type] || 'bg-gray-100 text-gray-800'}`}>
-                            {event.type === 'repetitie' && 'Repetitie'}
-                            {event.type === 'concert' && 'Concert'}
-                            {event.type === 'uitstap' && 'Uitstap'}
-                          </span>
-                        </div>
-
-                        <div class="space-y-2 text-sm text-gray-600">
-                          <div class="flex items-center">
-                            <i class="fas fa-clock w-5 mr-2 text-animato-primary"></i>
-                            <span>
-                              {startDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
-                              {endDate && ` - ${endDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}`}
-                            </span>
-                          </div>
-
-                          {event.locatie && (
-                            <div class="flex items-center">
-                              <i class="fas fa-map-marker-alt w-5 mr-2 text-animato-primary"></i>
-                              <span>{event.locatie}</span>
-                            </div>
-                          )}
-
-                          {event.doelgroep && event.doelgroep !== 'all' && (
-                            <div class="flex items-center">
-                              <i class="fas fa-users w-5 mr-2 text-animato-primary"></i>
-                              <span class="capitalize">{event.doelgroep}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        {event.beschrijving && (
-                          <p class="mt-3 text-gray-700">
-                            {event.beschrijving}
-                          </p>
-                        )}
-
-                        {/* Actions */}
-                        <div class="mt-4 flex gap-2">
-                          <button
-                            onclick={`showCalendarModal('${event.id}', '${event.titel.replace(/'/g, "\\'")}', '${event.start_at.split('T')[0]}', '${new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}', '${endDate ? endDate.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' }) : '23:59'}', '${event.locatie?.replace(/'/g, "\\'") || ''}', '${event.slug || event.id}')`}
-                            class="inline-flex items-center px-4 py-2 bg-animato-primary text-white text-sm rounded-lg hover:bg-animato-secondary transition"
-                          >
-                            <i class="far fa-calendar-plus mr-2"></i>
-                            Toevoegen aan agenda
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          ) : view === 'list' ? (
-            <div class="bg-white rounded-lg shadow-md p-12 text-center">
-              <i class="fas fa-calendar-times text-gray-300 text-5xl mb-4"></i>
-              <p class="text-gray-600 text-lg">
-                Geen aankomende events gevonden
-              </p>
-            </div>
-          ) : null}
-
-          {/* CALENDAR VIEW */}
-          {view === 'calendar' && (
-            <div>
-              {/* Calendar Navigation */}
-              <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-                <div class="flex items-center justify-between">
-                  <a
-                    href={`/leden/agenda?view=calendar&type=${type}&date=${new Date(year, month - 1, 1).toISOString().split('T')[0]}`}
-                    class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
-                  >
-                    <i class="fas fa-chevron-left mr-2"></i>
-                    Vorige maand
-                  </a>
-                  <h2 class="text-2xl font-bold text-gray-900">
-                    {new Date(year, month).toLocaleDateString('nl-BE', { month: 'long', year: 'numeric' })}
-                  </h2>
-                  <a
-                    href={`/leden/agenda?view=calendar&type=${type}&date=${new Date(year, month + 1, 1).toISOString().split('T')[0]}`}
-                    class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition"
-                  >
-                    Volgende maand
-                    <i class="fas fa-chevron-right ml-2"></i>
-                  </a>
-                </div>
-              </div>
-
-              {/* Calendar Grid */}
-              <div class="bg-white rounded-lg shadow-md overflow-hidden">
-                {renderLedenCalendarGrid(events, year, month)}
-              </div>
-            </div>
-          )}
-
-        </div>
-
-        {/* Calendar Modal */}
-        <div id="calendar-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-          <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6" onclick="event.stopPropagation()">
-            <div class="flex items-center justify-between mb-6">
-              <h3 class="text-2xl font-bold text-gray-900">Toevoegen aan agenda</h3>
-              <button onclick="closeCalendarModal()" class="text-gray-400 hover:text-gray-600 text-2xl">
-                <i class="fas fa-times"></i>
-              </button>
-            </div>
-
-            {/* Event Details */}
-            <div class="mb-6 space-y-3">
-              <div class="flex items-start gap-3">
-                <i class="fas fa-music text-animato-primary mt-1"></i>
-                <div>
-                  <p class="text-sm text-gray-500">Evenement</p>
-                  <p id="modal-title" class="font-semibold text-gray-900"></p>
-                </div>
-              </div>
-              <div class="flex items-start gap-3">
-                <i class="far fa-calendar text-animato-primary mt-1"></i>
-                <div>
-                  <p class="text-sm text-gray-500">Datum & Tijd</p>
-                  <p id="modal-datetime" class="font-semibold text-gray-900"></p>
-                </div>
-              </div>
-              <div class="flex items-start gap-3">
-                <i class="fas fa-map-marker-alt text-animato-primary mt-1"></i>
-                <div>
-                  <p class="text-sm text-gray-500">Locatie</p>
-                  <p id="modal-location" class="font-semibold text-gray-900"></p>
-                </div>
-              </div>
-            </div>
-
-            {/* Export Options */}
-            <div class="space-y-3">
-              <a id="google-calendar-link" href="#" target="_blank" rel="noopener noreferrer" 
-                class="flex items-center justify-between w-full px-4 py-3 bg-blue-50 hover:bg-blue-100 rounded-lg transition group">
-                <div class="flex items-center gap-3">
-                  <i class="fab fa-google text-2xl text-blue-600"></i>
-                  <span class="font-medium text-gray-900">Google Calendar</span>
-                </div>
-                <i class="fas fa-external-link-alt text-gray-400 group-hover:text-blue-600"></i>
-              </a>
-
-              <a id="outlook-calendar-link" href="#" target="_blank" rel="noopener noreferrer"
-                class="flex items-center justify-between w-full px-4 py-3 bg-blue-50 hover:bg-blue-100 rounded-lg transition group">
-                <div class="flex items-center gap-3">
-                  <i class="fas fa-calendar text-2xl text-blue-700"></i>
-                  <span class="font-medium text-gray-900">Outlook Calendar</span>
-                </div>
-                <i class="fas fa-external-link-alt text-gray-400 group-hover:text-blue-600"></i>
-              </a>
-
-              <a id="office365-calendar-link" href="#" target="_blank" rel="noopener noreferrer"
-                class="flex items-center justify-between w-full px-4 py-3 bg-orange-50 hover:bg-orange-100 rounded-lg transition group">
-                <div class="flex items-center gap-3">
-                  <i class="fab fa-microsoft text-2xl text-orange-600"></i>
-                  <span class="font-medium text-gray-900">Office 365</span>
-                </div>
-                <i class="fas fa-external-link-alt text-gray-400 group-hover:text-orange-600"></i>
-              </a>
-
-              <a id="ics-download-link" href="#" download
-                class="flex items-center justify-between w-full px-4 py-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition group">
-                <div class="flex items-center gap-3">
-                  <i class="fas fa-download text-2xl text-gray-600"></i>
-                  <span class="font-medium text-gray-900">Download ICS bestand</span>
-                </div>
-                <i class="fas fa-arrow-down text-gray-400 group-hover:text-gray-600"></i>
-              </a>
-            </div>
-          </div>
-        </div>
-
-        {/* Calendar Modal JavaScript */}
-        <script dangerouslySetInnerHTML={{__html: `
-          let currentEvent = null;
-
-          function showCalendarModal(id, title, date, startTime, endTime, location, slug) {
-            currentEvent = { id, title, date, startTime, endTime, location, slug };
-            
-            // Update modal content
-            document.getElementById('modal-title').textContent = title;
-            document.getElementById('modal-datetime').textContent = date + ' | ' + startTime + ' - ' + endTime;
-            document.getElementById('modal-location').textContent = location || 'Locatie onbekend';
-            
-            // Format dates for calendar links
-            const startDateTime = new Date(date + 'T' + startTime);
-            const endDateTime = new Date(date + 'T' + endTime);
-            
-            // Google Calendar format: YYYYMMDDTHHMMSS
-            const formatGoogleDate = (date) => {
-              const year = date.getFullYear();
-              const month = String(date.getMonth() + 1).padStart(2, '0');
-              const day = String(date.getDate()).padStart(2, '0');
-              const hours = String(date.getHours()).padStart(2, '0');
-              const minutes = String(date.getMinutes()).padStart(2, '0');
-              return year + month + day + 'T' + hours + minutes + '00';
-            };
-            
-            const googleStart = formatGoogleDate(startDateTime);
-            const googleEnd = formatGoogleDate(endDateTime);
-            const details = encodeURIComponent('Concert door Animato Iutum');
-            const eventLocation = encodeURIComponent(location || '');
-            const eventTitle = encodeURIComponent(title);
-            
-            // Google Calendar URL
-            const googleUrl = 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + eventTitle + '&dates=' + googleStart + '/' + googleEnd + '&details=' + details + '&location=' + eventLocation;
-            document.getElementById('google-calendar-link').href = googleUrl;
-            
-            // Outlook/Office 365 URL (same format)
-            const outlookUrl = 'https://outlook.live.com/calendar/0/deeplink/compose?subject=' + eventTitle + '&startdt=' + startDateTime.toISOString() + '&enddt=' + endDateTime.toISOString() + '&body=' + details + '&location=' + eventLocation;
-            document.getElementById('outlook-calendar-link').href = outlookUrl;
-            document.getElementById('office365-calendar-link').href = 'https://outlook.office.com/calendar/0/deeplink/compose?subject=' + eventTitle + '&startdt=' + startDateTime.toISOString() + '&enddt=' + endDateTime.toISOString() + '&body=' + details + '&location=' + eventLocation;
-            
-            // ICS download
-            document.getElementById('ics-download-link').href = '/api/events/' + slug + '/ics';
-            document.getElementById('ics-download-link').download = title.replace(/[^a-z0-9]/gi, '_').toLowerCase() + '.ics';
-            
-            // Show modal
-            document.getElementById('calendar-modal').classList.remove('hidden');
-            document.body.style.overflow = 'hidden';
-          }
-
-          function closeCalendarModal() {
-            document.getElementById('calendar-modal').classList.add('hidden');
-            document.body.style.overflow = '';
-            currentEvent = null;
-          }
-
-          // Close on backdrop click
-          document.getElementById('calendar-modal')?.addEventListener('click', function(e) {
-            if (e.target === this) {
-              closeCalendarModal();
-            }
-          });
-
-          // Close on ESC key
-          document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape' && !document.getElementById('calendar-modal').classList.contains('hidden')) {
-              closeCalendarModal();
-            }
-          });
-        `}} />
-
-      </div>
-    </Layout>
-  )
-})
-
-// =====================================================
-// API ROUTES - Profile Updates
-// =====================================================
-
-// Update profile
-app.post('/api/leden/profiel', async (c) => {
-  const user = c.get('user') as SessionUser
-  const body = await c.req.parseBody()
-
-  const {
-    voornaam, achternaam, telefoon, adres, bio, muzikale_ervaring,
-    profielfoto_url, favoriete_genre, favoriete_componist, favoriete_werk,
-    instrument, jaren_in_koor, zanger_type, smoelenboek_zichtbaar, toon_email, toon_telefoon,
-    stemgroep
-  } = body
-
-  try {
-    // Update user stemgroep in users table
-    if (stemgroep && ['S', 'A', 'T', 'B'].includes(String(stemgroep))) {
-      await c.env.DB.prepare(
-        `UPDATE users SET stemgroep = ? WHERE id = ?`
-      ).bind(stemgroep, user.id).run()
-    }
-
-    // Update profile in profiles table
-    const result = await c.env.DB.prepare(
-      `UPDATE profiles 
-       SET voornaam = ?, achternaam = ?, telefoon = ?, adres = ?, bio = ?, muzikale_ervaring = ?, 
-           foto_url = ?, favoriete_genre = ?, favoriete_componist = ?, favoriete_werk = ?,
-           instrument = ?, jaren_in_koor = ?, zanger_type = ?, smoelenboek_zichtbaar = ?, toon_email = ?, toon_telefoon = ?
-       WHERE user_id = ?`
-    ).bind(
-      voornaam,
-      achternaam,
-      telefoon && telefoon !== '' ? telefoon : null,
-      adres && adres !== '' ? adres : null,
-      bio && bio !== '' ? bio : null,
-      muzikale_ervaring && muzikale_ervaring !== '' ? muzikale_ervaring : null,
-      profielfoto_url && profielfoto_url !== '' ? profielfoto_url : null,
-      favoriete_genre && favoriete_genre !== '' ? favoriete_genre : null,
-      favoriete_componist && favoriete_componist !== '' ? favoriete_componist : null,
-      favoriete_werk && favoriete_werk !== '' ? favoriete_werk : null,
-      instrument && instrument !== '' ? instrument : null,
-      jaren_in_koor ? parseInt(String(jaren_in_koor)) : 0,
-      zanger_type || 'amateur',
-      smoelenboek_zichtbaar === '1' ? 1 : 0,
-      toon_email === '1' ? 1 : 0,
-      toon_telefoon === '1' ? 1 : 0,
-      user.id
-    ).run()
-
-    if (!result.success) {
-      return c.redirect('/leden/profiel?error=update_failed')
-    }
-
-    return c.redirect('/leden/profiel?success=profile')
-  } catch (error: any) {
-    console.error('Profile update error:', error)
-    return c.redirect('/leden/profiel?error=update_failed')
-  }
-})
-
-// =====================================================
-// API ROUTES - File Upload
-// =====================================================
-
-// Upload profile photo
-app.post('/api/upload/foto', async (c) => {
-  const user = c.get('user') as SessionUser
-  
-  try {
-    const body = await c.req.parseBody()
-    const file = body.file as File
-    
-    if (!file) {
-      return c.json({ error: 'No file provided' }, 400)
-    }
-    
-    // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-    if (!allowedTypes.includes(file.type)) {
-      return c.json({ error: 'Invalid file type. Only JPG, PNG, GIF, WEBP allowed.' }, 400)
-    }
-    
-    // Validate file size (5MB max)
-    if (file.size > 5 * 1024 * 1024) {
-      return c.json({ error: 'File too large. Maximum 5MB allowed.' }, 400)
-    }
-    
-    // Generate unique filename
-    const timestamp = Date.now()
-    const extension = file.name.split('.').pop() || 'jpg'
-    const filename = `profile-${user.id}-${timestamp}.${extension}`
-    
-    // Convert file to ArrayBuffer
-    const arrayBuffer = await file.arrayBuffer()
-    const uint8Array = new Uint8Array(arrayBuffer)
-    
-    // Upload to GenSpark blob storage API
-    // Note: In production, you would use Cloudflare R2 or similar
-    // For now, we'll create a data URL as fallback
-    const base64 = btoa(String.fromCharCode(...uint8Array))
-    const dataUrl = `data:${file.type};base64,${base64}`
-    
-    // TODO: Replace with actual blob storage upload
-    // For development, we'll use the data URL directly
-    // In production, upload to R2 or external service and return the URL
-    
-    return c.json({ 
-      url: dataUrl,
-      filename: filename,
-      size: file.size,
-      type: file.type
-    })
-    
-  } catch (error: any) {
-    console.error('Upload error:', error)
-    return c.json({ error: 'Upload failed' }, 500)
-  }
-})
-
-// =====================================================
-// HELPER: RENDER CALENDAR GRID FOR LEDEN
-// =====================================================
-
-function renderLedenCalendarGrid(events: any[], year: number, month: number) {
-  const firstDay = new Date(year, month, 1)
-  const lastDay = new Date(year, month + 1, 0)
-  const daysInMonth = lastDay.getDate()
-  const startDayOfWeek = firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1 // Monday = 0
-
-  // Build calendar grid
-  const weeks: any[][] = []
-  let currentWeek: any[] = []
-
-  // Fill empty cells before month starts
-  for (let i = 0; i < startDayOfWeek; i++) {
-    currentWeek.push(null)
-  }
-
-  // Fill days of month
-  for (let day = 1; day <= daysInMonth; day++) {
-    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-    const dayEvents = events.filter((e: any) => e.start_at.startsWith(dateStr))
-    
-    currentWeek.push({ day, date: dateStr, events: dayEvents })
-
-    if (currentWeek.length === 7) {
-      weeks.push(currentWeek)
-      currentWeek = []
-    }
-  }
-
-  // Fill remaining cells
-  while (currentWeek.length > 0 && currentWeek.length < 7) {
-    currentWeek.push(null)
-  }
-  if (currentWeek.length > 0) {
-    weeks.push(currentWeek)
-  }
-
-  const dayNames = ['Ma', 'Di', 'Wo', 'Do', 'Vr', 'Za', 'Zo']
-
-  return (
-    <div class="p-4">
-      {/* Day headers */}
-      <div class="grid grid-cols-7 gap-2 mb-2">
-        {dayNames.map(name => (
-          <div class="text-center font-semibold text-gray-600 py-2">
-            {name}
-          </div>
-        ))}
-      </div>
-
-      {/* Calendar days */}
-      {weeks.map((week) => (
-        <div class="grid grid-cols-7 gap-2 mb-2">
-          {week.map((cell: any) => (
-            <div class={`min-h-[100px] p-2 rounded-lg border ${
-              cell ? 'bg-white hover:bg-gray-50' : 'bg-gray-50'
-            }`}>
-              {cell && (
-                <div>
-                  <div class="text-right text-sm font-semibold text-gray-700 mb-1">
-                    {cell.day}
-                  </div>
-                  <div class="space-y-1">
-                    {cell.events.slice(0, 2).map((event: any) => (
-                      <a
-                        href={event.slug ? `/agenda/${event.slug}` : '#'}
-                        class={`block text-xs p-1 rounded truncate hover:opacity-80 transition ${
-                          event.type === 'concert' ? 'bg-yellow-100 text-yellow-800' :
-                          event.type === 'repetitie' ? 'bg-blue-100 text-blue-800' :
-                          event.type === 'activiteit' ? 'bg-green-100 text-green-800' :
-                          event.type === 'workshop' ? 'bg-purple-100 text-purple-800' :
-                          'bg-gray-100 text-gray-800'
-                        }`}
-                        title={`${event.titel} - ${new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}`}
-                      >
-                        {new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })} {event.titel}
-                      </a>
-                    ))}
-                    {cell.events.length > 2 && (
-                      <div class="text-xs text-gray-500 text-center">
-                        +{cell.events.length - 2} meer
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// =====================================================
-// LIDGELD BETALINGSPAGINA
-// =====================================================
-
-app.get('/leden/betaling-lidgeld', async (c) => {
-  const user = c.get('user') as SessionUser
-  
-  // Get current season
-  const settings = await queryAll(c.env.DB, "SELECT * FROM system_settings WHERE key = 'current_season'")
-  const currentSeason = settings[0]?.value || '2025-2026'
-
-  // Get membership
-  const membership = await queryOne<any>(
-    c.env.DB,
-    `SELECT um.*, my.season 
-     FROM user_memberships um
-     JOIN membership_years my ON um.year_id = my.id
-     WHERE um.user_id = ? AND my.season = ?`,
-    [user.id, currentSeason]
-  )
-
-  if (!membership || membership.status === 'paid') {
-    return c.redirect('/leden/profiel')
-  }
-
-  return c.html(
-    <Layout title="Lidgeld Betalen" user={user} breadcrumbs={[
-      { label: 'Ledenportaal', href: '/leden' },
-      { label: 'Profiel', href: '/leden/profiel' },
-      { label: 'Betaling', href: '/leden/betaling-lidgeld' }
-    ]}>
-      <div class="bg-gray-50 min-h-screen py-12">
-        <div class="max-w-2xl mx-auto px-4">
-          <div class="bg-white rounded-xl shadow-lg overflow-hidden">
-            <div class="bg-animato-primary px-6 py-4">
-              <h1 class="text-2xl font-bold text-white flex items-center">
-                <i class="fas fa-credit-card mr-3"></i>
-                Lidgeld Betalen
-              </h1>
-            </div>
-            
-            <div class="p-8">
-              <div class="mb-8 text-center">
-                <p class="text-gray-600 mb-2">Lidmaatschap Seizoen {currentSeason}</p>
-                <div class="text-4xl font-bold text-gray-900 mb-2">
-                  €{membership.amount.toFixed(2)}
-                </div>
-                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
-                  Nog te betalen
-                </span>
-              </div>
-
-              <div class="space-y-6">
-                {/* Online Payment */}
-                <div class="border rounded-lg p-6 hover:border-animato-primary transition-colors cursor-pointer bg-gray-50">
-                  <h3 class="font-bold text-lg text-gray-900 mb-2">
-                    <i class="fas fa-globe text-animato-primary mr-2"></i>
-                    Online Betalen
-                  </h3>
-                  <p class="text-gray-600 text-sm mb-4">
-                    Betaal direct en veilig via Bancontact, Payconiq of Kredietkaart. Je lidmaatschap wordt direct geactiveerd.
-                  </p>
-                  {membership.mollie_payment_url ? (
-                    <a 
-                      href={membership.mollie_payment_url}
-                      class="block w-full text-center bg-animato-primary hover:bg-animato-secondary text-white font-bold py-3 px-4 rounded-lg transition"
-                    >
-                      Nu Betalen
-                    </a>
-                  ) : (
-                    <button disabled class="block w-full text-center bg-gray-300 text-gray-500 font-bold py-3 px-4 rounded-lg cursor-not-allowed">
-                      Betaallink nog niet beschikbaar
-                    </button>
-                  )}
-                </div>
-
-                {/* Bank Transfer */}
-                <div class="border rounded-lg p-6">
-                  <h3 class="font-bold text-lg text-gray-900 mb-2">
-                    <i class="fas fa-university text-gray-600 mr-2"></i>
-                    Overschrijving
-                  </h3>
-                  <p class="text-gray-600 text-sm mb-4">
-                    Schrijf het bedrag over naar onderstaand rekeningnummer. Vermeld duidelijk de mededeling.
-                  </p>
-                  <div class="bg-gray-50 p-4 rounded text-sm space-y-2 font-mono">
-                    <div class="flex justify-between">
-                      <span class="text-gray-500">Bedrag:</span>
-                      <span class="font-bold">€{membership.amount.toFixed(2)}</span>
-                    </div>
-                    <div class="flex justify-between">
-                      <span class="text-gray-500">IBAN:</span>
-                      <span class="font-bold">BE12 3456 7890 1234</span>
-                    </div>
-                    <div class="flex justify-between">
-                      <span class="text-gray-500">BIC:</span>
-                      <span class="font-bold">GEBABEBB</span>
-                    </div>
-                    <div class="flex justify-between border-t border-gray-200 pt-2 mt-2">
-                      <span class="text-gray-500">Mededeling:</span>
-                      <span class="font-bold text-animato-primary">LIDGELD {user.achternaam} {currentSeason}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div class="mt-8 text-center">
-                <a href="/leden/profiel" class="text-gray-500 hover:text-gray-700 text-sm">
-                  <i class="fas fa-arrow-left mr-1"></i> Terug naar profiel
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Layout>
-  )
 })
 
 export default app

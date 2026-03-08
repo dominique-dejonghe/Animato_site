@@ -1,0 +1,135 @@
+// =====================================================
+// PROFIEL BEWERKEN API - Update Profile
+// =====================================================
+
+app.post('/api/leden/profiel', async (c) => {
+  const user = c.get('user') as SessionUser
+
+  try {
+    const body = await c.req.parseBody()
+    const { voornaam, achternaam, telefoon, adres, bio, muzikale_ervaring, profielfoto_url,
+            favoriete_genre, favoriete_componist, favoriete_werk, instrument, jaren_in_koor, zanger_type } = body
+
+    // Validation
+    if (!voornaam || !achternaam) {
+      return c.redirect('/leden/profiel?error=required_fields')
+    }
+
+    // Update profile
+    const result = await c.env.DB.prepare(
+      `UPDATE profiles 
+       SET voornaam = ?, achternaam = ?, telefoon = ?, adres = ?, bio = ?, muzikale_ervaring = ?, foto_url = ?,
+           favoriete_genre = ?, favoriete_componist = ?, favoriete_werk = ?, instrument = ?, jaren_in_koor = ?, zanger_type = ?
+       WHERE user_id = ?`
+    ).bind(
+      voornaam,
+      achternaam,
+      telefoon || null,
+      adres || null,
+      bio || null,
+      muzikale_ervaring || null,
+      profielfoto_url || null,
+      favoriete_genre || null,
+      favoriete_componist || null,
+      favoriete_werk || null,
+      instrument || null,
+      jaren_in_koor || null,
+      zanger_type || null,
+      user.id
+    ).run()
+
+    if (!result.success) {
+      return c.redirect('/leden/profiel?error=update_failed')
+    }
+
+    // Audit log
+    await c.env.DB.prepare(
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
+       VALUES (?, 'profile_update', 'profile', ?, ?)`
+    ).bind(
+      user.id,
+      user.id,
+      JSON.stringify({ fields: ['voornaam', 'achternaam', 'smoelenboek_data'] })
+    ).run()
+
+    return c.redirect('/leden/profiel?success=profile')
+  } catch (error) {
+    console.error('Profile update error:', error)
+    return c.redirect('/leden/profiel?error=update_failed')
+  }
+})
+
+// =====================================================
+// PROFIEL BEWERKEN API - Change Password
+// =====================================================
+
+app.post('/api/leden/profiel/wachtwoord', async (c) => {
+  const user = c.get('user') as SessionUser
+
+  try {
+    const body = await c.req.parseBody()
+    const { current_password, new_password, confirm_password } = body
+
+    // Validation
+    if (!current_password || !new_password || !confirm_password) {
+      return c.redirect('/leden/profiel?error=required_fields')
+    }
+
+    if (new_password !== confirm_password) {
+      return c.redirect('/leden/profiel?error=password_mismatch')
+    }
+
+    if ((new_password as string).length < 8) {
+      return c.redirect('/leden/profiel?error=password_too_short')
+    }
+
+    // Get current password hash
+    const userRecord = await queryOne<any>(
+      c.env.DB,
+      'SELECT password_hash FROM users WHERE id = ?',
+      [user.id]
+    )
+
+    if (!userRecord) {
+      return c.redirect('/leden/profiel?error=user_not_found')
+    }
+
+    // Verify current password
+    const { verifyPassword } = await import('../utils/auth')
+    const isValid = await verifyPassword(current_password as string, userRecord.password_hash)
+
+    if (!isValid) {
+      return c.redirect('/leden/profiel?error=invalid_password')
+    }
+
+    // Hash new password
+    const { hashPassword } = await import('../utils/auth')
+    const newHash = await hashPassword(new_password as string)
+
+    // Update password
+    const result = await c.env.DB.prepare(
+      'UPDATE users SET password_hash = ? WHERE id = ?'
+    ).bind(newHash, user.id).run()
+
+    if (!result.success) {
+      return c.redirect('/leden/profiel?error=update_failed')
+    }
+
+    // Audit log
+    await c.env.DB.prepare(
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
+       VALUES (?, 'password_change', 'user', ?, ?)`
+    ).bind(
+      user.id,
+      user.id,
+      JSON.stringify({ method: 'self_service' })
+    ).run()
+
+    return c.redirect('/leden/profiel?success=password')
+  } catch (error) {
+    console.error('Password change error:', error)
+    return c.redirect('/leden/profiel?error=update_failed')
+  }
+})
+
+export default app

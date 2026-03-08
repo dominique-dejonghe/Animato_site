@@ -5,8 +5,9 @@ import { Hono } from 'hono'
 import { setCookie, deleteCookie } from 'hono/cookie'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
-import { hashPassword, verifyPassword, generateToken } from '../utils/auth'
+import { hashPassword, verifyPassword, generateToken, generateRandomToken } from '../utils/auth'
 import { queryOne, execute, isValidEmail, formatDateForDB } from '../utils/db'
+import { sendEmail } from '../utils/email'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -17,6 +18,7 @@ const app = new Hono<{ Bindings: Bindings }>()
 app.get('/login', async (c) => {
   const redirect = c.req.query('redirect') || '/'
   const error = c.req.query('error')
+  const success = c.req.query('success')
 
   return c.html(
     <Layout title="Inloggen">
@@ -42,6 +44,19 @@ app.get('/login', async (c) => {
                   {error === 'invalid' && 'Onjuiste email of wachtwoord'}
                   {error === 'required' && 'Vul alle velden in'}
                   {error === 'unauthorized' && 'Je moet ingelogd zijn om deze pagina te bekijken'}
+                  {error === 'inactive' && 'Je account is nog niet actief'}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {success && (
+            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div class="flex">
+                <i class="fas fa-check-circle text-green-500 mr-3 mt-0.5"></i>
+                <div class="text-sm text-green-800">
+                  {success === 'reset_email_sent' && 'We hebben een e-mail gestuurd met instructies om je wachtwoord te resetten.'}
+                  {success === 'password_reset' && 'Je wachtwoord is succesvol gewijzigd. Je kunt nu inloggen.'}
                 </div>
               </div>
             </div>
@@ -135,7 +150,129 @@ app.get('/login', async (c) => {
 })
 
 // =====================================================
-// LOGIN API
+// FORGOT PASSWORD PAGE
+// =====================================================
+
+app.get('/wachtwoord-vergeten', (c) => {
+  return c.html(
+    <Layout title="Wachtwoord vergeten">
+      <div class="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-md w-full space-y-8">
+          <div class="text-center">
+            <div class="text-animato-primary text-5xl mb-4">
+              <i class="fas fa-key"></i>
+            </div>
+            <h2 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+              Wachtwoord Vergeten
+            </h2>
+            <p class="mt-2 text-gray-600">
+              Vul je e-mailadres in en we sturen je een link om je wachtwoord te resetten.
+            </p>
+          </div>
+
+          <form class="mt-8 space-y-6" action="/api/auth/forgot-password" method="POST">
+            <div>
+              <label for="email" class="block text-sm font-medium text-gray-700 mb-1">
+                Email adres
+              </label>
+              <input
+                id="email"
+                name="email"
+                type="email"
+                autocomplete="email"
+                required
+                class="block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                placeholder="naam@example.com"
+              />
+            </div>
+
+            <button
+              type="submit"
+              class="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-white bg-animato-primary hover:bg-animato-secondary focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-animato-primary font-semibold transition"
+            >
+              Verstuur reset link
+            </button>
+          </form>
+
+          <div class="text-center">
+            <a href="/login" class="text-sm text-animato-primary hover:text-animato-secondary font-medium">
+              <i class="fas fa-arrow-left mr-1"></i> Terug naar inloggen
+            </a>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
+// =====================================================
+// RESET PASSWORD PAGE
+// =====================================================
+
+app.get('/reset-wachtwoord/:token', async (c) => {
+  const token = c.req.param('token')
+  
+  // Verify token existence and expiry
+  const resetRequest = await queryOne<any>(
+    c.env.DB,
+    `SELECT * FROM password_resets WHERE token = ? AND used_at IS NULL AND expires_at > datetime('now')`,
+    [token]
+  )
+
+  if (!resetRequest) {
+    return c.html(
+      <Layout title="Ongeldige Link">
+        <div class="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+          <div class="max-w-md w-full text-center">
+            <div class="text-red-500 text-5xl mb-4"><i class="fas fa-times-circle"></i></div>
+            <h2 class="text-2xl font-bold text-gray-900 mb-2">Ongeldige of verlopen link</h2>
+            <p class="text-gray-600 mb-6">Deze reset-link is niet meer geldig. Vraag een nieuwe aan.</p>
+            <a href="/wachtwoord-vergeten" class="bg-animato-primary text-white px-6 py-2 rounded-lg font-semibold hover:bg-animato-secondary transition">
+              Nieuwe aanvraag
+            </a>
+          </div>
+        </div>
+      </Layout>
+    )
+  }
+
+  return c.html(
+    <Layout title="Nieuw Wachtwoord">
+      <div class="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-md w-full space-y-8">
+          <div class="text-center">
+            <h2 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+              Nieuw Wachtwoord
+            </h2>
+            <p class="mt-2 text-gray-600">Kies een nieuw veilig wachtwoord.</p>
+          </div>
+
+          <form class="mt-8 space-y-6" action="/api/auth/reset-password" method="POST">
+            <input type="hidden" name="token" value={token} />
+            
+            <div class="space-y-4">
+              <div>
+                <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Nieuw Wachtwoord</label>
+                <input id="password" name="password" type="password" required minlength="8" class="block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+              </div>
+              <div>
+                <label for="password_confirm" class="block text-sm font-medium text-gray-700 mb-1">Bevestig Wachtwoord</label>
+                <input id="password_confirm" name="password_confirm" type="password" required minlength="8" class="block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+              </div>
+            </div>
+
+            <button type="submit" class="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-white bg-animato-primary hover:bg-animato-secondary focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-animato-primary font-semibold transition">
+              Wachtwoord Opslaan
+            </button>
+          </form>
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
+// =====================================================
+// AUTH APIS
 // =====================================================
 
 app.post('/api/auth/login', async (c) => {
@@ -250,207 +387,6 @@ app.post('/api/auth/login', async (c) => {
   }
 })
 
-// =====================================================
-// REGISTER PAGE
-// =====================================================
-
-app.get('/registreer', async (c) => {
-  return c.html(
-    <Layout title="Registreren">
-      <div class="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-        <div class="max-w-2xl mx-auto">
-          <div class="text-center mb-8">
-            <div class="text-animato-primary text-5xl mb-4">
-              <i class="fas fa-user-plus"></i>
-            </div>
-            <h2 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
-              Registreren
-            </h2>
-            <p class="mt-2 text-gray-600">
-              Word lid van Gemengd Koor Animato
-            </p>
-          </div>
-
-          <div class="bg-white shadow-md rounded-lg p-8">
-            <form action="/api/auth/register" method="POST" class="space-y-6">
-              {/* Persoonlijke gegevens */}
-              <div>
-                <h3 class="text-lg font-semibold text-gray-900 mb-4">
-                  Persoonlijke gegevens
-                </h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label for="voornaam" class="block text-sm font-medium text-gray-700 mb-1">
-                      Voornaam *
-                    </label>
-                    <input
-                      type="text"
-                      id="voornaam"
-                      name="voornaam"
-                      required
-                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label for="achternaam" class="block text-sm font-medium text-gray-700 mb-1">
-                      Achternaam *
-                    </label>
-                    <input
-                      type="text"
-                      id="achternaam"
-                      name="achternaam"
-                      required
-                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label for="email" class="block text-sm font-medium text-gray-700 mb-1">
-                      Email *
-                    </label>
-                    <input
-                      type="email"
-                      id="email"
-                      name="email"
-                      required
-                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    />
-                  </div>
-
-                  <div>
-                    <label for="telefoon" class="block text-sm font-medium text-gray-700 mb-1">
-                      Telefoon
-                    </label>
-                    <input
-                      type="tel"
-                      id="telefoon"
-                      name="telefoon"
-                      placeholder="+32 470 12 34 56"
-                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Stemgroep */}
-              <div>
-                <label for="stemgroep" class="block text-sm font-medium text-gray-700 mb-1">
-                  Stemgroep *
-                </label>
-                <select
-                  id="stemgroep"
-                  name="stemgroep"
-                  required
-                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                >
-                  <option value="">Selecteer je stem...</option>
-                  <option value="S">Sopraan</option>
-                  <option value="A">Alt</option>
-                  <option value="T">Tenor</option>
-                  <option value="B">Bas</option>
-                </select>
-              </div>
-
-              {/* Muzikale ervaring */}
-              <div>
-                <label for="muzikale_ervaring" class="block text-sm font-medium text-gray-700 mb-1">
-                  Muzikale ervaring (optioneel)
-                </label>
-                <textarea
-                  id="muzikale_ervaring"
-                  name="muzikale_ervaring"
-                  rows={3}
-                  placeholder="Bijv. 5 jaar koorervaring, piano gevolgd, ..."
-                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                ></textarea>
-              </div>
-
-              {/* Wachtwoord */}
-              <div>
-                <h3 class="text-lg font-semibold text-gray-900 mb-4">
-                  Wachtwoord
-                </h3>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label for="password" class="block text-sm font-medium text-gray-700 mb-1">
-                      Wachtwoord *
-                    </label>
-                    <input
-                      type="password"
-                      id="password"
-                      name="password"
-                      required
-                      minlength="8"
-                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    />
-                    <p class="text-xs text-gray-500 mt-1">
-                      Minimaal 8 karakters
-                    </p>
-                  </div>
-
-                  <div>
-                    <label for="password_confirm" class="block text-sm font-medium text-gray-700 mb-1">
-                      Bevestig wachtwoord *
-                    </label>
-                    <input
-                      type="password"
-                      id="password_confirm"
-                      name="password_confirm"
-                      required
-                      minlength="8"
-                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Privacy consent */}
-              <div class="bg-gray-50 p-4 rounded-lg">
-                <div class="flex items-start">
-                  <input
-                    type="checkbox"
-                    id="consent"
-                    name="consent"
-                    required
-                    class="mt-1 h-4 w-4 text-animato-primary focus:ring-animato-primary border-gray-300 rounded"
-                  />
-                  <label for="consent" class="ml-2 text-sm text-gray-700">
-                    Ik ga akkoord met de verwerking van mijn persoonsgegevens volgens de{' '}
-                    <a href="/privacy" target="_blank" class="text-animato-primary hover:underline">
-                      privacyverklaring
-                    </a>
-                    {' '}en ik begrijp dat ik me op elk moment kan uitschrijven. *
-                  </label>
-                </div>
-              </div>
-
-              {/* Submit button */}
-              <div class="flex items-center justify-between pt-4">
-                <a href="/login" class="text-sm text-gray-600 hover:text-gray-900">
-                  <i class="fas fa-arrow-left mr-1"></i>
-                  Terug naar inloggen
-                </a>
-                <button
-                  type="submit"
-                  class="bg-animato-primary hover:bg-animato-secondary text-white px-8 py-3 rounded-lg font-semibold transition"
-                >
-                  <i class="fas fa-user-plus mr-2"></i>
-                  Registreren
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
-    </Layout>
-  )
-})
-
-// =====================================================
-// REGISTER API
-// =====================================================
-
 app.post('/api/auth/register', async (c) => {
   try {
     const body = await c.req.parseBody()
@@ -550,10 +486,6 @@ app.post('/api/auth/register', async (c) => {
   }
 })
 
-// =====================================================
-// LOGOUT
-// =====================================================
-
 app.get('/api/auth/logout', async (c) => {
   try {
     // Get user from cookie before deleting
@@ -581,6 +513,73 @@ app.get('/api/auth/logout', async (c) => {
   
   deleteCookie(c, 'auth_token', { path: '/' })
   return c.redirect('/?logout=1')
+})
+
+// =====================================================
+// FORGOT & RESET PASSWORD APIS
+// =====================================================
+
+app.post('/api/auth/forgot-password', async (c) => {
+  const body = await c.req.parseBody()
+  const email = (body.email as string).toLowerCase()
+
+  // Always say "sent" for security (prevent email enumeration)
+  // unless invalid email format
+  if (!isValidEmail(email)) return c.redirect('/wachtwoord-vergeten')
+
+  const user = await queryOne<any>(c.env.DB, "SELECT id, email FROM users WHERE email = ?", [email])
+  
+  if (user) {
+    const token = generateRandomToken(32)
+    // Expire in 1 hour
+    await execute(
+        c.env.DB, 
+        `INSERT INTO password_resets (user_id, token, expires_at) VALUES (?, ?, datetime('now', '+1 hour'))`,
+        [user.id, token]
+    )
+
+    const siteUrl = c.env.SITE_URL || 'https://animato.be'
+    const resetLink = `${siteUrl}/reset-wachtwoord/${token}`
+
+    await sendEmail({
+        to: user.email,
+        subject: 'Wachtwoord Herstellen - Animato',
+        html: `
+            <h1>Wachtwoord Herstellen</h1>
+            <p>Er is een aanvraag gedaan om je wachtwoord te resetten.</p>
+            <p>Klik op de onderstaande link om een nieuw wachtwoord in te stellen:</p>
+            <a href="${resetLink}" style="display:inline-block;background:#00A9CE;color:white;padding:10px 20px;border-radius:5px;text-decoration:none;">Wachtwoord Resetten</a>
+            <p>Deze link is 1 uur geldig.</p>
+            <p>Heb je dit niet aangevraagd? Negeer deze mail.</p>
+        `
+    }, c.env.RESEND_API_KEY)
+  }
+
+  return c.redirect('/login?success=reset_email_sent')
+})
+
+app.post('/api/auth/reset-password', async (c) => {
+  const body = await c.req.parseBody()
+  const token = body.token as string
+  const password = body.password as string
+  const confirm = body.password_confirm as string
+
+  if (password !== confirm) return c.html("Wachtwoorden komen niet overeen")
+  if (password.length < 8) return c.html("Wachtwoord te kort")
+
+  const resetRequest = await queryOne<any>(
+    c.env.DB,
+    `SELECT * FROM password_resets WHERE token = ? AND used_at IS NULL AND expires_at > datetime('now')`,
+    [token]
+  )
+
+  if (!resetRequest) return c.redirect('/wachtwoord-vergeten')
+
+  const newHash = await hashPassword(password)
+  await execute(c.env.DB, "UPDATE users SET password_hash = ? WHERE id = ?", [newHash, resetRequest.user_id])
+  await execute(c.env.DB, "UPDATE password_resets SET used_at = CURRENT_TIMESTAMP WHERE id = ?", [resetRequest.id])
+
+  return c.redirect('/login?success=password_reset')
 })
 
 export default app

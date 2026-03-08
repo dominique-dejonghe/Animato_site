@@ -55,12 +55,13 @@ app.get('/admin/settings', async (c) => {
 
                   <div class="grid grid-cols-2 gap-4">
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-1">Basis Lidgeld (€)</label>
+                      <label class="block text-sm font-medium text-gray-700 mb-1">Basis Lidgeld (Zonder Partituren) (€)</label>
                       <input type="number" step="0.01" name="membership_fee_base" value={settingsMap.membership_fee_base} class="w-full border rounded px-3 py-2" />
                     </div>
                     <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-1">Papier Toeslag (€)</label>
+                      <label class="block text-sm font-medium text-gray-700 mb-1">Partituren Toeslag (Extra) (€)</label>
                       <input type="number" step="0.01" name="membership_fee_paper" value={settingsMap.membership_fee_paper} class="w-full border rounded px-3 py-2" />
+                      <p class="text-xs text-gray-500">Totaal 'Met Partituren' = Basis + Toeslag</p>
                     </div>
                   </div>
                   
@@ -123,6 +124,14 @@ app.get('/admin/settings', async (c) => {
                     </div>
                   </div>
 
+                  <h3 class="font-medium text-gray-900 pt-2">Beta Testing</h3>
+                  <div class="flex items-center">
+                    <input type="checkbox" id="beta_features" name="beta_features" value="1" checked={settingsMap.beta_features === '1'} class="h-4 w-4 text-animato-primary border-gray-300 rounded" />
+                    <label for="beta_features" class="ml-2 block text-sm text-gray-700">
+                      Activeer Beta Feedback Bubbel (zichtbaar voor iedereen)
+                    </label>
+                  </div>
+
                   <button type="submit" class="bg-animato-secondary text-white px-4 py-2 rounded hover:bg-opacity-90 w-full mt-4">
                     Opslaan
                   </button>
@@ -145,17 +154,30 @@ app.post('/api/admin/settings/update', async (c) => {
   if (body.section === 'finance') {
     keys = ['current_season', 'membership_fee_base', 'membership_fee_paper', 'price_per_page', 'mollie_api_key']
   } else if (body.section === 'general') {
-    keys = ['site_name', 'contact_email', 'contact_phone', 'social_facebook', 'social_instagram', 'social_youtube']
+    keys = ['site_name', 'contact_email', 'contact_phone', 'social_facebook', 'social_instagram', 'social_youtube', 'beta_features']
   }
 
   for (const key of keys) {
-    if (body[key] !== undefined) { // Check undefined to allow empty strings (clearing values)
-      // Upsert logic
+    let value = body[key]
+    if (key === 'beta_features') {
+        value = value === '1' ? '1' : '0' // Checkbox logic: if present it's 1, else it's undefined (handled below) or we force 0 if unchecked?
+        // Form post: unchecked checkboxes are not sent. So we need to handle it.
+        // But the loop only iterates if body[key] !== undefined.
+        // Strategy: 'beta_features' will be missing if unchecked. 
+        // We should check if it's general section and handle checkboxes explicitly.
+    }
+    
+    if (value !== undefined) {
       await execute(db, `
         INSERT INTO system_settings (key, value) VALUES (?, ?)
         ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
-      `, [key, body[key]])
+      `, [key, value])
     }
+  }
+  
+  // Handle unchecked checkbox for beta_features
+  if (body.section === 'general' && body.beta_features === undefined) {
+     await execute(db, `INSERT INTO system_settings (key, value) VALUES ('beta_features', '0') ON CONFLICT(key) DO UPDATE SET value = '0', updated_at = CURRENT_TIMESTAMP`, [])
   }
 
   return c.redirect('/admin/settings?success=1')

@@ -14,7 +14,36 @@ app.use('*', requireAuth)
 app.use('*', requireRole('admin', 'moderator'))
 
 // =====================================================
-// HELPER: GENERATE GOOGLE MAPS EMBED URL
+// HELPER: BUILD MAP EMBED URL (OpenStreetMap, no API key)
+// =====================================================
+
+function buildMapEmbedUrl(location: any): string {
+  // Priority 1: already saved a proper embed URL
+  if (location.google_maps_embed && location.google_maps_embed.includes('/embed')) {
+    return location.google_maps_embed
+  }
+  // Priority 2: extract lat/lng from google_maps_url → OSM embed
+  if (location.google_maps_url) {
+    const atMatch = location.google_maps_url.match(/@([-\d.]+),([-\d.]+)/)
+    const qMatch  = location.google_maps_url.match(/[?&]q=([-\d.]+),([-\d.]+)/)
+    const match   = atMatch || qMatch
+    if (match) {
+      const lat = parseFloat(match[1]), lng = parseFloat(match[2])
+      const delta = 0.003
+      return `https://www.openstreetmap.org/export/embed.html?bbox=${lng-delta}%2C${lat-delta}%2C${lng+delta}%2C${lat+delta}&layer=mapnik&marker=${lat}%2C${lng}`
+    }
+  }
+  // Priority 3: build from address fields
+  const parts = [location.adres, location.postcode, location.stad, location.land].filter(Boolean)
+  if (parts.length >= 2) {
+    const q = encodeURIComponent(parts.join(', '))
+    return `https://www.openstreetmap.org/export/embed.html?query=${q}&layer=mapnik`
+  }
+  return ''
+}
+
+// =====================================================
+// HELPER: GENERATE GOOGLE MAPS EMBED URL (legacy, kept for reference)
 // =====================================================
 
 function getGoogleMapsEmbedUrl(location: any): string {
@@ -234,45 +263,46 @@ app.get('/admin/locaties', async (c) => {
               </div>
             ) : (
               locations.map((location: any) => {
-                const embedUrl = getGoogleMapsEmbedUrl(location)
-                
+                const mapUrl = buildMapEmbedUrl(location)
+                const externalMapUrl = location.google_maps_url ||
+                  `https://www.openstreetmap.org/search?query=${encodeURIComponent([location.adres, location.postcode, location.stad].filter(Boolean).join(', '))}`
+
                 return (
                   <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-xl transition">
-                    {/* Card Header - Google Maps or Gradient */}
-                    {embedUrl ? (
-                      <div class="relative w-full h-48 bg-gray-200">
+                    {/* Card Header – OSM map or fallback gradient */}
+                    {mapUrl ? (
+                      <div class="relative w-full h-48 bg-gray-200 overflow-hidden">
                         <iframe
-                          src={embedUrl}
+                          src={mapUrl}
                           width="100%"
                           height="100%"
-                          style="border:0;"
+                          style="border:0;display:block;"
                           loading="lazy"
                           referrerpolicy="no-referrer-when-downgrade"
-                          title={`Map of ${location.naam}`}
+                          title={`Kaart van ${location.naam}`}
                         ></iframe>
-                        {/* Overlay with location name and status */}
-                        <div class="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent p-4">
+                        {/* Name + status overlay */}
+                        <div class="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/65 to-transparent p-3 pointer-events-none">
                           <div class="flex items-start justify-between">
                             <div class="flex-1">
-                              <h3 class="text-lg font-bold text-white mb-1">{location.naam}</h3>
-                              <div class="flex items-center text-sm text-white/90">
-                                <i class="fas fa-calendar-alt mr-2"></i>
+                              <h3 class="text-base font-bold text-white leading-tight mb-0.5">{location.naam}</h3>
+                              <div class="flex items-center text-xs text-white/80">
+                                <i class="fas fa-calendar-alt mr-1"></i>
                                 {location.event_count || 0} event(s)
                               </div>
                             </div>
-                            <div>
+                            <div class="ml-2 shrink-0">
                               {location.is_actief ? (
-                                <span class="px-2 py-1 bg-green-500 rounded-full text-xs font-semibold text-white">
-                                  Actief
-                                </span>
+                                <span class="px-2 py-0.5 bg-green-500 rounded-full text-xs font-semibold text-white">Actief</span>
                               ) : (
-                                <span class="px-2 py-1 bg-gray-500 rounded-full text-xs font-semibold text-white">
-                                  Inactief
-                                </span>
+                                <span class="px-2 py-0.5 bg-gray-500 rounded-full text-xs font-semibold text-white">Inactief</span>
                               )}
                             </div>
                           </div>
                         </div>
+                        {/* Transparent click overlay → open map */}
+                        <a href={externalMapUrl} target="_blank" rel="noopener noreferrer"
+                           class="absolute inset-0" title="Bekijk op kaart"></a>
                       </div>
                     ) : (
                       <div class="bg-gradient-to-r from-red-500 to-pink-500 p-4 text-white h-48 flex flex-col justify-between">
@@ -286,19 +316,15 @@ app.get('/admin/locaties', async (c) => {
                           </div>
                           <div>
                             {location.is_actief ? (
-                              <span class="px-2 py-1 bg-green-500 rounded-full text-xs font-semibold">
-                                Actief
-                              </span>
+                              <span class="px-2 py-1 bg-green-500 rounded-full text-xs font-semibold">Actief</span>
                             ) : (
-                              <span class="px-2 py-1 bg-gray-500 rounded-full text-xs font-semibold">
-                                Inactief
-                              </span>
+                              <span class="px-2 py-1 bg-gray-500 rounded-full text-xs font-semibold">Inactief</span>
                             )}
                           </div>
                         </div>
                         <div class="text-center">
                           <i class="fas fa-map-marker-alt text-6xl opacity-30"></i>
-                          <p class="text-sm opacity-75 mt-2">Geen Google Maps URL</p>
+                          <p class="text-sm opacity-75 mt-2">Voeg adres toe voor kaartweergave</p>
                         </div>
                       </div>
                     )}

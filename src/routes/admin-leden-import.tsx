@@ -138,10 +138,12 @@ app.get('/admin/leden/import', async (c) => {
       {/* XLSX lokaal geladen — geen CDN afhankelijkheid */}
       <script src="/static/js/xlsx.full.min.js"></script>
       <script dangerouslySetInnerHTML={{ __html: `
-        // Wacht tot XLSX geladen is
-        window.addEventListener('load', function() {
+        // Start onmiddellijk zodra DOM klaar is (XLSX is sync geladen hierboven)
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', initImport);
+        } else {
           initImport();
-        });
+        }
 
         function initImport() {
           var statusMessage = document.getElementById('statusMessage');
@@ -183,20 +185,27 @@ app.get('/admin/leden/import', async (c) => {
 
           function processFile(file) {
             fileName.textContent = file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
+            showStatus('bg-blue-50 text-blue-700 border border-blue-200', '⏳ Bestand inlezen...');
             var reader = new FileReader();
             reader.onload = function(e) {
               try {
                 var data = new Uint8Array(e.target.result);
-                var workbook = XLSX.read(data, { type: 'array' });
+                var workbook = XLSX.read(data, { type: 'array', codepage: 65001 });
                 var sheet = workbook.Sheets[workbook.SheetNames[0]];
-                var rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+                // Probeer eerst met header rij, dan met raw
+                var rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
                 if (rows.length === 0) {
-                  showStatus('bg-red-50 text-red-700 border border-red-200', '⚠️ Geen rijen gevonden in het bestand. Controleer of het bestand data bevat.');
+                  showStatus('bg-red-50 text-red-700 border border-red-200',
+                    '⚠️ Geen rijen gevonden. Eerste rij moet kolomnamen bevatten (Voornaam, Achternaam, Email...).');
                   return;
                 }
-                parseRows(rows);
+                // Debug: toon gevonden kolommen als niets herkend
+                var firstRow = rows[0];
+                var foundKeys = Object.keys(firstRow);
+                parseRows(rows, foundKeys);
               } catch(err) {
-                showStatus('bg-red-50 text-red-700 border border-red-200', '⚠️ Fout bij lezen van bestand: ' + err.message);
+                showStatus('bg-red-50 text-red-700 border border-red-200',
+                  '⚠️ Fout bij lezen van bestand: ' + err.message + '. Probeer het bestand op te slaan als .xlsx of .csv.');
               }
             };
             reader.onerror = function() {
@@ -206,8 +215,18 @@ app.get('/admin/leden/import', async (c) => {
           }
 
           function normalizeKey(key) {
-            return key.toString().toLowerCase().trim()
+            // Verwijder BOM, spaties, accenten en speciale tekens
+            return key.toString()
+              .replace(/^\\uFEFF/, '')   // BOM
+              .replace(/^\\xEF\\xBB\\xBF/, '') // UTF-8 BOM
+              .toLowerCase()
+              .trim()
               .replace(/\\s+/g, ' ')
+              .replace(/[éèêë]/g, 'e')
+              .replace(/[àâä]/g, 'a')
+              .replace(/[ùûü]/g, 'u')
+              .replace(/[îï]/g, 'i')
+              .replace(/[ôö]/g, 'o')
               .replace(/[^a-z0-9 ]/g, '');
           }
 
@@ -224,19 +243,31 @@ app.get('/admin/leden/import', async (c) => {
             return '';
           }
 
-          function parseRows(rows) {
+          function parseRows(rows, allKeys) {
             parsedData = [];
             previewTable.innerHTML = '';
             var valid = 0, invalid = 0;
 
+            // Check of we kolomnamen herkennen
+            var normalizedKeys = (allKeys || []).map(normalizeKey);
+            var hasVoornaam = normalizedKeys.some(function(k) { return ['voornaam','first name','firstname','naam'].indexOf(k) >= 0; });
+            var hasEmail = normalizedKeys.some(function(k) { return ['email','e-mail','mail','emailadres'].indexOf(k) >= 0; });
+
+            if (!hasVoornaam || !hasEmail) {
+              showStatus('bg-yellow-50 text-yellow-800 border border-yellow-200',
+                '⚠️ Kolomnamen niet herkend. Gevonden kolommen: ' + (allKeys || []).join(', ')
+                + '. Verwacht: Voornaam, Achternaam, Email (zie voorbeeldbestand).');
+              return;
+            }
+
             rows.forEach(function(row) {
               var item = {
-                voornaam:   getField(row, ['voornaam', 'first name', 'firstname', 'naam']),
-                achternaam: getField(row, ['achternaam', 'familienaam', 'last name', 'lastname', 'familynaam']),
-                email:      getField(row, ['email', 'e-mail', 'mail', 'emailadres']),
-                stemgroep:  getField(row, ['stemgroep', 'stem', 'voice', 'part']),
-                telefoon:   getField(row, ['telefoon', 'gsm', 'tel', 'phone', 'mobile']),
-                adres:      getField(row, ['adres', 'address', 'straat']),
+                voornaam:   getField(row, ['voornaam', 'first name', 'firstname', 'naam', 'voornaam lid']),
+                achternaam: getField(row, ['achternaam', 'familienaam', 'last name', 'lastname', 'familynaam', 'naam']),
+                email:      getField(row, ['email', 'e-mail', 'mail', 'emailadres', 'e mail']),
+                stemgroep:  getField(row, ['stemgroep', 'stem', 'voice', 'part', 'stemtype']),
+                telefoon:   getField(row, ['telefoon', 'gsm', 'tel', 'phone', 'mobile', 'gsmnummer', 'telefoonnummer']),
+                adres:      getField(row, ['adres', 'address', 'straat', 'woonplaats']),
                 errors: []
               };
 
@@ -328,6 +359,7 @@ app.get('/admin/leden/import', async (c) => {
             statusMessage.className = 'mt-4 p-4 rounded text-sm ' + classes;
             statusMessage.textContent = message;
             statusMessage.classList.remove('hidden');
+            statusMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
           }
         }
       `}} />

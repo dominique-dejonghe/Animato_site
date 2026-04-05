@@ -2441,9 +2441,9 @@ app.get('/leden/materiaal', async (c) => {
   // Get all materials for user's stemgroep
   const materials = await queryAll(
     c.env.DB,
-    `SELECT m.*, 
-            pi.titel as stuk_titel,
-            w.titel as werk_titel, w.componist
+    `SELECT m.id, m.type, m.titel, m.url, m.beschrijving, m.stem, m.created_at,
+            pi.titel as stuk_titel, pi.nummer as stuk_nummer,
+            w.titel as werk_titel, w.componist, w.id as werk_id
      FROM materials m
      JOIN pieces pi ON pi.id = m.piece_id
      JOIN works w ON w.id = pi.work_id
@@ -2451,55 +2451,167 @@ app.get('/leden/materiaal', async (c) => {
        AND (m.stem = ? OR m.stem = 'SATB' OR m.stem = 'algemeen')
        AND (m.zichtbaar_voor = 'alle_leden' OR 
             (m.zichtbaar_voor = 'stem_specifiek' OR m.zichtbaar_voor = 'eigen_stem'))
-     ORDER BY w.titel ASC, pi.nummer ASC`,
+     ORDER BY w.titel ASC, pi.nummer ASC, m.type ASC`,
     [user.stemgroep || 'SATB']
   )
+
+  // Group materials by werk_titel + stuk_titel
+  const grouped: Record<string, { werk_titel: string; stuk_titel: string; componist: string; items: any[] }> = {}
+  for (const mat of materials as any[]) {
+    const key = `${mat.werk_titel}||${mat.stuk_titel}`
+    if (!grouped[key]) {
+      grouped[key] = { werk_titel: mat.werk_titel, stuk_titel: mat.stuk_titel, componist: mat.componist, items: [] }
+    }
+    grouped[key].items.push(mat)
+  }
+
+  // Helper: determine icon + label + style per material type/url
+  function getTypeInfo(mat: any): { icon: string; label: string; colorClass: string; badgeClass: string } {
+    const url: string = (mat.url || '').toLowerCase()
+    const type: string = (mat.type || '').toLowerCase()
+    // YouTube
+    if (url.includes('youtube.com') || url.includes('youtu.be')) {
+      return { icon: 'fab fa-youtube', label: 'YouTube', colorClass: 'text-red-600', badgeClass: 'bg-red-100 text-red-700 border-red-200' }
+    }
+    // Google Drive
+    if (url.includes('drive.google.com')) {
+      return { icon: 'fab fa-google-drive', label: 'Google Drive', colorClass: 'text-blue-600', badgeClass: 'bg-blue-100 text-blue-700 border-blue-200' }
+    }
+    // Audio
+    if (type === 'audio' || url.match(/\.(mp3|wav|ogg|flac|aac)($|\?)/)) {
+      return { icon: 'fas fa-headphones', label: 'Audio', colorClass: 'text-purple-600', badgeClass: 'bg-purple-100 text-purple-700 border-purple-200' }
+    }
+    // PDF
+    if (type === 'pdf' || url.match(/\.pdf($|\?)/)) {
+      return { icon: 'fas fa-file-pdf', label: 'PDF', colorClass: 'text-orange-600', badgeClass: 'bg-orange-100 text-orange-700 border-orange-200' }
+    }
+    // Video
+    if (type === 'video' || url.match(/\.(mp4|mov|avi|mkv)($|\?)/)) {
+      return { icon: 'fas fa-video', label: 'Video', colorClass: 'text-pink-600', badgeClass: 'bg-pink-100 text-pink-700 border-pink-200' }
+    }
+    // Zip/archive
+    if (url.match(/\.(zip|rar|tar|gz)($|\?)/)) {
+      return { icon: 'fas fa-file-archive', label: 'Archief', colorClass: 'text-gray-600', badgeClass: 'bg-gray-100 text-gray-700 border-gray-200' }
+    }
+    // Generic link
+    if (type === 'link') {
+      return { icon: 'fas fa-link', label: 'Link', colorClass: 'text-teal-600', badgeClass: 'bg-teal-100 text-teal-700 border-teal-200' }
+    }
+    // Default
+    return { icon: 'fas fa-file', label: type.toUpperCase() || 'Bestand', colorClass: 'text-gray-500', badgeClass: 'bg-gray-100 text-gray-600 border-gray-200' }
+  }
+
+  const groupEntries = Object.values(grouped)
 
   return c.html(
     <Layout title="Materiaal" user={user} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Materiaal', href: '/leden/materiaal'}]}>
       <div class="py-12 bg-gray-50 min-h-screen">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div class="mb-8">
-            <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
-              <i class="fas fa-music text-animato-primary mr-3"></i>
-              Oefenmateriaal
-            </h1>
-            <p class="text-gray-600">
-              Downloads en oefenbestanden voor jouw stemgroep ({user.stemgroep || 'Algemeen'})
-            </p>
+          <div class="mb-8 flex items-center gap-4">
+            <div>
+              <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+                <i class="fas fa-music text-animato-primary mr-3"></i>
+                Oefenmateriaal
+              </h1>
+              <p class="text-gray-600 mt-1">
+                Downloads en oefenbestanden voor jouw stemgroep ({user.stemgroep || 'Algemeen'}) · {groupEntries.length} werken
+              </p>
+            </div>
           </div>
 
-          <div class="bg-white rounded-lg shadow-md overflow-hidden">
-            {materials.length > 0 ? (
-              <div class="divide-y divide-gray-200">
-                {materials.map((mat: any) => (
-                  <div class="p-6 hover:bg-gray-50 transition">
-                    <div class="flex items-center justify-between">
-                      <div class="flex-1">
-                        <h3 class="text-lg font-bold text-gray-900 mb-1">{mat.werk_titel} - {mat.stuk_titel}</h3>
-                        <div class="flex items-center text-sm text-gray-500 gap-4">
-                          <span><i class="fas fa-user-edit mr-1"></i> {mat.componist}</span>
-                          <span><i class="fas fa-tag mr-1"></i> {mat.type.toUpperCase()}</span>
-                          <span><i class="far fa-clock mr-1"></i> {new Date(mat.created_at).toLocaleDateString('nl-BE')}</span>
-                        </div>
-                        <p class="text-sm text-gray-600 mt-2">{mat.titel}</p>
-                      </div>
+          {/* Legend */}
+          <div class="flex flex-wrap gap-2 mb-6">
+            {[
+              { icon: 'fab fa-youtube', label: 'YouTube', cls: 'bg-red-100 text-red-700 border-red-200' },
+              { icon: 'fab fa-google-drive', label: 'Google Drive', cls: 'bg-blue-100 text-blue-700 border-blue-200' },
+              { icon: 'fas fa-file-pdf', label: 'PDF', cls: 'bg-orange-100 text-orange-700 border-orange-200' },
+              { icon: 'fas fa-headphones', label: 'Audio', cls: 'bg-purple-100 text-purple-700 border-purple-200' },
+              { icon: 'fas fa-video', label: 'Video', cls: 'bg-pink-100 text-pink-700 border-pink-200' },
+              { icon: 'fas fa-link', label: 'Link', cls: 'bg-teal-100 text-teal-700 border-teal-200' },
+            ].map(leg => (
+              <span class={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${leg.cls}`}>
+                <i class={leg.icon}></i> {leg.label}
+              </span>
+            ))}
+          </div>
+
+          {groupEntries.length > 0 ? (
+            <div class="space-y-5">
+              {groupEntries.map((group: any) => (
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  {/* Group header */}
+                  <div class="bg-gradient-to-r from-animato-primary/10 to-transparent px-6 py-4 border-b border-gray-100">
+                    <div class="flex items-start justify-between">
                       <div>
-                        <a href={mat.url} target="_blank" class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-animato-primary hover:bg-animato-secondary focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-animato-primary">
-                          <i class="fas fa-download mr-2"></i> Download
-                        </a>
+                        <h2 class="text-lg font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+                          {group.werk_titel}
+                        </h2>
+                        {group.stuk_titel && group.stuk_titel !== group.werk_titel && (
+                          <p class="text-sm text-gray-600 mt-0.5">{group.stuk_titel}</p>
+                        )}
+                        <p class="text-xs text-gray-400 mt-1">
+                          <i class="fas fa-user-edit mr-1"></i>{group.componist}
+                        </p>
                       </div>
+                      <span class="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-1 ml-3 whitespace-nowrap">
+                        {group.items.length} {group.items.length === 1 ? 'bestand' : 'bestanden'}
+                      </span>
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div class="p-12 text-center text-gray-500">
-                <i class="fas fa-folder-open text-4xl mb-4 text-gray-300"></i>
-                <p>Geen materiaal beschikbaar voor jouw stemgroep.</p>
-              </div>
-            )}
-          </div>
+
+                  {/* Individual material items */}
+                  <div class="divide-y divide-gray-100">
+                    {group.items.map((mat: any) => {
+                      const info = getTypeInfo(mat)
+                      return (
+                        <div class="flex items-center gap-4 px-6 py-3 hover:bg-gray-50 transition group">
+                          {/* Type icon */}
+                          <div class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200">
+                            <i class={`${info.icon} ${info.colorClass} text-lg`}></i>
+                          </div>
+
+                          {/* Content */}
+                          <div class="flex-1 min-w-0">
+                            <div class="flex items-center gap-2 flex-wrap">
+                              <span class={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${info.badgeClass}`}>
+                                <i class={`${info.icon} text-xs`}></i>
+                                {info.label}
+                              </span>
+                              <span class="text-sm font-medium text-gray-800 truncate">{mat.titel}</span>
+                              {mat.stem && mat.stem !== 'algemeen' && mat.stem !== 'SATB' && (
+                                <span class="text-xs bg-indigo-50 text-indigo-600 border border-indigo-200 px-1.5 py-0.5 rounded-full">{mat.stem}</span>
+                              )}
+                            </div>
+                            {mat.beschrijving && mat.beschrijving !== 'null' && (
+                              <p class="text-xs text-gray-500 mt-0.5 truncate">{mat.beschrijving}</p>
+                            )}
+                          </div>
+
+                          {/* Action button */}
+                          <div class="flex-shrink-0">
+                            <a 
+                              href={mat.url} 
+                              target="_blank" 
+                              class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-animato-primary hover:bg-animato-secondary transition shadow-sm"
+                              title={mat.beschrijving || mat.titel}
+                            >
+                              <i class={`${info.icon} text-xs`}></i>
+                              <span class="hidden sm:inline">Openen</span>
+                            </a>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center text-gray-500">
+              <i class="fas fa-folder-open text-4xl mb-4 text-gray-300"></i>
+              <p>Geen materiaal beschikbaar voor jouw stemgroep.</p>
+            </div>
+          )}
         </div>
       </div>
     </Layout>

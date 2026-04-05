@@ -569,7 +569,7 @@ app.get('/admin/meetings/:id', async (c) => {
                         <table class="min-w-full divide-y divide-gray-200">
                            <thead class="bg-gray-50">
                               <tr>
-                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Beschrijving</th>
+                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actiepunt</th>
                                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Wie</th>
                                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Deadline</th>
                                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
@@ -579,7 +579,12 @@ app.get('/admin/meetings/:id', async (c) => {
                            <tbody class="divide-y divide-gray-200">
                               {actionItems.map((action: any) => (
                                  <tr>
-                                    <td class="px-4 py-3 text-sm text-gray-900">{action.beschrijving}</td>
+                                    <td class="px-4 py-3 text-sm text-gray-900">
+                                       <span class="font-medium">{action.titel}</span>
+                                       {action.beschrijving && action.beschrijving !== '' && (
+                                         <p class="text-xs text-gray-500 mt-0.5">{action.beschrijving}</p>
+                                       )}
+                                    </td>
                                     <td class="px-4 py-3 text-sm text-gray-500">{action.voornaam || '-'}</td>
                                     <td class="px-4 py-3 text-sm text-gray-500">{action.deadline ? new Date(action.deadline).toLocaleDateString('nl-BE') : '-'}</td>
                                     <td class="px-4 py-3">

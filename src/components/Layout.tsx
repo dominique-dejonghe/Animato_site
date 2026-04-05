@@ -286,47 +286,74 @@ export const Layout: FC<LayoutProps> = ({
             <button id="beta-bubble-btn" class="bg-animato-accent text-white p-4 rounded-full shadow-lg hover:bg-yellow-600 transition flex items-center justify-center w-14 h-14">
                 <i class="fas fa-bug text-xl"></i>
             </button>
-            <div id="beta-popup" class="absolute bottom-16 right-0 bg-white rounded-lg shadow-xl p-4 w-96 border border-gray-200 hidden">
-                <div class="flex justify-between items-center mb-2">
-                    <h3 class="font-bold text-gray-900">Beta Feedback</h3>
-                    <button id="beta-close" class="text-gray-500 hover:text-gray-700"><i class="fas fa-times"></i></button>
+            <div id="beta-popup" class="absolute bottom-16 right-0 bg-white rounded-xl shadow-2xl w-96 border border-gray-200 hidden overflow-hidden" style="max-height: 85vh;">
+                {/* Header */}
+                <div class="flex justify-between items-center px-4 py-3 border-b border-gray-100 bg-gray-50">
+                    <h3 class="font-bold text-gray-900 text-sm"><i class="fas fa-bug text-animato-accent mr-1.5"></i>Beta Feedback</h3>
+                    <button id="beta-close" class="text-gray-400 hover:text-gray-600 w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-200 transition"><i class="fas fa-times text-xs"></i></button>
                 </div>
-                <p class="text-xs text-gray-600 mb-3">Spoor je een bug op of heb je een idee? Laat het ons weten!</p>
-                <form id="beta-form" onsubmit="submitBetaFeedback(event)">
-                    <div class="mb-2">
-                        <select name="type" class="w-full text-sm border rounded p-1.5 bg-gray-50">
-                            <option value="bug">🐛 Bug Melden</option>
-                            <option value="feature">💡 Idee / Feature</option>
-                            <option value="other">📝 Anders</option>
-                        </select>
-                    </div>
-                    <div class="mb-2">
-                        <textarea name="message" rows={3} class="w-full text-sm border rounded p-2" placeholder="Beschrijf het probleem..." required></textarea>
-                    </div>
-                    {/* Screenshot plakzone */}
-                    <div class="mb-3">
-                        <div id="screenshot-zone"
-                            class="border-2 border-dashed border-gray-300 rounded p-3 text-center text-xs text-gray-400 cursor-pointer hover:border-animato-primary hover:text-animato-primary transition relative"
-                            title="Klik of plak een screenshot (Ctrl+V)">
-                            <i class="fas fa-image mr-1"></i>
-                            Screenshot plakken <span class="font-mono bg-gray-100 px-1 rounded">Ctrl+V</span> of klik om te uploaden
-                            <input type="file" id="screenshot-file" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer" />
-                        </div>
-                        <div id="screenshot-preview" class="hidden mt-2 relative">
-                            <img id="screenshot-img" class="w-full rounded border max-h-40 object-contain" src="" alt="Screenshot preview" />
-                            <button type="button" onclick="clearScreenshot()" class="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center hover:bg-red-600">
-                                <i class="fas fa-times"></i>
-                            </button>
-                        </div>
-                    </div>
-                    <button type="submit" class="w-full bg-animato-primary text-white text-sm font-bold py-2 rounded hover:bg-opacity-90">
+                {/* Tabs */}
+                <div class="flex border-b border-gray-100">
+                    <button id="tab-submit" onclick="switchBetaTab('submit')" class="flex-1 py-2 text-xs font-semibold text-animato-primary border-b-2 border-animato-primary bg-white transition">
                         <i class="fas fa-paper-plane mr-1"></i> Versturen
                     </button>
-                </form>
+                    <button id="tab-mine" onclick="switchBetaTab('mine')" class="flex-1 py-2 text-xs font-semibold text-gray-500 border-b-2 border-transparent hover:text-gray-700 bg-white transition">
+                        <i class="fas fa-list mr-1"></i> Mijn Feedback
+                    </button>
+                </div>
+
+                {/* Tab: Submit */}
+                <div id="beta-tab-submit" class="p-4">
+                    <p class="text-xs text-gray-500 mb-3">Spoor je een bug op of heb je een idee? Laat het ons weten!</p>
+                    <form id="beta-form" onsubmit="submitBetaFeedback(event)">
+                        <div class="mb-2">
+                            <select name="type" class="w-full text-sm border border-gray-200 rounded-lg p-2 bg-gray-50 focus:ring-2 focus:ring-animato-primary focus:border-transparent">
+                                <option value="bug">🐛 Bug Melden</option>
+                                <option value="feature">💡 Idee / Feature</option>
+                                <option value="other">📝 Anders</option>
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <textarea name="message" rows={4} class="w-full text-sm border border-gray-200 rounded-lg p-2.5 focus:ring-2 focus:ring-animato-primary focus:border-transparent resize-none" placeholder="Beschrijf het probleem of jouw idee..." required></textarea>
+                        </div>
+                        {/* Screenshot plakzone */}
+                        <div class="mb-3">
+                            <div id="screenshot-zone"
+                                class="border-2 border-dashed border-gray-200 rounded-lg p-3 text-center text-xs text-gray-400 cursor-pointer hover:border-animato-primary hover:text-animato-primary transition relative"
+                                title="Klik of plak een screenshot (Ctrl+V)">
+                                <i class="fas fa-image mr-1"></i>
+                                Screenshot plakken <span class="font-mono bg-gray-100 px-1 rounded text-gray-500">Ctrl+V</span> of klik
+                                <input type="file" id="screenshot-file" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer" />
+                            </div>
+                            <div id="screenshot-preview" class="hidden mt-2 relative">
+                                <img id="screenshot-img" class="w-full rounded border max-h-32 object-contain" src="" alt="Screenshot preview" />
+                                <button type="button" onclick="clearScreenshot()" class="absolute top-1 right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center hover:bg-red-600">
+                                    <i class="fas fa-times"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full bg-animato-primary text-white text-sm font-bold py-2.5 rounded-lg hover:bg-animato-secondary transition">
+                            <i class="fas fa-paper-plane mr-1"></i> Versturen
+                        </button>
+                    </form>
+                </div>
+
+                {/* Tab: My Feedback */}
+                <div id="beta-tab-mine" class="hidden">
+                    <div id="my-feedback-loading" class="p-6 text-center text-gray-400 text-sm">
+                        <i class="fas fa-spinner fa-spin mr-2"></i> Laden...
+                    </div>
+                    <div id="my-feedback-list" class="hidden overflow-y-auto" style="max-height: 340px;"></div>
+                    <div id="my-feedback-empty" class="hidden p-6 text-center">
+                        <i class="fas fa-inbox text-3xl text-gray-200 mb-2 block"></i>
+                        <p class="text-sm text-gray-400">Je hebt nog geen feedback ingediend.</p>
+                    </div>
+                </div>
             </div>
         </div>
         <script dangerouslySetInnerHTML={{__html: `
             let betaScreenshotData = null;
+            let betaFeedbackLoaded = false;
 
             (async function() {
                 try {
@@ -341,7 +368,9 @@ export const Layout: FC<LayoutProps> = ({
                         const fileInput = document.getElementById('screenshot-file');
 
                         container.classList.remove('hidden');
-                        btn.onclick = () => popup.classList.toggle('hidden');
+                        btn.onclick = () => {
+                            popup.classList.toggle('hidden');
+                        };
                         close.onclick = () => {
                             popup.classList.add('hidden');
                             clearScreenshot();
@@ -375,28 +404,120 @@ export const Layout: FC<LayoutProps> = ({
                         });
 
                         // File input (click to upload)
-                        fileInput.addEventListener('change', function(e) {
+                        if (fileInput) fileInput.addEventListener('change', function(e) {
                             const file = e.target.files[0];
                             if (file) loadScreenshot(file);
                         });
 
                         // Drag & drop
-                        zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('border-animato-primary'); });
-                        zone.addEventListener('dragleave', () => zone.classList.remove('border-animato-primary'));
-                        zone.addEventListener('drop', (e) => {
-                            e.preventDefault();
-                            zone.classList.remove('border-animato-primary');
-                            const file = e.dataTransfer.files[0];
-                            if (file && file.type.startsWith('image/')) loadScreenshot(file);
-                        });
+                        if (zone) {
+                            zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('border-animato-primary'); });
+                            zone.addEventListener('dragleave', () => zone.classList.remove('border-animato-primary'));
+                            zone.addEventListener('drop', (e) => {
+                                e.preventDefault();
+                                zone.classList.remove('border-animato-primary');
+                                const file = e.dataTransfer.files[0];
+                                if (file && file.type.startsWith('image/')) loadScreenshot(file);
+                            });
+                        }
                     }
                 } catch(e) { console.error('Beta status check failed', e); }
             })();
 
+            function switchBetaTab(tab) {
+                const submitTab = document.getElementById('beta-tab-submit');
+                const mineTab = document.getElementById('beta-tab-mine');
+                const btnSubmit = document.getElementById('tab-submit');
+                const btnMine = document.getElementById('tab-mine');
+
+                if (tab === 'submit') {
+                    submitTab.classList.remove('hidden');
+                    mineTab.classList.add('hidden');
+                    btnSubmit.classList.add('text-animato-primary', 'border-animato-primary');
+                    btnSubmit.classList.remove('text-gray-500', 'border-transparent');
+                    btnMine.classList.remove('text-animato-primary', 'border-animato-primary');
+                    btnMine.classList.add('text-gray-500', 'border-transparent');
+                } else {
+                    submitTab.classList.add('hidden');
+                    mineTab.classList.remove('hidden');
+                    btnMine.classList.add('text-animato-primary', 'border-animato-primary');
+                    btnMine.classList.remove('text-gray-500', 'border-transparent');
+                    btnSubmit.classList.remove('text-animato-primary', 'border-animato-primary');
+                    btnSubmit.classList.add('text-gray-500', 'border-transparent');
+                    loadMyFeedback();
+                }
+            }
+
+            async function loadMyFeedback() {
+                const loading = document.getElementById('my-feedback-loading');
+                const list = document.getElementById('my-feedback-list');
+                const empty = document.getElementById('my-feedback-empty');
+
+                loading.classList.remove('hidden');
+                list.classList.add('hidden');
+                empty.classList.add('hidden');
+
+                try {
+                    const res = await fetch('/api/feedback/mine');
+                    if (!res.ok) {
+                        loading.innerHTML = '<i class="fas fa-lock text-gray-300 text-2xl mb-2 block"></i><p class="text-xs text-gray-400">Log in om je feedback te bekijken.</p>';
+                        return;
+                    }
+                    const data = await res.json();
+                    loading.classList.add('hidden');
+
+                    if (!data.items || data.items.length === 0) {
+                        empty.classList.remove('hidden');
+                        return;
+                    }
+
+                    const typeLabels = { bug: '🐛 Bug', feature: '💡 Idee', other: '📝 Anders' };
+                    const statusColors = {
+                        open: 'bg-blue-100 text-blue-700',
+                        in_progress: 'bg-yellow-100 text-yellow-700',
+                        done: 'bg-green-100 text-green-700',
+                        closed: 'bg-gray-100 text-gray-500',
+                        wontfix: 'bg-red-50 text-red-500'
+                    };
+                    const statusLabels = {
+                        open: 'Open',
+                        in_progress: 'In behandeling',
+                        done: 'Opgelost',
+                        closed: 'Gesloten',
+                        wontfix: 'Niet opgelost'
+                    };
+
+                    list.innerHTML = data.items.map(item => {
+                        const sColor = statusColors[item.status] || 'bg-gray-100 text-gray-500';
+                        const sLabel = statusLabels[item.status] || item.status;
+                        const tLabel = typeLabels[item.type] || item.type;
+                        const date = new Date(item.created_at).toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: 'numeric' });
+                        const notes = item.admin_notes ? '<p class="text-xs text-indigo-600 mt-1.5 bg-indigo-50 rounded p-1.5"><i class="fas fa-comment-dots mr-1"></i>' + item.admin_notes + '</p>' : '';
+                        return '<div class="px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition">' +
+                            '<div class="flex items-start justify-between gap-2">' +
+                            '<div class="flex-1 min-w-0">' +
+                            '<div class="flex items-center gap-1.5 mb-1">' +
+                            '<span class="text-xs text-gray-500">' + tLabel + '</span>' +
+                            '<span class="text-gray-300">·</span>' +
+                            '<span class="text-xs text-gray-400">' + date + '</span>' +
+                            '</div>' +
+                            '<p class="text-xs text-gray-700 leading-relaxed line-clamp-3">' + item.message + '</p>' +
+                            notes +
+                            '</div>' +
+                            '<span class="flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ' + sColor + '">' + sLabel + '</span>' +
+                            '</div>' +
+                            '</div>';
+                    }).join('');
+                    list.classList.remove('hidden');
+                } catch(e) {
+                    loading.innerHTML = '<i class="fas fa-exclamation-circle text-red-300 text-2xl mb-2 block"></i><p class="text-xs text-gray-400">Kon feedback niet laden.</p>';
+                }
+            }
+
             function loadScreenshot(blob) {
                 const reader = new FileReader();
                 reader.onload = function(e) {
-                    betaScreenshotData = e.target.result; // base64 data URL
+                    betaScreenshotData = e.target.result;
                     document.getElementById('screenshot-img').src = betaScreenshotData;
                     document.getElementById('screenshot-preview').classList.remove('hidden');
                     document.getElementById('screenshot-zone').classList.add('hidden');
@@ -409,7 +530,8 @@ export const Layout: FC<LayoutProps> = ({
                 document.getElementById('screenshot-img').src = '';
                 document.getElementById('screenshot-preview').classList.add('hidden');
                 document.getElementById('screenshot-zone').classList.remove('hidden');
-                document.getElementById('screenshot-file').value = '';
+                const fi = document.getElementById('screenshot-file');
+                if (fi) fi.value = '';
             }
 
             async function submitBetaFeedback(e) {
@@ -436,6 +558,7 @@ export const Layout: FC<LayoutProps> = ({
 
                     if (res.ok) {
                         submitBtn.innerHTML = '<i class="fas fa-check mr-1"></i> Verzonden!';
+                        betaFeedbackLoaded = false; // reset so it reloads next time
                         setTimeout(() => {
                             document.getElementById('beta-popup').classList.add('hidden');
                             form.reset();

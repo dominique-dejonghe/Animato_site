@@ -120,7 +120,7 @@ app.get('/admin', async (c) => {
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           
           {/* Stats Cards */}
-          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-6 mb-8">
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-6 gap-4 mb-8">
             
             {/* Pending Registrations Alert Card */}
             {(stats.total_pending?.count || 0) > 0 && (
@@ -140,185 +140,159 @@ app.get('/admin', async (c) => {
               </div>
             )}
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm text-gray-600 mb-1">Actieve Leden</p>
-                  <p class="text-3xl font-bold text-gray-900">{stats.total_leden?.count || 0}</p>
-                </div>
-                <div class="w-12 h-12 bg-animato-primary/10 rounded-lg flex items-center justify-center">
-                  <i class="fas fa-users text-animato-primary text-xl"></i>
+            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Actieve Leden</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-animato-primary/10 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-users text-animato-primary text-base"></i>
                 </div>
               </div>
-              <a href="/admin/leden" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
-                Bekijk alle leden <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_leden?.count || 0}</p>
+              <a href="/admin/leden" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+                Bekijk alle leden <i class="fas fa-arrow-right text-xs"></i>
               </a>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm text-gray-600 mb-1">Gepubliceerde Posts</p>
-                  <p class="text-3xl font-bold text-gray-900">{stats.total_posts?.count || 0}</p>
-                </div>
-                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                  <i class="fas fa-newspaper text-green-600 text-xl"></i>
+            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Gepubliceerde Posts</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-newspaper text-green-600 text-base"></i>
                 </div>
               </div>
-              <a href="/admin/content" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
-                Beheer content <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_posts?.count || 0}</p>
+              <a href="/admin/content" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+                Beheer content <i class="fas fa-arrow-right text-xs"></i>
               </a>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm text-gray-600 mb-1">Aankomende Events</p>
-                  <p class="text-3xl font-bold text-gray-900">{stats.total_events?.count || 0}</p>
-                </div>
-                <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                  <i class="fas fa-calendar text-purple-600 text-xl"></i>
+            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Aankomende Events</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-purple-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-calendar text-purple-600 text-base"></i>
                 </div>
               </div>
-              <a href="/admin/events" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
-                Beheer events <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_events?.count || 0}</p>
+              <a href="/admin/events" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+                Beheer events <i class="fas fa-arrow-right text-xs"></i>
               </a>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm text-gray-600 mb-1">Foto Albums</p>
-                  <p class="text-3xl font-bold text-gray-900">{stats.total_albums?.count || 0}</p>
-                </div>
-                <div class="w-12 h-12 bg-pink-100 rounded-lg flex items-center justify-center">
-                  <i class="fas fa-images text-pink-600 text-xl"></i>
+            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Foto Albums</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-pink-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-images text-pink-600 text-base"></i>
                 </div>
               </div>
-              <a href="/admin/fotoboek" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
-                Beheer fotoboek <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_albums?.count || 0}</p>
+              <a href="/admin/fotoboek" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+                Beheer fotoboek <i class="fas fa-arrow-right text-xs"></i>
               </a>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm text-gray-600 mb-1">Actieve Materialen</p>
-                  <p class="text-3xl font-bold text-gray-900">{stats.total_materials?.count || 0}</p>
-                </div>
-                <div class="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
-                  <i class="fas fa-file-audio text-amber-600 text-xl"></i>
+            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Actieve Materialen</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-amber-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-file-audio text-amber-600 text-base"></i>
                 </div>
               </div>
-              <a href="/admin/bestanden" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
-                Beheer bestanden <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_materials?.count || 0}</p>
+              <a href="/admin/bestanden" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+                Beheer bestanden <i class="fas fa-arrow-right text-xs"></i>
               </a>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm text-gray-600 mb-1">Actieve Locaties</p>
-                  <p class="text-3xl font-bold text-gray-900">{stats.total_locations?.count || 0}</p>
-                </div>
-                <div class="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center">
-                  <i class="fas fa-map-marker-alt text-red-600 text-xl"></i>
+            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Actieve Locaties</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-red-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-map-marker-alt text-red-600 text-base"></i>
                 </div>
               </div>
-              <a href="/admin/locaties" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
-                Beheer locaties <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_locations?.count || 0}</p>
+              <a href="/admin/locaties" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+                Beheer locaties <i class="fas fa-arrow-right text-xs"></i>
               </a>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm text-gray-600 mb-1">Actieve Polls</p>
-                  <p class="text-3xl font-bold text-gray-900">{stats.total_polls?.count || 0}</p>
-                </div>
-                <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                  <i class="fas fa-poll text-green-600 text-xl"></i>
+            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Actieve Polls</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-poll text-green-600 text-base"></i>
                 </div>
               </div>
-              <a href="/admin/polls" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
-                Beheer polls <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_polls?.count || 0}</p>
+              <a href="/admin/polls" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+                Beheer polls <i class="fas fa-arrow-right text-xs"></i>
               </a>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm text-gray-600 mb-1">Karaoke Songs</p>
-                  <p class="text-3xl font-bold text-gray-900">20</p>
-                </div>
-                <div class="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
-                  <i class="fas fa-microphone text-orange-600 text-xl"></i>
+            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Karaoke Songs</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-orange-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-microphone text-orange-600 text-base"></i>
                 </div>
               </div>
-              <a href="/admin/karaoke" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
-                Beheer karaoke <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              <p class="text-3xl font-bold text-gray-900 leading-none">20</p>
+              <a href="/admin/karaoke" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+                Beheer karaoke <i class="fas fa-arrow-right text-xs"></i>
               </a>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm text-gray-600 mb-1">Voorstellen</p>
-                  <p class="text-3xl font-bold text-gray-900">{stats.total_proposals_pending?.count || 0}</p>
-                </div>
-                <div class="w-12 h-12 bg-yellow-100 rounded-lg flex items-center justify-center">
-                  <i class="fas fa-lightbulb text-yellow-600 text-xl"></i>
+            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Voorstellen</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-yellow-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-lightbulb text-yellow-600 text-base"></i>
                 </div>
               </div>
-              <a href="/admin/voorstellen" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
-                Beoordeel voorstellen <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_proposals_pending?.count || 0}</p>
+              <a href="/admin/voorstellen" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+                Beoordeel voorstellen <i class="fas fa-arrow-right text-xs"></i>
               </a>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm text-gray-600 mb-1">Lopende Projecten</p>
-                  <p class="text-3xl font-bold text-gray-900">{stats.total_projects?.count || 0}</p>
-                </div>
-                <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                  <i class="fas fa-tasks text-blue-600 text-xl"></i>
+            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Lopende Projecten</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-tasks text-blue-600 text-base"></i>
                 </div>
               </div>
-              <a href="/admin/projects" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
-                Beheer projecten <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_projects?.count || 0}</p>
+              <a href="/admin/projects" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+                Beheer projecten <i class="fas fa-arrow-right text-xs"></i>
               </a>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm text-gray-600 mb-1">Vergaderingen</p>
-                  <p class="text-3xl font-bold text-gray-900">{stats.total_meetings?.count || 0}</p>
-                </div>
-                <div class="w-12 h-12 bg-indigo-100 rounded-lg flex items-center justify-center">
-                  <i class="fas fa-handshake text-indigo-600 text-xl"></i>
+            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Vergaderingen</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-indigo-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-handshake text-indigo-600 text-base"></i>
                 </div>
               </div>
-              <a href="/admin/meetings" class="mt-4 text-sm text-animato-primary hover:underline inline-flex items-center">
-                Bekijk agenda <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_meetings?.count || 0}</p>
+              <a href="/admin/meetings" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+                Bekijk agenda <i class="fas fa-arrow-right text-xs"></i>
               </a>
             </div>
 
-            <div class="bg-white rounded-lg shadow-md p-6 border-2 border-animato-accent">
-              <div class="flex items-center justify-between">
-                <div>
-                  <p class="text-sm text-gray-600 mb-1">Gebruikers Activiteit</p>
-                  <p class="text-3xl font-bold text-gray-900">
-                    <i class="fas fa-chart-line text-animato-accent"></i>
-                  </p>
-                </div>
-                <div class="w-12 h-12 bg-animato-accent bg-opacity-10 rounded-lg flex items-center justify-center">
-                  <i class="fas fa-users text-animato-accent text-xl"></i>
+            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden border-2 border-animato-accent">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Gebruikers Activiteit</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-animato-accent/10 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-chart-line text-animato-accent text-base"></i>
                 </div>
               </div>
-              <a href="/admin/audit" class="mt-4 text-sm text-animato-accent hover:underline inline-flex items-center font-semibold">
-                Bekijk login activiteit <i class="fas fa-arrow-right ml-1 text-xs"></i>
+              <p class="text-3xl font-bold text-animato-accent leading-none"><i class="fas fa-chart-line"></i></p>
+              <a href="/admin/audit" class="text-xs text-animato-accent hover:underline inline-flex items-center gap-1 font-semibold">
+                Bekijk login activiteit <i class="fas fa-arrow-right text-xs"></i>
               </a>
             </div>
           </div>

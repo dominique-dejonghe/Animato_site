@@ -15,6 +15,25 @@ app.get('/api/system/beta-status', async (c) => {
   return c.json({ enabled: setting?.value === '1' })
 })
 
+// Get user's own feedback (Auth required)
+app.get('/api/feedback/mine', async (c) => {
+  const token = getCookie(c, 'auth_token')
+  if (!token) return c.json({ error: 'Unauthorized' }, 401)
+  
+  const user = await verifyToken(token, c.env.JWT_SECRET)
+  if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+  const items = await c.env.DB.prepare(
+    `SELECT id, type, message, status, admin_notes, created_at 
+     FROM feedback 
+     WHERE user_id = ? 
+     ORDER BY created_at DESC 
+     LIMIT 20`
+  ).bind(user.id).all()
+
+  return c.json({ items: items.results || [] })
+})
+
 // Submit feedback (Auth required)
 app.post('/api/feedback', async (c) => {
   const token = getCookie(c, 'auth_token')

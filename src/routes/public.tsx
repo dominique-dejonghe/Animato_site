@@ -274,9 +274,11 @@ app.get('/', async (c) => {
                   <h3 class="text-xl font-bold text-gray-900 mb-3 group-hover:text-animato-primary transition">
                     {item.titel}
                   </h3>
-                  <p class="text-gray-600 mb-4 line-clamp-3">
-                    {item.excerpt || 'Lees meer...'}
-                  </p>
+                  {item.excerpt && (
+                    <p class="text-gray-600 mb-4 line-clamp-3">
+                      {item.excerpt}
+                    </p>
+                  )}
                   <span class="inline-flex items-center text-animato-primary font-semibold group-hover:underline">
                     Lees meer
                     <i class="fas fa-arrow-right ml-2"></i>

@@ -64,8 +64,8 @@ app.get('/', async (c) => {
     "genre": ["Classical", "Contemporary", "Choral"],
     "knowsAbout": "Choral Music",
     "sameAs": [
-      "https://www.facebook.com/animatokoor",
-      "https://www.instagram.com/animatokoor"
+      "https://www.facebook.com/GemengdkoorAnimato",
+      "https://www.youtube.com/@GemengdkoorAnimato"
     ],
     "event": concerten.map((concert: any) => ({
       "@type": "MusicEvent",
@@ -328,7 +328,7 @@ app.get('/', async (c) => {
                 </span>
               </summary>
               <p class="mt-4 leading-relaxed text-gray-700">
-                Wij repeteren elke dinsdagavond van 19:30 tot 21:30 uur. Onze repetities vinden plaats in onze vaste locatie in Brussel. We verwachten een regelmatig engagement, maar begrijpen dat werk of privé soms voorrang heeft.
+                Wij repeteren elke woensdagavond van 19:30 tot 21:30 uur. Onze repetities vinden plaats in Zaal De Sopper, Oppuursdorp 15, 2890 Oppuurs. We verwachten een regelmatig engagement, maar begrijpen dat werk of privé soms voorrang heeft.
               </p>
             </details>
 
@@ -600,7 +600,7 @@ app.get('/word-lid', async (c) => {
                 </li>
                 <li class="flex items-start">
                   <i class="fas fa-check-circle text-green-500 mt-1 mr-3"></i>
-                  <span class="text-gray-700"><strong>Wekelijkse repetities:</strong> Elke dinsdag van 19:30 tot 21:30 uur</span>
+                  <span class="text-gray-700"><strong>Wekelijkse repetities:</strong> Elke woensdag van 19:30 tot 21:30 uur</span>
                 </li>
                 <li class="flex items-start">
                   <i class="fas fa-check-circle text-green-500 mt-1 mr-3"></i>
@@ -729,7 +729,7 @@ app.get('/word-lid', async (c) => {
                   class="mt-1 h-4 w-4 text-animato-primary focus:ring-animato-primary border-gray-300 rounded"
                 />
                 <label for="consent" class="ml-2 text-sm text-gray-600">
-                  Ik ga akkoord met de verwerking van mijn gegevens volgens de <a href="/privacy" class="text-animato-primary hover:underline">privacyverklaring</a>.
+                  Ik ga akkoord met de verwerking van mijn gegevens volgens de <a href="/privacyverklaring" class="text-animato-primary hover:underline">privacyverklaring</a>.
                 </label>
               </div>
 
@@ -823,22 +823,8 @@ app.get('/contact', async (c) => {
                   </div>
                   <div class="ml-4">
                     <h3 class="font-semibold text-gray-900">Email</h3>
-                    <a href="mailto:info@animato.be" class="text-animato-primary hover:underline">
-                      info@animato.be
-                    </a>
-                  </div>
-                </div>
-
-                <div class="flex items-start">
-                  <div class="flex-shrink-0">
-                    <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center">
-                      <i class="fas fa-phone text-animato-primary text-xl"></i>
-                    </div>
-                  </div>
-                  <div class="ml-4">
-                    <h3 class="font-semibold text-gray-900">Telefoon</h3>
-                    <a href="tel:+32470123456" class="text-animato-primary hover:underline">
-                      +32 470 12 34 56
+                    <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">
+                      gemengdkooranimato@gmail.com
                     </a>
                   </div>
                 </div>
@@ -852,10 +838,23 @@ app.get('/contact', async (c) => {
                   <div class="ml-4">
                     <h3 class="font-semibold text-gray-900">Adres</h3>
                     <p class="text-gray-600">
-                      Koorstraat 1<br />
-                      1000 Brussel<br />
+                      Zaal De Sopper<br />
+                      Oppuursdorp 15<br />
+                      2890 Oppuurs<br />
                       België
                     </p>
+                  </div>
+                </div>
+
+                <div class="flex items-start">
+                  <div class="flex-shrink-0">
+                    <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center">
+                      <i class="fas fa-clock text-animato-primary text-xl"></i>
+                    </div>
+                  </div>
+                  <div class="ml-4">
+                    <h3 class="font-semibold text-gray-900">Repetities</h3>
+                    <p class="text-gray-600">Elke woensdag van 19:30 tot 21:30 uur</p>
                   </div>
                 </div>
               </div>
@@ -863,13 +862,10 @@ app.get('/contact', async (c) => {
               <div class="mt-8">
                 <h3 class="font-semibold text-gray-900 mb-4">Volg ons op social media</h3>
                 <div class="flex space-x-4">
-                  <a href="#" class="w-12 h-12 bg-animato-primary text-white rounded-lg flex items-center justify-center hover:bg-animato-secondary transition">
+                  <a href="https://www.facebook.com/GemengdkoorAnimato" target="_blank" rel="noopener" class="w-12 h-12 bg-animato-primary text-white rounded-lg flex items-center justify-center hover:bg-animato-secondary transition">
                     <i class="fab fa-facebook text-xl"></i>
                   </a>
-                  <a href="#" class="w-12 h-12 bg-animato-primary text-white rounded-lg flex items-center justify-center hover:bg-animato-secondary transition">
-                    <i class="fab fa-instagram text-xl"></i>
-                  </a>
-                  <a href="#" class="w-12 h-12 bg-animato-primary text-white rounded-lg flex items-center justify-center hover:bg-animato-secondary transition">
+                  <a href="https://www.youtube.com/@GemengdkoorAnimato" target="_blank" rel="noopener" class="w-12 h-12 bg-animato-primary text-white rounded-lg flex items-center justify-center hover:bg-animato-secondary transition">
                     <i class="fab fa-youtube text-xl"></i>
                   </a>
                 </div>
@@ -941,7 +937,7 @@ app.get('/contact', async (c) => {
                     class="mt-1 h-4 w-4 text-animato-primary focus:ring-animato-primary border-gray-300 rounded"
                   />
                   <label for="consent" class="ml-2 text-sm text-gray-600">
-                    Ik ga akkoord met de verwerking van mijn gegevens volgens de <a href="/privacy" class="text-animato-primary hover:underline">privacyverklaring</a>.
+                    Ik ga akkoord met de verwerking van mijn gegevens volgens de <a href="/privacyverklaring" class="text-animato-primary hover:underline">privacyverklaring</a>.
                   </label>
                 </div>
 
@@ -956,27 +952,27 @@ app.get('/contact', async (c) => {
             </div>
           </div>
 
-          {/* Google Maps Section */}
+          {/* Kaart - OpenStreetMap */}
           <div class="mt-16">
             <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center">
               <i class="fas fa-map-marker-alt text-animato-primary mr-3"></i>
               Vind Ons
             </h2>
-            <div class="w-full h-96 rounded-lg overflow-hidden shadow-lg">
-              <iframe 
-                src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2519.1890446229856!2d4.3517!3d50.8503!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zNTDCsDUxJzAxLjEiTiA0wrAyMScwNi4xIkU!5e0!3m2!1snl!2sbe!4v1234567890"
-                width="100%" 
-                height="100%" 
-                style="border:0;" 
-                allowfullscreen="" 
-                loading="lazy" 
-                referrerpolicy="no-referrer-when-downgrade"
-                title="Google Maps - Koorstraat 1, 1000 Brussel"
+            <div class="w-full h-80 rounded-lg overflow-hidden shadow-lg">
+              <iframe
+                src="https://www.openstreetmap.org/export/embed.html?bbox=4.2829,51.0500,4.3229,51.0700&layer=mapnik&marker=51.0600,4.3029"
+                width="100%"
+                height="100%"
+                style="border:0;"
+                loading="lazy"
+                title="Zaal De Sopper, Oppuursdorp 15, 2890 Oppuurs"
               ></iframe>
             </div>
-            <p class="mt-4 text-sm text-gray-600 text-center">
-              <i class="fas fa-info-circle mr-1"></i>
-              Koorstraat 1, 1000 Brussel, België
+            <p class="mt-3 text-sm text-gray-600 text-center">
+              <i class="fas fa-map-marker-alt text-animato-primary mr-1"></i>
+              Zaal De Sopper, Oppuursdorp 15, 2890 Oppuurs
+              &nbsp;·&nbsp;
+              <a href="https://www.openstreetmap.org/search?query=Oppuursdorp+15+Oppuurs" target="_blank" rel="noopener" class="text-animato-primary hover:underline">Bekijk op kaart</a>
             </p>
           </div>
         </div>
@@ -1387,5 +1383,109 @@ app.get('/fotoboek/:slug', async (c) => {
     </Layout>
   )
 })
+
+// =====================================================
+// PRIVACYVERKLARING
+// =====================================================
+
+app.get('/privacyverklaring', async (c) => {
+  const user = c.get('user')
+  return c.html(
+    <Layout title="Privacyverklaring" user={user} currentPath="/privacyverklaring">
+      <div class="py-16 bg-white">
+        <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+          <h1 class="text-4xl font-bold text-animato-secondary mb-8" style="font-family: 'Playfair Display', serif;">
+            Privacyverklaring
+          </h1>
+          <p class="text-sm text-gray-500 mb-8">Laatste update: april 2026</p>
+
+          <div class="prose prose-gray max-w-none space-y-8 text-gray-700 leading-relaxed">
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">1. Wie zijn wij?</h2>
+              <p>Gemengd Koor Animato, gevestigd te Zaal De Sopper, Oppuursdorp 15, 2890 Oppuurs, is verantwoordelijk voor de verwerking van persoonsgegevens zoals beschreven in deze privacyverklaring.</p>
+              <p class="mt-2"><strong>Contactgegevens:</strong><br/>
+                E-mail: <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">gemengdkooranimato@gmail.com</a><br/>
+                Adres: Oppuursdorp 15, 2890 Oppuurs
+              </p>
+            </section>
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">2. Welke gegevens verwerken wij?</h2>
+              <p>Wij verwerken de volgende categorieën persoonsgegevens:</p>
+              <ul class="list-disc list-inside mt-2 space-y-1">
+                <li>Naam en voornaam</li>
+                <li>E-mailadres</li>
+                <li>Telefoonnummer (optioneel)</li>
+                <li>Stemgroep (sopraan, alt, tenor, bas)</li>
+                <li>Adresgegevens (voor ledenadministratie)</li>
+                <li>Inloggegevens voor het ledenportaal</li>
+              </ul>
+            </section>
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">3. Waarvoor gebruiken wij uw gegevens?</h2>
+              <ul class="list-disc list-inside mt-2 space-y-1">
+                <li>Ledenbeheer en communicatie met leden</li>
+                <li>Organisatie van repetities, concerten en activiteiten</li>
+                <li>Beantwoorden van contactvragen via het contactformulier</li>
+                <li>Opvolging van inschrijvingen voor activiteiten</li>
+                <li>Verzenden van nieuwsbrieven en uitnodigingen (met uw toestemming)</li>
+              </ul>
+            </section>
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">4. Rechtsgrond voor verwerking</h2>
+              <p>Wij verwerken uw gegevens op basis van:</p>
+              <ul class="list-disc list-inside mt-2 space-y-1">
+                <li><strong>Uitvoering van overeenkomst</strong>: voor ledenadministratie en organisatorische communicatie</li>
+                <li><strong>Toestemming</strong>: voor het versturen van nieuwsbrieven en uitnodigingen</li>
+                <li><strong>Gerechtvaardigd belang</strong>: voor de werking van het koor</li>
+              </ul>
+            </section>
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">5. Bewaartermijn</h2>
+              <p>Wij bewaren uw persoonsgegevens niet langer dan nodig voor de doeleinden waarvoor ze zijn verzameld. Gegevens van leden worden bewaard zolang het lidmaatschap actief is en maximaal 2 jaar daarna. Contactformuliergegevens worden maximaal 1 jaar bewaard.</p>
+            </section>
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">6. Uw rechten</h2>
+              <p>U heeft het recht om:</p>
+              <ul class="list-disc list-inside mt-2 space-y-1">
+                <li>Inzage te vragen in uw persoonsgegevens</li>
+                <li>Onjuiste gegevens te laten corrigeren</li>
+                <li>Uw gegevens te laten verwijderen</li>
+                <li>Bezwaar te maken tegen de verwerking</li>
+                <li>Uw toestemming in te trekken</li>
+              </ul>
+              <p class="mt-2">U kunt deze rechten uitoefenen door contact op te nemen via <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">gemengdkooranimato@gmail.com</a>.</p>
+            </section>
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">7. Beveiliging</h2>
+              <p>Wij nemen passende technische en organisatorische maatregelen om uw persoonsgegevens te beveiligen tegen ongeoorloofde toegang, verlies of misbruik. Wachtwoorden worden versleuteld opgeslagen.</p>
+            </section>
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">8. Klachten</h2>
+              <p>Heeft u een klacht over onze verwerking van persoonsgegevens? U kunt contact opnemen met de <a href="https://www.gegevensbeschermingsautoriteit.be" target="_blank" rel="noopener" class="text-animato-primary hover:underline">Gegevensbeschermingsautoriteit (GBA)</a>.</p>
+            </section>
+
+          </div>
+
+          <div class="mt-12 pt-6 border-t border-gray-200">
+            <a href="/" class="text-animato-primary hover:underline">
+              <i class="fas fa-arrow-left mr-2"></i>Terug naar de startpagina
+            </a>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
+// Redirect /privacy → /privacyverklaring voor backwards compatibiliteit
+app.get('/privacy', (c) => c.redirect('/privacyverklaring', 301))
 
 export default app

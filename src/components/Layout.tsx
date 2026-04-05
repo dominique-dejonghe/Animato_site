@@ -243,9 +243,8 @@ export const Layout: FC<LayoutProps> = ({
               <div>
                 <h3 class="text-lg font-semibold mb-4">Contact</h3>
                 <ul class="space-y-2 text-sm text-gray-300">
-                  <li><i class="fas fa-envelope mr-2"></i>info@animato.be</li>
-                  <li><i class="fas fa-phone mr-2"></i>+32 470 12 34 56</li>
-                  <li><i class="fas fa-map-marker-alt mr-2"></i>Koorstraat 1, 1000 Brussel</li>
+                  <li><i class="fas fa-envelope mr-2"></i><a href="mailto:gemengdkooranimato@gmail.com" class="hover:text-white transition">gemengdkooranimato@gmail.com</a></li>
+                  <li><i class="fas fa-map-marker-alt mr-2"></i>Zaal De Sopper, Oppuursdorp 15<br/><span class="ml-5">2890 Oppuurs</span></li>
                 </ul>
               </div>
 
@@ -253,13 +252,10 @@ export const Layout: FC<LayoutProps> = ({
               <div>
                 <h3 class="text-lg font-semibold mb-4">Volg Ons</h3>
                 <div class="flex space-x-4">
-                  <a href="#" class="text-2xl text-gray-300 hover:text-white transition">
+                  <a href="https://www.facebook.com/GemengdkoorAnimato" target="_blank" rel="noopener" aria-label="Facebook" class="text-2xl text-gray-300 hover:text-white transition">
                     <i class="fab fa-facebook"></i>
                   </a>
-                  <a href="#" class="text-2xl text-gray-300 hover:text-white transition">
-                    <i class="fab fa-instagram"></i>
-                  </a>
-                  <a href="#" class="text-2xl text-gray-300 hover:text-white transition">
+                  <a href="https://www.youtube.com/@GemengdkoorAnimato" target="_blank" rel="noopener" aria-label="YouTube" class="text-2xl text-gray-300 hover:text-white transition">
                     <i class="fab fa-youtube"></i>
                   </a>
                 </div>

@@ -8,6 +8,7 @@ interface EmailOptions {
   subject: string
   html: string
   from?: string
+  replyTo?: string
 }
 
 export async function sendEmail(options: EmailOptions, resendApiKey: string): Promise<boolean> {
@@ -21,6 +22,7 @@ export async function sendEmail(options: EmailOptions, resendApiKey: string): Pr
       body: JSON.stringify({
         from: options.from || 'Gemengd Koor Animato <noreply@animato.be>',
         to: [options.to],
+        reply_to: options.replyTo || undefined,
         subject: options.subject,
         html: options.html
       })

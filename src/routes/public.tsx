@@ -183,11 +183,17 @@ app.get('/', async (c) => {
           </div>
 
           {concerten.length > 0 ? (
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div class={`grid gap-8 justify-items-center ${
+              concerten.length === 1
+                ? 'grid-cols-1 max-w-sm mx-auto'
+                : concerten.length === 2
+                  ? 'grid-cols-1 md:grid-cols-2 max-w-2xl mx-auto'
+                  : 'grid-cols-1 md:grid-cols-3'
+            }`}>
               {concerten.map((concert: any) => (
                 <a 
                   href={`/concerten/${concert.slug}`} 
-                  class="group bg-white rounded-lg shadow-md hover:shadow-xl transition overflow-hidden"
+                  class="group bg-white rounded-lg shadow-md hover:shadow-xl transition overflow-hidden w-full"
                 >
                   <div class="aspect-video bg-gray-200 overflow-hidden">
                     {concert.poster_url ? (
@@ -219,7 +225,7 @@ app.get('/', async (c) => {
                     </div>
                     <div class="mt-4">
                       <span class="inline-flex items-center text-animato-primary font-semibold group-hover:underline">
-                        Tickets & Info
+                        {concert.uitverkocht ? 'Meer info' : 'Meer info & Tickets'}
                         <i class="fas fa-arrow-right ml-2"></i>
                       </span>
                     </div>

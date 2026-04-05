@@ -372,7 +372,7 @@ app.get('/concerten', async (c) => {
                         <i class="fas fa-music text-white text-5xl opacity-50"></i>
                       </div>
                     )}
-                    {concert.uitverkocht && (
+                    {concert.uitverkocht == 1 && (
                       <div class="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-semibold">
                         Uitverkocht
                       </div>
@@ -401,10 +401,12 @@ app.get('/concerten', async (c) => {
                         {concert.locatie}
                       </div>
                     </div>
-                    <span class="inline-flex items-center text-animato-primary font-semibold group-hover:underline">
-                      {concert.uitverkocht ? 'Meer info' : 'Tickets & Info'}
-                      <i class="fas fa-arrow-right ml-2"></i>
-                    </span>
+                    {view !== 'past' && (
+                      <span class="inline-flex items-center text-animato-primary font-semibold group-hover:underline">
+                        {concert.uitverkocht == 1 ? 'Meer info' : 'Meer info & Tickets'}
+                        <i class="fas fa-arrow-right ml-2"></i>
+                      </span>
+                    )}
                   </div>
                 </a>
               ))}
@@ -475,7 +477,7 @@ app.get('/concerten/:slug', async (c) => {
               <h1 class="text-5xl md:text-6xl font-bold mb-4" style="font-family: 'Playfair Display', serif;">
                 {concert.titel}
               </h1>
-              {concert.uitverkocht && (
+              {concert.uitverkocht == 1 && (
                 <div class="inline-block bg-red-500 text-white px-6 py-2 rounded-full text-lg font-semibold">
                   Uitverkocht
                 </div>
@@ -559,7 +561,7 @@ app.get('/concerten/:slug', async (c) => {
                   Tickets
                 </h3>
 
-                {concert.uitverkocht ? (
+                {concert.uitverkocht == 1 ? (
                   <div class="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
                     <i class="fas fa-exclamation-circle text-red-500 text-3xl mb-3"></i>
                     <p class="text-lg font-semibold text-red-800">
@@ -569,7 +571,7 @@ app.get('/concerten/:slug', async (c) => {
                       Dit concert is helaas volledig uitverkocht.
                     </p>
                   </div>
-                ) : concert.ticketing_enabled ? (
+                ) : concert.ticketing_enabled == 1 ? (
                   <>
                     {/* Pricing */}
                     <div class="space-y-3 mb-6">
@@ -584,16 +586,16 @@ app.get('/concerten/:slug', async (c) => {
                     </div>
 
                     {/* Availability */}
-                    {concert.capaciteit && (
+                    {concert.capaciteit > 0 && (
                       <div class="mb-6">
                         <div class="flex justify-between text-sm text-gray-600 mb-2">
                           <span>Beschikbaarheid</span>
-                          <span>{concert.capaciteit - concert.verkocht} / {concert.capaciteit}</span>
+                          <span>{concert.capaciteit - (concert.verkocht || 0)} / {concert.capaciteit}</span>
                         </div>
                         <div class="w-full bg-gray-200 rounded-full h-2">
                           <div 
                             class="bg-animato-primary h-2 rounded-full"
-                            style={`width: ${(concert.verkocht / concert.capaciteit * 100)}%`}
+                            style={`width: ${Math.min(((concert.verkocht || 0) / concert.capaciteit * 100), 100)}%`}
                           ></div>
                         </div>
                       </div>

@@ -18,6 +18,7 @@ app.use('*', optionalAuth)
 
 app.get('/', async (c) => {
   const user = c.get('user')
+  const isAdmin = (user as any)?.role === 'admin'
 
   // Fetch laatste nieuws (top 3)
   const nieuws = await queryAll(
@@ -180,6 +181,25 @@ app.get('/', async (c) => {
             <p class="text-gray-600 text-lg">
               Ontdek onze volgende optredens en bestel uw tickets
             </p>
+            {/* Admin quick-actions — only visible for admins */}
+            {isAdmin && (
+              <div class="mt-4 flex justify-center gap-3">
+                <a
+                  href="/admin/events/nieuw?type=concert"
+                  class="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition shadow-sm"
+                >
+                  <i class="fas fa-plus"></i>
+                  Nieuw concert toevoegen
+                </a>
+                <a
+                  href="/admin/events?type=concert"
+                  class="inline-flex items-center gap-2 bg-white border border-amber-400 text-amber-700 hover:bg-amber-50 text-sm font-semibold px-4 py-2 rounded-lg transition shadow-sm"
+                >
+                  <i class="fas fa-cog"></i>
+                  Beheer concerten
+                </a>
+              </div>
+            )}
           </div>
 
           {concerten.length > 0 ? (
@@ -191,46 +211,57 @@ app.get('/', async (c) => {
                   : 'grid-cols-1 md:grid-cols-3'
             }`}>
               {concerten.map((concert: any) => (
-                <a 
-                  href={`/concerten/${concert.slug}`} 
-                  class="group bg-white rounded-lg shadow-md hover:shadow-xl transition overflow-hidden w-full"
-                >
-                  <div class="aspect-video bg-gray-200 overflow-hidden">
-                    {concert.poster_url ? (
-                      <img src={concert.poster_url} alt={concert.titel} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
-                    ) : (
-                      <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-animato-primary to-animato-secondary">
-                        <i class="fas fa-music text-white text-4xl"></i>
+                <div class="group bg-white rounded-lg shadow-md hover:shadow-xl transition overflow-hidden w-full">
+                  <a href={`/concerten/${concert.slug}`} class="block">
+                    <div class="aspect-video bg-gray-200 overflow-hidden">
+                      {concert.poster_url ? (
+                        <img src={concert.poster_url} alt={concert.titel} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+                      ) : (
+                        <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-animato-primary to-animato-secondary">
+                          <i class="fas fa-music text-white text-4xl"></i>
+                        </div>
+                      )}
+                    </div>
+                    <div class="p-6">
+                      <h3 class="text-xl font-bold text-gray-900 mb-2 group-hover:text-animato-primary transition">
+                        {concert.titel}
+                      </h3>
+                      <div class="text-gray-600 text-sm space-y-1">
+                        <div>
+                          <i class="fas fa-calendar mr-2 text-animato-primary"></i>
+                          {new Date(concert.start_at).toLocaleDateString('nl-BE', { 
+                            weekday: 'long', 
+                            year: 'numeric', 
+                            month: 'long', 
+                            day: 'numeric' 
+                          })}
+                        </div>
+                        <div>
+                          <i class="fas fa-map-marker-alt mr-2 text-animato-primary"></i>
+                          {concert.locatie}
+                        </div>
                       </div>
-                    )}
-                  </div>
-                  <div class="p-6">
-                    <h3 class="text-xl font-bold text-gray-900 mb-2 group-hover:text-animato-primary transition">
-                      {concert.titel}
-                    </h3>
-                    <div class="text-gray-600 text-sm space-y-1">
-                      <div>
-                        <i class="fas fa-calendar mr-2 text-animato-primary"></i>
-                        {new Date(concert.start_at).toLocaleDateString('nl-BE', { 
-                          weekday: 'long', 
-                          year: 'numeric', 
-                          month: 'long', 
-                          day: 'numeric' 
-                        })}
-                      </div>
-                      <div>
-                        <i class="fas fa-map-marker-alt mr-2 text-animato-primary"></i>
-                        {concert.locatie}
+                      <div class="mt-4">
+                        <span class="inline-flex items-center text-animato-primary font-semibold group-hover:underline">
+                          {concert.uitverkocht ? 'Meer info' : 'Meer info & Tickets'}
+                          <i class="fas fa-arrow-right ml-2"></i>
+                        </span>
                       </div>
                     </div>
-                    <div class="mt-4">
-                      <span class="inline-flex items-center text-animato-primary font-semibold group-hover:underline">
-                        {concert.uitverkocht ? 'Meer info' : 'Meer info & Tickets'}
-                        <i class="fas fa-arrow-right ml-2"></i>
-                      </span>
+                  </a>
+                  {/* Admin edit button — only visible for admins */}
+                  {isAdmin && (
+                    <div class="px-6 pb-4 border-t border-amber-100 bg-amber-50">
+                      <a
+                        href={`/admin/events/${concert.id}`}
+                        class="inline-flex items-center gap-2 text-amber-700 hover:text-amber-900 text-sm font-semibold transition mt-3"
+                      >
+                        <i class="fas fa-edit"></i>
+                        Bewerk dit concert
+                      </a>
                     </div>
-                  </div>
-                </a>
+                  )}
+                </div>
               ))}
             </div>
           ) : (

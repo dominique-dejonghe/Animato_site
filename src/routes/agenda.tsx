@@ -292,13 +292,14 @@ app.get('/agenda', async (c) => {
 app.get('/concerten', async (c) => {
   const user = c.get('user')
   const view = c.req.query('view') || 'upcoming'
+  const isAdmin = (user as any)?.role === 'admin'
 
-  // Query based on view parameter
+  // Query based on view parameter — admins also see non-public concerts
   let query = `
     SELECT e.*, c.poster_url, c.programma, c.uitverkocht
     FROM events e
     LEFT JOIN concerts c ON c.event_id = e.id
-    WHERE e.type = 'concert' AND e.is_publiek = 1
+    WHERE e.type = 'concert'${isAdmin ? '' : ' AND e.is_publiek = 1'}
   `
 
   if (view === 'upcoming') {
@@ -306,7 +307,6 @@ app.get('/concerten', async (c) => {
   } else if (view === 'past') {
     query += ` AND e.start_at < datetime('now') ORDER BY e.start_at DESC`
   } else {
-    // Default to upcoming
     query += ` AND e.start_at >= datetime('now') ORDER BY e.start_at ASC`
   }
 
@@ -314,6 +314,35 @@ app.get('/concerten', async (c) => {
 
   return c.html(
     <Layout title="Concerten" user={user} currentPath="/concerten">
+      {/* ── ADMIN TOOLBAR ── */}
+      {isAdmin && (
+        <div class="bg-amber-50 border-b-2 border-amber-300 sticky top-0 z-40 shadow-sm">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-2 text-amber-800 text-sm font-semibold">
+              <i class="fas fa-tools text-amber-600"></i>
+              <span>Beheerdersmodus</span>
+              <span class="text-amber-500 font-normal">— {concerten.length} concert(en) geladen (incl. niet-publiek)</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <a
+                href="/admin/events/nieuw?type=concert"
+                class="inline-flex items-center gap-2 bg-animato-primary hover:bg-animato-secondary text-white text-sm font-semibold px-4 py-2 rounded-lg transition shadow-sm"
+              >
+                <i class="fas fa-plus"></i>
+                Nieuw concert
+              </a>
+              <a
+                href="/admin/events?type=concert"
+                class="inline-flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 text-sm font-semibold px-4 py-2 rounded-lg transition shadow-sm"
+              >
+                <i class="fas fa-cog"></i>
+                Beheer alle events
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div class="py-12 bg-gray-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div class="text-center mb-8">
@@ -356,59 +385,76 @@ app.get('/concerten', async (c) => {
           {concerten.length > 0 ? (
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
               {concerten.map((concert: any) => (
-                <a
-                  href={`/concerten/${concert.slug}`}
-                  class="group bg-white rounded-lg shadow-md hover:shadow-xl transition overflow-hidden"
-                >
-                  <div class="aspect-video bg-gray-200 overflow-hidden relative">
-                    {concert.poster_url ? (
-                      <img 
-                        src={concert.poster_url} 
-                        alt={concert.titel}
-                        class="w-full h-full object-cover group-hover:scale-105 transition duration-300"
-                      />
-                    ) : (
-                      <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-animato-primary to-animato-secondary">
-                        <i class="fas fa-music text-white text-5xl opacity-50"></i>
-                      </div>
-                    )}
-                    {concert.uitverkocht == 1 && (
-                      <div class="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-semibold">
-                        Uitverkocht
-                      </div>
-                    )}
-                  </div>
-                  <div class="p-6">
-                    <h3 class="text-2xl font-bold text-gray-900 mb-3 group-hover:text-animato-primary transition">
-                      {concert.titel}
-                    </h3>
-                    <div class="space-y-2 text-gray-600 mb-4">
-                      <div class="flex items-center">
-                        <i class="far fa-calendar mr-3 text-animato-primary"></i>
-                        {new Date(concert.start_at).toLocaleDateString('nl-BE', {
-                          weekday: 'long',
-                          day: 'numeric',
-                          month: 'long',
-                          year: 'numeric'
-                        })}
-                      </div>
-                      <div class="flex items-center">
-                        <i class="far fa-clock mr-3 text-animato-primary"></i>
-                        {new Date(concert.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })} uur
-                      </div>
-                      <div class="flex items-center">
-                        <i class="fas fa-map-marker-alt mr-3 text-animato-primary"></i>
-                        {concert.locatie}
-                      </div>
+                <div class="group bg-white rounded-lg shadow-md hover:shadow-xl transition overflow-hidden relative">
+                  {/* Admin: niet-publiek badge */}
+                  {isAdmin && !concert.is_publiek && (
+                    <div class="absolute top-2 left-2 z-10 bg-gray-800 text-white text-xs font-bold px-2 py-1 rounded-full opacity-90">
+                      <i class="fas fa-eye-slash mr-1"></i>Niet publiek
                     </div>
-                    {view !== 'past' && (
-                      <span class="inline-flex items-center text-animato-primary font-semibold group-hover:underline">
-                        {concert.uitverkocht == 1 ? 'Meer info' : 'Meer info & Tickets'}
-                        <i class="fas fa-arrow-right ml-2"></i>
-                      </span>
-                    )}
-                  </div>
-                </a>
+                  )}
+                  <a href={`/concerten/${concert.slug}`} class="block">
+                    <div class="aspect-video bg-gray-200 overflow-hidden relative">
+                      {concert.poster_url ? (
+                        <img 
+                          src={concert.poster_url} 
+                          alt={concert.titel}
+                          class="w-full h-full object-cover group-hover:scale-105 transition duration-300"
+                        />
+                      ) : (
+                        <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-animato-primary to-animato-secondary">
+                          <i class="fas fa-music text-white text-5xl opacity-50"></i>
+                        </div>
+                      )}
+                      {concert.uitverkocht == 1 && (
+                        <div class="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-semibold">
+                          Uitverkocht
+                        </div>
+                      )}
+                    </div>
+                    <div class="p-6">
+                      <h3 class="text-2xl font-bold text-gray-900 mb-3 group-hover:text-animato-primary transition">
+                        {concert.titel}
+                      </h3>
+                      <div class="space-y-2 text-gray-600 mb-4">
+                        <div class="flex items-center">
+                          <i class="far fa-calendar mr-3 text-animato-primary"></i>
+                          {new Date(concert.start_at).toLocaleDateString('nl-BE', {
+                            weekday: 'long',
+                            day: 'numeric',
+                            month: 'long',
+                            year: 'numeric'
+                          })}
+                        </div>
+                        <div class="flex items-center">
+                          <i class="far fa-clock mr-3 text-animato-primary"></i>
+                          {new Date(concert.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })} uur
+                        </div>
+                        <div class="flex items-center">
+                          <i class="fas fa-map-marker-alt mr-3 text-animato-primary"></i>
+                          {concert.locatie}
+                        </div>
+                      </div>
+                      {view !== 'past' && (
+                        <span class="inline-flex items-center text-animato-primary font-semibold group-hover:underline">
+                          {concert.uitverkocht == 1 ? 'Meer info' : 'Meer info & Tickets'}
+                          <i class="fas fa-arrow-right ml-2"></i>
+                        </span>
+                      )}
+                    </div>
+                  </a>
+                  {/* Admin edit button per card */}
+                  {isAdmin && (
+                    <div class="px-6 pb-4 border-t border-amber-100 bg-amber-50">
+                      <a
+                        href={`/admin/events/${concert.id}`}
+                        class="inline-flex items-center gap-2 text-amber-700 hover:text-amber-900 text-sm font-semibold transition mt-3"
+                      >
+                        <i class="fas fa-edit"></i>
+                        Bewerk dit concert
+                      </a>
+                    </div>
+                  )}
+                </div>
               ))}
             </div>
           ) : (
@@ -420,9 +466,18 @@ app.get('/concerten', async (c) => {
                   : 'Momenteel geen aankomende concerten gepland'}
               </p>
               {view === 'upcoming' && (
-                <p class="text-gray-500 mt-2">
-                  Check binnenkort opnieuw voor updates!
-                </p>
+                <>
+                  <p class="text-gray-500 mt-2">Check binnenkort opnieuw voor updates!</p>
+                  {isAdmin && (
+                    <a
+                      href="/admin/events/nieuw?type=concert"
+                      class="inline-flex items-center gap-2 mt-6 bg-animato-primary hover:bg-animato-secondary text-white font-semibold px-6 py-3 rounded-lg transition shadow-sm"
+                    >
+                      <i class="fas fa-plus"></i>
+                      Voeg eerste concert toe
+                    </a>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -455,9 +510,48 @@ app.get('/concerten/:slug', async (c) => {
 
   const prijzen = concert.prijsstructuur ? JSON.parse(concert.prijsstructuur) : []
 
+  const isAdmin = (user as any)?.role === 'admin'
+
   return c.html(
     <Layout title={concert.titel} description={concert.beschrijving} user={user}>
       <article class="py-12">
+
+        {/* ── ADMIN TOOLBAR ── only visible for admins ── */}
+        {isAdmin && (
+          <div class="bg-amber-50 border-b-2 border-amber-300 sticky top-0 z-40 shadow-sm">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between flex-wrap gap-2">
+              <div class="flex items-center gap-2 text-amber-800 text-sm font-semibold">
+                <i class="fas fa-tools text-amber-600"></i>
+                <span>Beheerdersmodus</span>
+                <span class="text-amber-500 font-normal">— je bekijkt de publieke pagina</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <a
+                  href={`/admin/events/${concert.id}`}
+                  class="inline-flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition shadow-sm"
+                >
+                  <i class="fas fa-edit"></i>
+                  Bewerk dit concert
+                </a>
+                <a
+                  href="/admin/events/nieuw?type=concert"
+                  class="inline-flex items-center gap-2 bg-animato-primary hover:bg-animato-secondary text-white text-sm font-semibold px-4 py-2 rounded-lg transition shadow-sm"
+                >
+                  <i class="fas fa-plus"></i>
+                  Nieuw concert
+                </a>
+                <a
+                  href="/admin/events"
+                  class="inline-flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 text-sm font-semibold px-4 py-2 rounded-lg transition shadow-sm"
+                >
+                  <i class="fas fa-list"></i>
+                  Alle events
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Hero image */}
         <div class="relative h-96 bg-gradient-to-br from-animato-primary to-animato-secondary mb-12">
           {concert.poster_url ? (

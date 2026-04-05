@@ -850,7 +850,9 @@ app.post('/admin/events/save', async (c) => {
     recurrence_end_date, recurrence_count, recurrence_days,
     // Activity fields (only used when type === 'activiteit')
     act_price_member, act_price_guest, act_deadline, act_max_guests,
-    act_intro_text, act_payment_instruction
+    act_intro_text, act_payment_instruction,
+    // Optional redirect after save (e.g. back to public /concerten page)
+    redirect_to
   } = body
 
   try {
@@ -1026,7 +1028,11 @@ app.post('/admin/events/save', async (c) => {
       }
     }
 
-    return c.redirect('/admin/events')
+    // Redirect: use redirect_to if provided (e.g. /concerten), else default admin
+    const finalRedirect = (redirect_to && String(redirect_to).startsWith('/')) 
+      ? String(redirect_to) 
+      : '/admin/events'
+    return c.redirect(finalRedirect)
   } catch (error: any) {
     console.error('Error saving event:', error)
     const errorMessage = error?.message || String(error)
@@ -1116,19 +1122,56 @@ app.post('/admin/events/:id/delete', async (c) => {
 // HELPER: RENDER EVENT FORM
 // =====================================================
 
-function renderEventForm(event: any | null, locations: any[], activity: any | null = null, preselectedType: string | null = null) {
+function renderEventForm(event: any | null, locations: any[], activity: any | null = null, preselectedType: string | null = null, redirectTo: string | null = null) {
   const isEdit = !!event
   const recurrenceRule: RecurrenceRule | null = event?.recurrence_rule ? 
     JSON.parse(event.recurrence_rule) : null
   const deadline = activity?.deadline ? new Date(activity.deadline).toISOString().split('T')[0] : ''
+  const isConcert = (event?.type || preselectedType) === 'concert'
+  // For concerts: after save go back to /concerten, unless a specific redirect is given
+  const finalRedirectTo = redirectTo || (isConcert ? '/concerten' : null)
 
   return (
     <div class="bg-gray-50 min-h-screen">
       <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+        {/* Quick-nav: public concert page link */}
+        {isEdit && isConcert && event?.slug && (
+          <div class="mb-4 flex items-center justify-between">
+            <a
+              href="/concerten"
+              class="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-animato-primary transition"
+            >
+              <i class="fas fa-arrow-left"></i>
+              Terug naar concertenoverzicht
+            </a>
+            <a
+              href={`/concerten/${event.slug}`}
+              target="_blank"
+              class="inline-flex items-center gap-2 text-sm bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition"
+            >
+              <i class="fas fa-external-link-alt"></i>
+              Bekijk publieke pagina
+            </a>
+          </div>
+        )}
+        {isEdit && !isConcert && (
+          <div class="mb-4">
+            <a
+              href="/admin/events"
+              class="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-animato-primary transition"
+            >
+              <i class="fas fa-arrow-left"></i>
+              Terug naar events
+            </a>
+          </div>
+        )}
+
         <div class="bg-white rounded-lg shadow-md p-8">
           
           <form method="POST" action="/admin/events/save" id="eventForm">
             {isEdit && <input type="hidden" name="id" value={event.id} />}
+            {finalRedirectTo && <input type="hidden" name="redirect_to" value={finalRedirectTo} />}
 
             {/* Basic Info Section */}
             <div class="mb-8">

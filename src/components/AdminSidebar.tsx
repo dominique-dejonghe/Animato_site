@@ -20,6 +20,7 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({ activeSection = 'dashboard
     { id: 'materials', label: 'Materiaal', href: '/admin/bestanden', icon: 'fas fa-music' },
     { id: 'photos', label: 'Fotoboek', href: '/admin/fotoboek', icon: 'fas fa-images' },
     { id: 'modules', label: 'Module Beheer', href: '/admin/modules', icon: 'fas fa-toggle-on' },
+    { id: 'analytics', label: 'Analytics & Statistieken', href: '/admin/analytics', icon: 'fas fa-chart-bar' },
     { id: 'feedback', label: 'Beta Feedback', href: '/admin/feedback', icon: 'fas fa-bug' },
     { id: 'walkthrough', label: 'Walkthrough Tours', href: '/admin/walkthrough', icon: 'fas fa-route' },
     { id: 'settings', label: 'Instellingen', href: '/admin/settings', icon: 'fas fa-cogs' },

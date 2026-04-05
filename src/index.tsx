@@ -41,6 +41,7 @@ import adminCommunicationsRoutes from './routes/admin-communications' // Importe
 import feedbackRoutes from './routes/feedback'
 import adminFeedbackRoutes from './routes/admin-feedback'
 import adminLedenImportRoutes from './routes/admin-leden-import'
+import adminAnalyticsRoutes from './routes/admin-analytics'
 import adminModulesRoutes from './routes/admin-modules'
 import adminWalkthroughRoutes from './routes/admin-walkthrough'
 import walkthroughApiRoutes from './routes/walkthrough-api'
@@ -121,6 +122,7 @@ app.route('/', ledenActivityRoutes)
 app.route('/', adminCommunicationsRoutes) // Added route
 app.route('/', adminFeedbackRoutes)
 app.route('/', adminLedenImportRoutes)
+app.route('/', adminAnalyticsRoutes)
 
 // Tickets & Webhooks
 app.route('/', ticketsRoutes)

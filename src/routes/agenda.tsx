@@ -22,6 +22,7 @@ app.get('/agenda', async (c) => {
   const maand = c.req.query('maand')
   const view = c.req.query('view') || 'list' // 'list' or 'calendar'
   const dateParam = c.req.query('date') || new Date().toISOString().split('T')[0]
+  const isAdmin = (user as any)?.role === 'admin'
 
   // Parse date for calendar view
   const currentDate = new Date(dateParam)
@@ -76,6 +77,31 @@ app.get('/agenda', async (c) => {
 
   return c.html(
     <Layout title="Agenda" user={user} currentPath="/agenda">
+
+      {/* ── ADMIN TOOLBAR ── */}
+      {isAdmin && (
+        <div class="bg-amber-50 border-b-2 border-amber-300 sticky top-0 z-40 shadow-sm">
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex items-center justify-between flex-wrap gap-2">
+            <div class="flex items-center gap-2 text-amber-800 text-sm font-semibold">
+              <i class="fas fa-tools text-amber-600"></i>
+              <span>Beheerdersmodus</span>
+              <span class="text-amber-500 font-normal">— beweeg over een event voor bewerkopties</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <a href="/admin/events/nieuw" class="inline-flex items-center gap-2 bg-animato-primary hover:bg-animato-secondary text-white text-sm font-semibold px-4 py-2 rounded-lg transition shadow-sm">
+                <i class="fas fa-plus"></i>Nieuw event
+              </a>
+              <a href="/admin/events/nieuw?type=concert" class="inline-flex items-center gap-2 bg-yellow-500 hover:bg-yellow-600 text-white text-sm font-semibold px-4 py-2 rounded-lg transition shadow-sm">
+                <i class="fas fa-music"></i>Nieuw concert
+              </a>
+              <a href="/admin/events" class="inline-flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 text-sm font-semibold px-4 py-2 rounded-lg transition shadow-sm">
+                <i class="fas fa-cog"></i>Alle events beheren
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div class="py-12 bg-gray-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
@@ -157,82 +183,98 @@ app.get('/agenda', async (c) => {
                   </h2>
                   <div class="space-y-4">
                     {monthEvents.map((event: any) => (
-                      <a
-                        href={event.type === 'concert' && event.slug ? `/concerten/${event.slug}` : '#'}
-                        class="block bg-white rounded-lg shadow-md hover:shadow-lg transition p-6"
-                      >
-                        <div class="flex items-start gap-6">
-                          {/* Date block */}
-                          <div class="flex-shrink-0 text-center bg-animato-primary bg-opacity-10 rounded-lg p-4 w-24">
-                            <div class="text-3xl font-bold text-animato-primary">
-                              {new Date(event.start_at).getDate()}
-                            </div>
-                            <div class="text-sm text-gray-600 uppercase">
-                              {new Date(event.start_at).toLocaleDateString('nl-BE', { month: 'short' })}
-                            </div>
-                          </div>
-
-                          {/* Event info */}
-                          <div class="flex-1">
-                            <div class="flex items-start justify-between mb-2">
-                              <div>
-                                <span class={`inline-block px-3 py-1 rounded-full text-xs font-semibold mb-2 ${
-                                  event.type === 'concert' ? 'bg-yellow-100 text-yellow-800' :
-                                  event.type === 'repetitie' ? 'bg-blue-100 text-blue-800' :
-                                  'bg-gray-100 text-gray-800'
-                                }`}>
-                                  {event.type === 'concert' ? 'Concert' : 
-                                   event.type === 'repetitie' ? 'Repetitie' : 
-                                   'Activiteit'}
-                                </span>
-                                <h3 class="text-xl font-bold text-gray-900">
-                                  {event.titel}
-                                </h3>
+                      <div class="group relative bg-white rounded-lg shadow-md hover:shadow-lg transition">
+                        <a
+                          href={event.type === 'concert' && event.slug ? `/concerten/${event.slug}` : '#'}
+                          class="block p-6"
+                        >
+                          <div class="flex items-start gap-6">
+                            {/* Date block */}
+                            <div class="flex-shrink-0 text-center bg-animato-primary bg-opacity-10 rounded-lg p-4 w-24">
+                              <div class="text-3xl font-bold text-animato-primary">
+                                {new Date(event.start_at).getDate()}
+                              </div>
+                              <div class="text-sm text-gray-600 uppercase">
+                                {new Date(event.start_at).toLocaleDateString('nl-BE', { month: 'short' })}
                               </div>
                             </div>
 
-                            <div class="space-y-2 text-gray-600">
-                              <div class="flex items-center">
-                                <i class="far fa-clock w-5 text-animato-primary mr-3"></i>
-                                <span>
-                                  {new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}
-                                  {' - '}
-                                  {new Date(event.end_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}
-                                </span>
+                            {/* Event info */}
+                            <div class="flex-1">
+                              <div class="flex items-start justify-between mb-2">
+                                <div>
+                                  <span class={`inline-block px-3 py-1 rounded-full text-xs font-semibold mb-2 ${
+                                    event.type === 'concert' ? 'bg-yellow-100 text-yellow-800' :
+                                    event.type === 'repetitie' ? 'bg-blue-100 text-blue-800' :
+                                    'bg-gray-100 text-gray-800'
+                                  }`}>
+                                    {event.type === 'concert' ? 'Concert' :
+                                     event.type === 'repetitie' ? 'Repetitie' :
+                                     event.type === 'activiteit' ? 'Activiteit' :
+                                     'Overige'}
+                                  </span>
+                                  <h3 class="text-xl font-bold text-gray-900">{event.titel}</h3>
+                                </div>
                               </div>
-                              <div class="flex items-center">
-                                <i class="fas fa-map-marker-alt w-5 text-animato-primary mr-3"></i>
-                                <span>{event.locatie}</span>
-                              </div>
-                              {event.doelgroep !== 'all' && (
+
+                              <div class="space-y-2 text-gray-600">
                                 <div class="flex items-center">
-                                  <i class="fas fa-users w-5 text-animato-primary mr-3"></i>
+                                  <i class="far fa-clock w-5 text-animato-primary mr-3"></i>
                                   <span>
-                                    Voor: {
-                                      event.doelgroep === 'S' ? 'Sopraan' :
-                                      event.doelgroep === 'A' ? 'Alt' :
-                                      event.doelgroep === 'T' ? 'Tenor' :
-                                      event.doelgroep === 'B' ? 'Bas' :
-                                      event.doelgroep === 'SA' ? 'Sopraan & Alt' :
-                                      event.doelgroep === 'TB' ? 'Tenor & Bas' :
-                                      event.doelgroep
-                                    }
+                                    {new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}
+                                    {' - '}
+                                    {event.end_at ? new Date(event.end_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' }) : '?'}
+                                  </span>
+                                </div>
+                                <div class="flex items-center">
+                                  <i class="fas fa-map-marker-alt w-5 text-animato-primary mr-3"></i>
+                                  <span>{event.locatie}</span>
+                                </div>
+                                {event.doelgroep && event.doelgroep !== 'all' && (
+                                  <div class="flex items-center">
+                                    <i class="fas fa-users w-5 text-animato-primary mr-3"></i>
+                                    <span>Voor: {{
+                                      'S': 'Sopraan', 'A': 'Alt', 'T': 'Tenor', 'B': 'Bas',
+                                      'SA': 'Sopraan & Alt', 'TB': 'Tenor & Bas'
+                                    }[event.doelgroep] || event.doelgroep}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {event.type === 'concert' && event.slug && (
+                                <div class="mt-4">
+                                  <span class="inline-flex items-center text-animato-primary font-semibold hover:underline">
+                                    Bekijk details & tickets
+                                    <i class="fas fa-arrow-right ml-2"></i>
                                   </span>
                                 </div>
                               )}
                             </div>
-
-                            {event.type === 'concert' && event.slug && (
-                              <div class="mt-4">
-                                <span class="inline-flex items-center text-animato-primary font-semibold hover:underline">
-                                  Bekijk details & tickets
-                                  <i class="fas fa-arrow-right ml-2"></i>
-                                </span>
-                              </div>
-                            )}
                           </div>
-                        </div>
-                      </a>
+                        </a>
+
+                        {/* Admin edit button — appears on hover */}
+                        {isAdmin && (
+                          <div class="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity flex gap-2">
+                            <a
+                              href={`/admin/events/${event.id}`}
+                              title="Bewerk event"
+                              class="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 transition"
+                              onclick="event.preventDefault(); event.stopPropagation(); window.location.href=this.href;"
+                            >
+                              <i class="fas fa-edit"></i> Bewerk
+                            </a>
+                            <a
+                              href={event.type === 'concert' && event.slug ? `/concerten/${event.slug}` : `#`}
+                              title="Bekijk publieke pagina"
+                              class={`${event.type === 'concert' && event.slug ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-400 cursor-not-allowed'} text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 transition`}
+                              target="_blank"
+                            >
+                              <i class="fas fa-external-link-alt"></i> Publiek
+                            </a>
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>

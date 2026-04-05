@@ -87,15 +87,26 @@ app.get('/login', async (c) => {
                   <i class="fas fa-lock text-animato-primary mr-2"></i>
                   Wachtwoord
                 </label>
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autocomplete="current-password"
-                  required
-                  class="block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                  placeholder="••••••••"
-                />
+                <div class="relative">
+                  <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    autocomplete="current-password"
+                    required
+                    class="block w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    placeholder="••••••••"
+                  />
+                  <button
+                    type="button"
+                    onclick="togglePwd('password','eye-login')"
+                    class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none"
+                    tabindex="-1"
+                    title="Toon/verberg wachtwoord"
+                  >
+                    <i id="eye-login" class="fas fa-eye text-lg"></i>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -145,6 +156,19 @@ app.get('/login', async (c) => {
           </div>
         </div>
       </div>
+      <script dangerouslySetInnerHTML={{__html: `
+        function togglePwd(inputId, eyeId) {
+          var inp = document.getElementById(inputId);
+          var eye = document.getElementById(eyeId);
+          if (inp.type === 'password') {
+            inp.type = 'text';
+            eye.classList.remove('fa-eye'); eye.classList.add('fa-eye-slash');
+          } else {
+            inp.type = 'password';
+            eye.classList.remove('fa-eye-slash'); eye.classList.add('fa-eye');
+          }
+        }
+      `}} />
     </Layout>
   )
 })
@@ -286,11 +310,21 @@ app.get('/reset-wachtwoord/:token', async (c) => {
             <div class="space-y-4">
               <div>
                 <label for="password" class="block text-sm font-medium text-gray-700 mb-1">Nieuw Wachtwoord</label>
-                <input id="password" name="password" type="password" required minlength="8" class="block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+                <div class="relative">
+                  <input id="password" name="password" type="password" required minlength="8" class="block w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+                  <button type="button" onclick="togglePwd('password','eye-pw1')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none" tabindex="-1">
+                    <i id="eye-pw1" class="fas fa-eye text-lg"></i>
+                  </button>
+                </div>
               </div>
               <div>
                 <label for="password_confirm" class="block text-sm font-medium text-gray-700 mb-1">Bevestig Wachtwoord</label>
-                <input id="password_confirm" name="password_confirm" type="password" required minlength="8" class="block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+                <div class="relative">
+                  <input id="password_confirm" name="password_confirm" type="password" required minlength="8" class="block w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+                  <button type="button" onclick="togglePwd('password_confirm','eye-pw2')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none" tabindex="-1">
+                    <i id="eye-pw2" class="fas fa-eye text-lg"></i>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -300,6 +334,19 @@ app.get('/reset-wachtwoord/:token', async (c) => {
           </form>
         </div>
       </div>
+      <script dangerouslySetInnerHTML={{__html: `
+        function togglePwd(inputId, eyeId) {
+          var inp = document.getElementById(inputId);
+          var eye = document.getElementById(eyeId);
+          if (inp.type === 'password') {
+            inp.type = 'text';
+            eye.classList.remove('fa-eye'); eye.classList.add('fa-eye-slash');
+          } else {
+            inp.type = 'password';
+            eye.classList.remove('fa-eye-slash'); eye.classList.add('fa-eye');
+          }
+        }
+      `}} />
     </Layout>
   )
 })

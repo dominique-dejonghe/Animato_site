@@ -162,8 +162,9 @@ app.get('/agenda', async (c) => {
 
               <div class="flex items-end space-x-2">
                 <a
-                  href="/api/agenda/ics"
+                  href="/api/agenda/ics/all"
                   class="inline-flex items-center px-4 py-2 bg-animato-primary hover:bg-animato-secondary text-white rounded-lg font-semibold transition"
+                  download="animato-agenda.ics"
                 >
                   <i class="fas fa-calendar-alt mr-2"></i>
                   Exporteer naar kalender
@@ -182,11 +183,25 @@ app.get('/agenda', async (c) => {
                     {month}
                   </h2>
                   <div class="space-y-4">
-                    {monthEvents.map((event: any) => (
+                    {monthEvents.map((event: any) => {
+                      const eventHref = event.type === 'concert' && event.slug
+                        ? `/concerten/${event.slug}`
+                        : event.slug
+                          ? `/agenda/${event.slug}`
+                          : null
+                      return (
                       <div class="group relative bg-white rounded-lg shadow-md hover:shadow-lg transition">
-                        <a
-                          href={event.type === 'concert' && event.slug ? `/concerten/${event.slug}` : '#'}
-                          class="block p-6"
+                        <div
+                          class={`block p-6 ${eventHref ? 'cursor-pointer' : 'cursor-default'}`}
+                          onclick={eventHref ? `window.location.href='${eventHref}'` : 'showEventDetailFromEl(this)'}
+                          data-event-id={String(event.id)}
+                          data-event-type={event.type}
+                          data-event-titel={event.titel}
+                          data-event-start={event.start_at}
+                          data-event-end={event.end_at || ''}
+                          data-event-locatie={event.locatie || ''}
+                          data-event-slug={event.slug || ''}
+                          data-event-beschrijving={event.beschrijving || ''}
                         >
                           <div class="flex items-start gap-6">
                             {/* Date block */}
@@ -241,17 +256,15 @@ app.get('/agenda', async (c) => {
                                 )}
                               </div>
 
-                              {event.type === 'concert' && event.slug && (
-                                <div class="mt-4">
-                                  <span class="inline-flex items-center text-animato-primary font-semibold hover:underline">
-                                    Bekijk details & tickets
-                                    <i class="fas fa-arrow-right ml-2"></i>
-                                  </span>
-                                </div>
-                              )}
+                              <div class="mt-4">
+                                <span class="inline-flex items-center text-animato-primary font-semibold hover:underline text-sm">
+                                  {event.type === 'concert' ? 'Bekijk details & tickets' : 'Bekijk details'}
+                                  <i class="fas fa-arrow-right ml-2"></i>
+                                </span>
+                              </div>
                             </div>
                           </div>
-                        </a>
+                        </div>
 
                         {/* Admin edit button — appears on hover */}
                         {isAdmin && (
@@ -275,7 +288,7 @@ app.get('/agenda', async (c) => {
                           </div>
                         )}
                       </div>
-                    ))}
+                    )})}
                   </div>
                 </div>
               ))}
@@ -323,6 +336,124 @@ app.get('/agenda', async (c) => {
           )}
         </div>
       </div>
+
+      {/* Event Detail Modal */}
+      <div id="event-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black bg-opacity-60 p-4" onclick="if(event.target===this)closeEventModal()">
+        <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden">
+          <div id="event-modal-header" class="h-3 bg-animato-primary"></div>
+          <div class="p-6">
+            <div class="flex items-start justify-between mb-4">
+              <div>
+                <span id="event-modal-badge" class="inline-block px-3 py-1 rounded-full text-xs font-semibold mb-2 bg-blue-100 text-blue-800"></span>
+                <h2 id="event-modal-title" class="text-2xl font-bold text-gray-900"></h2>
+              </div>
+              <button onclick="closeEventModal()" class="text-gray-400 hover:text-gray-600 ml-4 mt-1 text-xl flex-shrink-0">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+            <div class="space-y-3 text-gray-600 mb-5">
+              <div class="flex items-center gap-3">
+                <i class="far fa-calendar text-animato-primary w-5 text-center"></i>
+                <span id="event-modal-date"></span>
+              </div>
+              <div class="flex items-center gap-3">
+                <i class="far fa-clock text-animato-primary w-5 text-center"></i>
+                <span id="event-modal-time"></span>
+              </div>
+              <div class="flex items-center gap-3">
+                <i class="fas fa-map-marker-alt text-animato-primary w-5 text-center"></i>
+                <span id="event-modal-location"></span>
+              </div>
+              <div id="event-modal-desc-row" class="flex items-start gap-3 hidden">
+                <i class="fas fa-info-circle text-animato-primary w-5 text-center mt-0.5"></i>
+                <span id="event-modal-description" class="text-sm leading-relaxed"></span>
+              </div>
+            </div>
+            <div class="flex gap-3">
+              <a id="event-modal-ics" href="#" class="flex-1 text-center px-4 py-2 border border-animato-primary text-animato-primary rounded-lg text-sm font-semibold hover:bg-animato-primary hover:text-white transition" download>
+                <i class="fas fa-calendar-plus mr-2"></i>Toevoegen aan kalender
+              </a>
+              <a id="event-modal-link" href="#" class="flex-1 text-center px-4 py-2 bg-animato-primary text-white rounded-lg text-sm font-semibold hover:bg-animato-secondary transition hidden">
+                <i class="fas fa-external-link-alt mr-2"></i>Bekijk details
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{__html: `
+        function showEventDetailFromEl(el) {
+          var evt = {
+            id: el.dataset.eventId,
+            type: el.dataset.eventType,
+            titel: el.dataset.eventTitel,
+            start_at: el.dataset.eventStart,
+            end_at: el.dataset.eventEnd,
+            locatie: el.dataset.eventLocatie,
+            slug: el.dataset.eventSlug,
+            beschrijving: el.dataset.eventBeschrijving
+          };
+          showEventModal(evt);
+        }
+        function showEventModal(evt) {
+          const modal = document.getElementById('event-modal');
+          const typeColors = {
+            concert: 'bg-yellow-100 text-yellow-800',
+            repetitie: 'bg-blue-100 text-blue-800',
+            activiteit: 'bg-green-100 text-green-800',
+            ander: 'bg-gray-100 text-gray-800'
+          };
+          const typeLabels = {
+            concert: 'Concert', repetitie: 'Repetitie',
+            activiteit: 'Activiteit', ander: 'Overige'
+          };
+          const headerColors = {
+            concert: '#f59e0b', repetitie: '#3b82f6',
+            activiteit: '#10b981', ander: '#6b7280'
+          };
+
+          document.getElementById('event-modal-title').textContent = evt.titel || '';
+          document.getElementById('event-modal-badge').className = 'inline-block px-3 py-1 rounded-full text-xs font-semibold mb-2 ' + (typeColors[evt.type] || 'bg-gray-100 text-gray-800');
+          document.getElementById('event-modal-badge').textContent = typeLabels[evt.type] || evt.type;
+          document.getElementById('event-modal-header').style.backgroundColor = headerColors[evt.type] || '#6b7280';
+
+          const start = new Date(evt.start_at);
+          const end = evt.end_at ? new Date(evt.end_at) : null;
+          document.getElementById('event-modal-date').textContent = start.toLocaleDateString('nl-BE', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+          document.getElementById('event-modal-time').textContent = start.toLocaleTimeString('nl-BE', {hour:'2-digit', minute:'2-digit'}) + (end ? ' – ' + end.toLocaleTimeString('nl-BE', {hour:'2-digit', minute:'2-digit'}) : '');
+          document.getElementById('event-modal-location').textContent = evt.locatie || 'Locatie onbekend';
+
+          const descRow = document.getElementById('event-modal-desc-row');
+          if (evt.beschrijving) {
+            document.getElementById('event-modal-description').textContent = evt.beschrijving;
+            descRow.classList.remove('hidden');
+          } else {
+            descRow.classList.add('hidden');
+          }
+
+          document.getElementById('event-modal-ics').href = '/api/agenda/ics?event=' + evt.id;
+
+          const linkBtn = document.getElementById('event-modal-link');
+          if (evt.type === 'concert' && evt.slug) {
+            linkBtn.href = '/concerten/' + evt.slug;
+            linkBtn.classList.remove('hidden');
+          } else if (evt.slug) {
+            linkBtn.href = '/agenda/' + evt.slug;
+            linkBtn.classList.remove('hidden');
+          } else {
+            linkBtn.classList.add('hidden');
+          }
+
+          modal.classList.remove('hidden');
+          modal.classList.add('flex');
+        }
+        function closeEventModal() {
+          const modal = document.getElementById('event-modal');
+          modal.classList.add('hidden');
+          modal.classList.remove('flex');
+        }
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeEventModal(); });
+      `}} />
     </Layout>
   )
 })
@@ -985,10 +1116,24 @@ function renderCalendarGrid(events: any[], year: number, month: number) {
                     {cell.day}
                   </div>
                   <div class="space-y-1">
-                    {cell.events.slice(0, 2).map((event: any) => (
-                      <a
-                        href={event.slug ? `/agenda/${event.slug}` : '#'}
-                        class={`block text-xs p-1 rounded truncate hover:opacity-80 transition ${
+                    {cell.events.slice(0, 2).map((event: any) => {
+                      const eventHref = event.type === 'concert' && event.slug
+                        ? `/concerten/${event.slug}`
+                        : event.slug
+                          ? `/agenda/${event.slug}`
+                          : null
+                      return (
+                      <span
+                        onclick={eventHref ? `window.location.href='${eventHref}'` : 'showEventDetailFromEl(this)'}
+                        data-event-id={String(event.id)}
+                        data-event-type={event.type}
+                        data-event-titel={event.titel}
+                        data-event-start={event.start_at}
+                        data-event-end={event.end_at || ''}
+                        data-event-locatie={event.locatie || ''}
+                        data-event-slug={event.slug || ''}
+                        data-event-beschrijving={event.beschrijving || ''}
+                        class={`block text-xs p-1 rounded truncate hover:opacity-80 transition cursor-pointer ${
                           event.type === 'concert' ? 'bg-yellow-100 text-yellow-800' :
                           event.type === 'repetitie' ? 'bg-blue-100 text-blue-800' :
                           event.type === 'activiteit' ? 'bg-green-100 text-green-800' :
@@ -998,8 +1143,9 @@ function renderCalendarGrid(events: any[], year: number, month: number) {
                         title={`${event.titel} - ${new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}`}
                       >
                         {new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })} {event.titel}
-                      </a>
-                    ))}
+                      </span>
+                      )
+                    })}
                     {cell.events.length > 2 && (
                       <div class="text-xs text-gray-500 text-center">
                         +{cell.events.length - 2} meer

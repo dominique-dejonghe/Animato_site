@@ -20,25 +20,80 @@ app.use('*', async (c, next) => {
 
 app.get('/admin/feedback', async (c) => {
   const user = c.get('user') as SessionUser
-  
-  const feedback = await queryAll(
-    c.env.DB,
-    `SELECT f.*, u.email, p.voornaam, p.achternaam
+  const statusFilter = c.req.query('status') || 'all'
+  const typeFilter = c.req.query('type') || 'all'
+
+  let query = `SELECT f.*, u.email, p.voornaam, p.achternaam
      FROM feedback f
      LEFT JOIN users u ON u.id = f.user_id
      LEFT JOIN profiles p ON p.user_id = u.id
-     ORDER BY f.created_at DESC`
-  )
+     WHERE 1=1`
+  const params: any[] = []
+
+  if (statusFilter !== 'all') { query += ` AND f.status = ?`; params.push(statusFilter) }
+  if (typeFilter !== 'all') { query += ` AND f.type = ?`; params.push(typeFilter) }
+  query += ` ORDER BY f.created_at DESC`
+
+  const feedback = await queryAll(c.env.DB, query, params)
+
+  // Count per status for badges
+  const counts = await queryAll<any>(c.env.DB, `SELECT status, COUNT(*) as cnt FROM feedback GROUP BY status`)
+  const countMap: Record<string,number> = {}
+  for (const r of counts) countMap[r.status] = r.cnt
 
   return c.html(
     <Layout title="Beta Feedback" user={user}>
       <div class="flex min-h-screen bg-gray-50">
         <AdminSidebar activeSection="feedback" />
         <div class="flex-1 p-8">
-          <h1 class="text-3xl font-bold text-gray-900 mb-6">
+          <h1 class="text-3xl font-bold text-gray-900 mb-2">
             <i class="fas fa-bug text-animato-primary mr-3"></i>
             Beta Feedback
           </h1>
+          <p class="text-gray-500 mb-6">{feedback.length} item(s) gevonden</p>
+
+          {/* Filter bar */}
+          <div class="bg-white rounded-lg shadow-sm p-4 mb-6 flex flex-wrap gap-3 items-center">
+            <span class="text-sm font-medium text-gray-600">Filter op status:</span>
+            {[
+              { val: 'all', label: 'Alles', color: 'bg-gray-100 text-gray-700' },
+              { val: 'open', label: 'Open', color: 'bg-yellow-100 text-yellow-800' },
+              { val: 'in_progress', label: 'In behandeling', color: 'bg-blue-100 text-blue-800' },
+              { val: 'resolved', label: 'Opgelost', color: 'bg-green-100 text-green-800' },
+              { val: 'rejected', label: 'Afgewezen', color: 'bg-red-100 text-red-800' },
+            ].map(opt => (
+              <a
+                href={`/admin/feedback?status=${opt.val}&type=${typeFilter}`}
+                class={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                  statusFilter === opt.val
+                    ? 'border-animato-primary ring-2 ring-animato-primary ring-offset-1 ' + opt.color
+                    : 'border-transparent hover:border-gray-300 ' + opt.color
+                }`}
+              >
+                {opt.label}
+                {opt.val !== 'all' && countMap[opt.val] ? <span class="ml-1 opacity-70">({countMap[opt.val]})</span> : null}
+              </a>
+            ))}
+            <div class="ml-auto flex items-center gap-2">
+              <span class="text-sm font-medium text-gray-600">Type:</span>
+              {[
+                { val: 'all', label: 'Alles' },
+                { val: 'bug', label: '🐛 Bug' },
+                { val: 'feature', label: '💡 Idee' },
+              ].map(opt => (
+                <a
+                  href={`/admin/feedback?status=${statusFilter}&type=${opt.val}`}
+                  class={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
+                    typeFilter === opt.val
+                      ? 'bg-animato-primary text-white border-animato-primary'
+                      : 'bg-gray-100 text-gray-700 border-transparent hover:border-gray-300'
+                  }`}
+                >
+                  {opt.label}
+                </a>
+              ))}
+            </div>
+          </div>
 
           <div class="space-y-4">
             {feedback.map((item: any) => (

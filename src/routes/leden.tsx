@@ -197,10 +197,7 @@ app.get('/leden', async (c) => {
               <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mx-auto mb-3">
                 <i class="fas fa-file-audio text-animato-primary text-2xl"></i>
               </div>
-              <h3 class="font-semibold text-gray-900 mb-1">
-                <i class="fas fa-music text-animato-primary mr-2"></i>
-                Materiaal
-              </h3>
+              <h3 class="font-semibold text-gray-900 mb-1">Materiaal</h3>
               <p class="text-sm text-gray-600">Partituren & oefentracks</p>
             </a>
 
@@ -211,7 +208,7 @@ app.get('/leden', async (c) => {
               <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mx-auto mb-3">
                 <i class="fas fa-comments text-animato-primary text-xl"></i>
               </div>
-              <h3 class="font-semibold text-gray-900 mb-1">Messageboard</h3>
+              <h3 class="font-semibold text-gray-900 mb-1">Berichten</h3>
               <p class="text-sm text-gray-600">Berichten & discussies</p>
             </a>
 
@@ -721,14 +718,14 @@ app.get('/leden/board', async (c) => {
   const threads = await queryAll(c.env.DB, query, filters)
 
   return c.html(
-    <Layout title="Messageboard" user={user}>
+    <Layout title="Berichten" user={user}>
       <div class="py-12 bg-gray-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
           <div class="flex items-center justify-between mb-8">
             <div>
               <h1 class="text-4xl font-bold text-animato-secondary mb-2" style="font-family: 'Playfair Display', serif;">
-                Messageboard
+                Berichten
               </h1>
               <p class="text-gray-600">
                 Communiceer met andere koorleden
@@ -969,7 +966,7 @@ app.get('/leden/board/:id', async (c) => {
           {/* Back button */}
           <a href="/leden/board" class="inline-flex items-center text-animato-primary hover:underline mb-6">
             <i class="fas fa-arrow-left mr-2"></i>
-            Terug naar messageboard
+            Terug naar berichten
           </a>
 
           {/* Thread */}
@@ -1748,17 +1745,54 @@ app.get('/leden/profiel', async (c) => {
                 </p>
               </div>
 
-              <div>
-                <label for="adres" class="block text-sm font-medium text-gray-700 mb-1">
-                  Adres
-                </label>
-                <textarea
-                  id="adres"
-                  name="adres"
-                  rows={2}
-                  placeholder="Straat 123, 1000 Brussel"
-                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                >{profile.adres || ''}</textarea>
+              {/* Address split fields */}
+              <div class="space-y-3">
+                <label class="block text-sm font-medium text-gray-700">Adres</label>
+                <div class="grid grid-cols-3 gap-2">
+                  <div class="col-span-2">
+                    <input
+                      type="text"
+                      id="straat"
+                      name="straat"
+                      value={profile.straat || ''}
+                      placeholder="Straatnaam"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <input
+                      type="text"
+                      id="huisnummer"
+                      name="huisnummer"
+                      value={profile.huisnummer || ''}
+                      placeholder="Nr"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                <div class="grid grid-cols-3 gap-2">
+                  <div>
+                    <input
+                      type="text"
+                      id="postcode"
+                      name="postcode"
+                      value={profile.postcode || ''}
+                      placeholder="Postcode"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    />
+                  </div>
+                  <div class="col-span-2">
+                    <input
+                      type="text"
+                      id="gemeente"
+                      name="gemeente"
+                      value={profile.gemeente || ''}
+                      placeholder="Gemeente / Stad"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    />
+                  </div>
+                </div>
+                <input type="hidden" name="adres" value={`${profile.straat || ''} ${profile.huisnummer || ''}, ${profile.postcode || ''} ${profile.gemeente || ''}`} />
               </div>
 
               <div>
@@ -2476,8 +2510,9 @@ app.get('/leden/smoelenboek', async (c) => {
   const user = c.get('user') as SessionUser
   const search = c.req.query('search') || ''
   const view = c.req.query('view') || 'grid' // 'grid' or 'list'
+  const stemgroepFilter = c.req.query('stemgroep') || 'all'
   
-  // Get members with optional search filter
+  // Get members with optional search + stemgroep filter
   let query = `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio, p.favoriete_werk,
             p.toon_email, p.toon_telefoon, u.email, p.telefoon,
             CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite
@@ -2489,8 +2524,13 @@ app.get('/leden/smoelenboek', async (c) => {
   const params: any[] = [user.id]
 
   if (search) {
-    query += ` AND (p.voornaam LIKE ? OR p.achternaam LIKE ? OR u.stemgroep LIKE ?)`
-    params.push(`%${search}%`, `%${search}%`, `%${search}%`)
+    query += ` AND (p.voornaam LIKE ? OR p.achternaam LIKE ?)`
+    params.push(`%${search}%`, `%${search}%`)
+  }
+
+  if (stemgroepFilter !== 'all') {
+    query += ` AND u.stemgroep = ?`
+    params.push(stemgroepFilter)
   }
 
   query += ` ORDER BY p.voornaam ASC`
@@ -2517,30 +2557,76 @@ app.get('/leden/smoelenboek', async (c) => {
             </p>
           </div>
 
-          {/* Search & View Toggle */}
-          <div class="bg-white rounded-lg shadow-md p-4 mb-8 flex flex-col md:flex-row gap-4 justify-between items-center">
-             <form method="GET" class="w-full md:w-1/2 relative">
+          {/* Search, stemgroep filter & View Toggle */}
+          <div class="bg-white rounded-lg shadow-md p-4 mb-8">
+            <div class="flex flex-col md:flex-row gap-4 items-center justify-between">
+              <form method="GET" class="flex flex-col sm:flex-row gap-3 flex-1">
                 <input type="hidden" name="view" value={view} />
-                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                {/* Search */}
+                <div class="relative flex-1 min-w-[180px]">
+                  <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                     <i class="fas fa-search text-gray-400"></i>
-                </div>
-                <input 
+                  </div>
+                  <input 
                     type="text" 
                     name="search" 
                     value={search} 
-                    placeholder="Zoek op naam of stemgroep..." 
+                    placeholder="Zoek op naam..." 
                     class="pl-10 w-full border border-gray-300 rounded-lg py-2 focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    oninput="this.form.submit()" // Auto-submit on type? Or just wait for enter
-                />
-             </form>
-             <div class="flex gap-2">
-                <a href={`/leden/smoelenboek?view=grid&search=${search}`} class={`px-4 py-2 rounded-lg border ${view === 'grid' ? 'bg-animato-primary text-white border-animato-primary' : 'bg-white text-gray-600 border-gray-300'}`}>
-                    <i class="fas fa-th-large mr-2"></i> Grid
+                  />
+                </div>
+                {/* Stemgroep filter */}
+                <div class="relative min-w-[150px]">
+                  <select
+                    name="stemgroep"
+                    onchange="this.form.submit()"
+                    class="w-full border border-gray-300 rounded-lg py-2 px-3 focus:ring-2 focus:ring-animato-primary focus:border-transparent appearance-none bg-white"
+                  >
+                    <option value="all" selected={stemgroepFilter === 'all'}>Alle stemgroepen</option>
+                    <option value="S" selected={stemgroepFilter === 'S'}>Sopraan</option>
+                    <option value="A" selected={stemgroepFilter === 'A'}>Alt</option>
+                    <option value="T" selected={stemgroepFilter === 'T'}>Tenor</option>
+                    <option value="B" selected={stemgroepFilter === 'B'}>Bas</option>
+                    <option value="Dirigent" selected={stemgroepFilter === 'Dirigent'}>Dirigent</option>
+                    <option value="Pianist" selected={stemgroepFilter === 'Pianist'}>Pianist</option>
+                  </select>
+                  <div class="absolute inset-y-0 right-2 flex items-center pointer-events-none">
+                    <i class="fas fa-chevron-down text-gray-400 text-xs"></i>
+                  </div>
+                </div>
+                <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm font-medium">
+                  <i class="fas fa-search mr-1"></i> Zoeken
+                </button>
+              </form>
+              <div class="flex gap-2 flex-shrink-0">
+                <a href={`/leden/smoelenboek?view=grid&search=${search}&stemgroep=${stemgroepFilter}`} class={`px-4 py-2 rounded-lg border ${view === 'grid' ? 'bg-animato-primary text-white border-animato-primary' : 'bg-white text-gray-600 border-gray-300'}`}>
+                  <i class="fas fa-th-large mr-2"></i> Grid
                 </a>
-                <a href={`/leden/smoelenboek?view=list&search=${search}`} class={`px-4 py-2 rounded-lg border ${view === 'list' ? 'bg-animato-primary text-white border-animato-primary' : 'bg-white text-gray-600 border-gray-300'}`}>
-                    <i class="fas fa-list mr-2"></i> Lijst
+                <a href={`/leden/smoelenboek?view=list&search=${search}&stemgroep=${stemgroepFilter}`} class={`px-4 py-2 rounded-lg border ${view === 'list' ? 'bg-animato-primary text-white border-animato-primary' : 'bg-white text-gray-600 border-gray-300'}`}>
+                  <i class="fas fa-list mr-2"></i> Lijst
                 </a>
-             </div>
+              </div>
+            </div>
+            {/* Active filter indicator */}
+            {(stemgroepFilter !== 'all' || search) && (
+              <div class="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 text-sm text-gray-500">
+                <i class="fas fa-filter text-animato-primary"></i>
+                <span>Actieve filters:</span>
+                {search && <span class="px-2 py-0.5 bg-gray-100 rounded-full text-gray-700">"{search}"</span>}
+                {stemgroepFilter !== 'all' && (
+                  <span class={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                    stemgroepFilter === 'S' ? 'bg-pink-100 text-pink-700' :
+                    stemgroepFilter === 'A' ? 'bg-purple-100 text-purple-700' :
+                    stemgroepFilter === 'T' ? 'bg-blue-100 text-blue-700' :
+                    stemgroepFilter === 'B' ? 'bg-green-100 text-green-700' :
+                    'bg-gray-100 text-gray-700'
+                  }`}>
+                    {stemgroepFilter === 'S' ? 'Sopraan' : stemgroepFilter === 'A' ? 'Alt' : stemgroepFilter === 'T' ? 'Tenor' : stemgroepFilter === 'B' ? 'Bas' : stemgroepFilter}
+                  </span>
+                )}
+                <a href="/leden/smoelenboek" class="text-animato-primary hover:underline ml-1">✕ Wis filters</a>
+              </div>
+            )}
           </div>
 
           {view === 'grid' ? (

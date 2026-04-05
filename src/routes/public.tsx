@@ -449,7 +449,7 @@ app.get('/koor', async (c) => {
           
           <div class="prose prose-lg max-w-none">
             <p class="text-xl text-gray-700 mb-6 leading-relaxed">
-              Sinds 1985 brengt Gemengd Koor Animato muziek tot leven met passie, vakmanschap en toewijding. Ons koor bestaat uit ongeveer 40 enthousiaste zangers en zangeressen die wekelijks samenkomen om te repeteren en te groeien als muzikaal ensemble.
+              Sinds 1985 brengt Gemengd Koor Animato muziek tot leven met passie, vakmanschap en toewijding. Ons koor bestaat uit ongeveer 70 enthousiaste zangers en zangeressen die wekelijks samenkomen om te repeteren en te groeien als muzikaal ensemble.
             </p>
 
             <h2 class="text-3xl font-bold text-animato-secondary mt-12 mb-6">Onze Missie</h2>
@@ -469,7 +469,7 @@ app.get('/koor', async (c) => {
 
             <h2 class="text-3xl font-bold text-animato-secondary mt-12 mb-6">Concerten & Optredens</h2>
             <p class="text-gray-700 mb-4">
-              Jaarlijks verzorgen we meerdere concerten in prachtige locaties. Van intieme kerkConcerten tot grootse uitvoeringen in concertzalen, elk optreden is een feest voor koor en publiek.
+              Jaarlijks verzorgen we meerdere concerten in prachtige locaties. Van intieme kerkconcerten tot grootse uitvoeringen in concertzalen, elk optreden is een feest voor koor en publiek.
             </p>
           </div>
 

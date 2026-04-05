@@ -154,6 +154,10 @@ app.get('/login', async (c) => {
 // =====================================================
 
 app.get('/wachtwoord-vergeten', (c) => {
+  const error = c.req.query('error')
+  const success = c.req.query('success')
+  const email = c.req.query('email') || ''
+
   return c.html(
     <Layout title="Wachtwoord vergeten">
       <div class="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
@@ -170,29 +174,58 @@ app.get('/wachtwoord-vergeten', (c) => {
             </p>
           </div>
 
-          <form class="mt-8 space-y-6" action="/api/auth/forgot-password" method="POST">
-            <div>
-              <label for="email" class="block text-sm font-medium text-gray-700 mb-1">
-                Email adres
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autocomplete="email"
-                required
-                class="block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                placeholder="naam@example.com"
-              />
+          {error && (
+            <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+              <div class="flex">
+                <i class="fas fa-exclamation-circle text-red-500 mr-3 mt-0.5"></i>
+                <div class="text-sm text-red-800">
+                  {error === 'not_found' && 'Dit e-mailadres is niet gekend in ons systeem. Controleer of je het juiste adres hebt ingevoerd, of neem contact op met de beheerder.'}
+                  {error === 'invalid_email' && 'Vul een geldig e-mailadres in.'}
+                  {error === 'send_failed' && 'Er is een technisch probleem opgetreden bij het versturen van de email. Probeer het later opnieuw of neem contact op met de beheerder.'}
+                </div>
+              </div>
             </div>
+          )}
 
-            <button
-              type="submit"
-              class="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-white bg-animato-primary hover:bg-animato-secondary focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-animato-primary font-semibold transition"
-            >
-              Verstuur reset link
-            </button>
-          </form>
+          {success === 'sent' && (
+            <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+              <div class="flex">
+                <i class="fas fa-check-circle text-green-500 mr-3 mt-0.5"></i>
+                <div class="text-sm text-green-800">
+                  <p class="font-semibold mb-1">E-mail verstuurd!</p>
+                  <p>We hebben een reset-link gestuurd naar <strong>{email}</strong>. Controleer ook je spam-map. De link is 1 uur geldig.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {success !== 'sent' && (
+            <form class="mt-8 space-y-6" action="/api/auth/forgot-password" method="POST">
+              <div>
+                <label for="email" class="block text-sm font-medium text-gray-700 mb-1">
+                  Email adres
+                </label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  autocomplete="email"
+                  required
+                  value={email}
+                  class="block w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  placeholder="naam@example.com"
+                />
+              </div>
+
+              <button
+                type="submit"
+                class="w-full flex justify-center items-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-white bg-animato-primary hover:bg-animato-secondary focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-animato-primary font-semibold transition"
+              >
+                <i class="fas fa-paper-plane mr-2"></i>
+                Verstuur reset link
+              </button>
+            </form>
+          )}
 
           <div class="text-center">
             <a href="/login" class="text-sm text-animato-primary hover:text-animato-secondary font-medium">
@@ -521,41 +554,80 @@ app.get('/api/auth/logout', async (c) => {
 
 app.post('/api/auth/forgot-password', async (c) => {
   const body = await c.req.parseBody()
-  const email = (body.email as string).toLowerCase()
+  const email = ((body.email as string) || '').trim().toLowerCase()
+  const encodedEmail = encodeURIComponent(email)
 
-  // Always say "sent" for security (prevent email enumeration)
-  // unless invalid email format
-  if (!isValidEmail(email)) return c.redirect('/wachtwoord-vergeten')
-
-  const user = await queryOne<any>(c.env.DB, "SELECT id, email FROM users WHERE email = ?", [email])
-  
-  if (user) {
-    const token = generateRandomToken(32)
-    // Expire in 1 hour
-    await execute(
-        c.env.DB, 
-        `INSERT INTO password_resets (user_id, token, expires_at) VALUES (?, ?, datetime('now', '+1 hour'))`,
-        [user.id, token]
-    )
-
-    const siteUrl = c.env.SITE_URL || 'https://animato.be'
-    const resetLink = `${siteUrl}/reset-wachtwoord/${token}`
-
-    await sendEmail({
-        to: user.email,
-        subject: 'Wachtwoord Herstellen - Animato',
-        html: `
-            <h1>Wachtwoord Herstellen</h1>
-            <p>Er is een aanvraag gedaan om je wachtwoord te resetten.</p>
-            <p>Klik op de onderstaande link om een nieuw wachtwoord in te stellen:</p>
-            <a href="${resetLink}" style="display:inline-block;background:#00A9CE;color:white;padding:10px 20px;border-radius:5px;text-decoration:none;">Wachtwoord Resetten</a>
-            <p>Deze link is 1 uur geldig.</p>
-            <p>Heb je dit niet aangevraagd? Negeer deze mail.</p>
-        `
-    }, c.env.RESEND_API_KEY)
+  // Validate email format
+  if (!email || !isValidEmail(email)) {
+    return c.redirect(`/wachtwoord-vergeten?error=invalid_email`)
   }
 
-  return c.redirect('/login?success=reset_email_sent')
+  // Check if user exists — show clear error if not found
+  const user = await queryOne<any>(c.env.DB, "SELECT id, email FROM users WHERE email = ? AND status != 'verwijderd'", [email])
+
+  if (!user) {
+    return c.redirect(`/wachtwoord-vergeten?error=not_found&email=${encodedEmail}`)
+  }
+
+  // Generate reset token and store it
+  const token = generateRandomToken(32)
+  await execute(
+    c.env.DB,
+    `INSERT INTO password_resets (user_id, token, expires_at) VALUES (?, ?, datetime('now', '+1 hour'))`,
+    [user.id, token]
+  )
+
+  const siteUrl = (c.env.SITE_URL || 'https://animato-live.pages.dev').replace(/\/$/, '')
+  const resetLink = `${siteUrl}/reset-wachtwoord/${token}`
+
+  const emailSent = await sendEmail({
+    to: user.email,
+    subject: 'Wachtwoord herstellen – Gemengd Koor Animato',
+    html: `
+<!DOCTYPE html>
+<html lang="nl">
+<head><meta charset="UTF-8"></head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+  <div style="background: linear-gradient(135deg, #6B46C1 0%, #4A9CC1 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
+    <h1 style="margin: 0; font-size: 24px;">🔑 Wachtwoord Herstellen</h1>
+    <p style="margin: 8px 0 0 0; opacity: 0.9;">Gemengd Koor Animato</p>
+  </div>
+  <div style="background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px;">
+    <p>Hallo,</p>
+    <p>We hebben een aanvraag ontvangen om het wachtwoord van <strong>${user.email}</strong> te resetten.</p>
+    <p>Klik op de knop hieronder om een nieuw wachtwoord in te stellen:</p>
+    <div style="text-align: center; margin: 30px 0;">
+      <a href="${resetLink}"
+         style="display:inline-block; background:#6B46C1; color:white; padding:14px 32px; border-radius:8px; text-decoration:none; font-weight:bold; font-size:16px;">
+        Wachtwoord Resetten
+      </a>
+    </div>
+    <p style="color: #666; font-size: 14px;">Of kopieer deze link in je browser:<br>
+      <a href="${resetLink}" style="color:#6B46C1; word-break:break-all;">${resetLink}</a>
+    </p>
+    <div style="background:#FEF3C7; border-left:4px solid #F59E0B; padding:12px 16px; border-radius:6px; margin: 20px 0;">
+      <p style="margin:0; font-size:14px;">⏰ <strong>Deze link is 1 uur geldig.</strong> Daarna moet je een nieuwe aanvraag indienen.</p>
+    </div>
+    <p style="font-size:14px; color:#666;">Heb je dit niet aangevraagd? Dan hoef je niets te doen — je wachtwoord blijft ongewijzigd.</p>
+    <p style="margin-top: 24px;">Met vriendelijke groet,<br><strong>Gemengd Koor Animato</strong></p>
+  </div>
+  <div style="text-align:center; padding:16px; color:#999; font-size:12px;">
+    Gemengd Koor Animato | gemengdkooranimato@gmail.com
+  </div>
+</body>
+</html>
+    `
+  }, c.env.RESEND_API_KEY)
+
+  if (!emailSent) {
+    console.error(`[forgot-password] Email send FAILED for user ${user.id} (${user.email})`)
+    // Remove the token we just created since email failed
+    await execute(c.env.DB, `DELETE FROM password_resets WHERE token = ?`, [token])
+    return c.redirect(`/wachtwoord-vergeten?error=send_failed&email=${encodedEmail}`)
+  }
+
+  console.log(`[forgot-password] Reset email sent successfully to ${user.email}`)
+  return c.redirect(`/wachtwoord-vergeten?success=sent&email=${encodedEmail}`)
 })
 
 app.post('/api/auth/reset-password', async (c) => {

@@ -21,6 +21,34 @@ app.get('/leden', async (c) => {
   const user = c.get('user') as SessionUser
   const welcome = c.req.query('welcome')
 
+  // Birthday helpers
+  function getBirthdayWeekRange(): { start: string; end: string } {
+    const now = new Date()
+    // Start of current week (Monday)
+    const day = now.getDay() // 0=Sun, 1=Mon, ...
+    const diffToMon = (day === 0 ? -6 : 1 - day)
+    const mon = new Date(now)
+    mon.setDate(now.getDate() + diffToMon)
+    const sun = new Date(mon)
+    sun.setDate(mon.getDate() + 6)
+    const fmt = (d: Date) => `${String(d.getMonth() + 1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    return { start: fmt(mon), end: fmt(sun) }
+  }
+  const bwRange = getBirthdayWeekRange()
+
+  // Members with birthdays this week (MM-DD comparison on geboortedatum)
+  const birthdayMembers = await queryAll<any>(
+    c.env.DB,
+    `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.geboortedatum
+     FROM users u
+     JOIN profiles p ON p.user_id = u.id
+     WHERE u.status = 'actief'
+       AND p.geboortedatum IS NOT NULL
+       AND strftime('%m-%d', p.geboortedatum) BETWEEN ? AND ?
+     ORDER BY strftime('%m-%d', p.geboortedatum) ASC`,
+    [bwRange.start, bwRange.end]
+  )
+
   // Get upcoming events for this user's stemgroep
   const upcomingEvents = await queryAll(
     c.env.DB,
@@ -101,6 +129,43 @@ app.get('/leden', async (c) => {
                     Je account is succesvol aangemaakt. Veel plezier in het ledenportaal!
                   </p>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Birthday banner */}
+          {birthdayMembers.length > 0 && (
+            <div class="mb-8 bg-gradient-to-r from-yellow-50 to-amber-50 border border-yellow-200 rounded-xl p-6 shadow-sm">
+              <h2 class="text-xl font-bold text-amber-800 mb-4 flex items-center gap-2">
+                <i class="fas fa-birthday-cake text-amber-500"></i>
+                Verjaardagen deze week
+                <span class="text-sm font-normal text-amber-600 ml-1">🎉 Er wordt getrakteerd op de aankomende repetitie!</span>
+              </h2>
+              <div class="flex flex-wrap gap-5">
+                {birthdayMembers.map((bm: any) => {
+                  const isMe = bm.id === user.id
+                  return (
+                    <a href={`/leden/smoelenboek/${bm.id}`} class="flex flex-col items-center group" title={`${bm.voornaam} ${bm.achternaam}`}>
+                      <div class="relative w-20 h-20 mb-2">
+                        <div class={`w-20 h-20 rounded-full overflow-hidden border-4 ${isMe ? 'border-amber-400 shadow-lg' : 'border-yellow-200'} bg-white flex items-center justify-center`}>
+                          {bm.foto_url ? (
+                            <img src={bm.foto_url} class="w-full h-full object-cover" alt={bm.voornaam} />
+                          ) : (
+                            <i class="fas fa-user text-3xl text-gray-300"></i>
+                          )}
+                        </div>
+                        {/* Crown icon */}
+                        <span class="absolute -top-4 left-1/2 -translate-x-1/2 text-2xl" title="Jarig deze week!">👑</span>
+                      </div>
+                      <span class={`text-sm font-semibold ${isMe ? 'text-amber-700' : 'text-gray-700'} group-hover:text-amber-600 transition text-center`}>
+                        {bm.voornaam}{isMe ? ' (jij!)' : ''}
+                      </span>
+                      <span class="text-xs text-amber-500 font-medium">
+                        {new Date(bm.geboortedatum).toLocaleDateString('nl-BE', { day: 'numeric', month: 'long' })}
+                      </span>
+                    </a>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -1793,18 +1858,16 @@ app.get('/leden/profiel', async (c) => {
                   </div>
 
                   <div>
-                    <label for="jaren_in_koor" class="block text-sm font-medium text-gray-700 mb-1">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
                       Jaren in dit koor
                     </label>
-                    <input
-                      type="number"
-                      id="jaren_in_koor"
-                      name="jaren_in_koor"
-                      value={profile.jaren_in_koor || 0}
-                      min="0"
-                      max="100"
-                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    />
+                    {/* Auto-calculated from account creation date */}
+                    <div class="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700 flex items-center gap-2">
+                      <i class="fas fa-calculator text-animato-primary text-sm"></i>
+                      <span>{Math.max(0, new Date().getFullYear() - new Date(profile.created_at).getFullYear())} jaar</span>
+                      <span class="text-xs text-gray-400 ml-1">(automatisch berekend op basis van registratiedatum)</span>
+                    </div>
+                    <input type="hidden" name="jaren_in_koor" value={Math.max(0, new Date().getFullYear() - new Date(profile.created_at).getFullYear())} />
                   </div>
 
                   <div>
@@ -2625,26 +2688,73 @@ app.get('/leden/smoelenboek', async (c) => {
 app.get('/leden/smoelenboek/:id', async (c) => {
   const user = c.get('user') as SessionUser
   const memberId = c.req.param('id')
-  
+  const isOwnProfile = String(user.id) === String(memberId)
+  const isAdmin = (user as any).role === 'admin'
+
+  // Admins and own profile can see non-smoelenboek members too
+  const visibilityClause = (isOwnProfile || isAdmin) ? '' : ' AND p.smoelenboek_zichtbaar = 1'
+
   const member = await queryOne<any>(
     c.env.DB,
     `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio, 
             p.favoriete_werk, p.favoriete_genre, p.favoriete_componist, p.instrument, p.jaren_in_koor, p.zanger_type,
-            p.toon_email, p.toon_telefoon, u.email, p.telefoon, p.adres, u.created_at,
+            p.toon_email, p.toon_telefoon, u.email, p.telefoon, p.adres, u.created_at, p.geboortedatum,
             CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite
      FROM users u
      JOIN profiles p ON u.id = p.user_id
      LEFT JOIN member_favorites f ON f.favorite_member_id = u.id AND f.user_id = ?
-     WHERE u.id = ? AND u.status = 'actief' AND p.smoelenboek_zichtbaar = 1`,
+     WHERE u.id = ? AND u.status = 'actief'${visibilityClause}`,
     [user.id, memberId]
   )
 
   if (!member) return c.redirect('/leden/smoelenboek')
 
+  // Auto-calculate jaren in koor from created_at (account registration date)
+  const lidSindsDate = new Date(member.created_at)
+  const now = new Date()
+  const jarenBerekend = now.getFullYear() - lidSindsDate.getFullYear()
+
+  // Favorited-by stats (only show on own profile or admin)
+  let favorieten: any[] = []
+  let favCount = { S: 0, A: 0, T: 0, B: 0, total: 0 }
+  if (isOwnProfile || isAdmin) {
+    favorieten = await queryAll<any>(
+      c.env.DB,
+      `SELECT u.stemgroep, p.voornaam, p.achternaam, p.foto_url, mf.created_at
+       FROM member_favorites mf
+       JOIN users u ON u.id = mf.user_id
+       JOIN profiles p ON p.user_id = u.id
+       WHERE mf.favorite_member_id = ?
+       ORDER BY mf.created_at DESC`,
+      [memberId]
+    )
+    for (const f of favorieten) {
+      const sg = f.stemgroep as string
+      if (sg === 'S') favCount.S++
+      else if (sg === 'A') favCount.A++
+      else if (sg === 'T') favCount.T++
+      else favCount.B++
+      favCount.total++
+    }
+  }
+
+  const stemgroepLabel = (s: string) => s === 'S' ? 'Sopraan' : s === 'A' ? 'Alt' : s === 'T' ? 'Tenor' : 'Bas'
+
   return c.html(
     <Layout title={`${member.voornaam} ${member.achternaam}`} user={user} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Smoelenboek', href: '/leden/smoelenboek'}, {label: `${member.voornaam} ${member.achternaam}`, href: '#'}]}>
         <div class="py-12 bg-gray-50 min-h-screen">
             <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+
+              {/* Navigation bar */}
+              <div class="flex items-center justify-between mb-6">
+                <a href="/leden" class="inline-flex items-center gap-2 text-gray-500 hover:text-animato-primary transition text-sm font-medium">
+                  <i class="fas fa-arrow-left"></i> Terug naar dashboard
+                </a>
+                <a href="/leden/smoelenboek" class="inline-flex items-center gap-2 text-gray-500 hover:text-animato-primary transition text-sm font-medium">
+                  <i class="fas fa-users"></i> Smoelenboek
+                </a>
+              </div>
+
                 <div class="bg-white rounded-xl shadow-lg overflow-hidden">
                     {/* Header Banner */}
                     <div class={`h-32 bg-gradient-to-r ${
@@ -2656,9 +2766,10 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                     
                     <div class="px-8 pb-8">
                         <div class="flex flex-col md:flex-row items-start md:items-end -mt-12 mb-6">
-                            <div class="w-32 h-32 rounded-full border-4 border-white shadow-lg overflow-hidden bg-white flex items-center justify-center">
+                            {/* Clickable photo for zoom */}
+                            <div class="w-32 h-32 rounded-full border-4 border-white shadow-lg overflow-hidden bg-white flex items-center justify-center cursor-pointer" onclick="openPhotoModal()" title="Klik om te vergroten">
                                 {member.foto_url ? (
-                                    <img src={member.foto_url} class="w-full h-full object-cover" alt={member.voornaam} />
+                                    <img src={member.foto_url} class="w-full h-full object-cover" alt={member.voornaam} id="profile-photo-thumb" />
                                 ) : (
                                     <i class="fas fa-user text-4xl text-gray-300"></i>
                                 )}
@@ -2677,11 +2788,17 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                                     {member.zanger_type && <span class="capitalize">{member.zanger_type}</span>}
                                 </p>
                             </div>
-                            <div class="mt-4 md:mt-0">
-                                <button onclick={`toggleFavorite(${member.id}, this)`} class={`btn-fav px-4 py-2 rounded-lg border flex items-center gap-2 transition ${member.is_favorite ? 'bg-yellow-50 border-yellow-200 text-yellow-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                                    <i class={`fas fa-star ${member.is_favorite ? '' : 'text-gray-300'}`}></i>
-                                    {member.is_favorite ? 'Favoriet' : 'Favoriet maken'}
-                                </button>
+                            <div class="mt-4 md:mt-0 flex gap-2">
+                                {isOwnProfile ? (
+                                    <a href="/leden/profiel" class="px-4 py-2 rounded-lg border border-animato-primary text-animato-primary flex items-center gap-2 hover:bg-animato-primary hover:text-white transition">
+                                        <i class="fas fa-edit"></i> Profiel bewerken
+                                    </a>
+                                ) : (
+                                    <button onclick={`toggleFavorite(${member.id}, this)`} class={`btn-fav px-4 py-2 rounded-lg border flex items-center gap-2 transition ${member.is_favorite ? 'bg-yellow-50 border-yellow-200 text-yellow-600' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
+                                        <i class={`fas fa-star ${member.is_favorite ? '' : 'text-gray-300'}`}></i>
+                                        {member.is_favorite ? 'Favoriet' : 'Favoriet maken'}
+                                    </button>
+                                )}
                             </div>
                         </div>
 
@@ -2721,18 +2838,73 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                                                 <span class="font-medium text-gray-800">{member.instrument}</span>
                                             </div>
                                         )}
-                                        {member.jaren_in_koor && member.jaren_in_koor > 0 && (
-                                            <div>
-                                                <span class="block text-xs text-gray-500 uppercase tracking-wide">Ervaring</span>
-                                                <span class="font-medium text-gray-800">{member.jaren_in_koor} jaar bij Animato</span>
-                                            </div>
-                                        )}
+                                        <div>
+                                            <span class="block text-xs text-gray-500 uppercase tracking-wide">Jaren bij Animato</span>
+                                            <span class="font-medium text-gray-800">{jarenBerekend} jaar</span>
+                                        </div>
                                         <div>
                                             <span class="block text-xs text-gray-500 uppercase tracking-wide">Lid sinds</span>
-                                            <span class="font-medium text-gray-800">{new Date(member.created_at).toLocaleDateString('nl-BE', {month: 'long', year: 'numeric'})}</span>
+                                            <span class="font-medium text-gray-800">{lidSindsDate.toLocaleDateString('nl-BE', {month: 'long', year: 'numeric'})}</span>
                                         </div>
+                                        {(isOwnProfile || isAdmin) && member.geboortedatum && (
+                                            <div>
+                                                <span class="block text-xs text-gray-500 uppercase tracking-wide">Geboortedatum</span>
+                                                <span class="font-medium text-gray-800">
+                                                    {new Date(member.geboortedatum).toLocaleDateString('nl-BE', {day: 'numeric', month: 'long', year: 'numeric'})}
+                                                </span>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
+
+                                {/* Favorited-by stats (own profile or admin) */}
+                                {(isOwnProfile || isAdmin) && (
+                                    <div class="bg-yellow-50 border border-yellow-100 rounded-lg p-6">
+                                        <h3 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                                            <i class="fas fa-star text-yellow-400"></i>
+                                            {isOwnProfile ? 'Jij bent favoriet bij' : 'Favoriet bij'}
+                                            <span class="text-2xl font-bold text-yellow-600 ml-1">{favCount.total}</span>
+                                            <span class="text-sm font-normal text-gray-500">leden</span>
+                                        </h3>
+                                        {favCount.total > 0 ? (
+                                            <>
+                                                {/* SATB breakdown */}
+                                                <div class="grid grid-cols-4 gap-3 mb-5">
+                                                    {[{label:'Sopraan', key:'S', color:'pink'},{label:'Alt', key:'A', color:'purple'},{label:'Tenor', key:'T', color:'blue'},{label:'Bas', key:'B', color:'green'}].map(sg => (
+                                                        <div class={`text-center rounded-lg p-3 bg-${sg.color}-50 border border-${sg.color}-100`}>
+                                                            <div class={`text-2xl font-bold text-${sg.color}-600`}>{(favCount as any)[sg.key]}</div>
+                                                            <div class={`text-xs text-${sg.color}-500 font-medium`}>{sg.label}</div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                {/* Who favorited */}
+                                                <div class="space-y-2">
+                                                    <p class="text-xs text-gray-500 uppercase tracking-wide font-medium mb-2">Gefavoriet door</p>
+                                                    <div class="flex flex-wrap gap-2">
+                                                        {favorieten.map((f: any) => (
+                                                            <span class={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${
+                                                                f.stemgroep === 'S' ? 'bg-pink-100 text-pink-700' :
+                                                                f.stemgroep === 'A' ? 'bg-purple-100 text-purple-700' :
+                                                                f.stemgroep === 'T' ? 'bg-blue-100 text-blue-700' :
+                                                                'bg-green-100 text-green-700'
+                                                            }`}>
+                                                                {f.foto_url ? (
+                                                                    <img src={f.foto_url} class="w-4 h-4 rounded-full object-cover" alt="" />
+                                                                ) : (
+                                                                    <i class="fas fa-user" style="font-size:10px"></i>
+                                                                )}
+                                                                {f.voornaam} {f.achternaam}
+                                                                <span class="opacity-60">({stemgroepLabel(f.stemgroep)})</span>
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <p class="text-gray-500 text-sm">Nog niemand heeft je als favoriet aangeduid. Wees actief in het koor! 🎶</p>
+                                        )}
+                                    </div>
+                                )}
                             </div>
 
                             <div class="space-y-6">
@@ -2757,13 +2929,46 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                                         </li>
                                     </ul>
                                 </div>
+
+                                {/* Admin birthday list link */}
+                                {isAdmin && (
+                                    <a href="/leden/verjaardagen" class="block bg-amber-50 border border-amber-200 rounded-lg p-4 text-center hover:bg-amber-100 transition">
+                                        <i class="fas fa-birthday-cake text-amber-500 text-2xl mb-2"></i>
+                                        <div class="text-sm font-semibold text-amber-700">Verjaardagslijst</div>
+                                        <div class="text-xs text-amber-500">Alle verjaardagen overzicht</div>
+                                    </a>
+                                )}
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
+
+        {/* Photo zoom modal */}
+        {member.foto_url && (
+            <div id="photo-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black bg-opacity-80" onclick="closePhotoModal()">
+                <div class="relative max-w-2xl max-h-screen p-4">
+                    <button class="absolute top-2 right-2 text-white text-2xl z-10 hover:text-gray-300" onclick="closePhotoModal()">
+                        <i class="fas fa-times"></i>
+                    </button>
+                    <img src={member.foto_url} class="max-w-full max-h-screen object-contain rounded-lg shadow-2xl" alt={`${member.voornaam} ${member.achternaam}`} />
+                    <p class="text-white text-center mt-3 font-semibold text-lg">{member.voornaam} {member.achternaam}</p>
+                </div>
+            </div>
+        )}
+
         <script dangerouslySetInnerHTML={{__html: `
+            function openPhotoModal() {
+                const modal = document.getElementById('photo-modal');
+                if (modal) { modal.classList.remove('hidden'); modal.classList.add('flex'); }
+            }
+            function closePhotoModal() {
+                const modal = document.getElementById('photo-modal');
+                if (modal) { modal.classList.add('hidden'); modal.classList.remove('flex'); }
+            }
+            document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closePhotoModal(); });
+
             async function toggleFavorite(memberId, btn) {
                 try {
                     const res = await fetch('/api/leden/favorites/toggle', {
@@ -2813,6 +3018,138 @@ app.post('/api/leden/favorites/toggle', async (c) => {
 })
 
 app.get('/leden/agenda', (c) => c.redirect('/agenda'))
+
+// =====================================================
+// ADMIN VERJAARDAGSLIJST
+// =====================================================
+app.get('/leden/verjaardagen', async (c) => {
+  const user = c.get('user') as SessionUser
+  if ((user as any).role !== 'admin') return c.redirect('/leden')
+
+  // Fetch all members with birthdays, sorted by month/day
+  const members = await queryAll<any>(
+    c.env.DB,
+    `SELECT u.id, p.voornaam, p.achternaam, p.geboortedatum, u.stemgroep, p.foto_url
+     FROM users u
+     JOIN profiles p ON p.user_id = u.id
+     WHERE u.status = 'actief'
+       AND p.geboortedatum IS NOT NULL
+     ORDER BY strftime('%m-%d', p.geboortedatum) ASC`
+  )
+
+  // Group by month
+  const byMonth: Record<string, any[]> = {}
+  const monthNames = ['Januari','Februari','Maart','April','Mei','Juni','Juli','Augustus','September','Oktober','November','December']
+  for (const m of members) {
+    const d = new Date(m.geboortedatum)
+    const key = String(d.getMonth()) // 0-indexed
+    if (!byMonth[key]) byMonth[key] = []
+    byMonth[key].push(m)
+  }
+
+  const stemgroepLabel = (s: string) => s === 'S' ? 'Sopraan' : s === 'A' ? 'Alt' : s === 'T' ? 'Tenor' : 'Bas'
+
+  return c.html(
+    <Layout title="Verjaardagslijst" user={user} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Verjaardagslijst', href: '#'}]}>
+      <div class="py-12 bg-gray-50 min-h-screen">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="flex items-center justify-between mb-8">
+            <div>
+              <h1 class="text-3xl font-bold text-gray-900 flex items-center gap-3">
+                <i class="fas fa-birthday-cake text-amber-500"></i>
+                Verjaardagslijst
+              </h1>
+              <p class="text-gray-500 mt-1">Overzicht van alle verjaardagen (enkel zichtbaar voor admins)</p>
+            </div>
+            <div class="flex gap-3">
+              <a href="/leden" class="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition text-sm">
+                <i class="fas fa-arrow-left"></i> Terug naar dashboard
+              </a>
+              <button onclick="window.print()" class="inline-flex items-center gap-2 px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm">
+                <i class="fas fa-print"></i> Afdrukken
+              </button>
+            </div>
+          </div>
+
+          <div class="space-y-8 print-area">
+            {Object.keys(byMonth).sort((a,b) => Number(a)-Number(b)).map((monthKey) => (
+              <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                <div class="bg-amber-50 border-b border-amber-100 px-6 py-3">
+                  <h2 class="text-lg font-bold text-amber-800 flex items-center gap-2">
+                    <i class="fas fa-calendar-alt text-amber-400"></i>
+                    {monthNames[Number(monthKey)]}
+                    <span class="text-sm font-normal text-amber-600 ml-1">({byMonth[monthKey].length} leden)</span>
+                  </h2>
+                </div>
+                <div class="divide-y divide-gray-100">
+                  {byMonth[monthKey].map((m: any) => {
+                    const bd = new Date(m.geboortedatum)
+                    const today = new Date()
+                    const isThisWeek = (() => {
+                      const day = today.getDay()
+                      const diffToMon = (day === 0 ? -6 : 1 - day)
+                      const mon = new Date(today)
+                      mon.setDate(today.getDate() + diffToMon)
+                      const sun = new Date(mon)
+                      sun.setDate(mon.getDate() + 6)
+                      const fmt = (d: Date) => `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+                      const bdFmt = fmt(bd)
+                      return bdFmt >= fmt(mon) && bdFmt <= fmt(sun)
+                    })()
+                    const age = today.getFullYear() - bd.getFullYear()
+                    return (
+                      <div class={`flex items-center gap-4 px-6 py-3 ${isThisWeek ? 'bg-yellow-50' : 'hover:bg-gray-50'}`}>
+                        <div class="w-10 h-10 rounded-full overflow-hidden border-2 border-gray-200 bg-gray-100 flex items-center justify-center flex-shrink-0">
+                          {m.foto_url ? (
+                            <img src={m.foto_url} class="w-full h-full object-cover" alt={m.voornaam} />
+                          ) : (
+                            <i class="fas fa-user text-gray-400"></i>
+                          )}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-center gap-2">
+                            <span class="font-semibold text-gray-900">{m.voornaam} {m.achternaam}</span>
+                            {isThisWeek && <span class="text-lg" title="Jarig deze week!">👑</span>}
+                          </div>
+                          <div class="text-sm text-gray-500 flex items-center gap-3">
+                            <span><i class="fas fa-calendar mr-1"></i>{bd.toLocaleDateString('nl-BE', {day:'numeric', month:'long'})}</span>
+                            <span class="text-gray-400">•</span>
+                            <span>{age} jaar</span>
+                          </div>
+                        </div>
+                        <div>
+                          <span class={`px-2 py-1 rounded text-xs font-semibold ${
+                            m.stemgroep === 'S' ? 'bg-pink-100 text-pink-700' :
+                            m.stemgroep === 'A' ? 'bg-purple-100 text-purple-700' :
+                            m.stemgroep === 'T' ? 'bg-blue-100 text-blue-700' :
+                            'bg-green-100 text-green-700'
+                          }`}>{stemgroepLabel(m.stemgroep)}</span>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+          {members.length === 0 && (
+            <div class="text-center text-gray-500 py-12">
+              <i class="fas fa-birthday-cake text-4xl mb-4 text-gray-300"></i>
+              <p>Geen verjaardagen gevonden</p>
+            </div>
+          )}
+        </div>
+      </div>
+      <style dangerouslySetInnerHTML={{__html: `
+        @media print {
+          nav, header, footer, .no-print { display: none !important; }
+          body { background: white; }
+          .print-area { display: block; }
+        }
+      `}} />
+    </Layout>
+  )
+})
 
 // =====================================================
 // PROFIEL BEWERKEN API - Update Profile

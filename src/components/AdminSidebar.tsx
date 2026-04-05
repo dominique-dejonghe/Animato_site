@@ -9,6 +9,7 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({ activeSection = 'dashboard
   const links = [
     { id: 'dashboard', label: 'Dashboard', href: '/admin', icon: 'fas fa-tachometer-alt' },
     { id: 'leden', label: 'Leden', href: '/admin/leden', icon: 'fas fa-users', badge: pendingRegistrationsCount > 0 ? pendingRegistrationsCount : undefined },
+    { id: 'verjaardagen', label: 'Verjaardagslijst', href: '/leden/verjaardagen', icon: 'fas fa-birthday-cake' },
     { id: 'content', label: 'Nieuws & Berichten', href: '/admin/content', icon: 'fas fa-newspaper' },
     { id: 'events', label: 'Agenda, Events & Activiteiten', href: '/admin/events', icon: 'fas fa-calendar-alt' },
     { id: 'seating', label: 'Zaalplannen', href: '/admin/seating', icon: 'fas fa-chair' },

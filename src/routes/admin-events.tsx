@@ -306,10 +306,10 @@ app.get('/admin/events', async (c) => {
                         </td>
                         <td class="px-6 py-4">
                           <div class="flex items-center">
-                            {event.is_recurring && (
+                            {!!event.is_recurring && (
                               <i class="fas fa-sync text-purple-600 mr-2" title="Terugkerend event"></i>
                             )}
-                            {event.parent_event_id && (
+                            {!!event.parent_event_id && (
                               <i class="fas fa-link text-gray-400 mr-2" title="Onderdeel van reeks"></i>
                             )}
                             <div>

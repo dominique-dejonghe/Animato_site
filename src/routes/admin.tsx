@@ -1290,7 +1290,7 @@ app.get('/admin/leden/:id', async (c) => {
     // Get member details
   const member = await queryOne<any>(
     c.env.DB,
-    `SELECT u.*, p.voornaam, p.achternaam, p.telefoon, p.adres, p.straat, p.huisnummer, p.bus, p.postcode, COALESCE(p.gemeente, p.stad) as gemeente, p.bio, p.muzikale_ervaring, p.geboortedatum
+    `SELECT u.*, p.voornaam, p.achternaam, p.telefoon, p.adres, p.straat, p.huisnummer, p.bus, p.postcode, COALESCE(p.gemeente, p.stad) as gemeente, p.bio, p.muzikale_ervaring, p.geboortedatum, p.foto_url
      FROM users u
      LEFT JOIN profiles p ON p.user_id = u.id
      WHERE u.id = ?`,
@@ -1430,8 +1430,38 @@ app.get('/admin/leden/:id', async (c) => {
               {/* Profile Card */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <div class="flex items-center mb-6 pb-6 border-b border-gray-200">
-              <div class="w-20 h-20 bg-gradient-to-br from-animato-primary to-animato-secondary rounded-full flex items-center justify-center text-white text-2xl font-bold">
-                {member.voornaam?.charAt(0) || 'U'}{member.achternaam?.charAt(0) || ''}
+              {/* Profielfoto met upload */}
+              <div id="foto-upload-zone" class="w-20 h-20 bg-gradient-to-br from-animato-primary to-animato-secondary rounded-full flex items-center justify-center text-white text-2xl font-bold overflow-hidden cursor-pointer relative group border-2 border-transparent hover:border-blue-400 transition" title="Klik of sleep een foto om te uploaden">
+                {member.foto_url ? (
+                  <>
+                    <img 
+                      id="foto-preview-img"
+                      src={member.foto_url}
+                      alt={`${member.voornaam} ${member.achternaam}`}
+                      class="w-full h-full object-cover"
+                    />
+                    <div id="foto-placeholder" class="hidden absolute inset-0 flex items-center justify-center bg-gradient-to-br from-animato-primary to-animato-secondary">
+                      <span>{member.voornaam?.charAt(0) || 'U'}{member.achternaam?.charAt(0) || ''}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <img 
+                      id="foto-preview-img"
+                      src=""
+                      alt="Foto preview"
+                      class="w-full h-full object-cover hidden"
+                    />
+                    <div id="foto-placeholder" class="absolute inset-0 flex items-center justify-center">
+                      <span>{member.voornaam?.charAt(0) || 'U'}{member.achternaam?.charAt(0) || ''}</span>
+                    </div>
+                  </>
+                )}
+                {/* Hover overlay */}
+                <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 rounded-full flex items-center justify-center transition">
+                  <i class="fas fa-camera text-white opacity-0 group-hover:opacity-100 transition"></i>
+                </div>
+                <input type="file" id="foto-file-input" accept="image/jpeg,image/png,image/gif,image/webp" class="hidden" />
               </div>
               <div class="ml-6">
                 <h2 class="text-2xl font-bold text-gray-900">
@@ -1449,12 +1479,26 @@ app.get('/admin/leden/:id', async (c) => {
                     Lid sinds {new Date(member.created_at).toLocaleDateString('nl-NL', { month: 'long', year: 'numeric' })}
                   </span>
                 </div>
+                <div class="flex items-center gap-2 mt-1">
+                  <span id="foto-upload-status" class="text-xs text-gray-400">Klik op de foto om te wijzigen</span>
+                  {member.foto_url && (
+                    <button type="button" id="foto-remove-btn" class="text-xs text-red-500 hover:text-red-700 underline">
+                      Foto verwijderen
+                    </button>
+                  )}
+                  {!member.foto_url && (
+                    <button type="button" id="foto-remove-btn" class="text-xs text-red-500 hover:text-red-700 underline hidden">
+                      Foto verwijderen
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
             {/* Edit Form */}
             <form action="/api/admin/leden/update" method="POST" class="space-y-6">
               <input type="hidden" name="user_id" value={member.id} />
+              <input type="hidden" id="foto-url-input" name="foto_url" value={member.foto_url || ''} />
 
               {/* Personal Information */}
               <div>
@@ -1751,6 +1795,8 @@ app.get('/admin/leden/:id', async (c) => {
           closeDeleteModal();
         });
       ` }} />
+      {/* Foto upload script */}
+      <script src="/static/js/foto-upload.js"></script>
     </Layout>
   )
 })
@@ -1884,7 +1930,8 @@ app.post('/api/admin/leden/update', async (c) => {
       huisnummer,
       bus,
       postcode,
-      gemeente
+      gemeente,
+      foto_url
     } = body
 
     // Validation
@@ -1899,12 +1946,12 @@ app.post('/api/admin/leden/update', async (c) => {
        WHERE id = ?`
     ).bind(email, role, stemgroep || null, status, user_id).run()
 
-    // Update profile table
+    // Update profile table (inclusief foto_url)
     await c.env.DB.prepare(
       `UPDATE profiles 
-       SET voornaam = ?, achternaam = ?, telefoon = ?, straat = ?, huisnummer = ?, bus = ?, postcode = ?, gemeente = ?, stad = ?, bio = ?, muzikale_ervaring = ?, geboortedatum = ?
+       SET voornaam = ?, achternaam = ?, telefoon = ?, straat = ?, huisnummer = ?, bus = ?, postcode = ?, gemeente = ?, stad = ?, bio = ?, muzikale_ervaring = ?, geboortedatum = ?, foto_url = ?
        WHERE user_id = ?`
-    ).bind(voornaam, achternaam, telefoon || null, straat || null, huisnummer || null, bus || null, postcode || null, gemeente || null, gemeente || null, bio || null, muzikale_ervaring || null, geboortedatum || null, user_id).run()
+    ).bind(voornaam, achternaam, telefoon || null, straat || null, huisnummer || null, bus || null, postcode || null, gemeente || null, gemeente || null, bio || null, muzikale_ervaring || null, geboortedatum || null, foto_url || null, user_id).run()
 
     // Audit log
     await c.env.DB.prepare(

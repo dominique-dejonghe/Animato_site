@@ -12,11 +12,10 @@ app.use('*', requireAuth)
 app.use('*', requireRole('admin', 'moderator'))
 
 // =====================================================
-// VOORBEELD EXCEL DOWNLOADEN
+// VOORBEELD CSV DOWNLOADEN
 // =====================================================
 
 app.get('/admin/leden/import/voorbeeld', (c) => {
-  // Geeft een CSV terug als voorbeeldbestand
   const csv = [
     'Voornaam,Achternaam,Email,Stemgroep,Telefoon,Adres',
     'Jan,Janssen,jan.janssen@voorbeeld.be,T,0471234567,Kerkstraat 1 Brussel',
@@ -34,7 +33,7 @@ app.get('/admin/leden/import/voorbeeld', (c) => {
 })
 
 // =====================================================
-// IMPORT PAGE
+// IMPORT PAGE - COPY-PASTE AANPAK (geen XLSX dependency!)
 // =====================================================
 
 app.get('/admin/leden/import', async (c) => {
@@ -60,11 +59,11 @@ app.get('/admin/leden/import', async (c) => {
                 <i class="fas fa-file-import text-animato-primary mr-3"></i>
                 Leden Importeren
               </h1>
-              <p class="text-gray-600 mt-1">Upload een Excel (.xlsx) of CSV bestand om meerdere leden tegelijk toe te voegen.</p>
+              <p class="text-gray-600 mt-1">Plak data vanuit Excel, Google Sheets, of typ het handmatig in.</p>
             </div>
             <div class="flex gap-2">
               <a href="/admin/leden/import/voorbeeld" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 text-sm">
-                <i class="fas fa-download mr-2"></i> Voorbeeld downloaden
+                <i class="fas fa-download mr-2"></i> CSV voorbeeld
               </a>
               <a href="/admin/leden" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50 text-sm">
                 <i class="fas fa-arrow-left mr-2"></i> Terug
@@ -72,10 +71,19 @@ app.get('/admin/leden/import', async (c) => {
             </div>
           </div>
 
-          {/* Info box */}
+          {/* Instructies */}
           <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
-            <p class="text-sm text-blue-800 font-semibold mb-2"><i class="fas fa-info-circle mr-2"></i>Verwachte kolommen in je bestand:</p>
-            <div class="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs text-blue-700">
+            <p class="text-sm text-blue-800 font-semibold mb-2">
+              <i class="fas fa-info-circle mr-2"></i>Hoe werkt het?
+            </p>
+            <ol class="text-xs text-blue-700 space-y-1 list-decimal list-inside mb-3">
+              <li>Open je Excel of Google Sheets bestand</li>
+              <li>Selecteer de rijen die je wilt importeren <strong>(inclusief de koprij)</strong></li>
+              <li>Kopieer (Ctrl+C) en plak (Ctrl+V) in het tekstvak hieronder</li>
+              <li>De preview verschijnt automatisch — controleer de data</li>
+              <li>Klik <strong>"Importeer"</strong></li>
+            </ol>
+            <div class="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs text-blue-700 border-t border-blue-200 pt-2">
               <span><strong>Voornaam</strong> — verplicht</span>
               <span><strong>Achternaam</strong> — verplicht</span>
               <span><strong>Email</strong> — verplicht, uniek</span>
@@ -84,29 +92,49 @@ app.get('/admin/leden/import', async (c) => {
               <span>Adres — optioneel</span>
             </div>
             <p class="text-xs text-blue-600 mt-2">
-              Standaard wachtwoord voor geïmporteerde leden: <strong>Animato2025!</strong> — laat hen dit zelf wijzigen na eerste login.
+              Standaard wachtwoord: <strong>Animato2025!</strong> — leden wijzigen dit na eerste login.
             </p>
           </div>
 
-          {/* Upload zone */}
+          {/* Textarea voor copy-paste */}
           <div class="bg-white rounded-lg shadow-sm p-6 mb-6">
-            <label class="block text-sm font-medium text-gray-700 mb-3">Selecteer bestand (.xlsx of .csv)</label>
-            <div id="drop-zone" class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-animato-primary transition">
-              <i class="fas fa-cloud-upload-alt text-4xl text-gray-300 mb-3"></i>
-              <p class="text-gray-500 mb-2">Sleep je bestand hierheen of klik om te kiezen</p>
-              <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" class="hidden" />
-              <button type="button" onclick="document.getElementById('fileInput').click()" class="bg-animato-primary text-white px-6 py-2 rounded hover:bg-animato-secondary transition text-sm">
-                <i class="fas fa-folder-open mr-2"></i> Bestand kiezen
-              </button>
-              <p id="file-name" class="text-xs text-gray-400 mt-3">Geen bestand geselecteerd</p>
+            <div class="flex justify-between items-center mb-3">
+              <label class="block text-sm font-medium text-gray-700">
+                <i class="fas fa-paste mr-2 text-animato-primary"></i>
+                Plak hier je ledendata
+              </label>
+              <div class="flex gap-2">
+                <button type="button" id="loadExampleBtn" class="text-xs text-blue-600 hover:text-blue-800 underline">
+                  Voorbeeld laden
+                </button>
+                <button type="button" id="clearBtn" class="text-xs text-red-600 hover:text-red-800 underline">
+                  Wissen
+                </button>
+              </div>
             </div>
-            <div id="statusMessage" class="hidden mt-4 p-4 rounded text-sm"></div>
+            <textarea
+              id="pasteArea"
+              rows={8}
+              placeholder={"Plak hier je data vanuit Excel of Google Sheets...\n\nVoorbeeld (tab-gescheiden):\nVoornaam\tAchternaam\tEmail\tStemgroep\nJan\tJanssen\tjan@test.be\tT\nMarie\tPieters\tmarie@test.be\tS"}
+              class="w-full border border-gray-300 rounded-lg p-4 font-mono text-sm focus:ring-2 focus:ring-animato-primary focus:border-animato-primary resize-y"
+              spellcheck={false}
+            ></textarea>
+            <p class="text-xs text-gray-400 mt-2">
+              Scheidingsteken wordt automatisch gedetecteerd: tab (vanuit Excel/Sheets), komma (CSV), of puntkomma.
+              Eerste rij = kolomnamen.
+            </p>
           </div>
+
+          {/* Status bericht */}
+          <div id="statusMessage" class="hidden mb-6 p-4 rounded text-sm"></div>
 
           {/* Preview tabel */}
           <div id="preview-section" class="hidden bg-white rounded-lg shadow-sm p-6">
             <div class="flex justify-between items-center mb-4">
-              <h3 class="font-bold text-gray-800">Preview <span id="preview-count" class="text-gray-400 font-normal text-sm"></span></h3>
+              <h3 class="font-bold text-gray-800">
+                <i class="fas fa-eye mr-2 text-gray-400"></i>
+                Preview <span id="preview-count" class="text-gray-400 font-normal text-sm"></span>
+              </h3>
               <button
                 id="importBtn"
                 disabled
@@ -119,12 +147,14 @@ app.get('/admin/leden/import', async (c) => {
               <table class="min-w-full text-sm">
                 <thead class="bg-gray-50 text-gray-600 uppercase text-xs">
                   <tr>
+                    <th class="px-4 py-2 text-left w-8">#</th>
                     <th class="px-4 py-2 text-left">Status</th>
                     <th class="px-4 py-2 text-left">Voornaam</th>
                     <th class="px-4 py-2 text-left">Achternaam</th>
                     <th class="px-4 py-2 text-left">Email</th>
                     <th class="px-4 py-2 text-left">Stem</th>
                     <th class="px-4 py-2 text-left">Telefoon</th>
+                    <th class="px-4 py-2 text-left">Adres</th>
                   </tr>
                 </thead>
                 <tbody id="previewTable" class="divide-y divide-gray-100"></tbody>
@@ -132,260 +162,22 @@ app.get('/admin/leden/import', async (c) => {
             </div>
           </div>
 
+          {/* Resultaat sectie */}
+          <div id="resultSection" class="hidden bg-white rounded-lg shadow-sm p-6 mt-6">
+            <div id="resultContent"></div>
+          </div>
+
         </div>
       </div>
 
-      {/* XLSX lokaal geladen — geen CDN afhankelijkheid */}
-      <script src="/static/js/xlsx.full.min.js"></script>
-      <script dangerouslySetInnerHTML={{ __html: `
-        // Start onmiddellijk zodra DOM klaar is (XLSX is sync geladen hierboven)
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', initImport);
-        } else {
-          initImport();
-        }
-
-        function initImport() {
-          var statusMessage = document.getElementById('statusMessage');
-          var fileInput = document.getElementById('fileInput');
-          var previewTable = document.getElementById('previewTable');
-          var importBtn = document.getElementById('importBtn');
-          var previewSection = document.getElementById('preview-section');
-          var previewCount = document.getElementById('preview-count');
-          var fileName = document.getElementById('file-name');
-          var dropZone = document.getElementById('drop-zone');
-          var parsedData = [];
-
-          if (typeof XLSX === 'undefined') {
-            showStatus('bg-red-50 text-red-700 border border-red-200',
-              'Excel bibliotheek kon niet geladen worden. Ververs de pagina (Ctrl+F5).');
-            return;
-          }
-
-          // File input change
-          fileInput.addEventListener('change', function(e) {
-            var file = e.target.files[0];
-            if (file) processFile(file);
-          });
-
-          // Drag & drop
-          dropZone.addEventListener('dragover', function(e) {
-            e.preventDefault();
-            dropZone.classList.add('border-animato-primary', 'bg-blue-50');
-          });
-          dropZone.addEventListener('dragleave', function() {
-            dropZone.classList.remove('border-animato-primary', 'bg-blue-50');
-          });
-          dropZone.addEventListener('drop', function(e) {
-            e.preventDefault();
-            dropZone.classList.remove('border-animato-primary', 'bg-blue-50');
-            var file = e.dataTransfer.files[0];
-            if (file) processFile(file);
-          });
-
-          function processFile(file) {
-            fileName.textContent = file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
-            showStatus('bg-blue-50 text-blue-700 border border-blue-200', 'Bestand inlezen...');
-            var reader = new FileReader();
-            reader.onload = function(e) {
-              try {
-                var data = new Uint8Array(e.target.result);
-                var workbook = XLSX.read(data, { type: 'array', codepage: 65001 });
-                var sheet = workbook.Sheets[workbook.SheetNames[0]];
-                var rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
-                if (rows.length === 0) {
-                  showStatus('bg-red-50 text-red-700 border border-red-200',
-                    'Geen rijen gevonden. Eerste rij moet kolomnamen bevatten (Voornaam, Achternaam, Email...).');
-                  return;
-                }
-                var firstRow = rows[0];
-                var foundKeys = Object.keys(firstRow);
-                parseRows(rows, foundKeys);
-              } catch(err) {
-                showStatus('bg-red-50 text-red-700 border border-red-200',
-                  'Fout bij lezen van bestand: ' + err.message + '. Probeer het bestand op te slaan als .xlsx of .csv.');
-              }
-            };
-            reader.onerror = function() {
-              showStatus('bg-red-50 text-red-700 border border-red-200', 'Kon het bestand niet lezen.');
-            };
-            reader.readAsArrayBuffer(file);
-          }
-
-          function normalizeKey(key) {
-            return key.toString()
-              .replace(/^\\uFEFF/, '')
-              .replace(/^\\xEF\\xBB\\xBF/, '')
-              .toLowerCase()
-              .trim()
-              .replace(/\\s+/g, ' ')
-              .replace(/[\\u00e9\\u00e8\\u00ea\\u00eb]/g, 'e')
-              .replace(/[\\u00e0\\u00e2\\u00e4]/g, 'a')
-              .replace(/[\\u00f9\\u00fb\\u00fc]/g, 'u')
-              .replace(/[\\u00ee\\u00ef]/g, 'i')
-              .replace(/[\\u00f4\\u00f6]/g, 'o')
-              .replace(/[^a-z0-9 ]/g, '');
-          }
-
-          function getField(row, candidates) {
-            var keys = Object.keys(row);
-            for (var i = 0; i < candidates.length; i++) {
-              for (var j = 0; j < keys.length; j++) {
-                if (normalizeKey(keys[j]) === candidates[i]) {
-                  var val = row[keys[j]];
-                  return val !== undefined && val !== null ? String(val).trim() : '';
-                }
-              }
-            }
-            return '';
-          }
-
-          function parseRows(rows, allKeys) {
-            parsedData = [];
-            previewTable.innerHTML = '';
-            var valid = 0, invalid = 0;
-
-            var normalizedKeys = (allKeys || []).map(normalizeKey);
-            var hasVoornaam = normalizedKeys.some(function(k) { return ['voornaam','first name','firstname','naam'].indexOf(k) >= 0; });
-            var hasEmail = normalizedKeys.some(function(k) { return ['email','e-mail','mail','emailadres'].indexOf(k) >= 0; });
-
-            if (!hasVoornaam || !hasEmail) {
-              showStatus('bg-yellow-50 text-yellow-800 border border-yellow-200',
-                'Kolomnamen niet herkend. Gevonden kolommen: ' + (allKeys || []).join(', ')
-                + '. Verwacht: Voornaam, Achternaam, Email (zie voorbeeldbestand).');
-              return;
-            }
-
-            rows.forEach(function(row) {
-              var item = {
-                voornaam:   getField(row, ['voornaam', 'first name', 'firstname', 'naam', 'voornaam lid']),
-                achternaam: getField(row, ['achternaam', 'familienaam', 'last name', 'lastname', 'familynaam', 'naam']),
-                email:      getField(row, ['email', 'e-mail', 'mail', 'emailadres', 'e mail']),
-                stemgroep:  getField(row, ['stemgroep', 'stem', 'voice', 'part', 'stemtype']),
-                telefoon:   getField(row, ['telefoon', 'gsm', 'tel', 'phone', 'mobile', 'gsmnummer', 'telefoonnummer']),
-                adres:      getField(row, ['adres', 'address', 'straat', 'woonplaats']),
-                errors: []
-              };
-
-              // Validatie
-              if (!item.voornaam) item.errors.push('Geen voornaam');
-              if (!item.achternaam) item.errors.push('Geen achternaam');
-              if (!item.email || !item.email.includes('@')) item.errors.push('Ongeldig email');
-
-              // Stemgroep normaliseren
-              var s = (item.stemgroep || '').toUpperCase();
-              if (s.startsWith('S')) item.stemgroep = 'S';
-              else if (s.startsWith('A')) item.stemgroep = 'A';
-              else if (s.startsWith('T')) item.stemgroep = 'T';
-              else if (s.startsWith('B')) item.stemgroep = 'B';
-              else item.stemgroep = '';
-
-              item.isValid = item.errors.length === 0;
-              if (item.isValid) valid++; else invalid++;
-
-              parsedData.push(item);
-
-              // Render rij
-              var tr = document.createElement('tr');
-              tr.className = item.isValid ? 'hover:bg-green-50' : 'bg-red-50';
-              var statusCell = item.isValid
-                ? '<td class="px-4 py-2"><span class="text-green-600 text-xs font-semibold">OK</span></td>'
-                : '<td class="px-4 py-2"><span class="text-red-600 text-xs font-semibold" title="' + item.errors.join(', ') + '">' + item.errors[0] + '</span></td>';
-              tr.innerHTML = statusCell
-                + '<td class="px-4 py-2">' + escapeHtml(item.voornaam || 'leeg') + '</td>'
-                + '<td class="px-4 py-2">' + escapeHtml(item.achternaam || 'leeg') + '</td>'
-                + '<td class="px-4 py-2">' + escapeHtml(item.email || 'leeg') + '</td>'
-                + '<td class="px-4 py-2">' + escapeHtml(item.stemgroep || String.fromCharCode(8212)) + '</td>'
-                + '<td class="px-4 py-2">' + escapeHtml(item.telefoon || String.fromCharCode(8212)) + '</td>';
-              previewTable.appendChild(tr);
-            });
-
-            previewSection.classList.remove('hidden');
-            previewCount.textContent = '(' + rows.length + ' rijen: ' + valid + ' geldig, ' + invalid + ' ongeldig)';
-
-            if (valid > 0) {
-              importBtn.disabled = false;
-              importBtn.innerHTML = '<i class="fas fa-check mr-2"></i> Importeer ' + valid + ' leden';
-              showStatus('bg-green-50 text-green-700 border border-green-200',
-                rows.length + ' rijen ingelezen. ' + valid + ' geldig en klaar om te importeren.');
-            } else {
-              importBtn.disabled = true;
-              showStatus('bg-red-50 text-red-700 border border-red-200',
-                'Geen geldige rijen. Kolomnamen herkend? Download het voorbeeldbestand om de juiste structuur te zien.');
-            }
-          }
-
-          function escapeHtml(str) {
-            var div = document.createElement('div');
-            div.appendChild(document.createTextNode(str));
-            return div.innerHTML;
-          }
-
-          // Import knop
-          importBtn.addEventListener('click', async function() {
-            var validData = parsedData.filter(function(d) { return d.isValid; });
-            if (validData.length === 0) return;
-
-            importBtn.disabled = true;
-            importBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Bezig met importeren...';
-            showStatus('bg-blue-50 text-blue-700 border border-blue-200', 'Importeren... even geduld.');
-
-            try {
-              var response = await fetch('/api/admin/leden/import', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ leden: validData })
-              });
-
-              // Check of we JSON terugkrijgen
-              var contentType = response.headers.get('content-type') || '';
-              if (!contentType.includes('application/json')) {
-                var text = await response.text();
-                console.error('Server response (not JSON):', response.status, text.substring(0, 500));
-                showStatus('bg-red-50 text-red-700 border border-red-200',
-                  'Serverfout (HTTP ' + response.status + '). Controleer of je nog ingelogd bent en probeer opnieuw.');
-                importBtn.disabled = false;
-                importBtn.innerHTML = '<i class="fas fa-check mr-2"></i> Opnieuw proberen';
-                return;
-              }
-
-              var result = await response.json();
-
-              if (result.success) {
-                var msg = 'Import geslaagd! ' + result.imported + ' leden aangemaakt, ' + result.skipped + ' overgeslagen (bestond al).';
-                if (result.errors && result.errors.length > 0) {
-                  msg += ' Fouten: ' + result.errors.join(', ');
-                }
-                showStatus('bg-green-50 text-green-700 border border-green-200', msg);
-                importBtn.innerHTML = '<i class="fas fa-check mr-2"></i> Klaar!';
-                setTimeout(function() { window.location.href = '/admin/leden'; }, 2500);
-              } else {
-                showStatus('bg-red-50 text-red-700 border border-red-200', 'Fout: ' + (result.error || 'Onbekende fout'));
-                importBtn.disabled = false;
-                importBtn.innerHTML = '<i class="fas fa-check mr-2"></i> Opnieuw proberen';
-              }
-            } catch(err) {
-              console.error('Import fetch error:', err);
-              showStatus('bg-red-50 text-red-700 border border-red-200', 'Netwerkfout: ' + err.message);
-              importBtn.disabled = false;
-              importBtn.innerHTML = '<i class="fas fa-check mr-2"></i> Opnieuw proberen';
-            }
-          });
-
-          function showStatus(classes, message) {
-            statusMessage.className = 'mt-4 p-4 rounded text-sm ' + classes;
-            statusMessage.textContent = message;
-            statusMessage.classList.remove('hidden');
-            statusMessage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-          }
-        }
-      `}} />
+      {/* Extern JS bestand - geen inline script nodig, geen escaping problemen */}
+      <script src="/static/js/leden-import.js"></script>
     </Layout>
   )
 })
 
 // =====================================================
-// IMPORT API
+// IMPORT API - ROBUUST MET VOLLEDIGE ERROR HANDLING
 // =====================================================
 
 app.post('/api/admin/leden/import', async (c) => {
@@ -399,7 +191,7 @@ app.post('/api/admin/leden/import', async (c) => {
     }
 
     if (leden.length === 0) {
-      return c.json({ success: false, error: 'Geen leden in het bestand gevonden' }, 400)
+      return c.json({ success: false, error: 'Geen leden in de data gevonden' }, 400)
     }
 
     if (leden.length > 500) {
@@ -416,26 +208,41 @@ app.post('/api/admin/leden/import', async (c) => {
       defaultPasswordHash = await hashPassword('Animato2025!')
     } catch (hashErr: any) {
       console.error('hashPassword failed:', hashErr)
-      return c.json({ success: false, error: 'Wachtwoord generatie mislukt: ' + hashErr.message }, 500)
+      return c.json({ success: false, error: 'Wachtwoord generatie mislukt. Probeer later opnieuw.' }, 500)
     }
 
     for (const lid of leden) {
       try {
         // Valideer verplichte velden
-        if (!lid.voornaam || !lid.achternaam || !lid.email) {
-          errors.push((lid.email || 'onbekend') + ' (ontbrekende verplichte velden)')
+        const voornaam = (lid.voornaam || '').trim()
+        const achternaam = (lid.achternaam || '').trim()
+        const email = (lid.email || '').toLowerCase().trim()
+
+        if (!voornaam || !achternaam || !email) {
+          errors.push((email || 'onbekend') + ' — ontbrekende verplichte velden')
           continue
         }
 
-        // Normaliseer email
-        const email = lid.email.toLowerCase().trim()
+        if (!email.includes('@')) {
+          errors.push(email + ' — ongeldig emailadres')
+          continue
+        }
 
         // Check of email al bestaat
         const exists = await queryOne(c.env.DB, 'SELECT id FROM users WHERE email = ?', [email])
-        if (exists) { skipped++; continue }
+        if (exists) {
+          skipped++
+          continue
+        }
 
-        // Normaliseer stemgroep (null als niet opgegeven)
-        const stemgroep = lid.stemgroep && ['S', 'A', 'T', 'B'].includes(lid.stemgroep) ? lid.stemgroep : null
+        // Normaliseer stemgroep — alleen S/A/T/B of null (NIET empty string!)
+        const rawStem = (lid.stemgroep || '').toUpperCase().trim()
+        let stemgroep: string | null = null
+        if (rawStem === 'S' || rawStem.startsWith('SOPR')) stemgroep = 'S'
+        else if (rawStem === 'A' || rawStem.startsWith('ALT') || rawStem.startsWith('MEZZO')) stemgroep = 'A'
+        else if (rawStem === 'T' || rawStem.startsWith('TEN')) stemgroep = 'T'
+        else if (rawStem === 'B' || rawStem.startsWith('BAS') || rawStem.startsWith('BARI')) stemgroep = 'B'
+        // Anders: null (geen stemgroep)
 
         // Insert user
         const userRes = await execute(c.env.DB, `
@@ -446,36 +253,30 @@ app.post('/api/admin/leden/import', async (c) => {
         const newUserId = userRes.meta.last_row_id
 
         if (!newUserId) {
-          errors.push(email + ' (gebruiker aangemaakt maar ID niet teruggekregen)')
+          errors.push(email + ' — gebruiker aangemaakt maar geen ID teruggekregen')
           continue
         }
 
-        // Insert profile — gebruik het juiste schema met alle kolommen
+        // Insert profile — eenvoudig, alleen basiskkolommen die zeker bestaan
         await execute(c.env.DB, `
-          INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, adres, straat, huisnummer, bus, postcode, gemeente, stad)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, adres)
+          VALUES (?, ?, ?, ?, ?)
         `, [
           newUserId,
-          lid.voornaam.trim(),
-          lid.achternaam.trim(),
-          lid.telefoon || null,
-          lid.adres || null,   // Bewaar volledig adres in 'adres' kolom
-          null,                // straat — wordt later door lid zelf ingevuld
-          null,                // huisnummer
-          null,                // bus
-          null,                // postcode
-          null,                // gemeente
-          null                 // stad
+          voornaam,
+          achternaam,
+          lid.telefoon ? lid.telefoon.trim() : null,
+          lid.adres ? lid.adres.trim() : null
         ])
 
         imported++
       } catch (e: any) {
-        console.error('Import error for ' + (lid.email || 'unknown'), e)
-        errors.push((lid.email || 'onbekend') + ' (' + (e.message || 'onbekende fout') + ')')
+        console.error('Import error for ' + (lid.email || 'unknown') + ':', e.message || e)
+        errors.push((lid.email || 'onbekend') + ' — ' + (e.message || 'onbekende fout'))
       }
     }
 
-    // Audit log (ook in try/catch om te voorkomen dat het hele resultaat verloren gaat)
+    // Audit log — niet fataal als dit faalt
     try {
       await execute(c.env.DB, `
         INSERT INTO audit_logs (user_id, actie, entity_type, meta)
@@ -483,7 +284,6 @@ app.post('/api/admin/leden/import', async (c) => {
       `, [user.id, JSON.stringify({ imported, skipped, errors: errors.length, total: leden.length })])
     } catch (auditErr: any) {
       console.error('Audit log error:', auditErr)
-      // Niet fataal — we geven toch het resultaat terug
     }
 
     return c.json({ success: true, imported, skipped, errors })

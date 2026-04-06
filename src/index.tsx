@@ -98,6 +98,9 @@ app.route('/', feedbackRoutes)
 app.route('/', ledenRoutes)
 
 // Admin routes
+// BELANGRIJK: adminLedenImportRoutes MOET voor adminRoutes staan,
+// omdat adminRoutes /admin/leden/:id bevat die anders "import" als ID matcht
+app.route('/', adminLedenImportRoutes)
 app.route('/', adminRoutes)
 app.route('/', adminEventsRoutes)
 app.route('/', adminCalendarRoutes)
@@ -121,7 +124,7 @@ app.route('/', walkthroughApiRoutes)
 app.route('/', ledenActivityRoutes)
 app.route('/', adminCommunicationsRoutes) // Added route
 app.route('/', adminFeedbackRoutes)
-app.route('/', adminLedenImportRoutes)
+// adminLedenImportRoutes is verplaatst naar boven (voor adminRoutes)
 app.route('/', adminAnalyticsRoutes)
 
 // Tickets & Webhooks

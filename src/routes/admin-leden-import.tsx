@@ -158,7 +158,7 @@ app.get('/admin/leden/import', async (c) => {
 
           if (typeof XLSX === 'undefined') {
             showStatus('bg-red-50 text-red-700 border border-red-200',
-              '⚠️ Excel bibliotheek kon niet geladen worden. Ververs de pagina (Ctrl+F5).');
+              'Excel bibliotheek kon niet geladen worden. Ververs de pagina (Ctrl+F5).');
             return;
           }
 
@@ -185,48 +185,45 @@ app.get('/admin/leden/import', async (c) => {
 
           function processFile(file) {
             fileName.textContent = file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
-            showStatus('bg-blue-50 text-blue-700 border border-blue-200', '⏳ Bestand inlezen...');
+            showStatus('bg-blue-50 text-blue-700 border border-blue-200', 'Bestand inlezen...');
             var reader = new FileReader();
             reader.onload = function(e) {
               try {
                 var data = new Uint8Array(e.target.result);
                 var workbook = XLSX.read(data, { type: 'array', codepage: 65001 });
                 var sheet = workbook.Sheets[workbook.SheetNames[0]];
-                // Probeer eerst met header rij, dan met raw
                 var rows = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
                 if (rows.length === 0) {
                   showStatus('bg-red-50 text-red-700 border border-red-200',
-                    '⚠️ Geen rijen gevonden. Eerste rij moet kolomnamen bevatten (Voornaam, Achternaam, Email...).');
+                    'Geen rijen gevonden. Eerste rij moet kolomnamen bevatten (Voornaam, Achternaam, Email...).');
                   return;
                 }
-                // Debug: toon gevonden kolommen als niets herkend
                 var firstRow = rows[0];
                 var foundKeys = Object.keys(firstRow);
                 parseRows(rows, foundKeys);
               } catch(err) {
                 showStatus('bg-red-50 text-red-700 border border-red-200',
-                  '⚠️ Fout bij lezen van bestand: ' + err.message + '. Probeer het bestand op te slaan als .xlsx of .csv.');
+                  'Fout bij lezen van bestand: ' + err.message + '. Probeer het bestand op te slaan als .xlsx of .csv.');
               }
             };
             reader.onerror = function() {
-              showStatus('bg-red-50 text-red-700 border border-red-200', '⚠️ Kon het bestand niet lezen.');
+              showStatus('bg-red-50 text-red-700 border border-red-200', 'Kon het bestand niet lezen.');
             };
             reader.readAsArrayBuffer(file);
           }
 
           function normalizeKey(key) {
-            // Verwijder BOM, spaties, accenten en speciale tekens
             return key.toString()
-              .replace(/^\\uFEFF/, '')   // BOM
-              .replace(/^\\xEF\\xBB\\xBF/, '') // UTF-8 BOM
+              .replace(/^\\uFEFF/, '')
+              .replace(/^\\xEF\\xBB\\xBF/, '')
               .toLowerCase()
               .trim()
               .replace(/\\s+/g, ' ')
-              .replace(/[éèêë]/g, 'e')
-              .replace(/[àâä]/g, 'a')
-              .replace(/[ùûü]/g, 'u')
-              .replace(/[îï]/g, 'i')
-              .replace(/[ôö]/g, 'o')
+              .replace(/[\\u00e9\\u00e8\\u00ea\\u00eb]/g, 'e')
+              .replace(/[\\u00e0\\u00e2\\u00e4]/g, 'a')
+              .replace(/[\\u00f9\\u00fb\\u00fc]/g, 'u')
+              .replace(/[\\u00ee\\u00ef]/g, 'i')
+              .replace(/[\\u00f4\\u00f6]/g, 'o')
               .replace(/[^a-z0-9 ]/g, '');
           }
 
@@ -248,14 +245,13 @@ app.get('/admin/leden/import', async (c) => {
             previewTable.innerHTML = '';
             var valid = 0, invalid = 0;
 
-            // Check of we kolomnamen herkennen
             var normalizedKeys = (allKeys || []).map(normalizeKey);
             var hasVoornaam = normalizedKeys.some(function(k) { return ['voornaam','first name','firstname','naam'].indexOf(k) >= 0; });
             var hasEmail = normalizedKeys.some(function(k) { return ['email','e-mail','mail','emailadres'].indexOf(k) >= 0; });
 
             if (!hasVoornaam || !hasEmail) {
               showStatus('bg-yellow-50 text-yellow-800 border border-yellow-200',
-                '⚠️ Kolomnamen niet herkend. Gevonden kolommen: ' + (allKeys || []).join(', ')
+                'Kolomnamen niet herkend. Gevonden kolommen: ' + (allKeys || []).join(', ')
                 + '. Verwacht: Voornaam, Achternaam, Email (zie voorbeeldbestand).');
               return;
             }
@@ -277,7 +273,7 @@ app.get('/admin/leden/import', async (c) => {
               if (!item.email || !item.email.includes('@')) item.errors.push('Ongeldig email');
 
               // Stemgroep normaliseren
-              var s = item.stemgroep.toUpperCase();
+              var s = (item.stemgroep || '').toUpperCase();
               if (s.startsWith('S')) item.stemgroep = 'S';
               else if (s.startsWith('A')) item.stemgroep = 'A';
               else if (s.startsWith('T')) item.stemgroep = 'T';
@@ -293,14 +289,14 @@ app.get('/admin/leden/import', async (c) => {
               var tr = document.createElement('tr');
               tr.className = item.isValid ? 'hover:bg-green-50' : 'bg-red-50';
               var statusCell = item.isValid
-                ? '<td class="px-4 py-2"><span class="text-green-600 text-xs font-semibold">✓ OK</span></td>'
-                : '<td class="px-4 py-2"><span class="text-red-600 text-xs font-semibold" title="' + item.errors.join(', ') + '">✗ ' + item.errors[0] + '</span></td>';
+                ? '<td class="px-4 py-2"><span class="text-green-600 text-xs font-semibold">OK</span></td>'
+                : '<td class="px-4 py-2"><span class="text-red-600 text-xs font-semibold" title="' + item.errors.join(', ') + '">' + item.errors[0] + '</span></td>';
               tr.innerHTML = statusCell
-                + '<td class="px-4 py-2">' + (item.voornaam || '<span class=\\'text-red-400 italic\\'>leeg</span>') + '</td>'
-                + '<td class="px-4 py-2">' + (item.achternaam || '<span class=\\'text-red-400 italic\\'>leeg</span>') + '</td>'
-                + '<td class="px-4 py-2">' + (item.email || '<span class=\\'text-red-400 italic\\'>leeg</span>') + '</td>'
-                + '<td class="px-4 py-2">' + (item.stemgroep || '—') + '</td>'
-                + '<td class="px-4 py-2">' + (item.telefoon || '—') + '</td>';
+                + '<td class="px-4 py-2">' + escapeHtml(item.voornaam || 'leeg') + '</td>'
+                + '<td class="px-4 py-2">' + escapeHtml(item.achternaam || 'leeg') + '</td>'
+                + '<td class="px-4 py-2">' + escapeHtml(item.email || 'leeg') + '</td>'
+                + '<td class="px-4 py-2">' + escapeHtml(item.stemgroep || String.fromCharCode(8212)) + '</td>'
+                + '<td class="px-4 py-2">' + escapeHtml(item.telefoon || String.fromCharCode(8212)) + '</td>';
               previewTable.appendChild(tr);
             });
 
@@ -311,12 +307,18 @@ app.get('/admin/leden/import', async (c) => {
               importBtn.disabled = false;
               importBtn.innerHTML = '<i class="fas fa-check mr-2"></i> Importeer ' + valid + ' leden';
               showStatus('bg-green-50 text-green-700 border border-green-200',
-                '✓ ' + rows.length + ' rijen ingelezen. ' + valid + ' geldig en klaar om te importeren.');
+                rows.length + ' rijen ingelezen. ' + valid + ' geldig en klaar om te importeren.');
             } else {
               importBtn.disabled = true;
               showStatus('bg-red-50 text-red-700 border border-red-200',
-                '⚠️ Geen geldige rijen. Kolomnamen herkend? Download het voorbeeldbestand om de juiste structuur te zien.');
+                'Geen geldige rijen. Kolomnamen herkend? Download het voorbeeldbestand om de juiste structuur te zien.');
             }
+          }
+
+          function escapeHtml(str) {
+            var div = document.createElement('div');
+            div.appendChild(document.createTextNode(str));
+            return div.innerHTML;
           }
 
           // Import knop
@@ -326,7 +328,7 @@ app.get('/admin/leden/import', async (c) => {
 
             importBtn.disabled = true;
             importBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Bezig met importeren...';
-            showStatus('bg-blue-50 text-blue-700 border border-blue-200', '⏳ Importeren... even geduld.');
+            showStatus('bg-blue-50 text-blue-700 border border-blue-200', 'Importeren... even geduld.');
 
             try {
               var response = await fetch('/api/admin/leden/import', {
@@ -335,21 +337,36 @@ app.get('/admin/leden/import', async (c) => {
                 body: JSON.stringify({ leden: validData })
               });
 
+              // Check of we JSON terugkrijgen
+              var contentType = response.headers.get('content-type') || '';
+              if (!contentType.includes('application/json')) {
+                var text = await response.text();
+                console.error('Server response (not JSON):', response.status, text.substring(0, 500));
+                showStatus('bg-red-50 text-red-700 border border-red-200',
+                  'Serverfout (HTTP ' + response.status + '). Controleer of je nog ingelogd bent en probeer opnieuw.');
+                importBtn.disabled = false;
+                importBtn.innerHTML = '<i class="fas fa-check mr-2"></i> Opnieuw proberen';
+                return;
+              }
+
               var result = await response.json();
 
               if (result.success) {
-                showStatus('bg-green-50 text-green-700 border border-green-200',
-                  '✓ Import geslaagd! ' + result.imported + ' leden aangemaakt, ' + result.skipped + ' overgeslagen (bestond al).'
-                  + (result.errors.length > 0 ? ' Fouten: ' + result.errors.join(', ') : ''));
+                var msg = 'Import geslaagd! ' + result.imported + ' leden aangemaakt, ' + result.skipped + ' overgeslagen (bestond al).';
+                if (result.errors && result.errors.length > 0) {
+                  msg += ' Fouten: ' + result.errors.join(', ');
+                }
+                showStatus('bg-green-50 text-green-700 border border-green-200', msg);
                 importBtn.innerHTML = '<i class="fas fa-check mr-2"></i> Klaar!';
                 setTimeout(function() { window.location.href = '/admin/leden'; }, 2500);
               } else {
-                showStatus('bg-red-50 text-red-700 border border-red-200', '⚠️ Fout: ' + result.error);
+                showStatus('bg-red-50 text-red-700 border border-red-200', 'Fout: ' + (result.error || 'Onbekende fout'));
                 importBtn.disabled = false;
                 importBtn.innerHTML = '<i class="fas fa-check mr-2"></i> Opnieuw proberen';
               }
             } catch(err) {
-              showStatus('bg-red-50 text-red-700 border border-red-200', '⚠️ Netwerkfout: ' + err.message);
+              console.error('Import fetch error:', err);
+              showStatus('bg-red-50 text-red-700 border border-red-200', 'Netwerkfout: ' + err.message);
               importBtn.disabled = false;
               importBtn.innerHTML = '<i class="fas fa-check mr-2"></i> Opnieuw proberen';
             }
@@ -372,50 +389,108 @@ app.get('/admin/leden/import', async (c) => {
 // =====================================================
 
 app.post('/api/admin/leden/import', async (c) => {
-  const user = c.get('user') as SessionUser
-  const body = await c.req.json()
-  const leden = body.leden
+  try {
+    const user = c.get('user') as SessionUser
+    const body = await c.req.json()
+    const leden = body.leden
 
-  if (!leden || !Array.isArray(leden)) {
-    return c.json({ success: false, error: 'Geen geldige data ontvangen' }, 400)
-  }
-
-  let imported = 0
-  let skipped = 0
-  const errors: string[] = []
-
-  const defaultPasswordHash = await hashPassword('Animato2025!')
-
-  for (const lid of leden) {
-    try {
-      const exists = await queryOne(c.env.DB, 'SELECT id FROM users WHERE email = ?', [lid.email])
-      if (exists) { skipped++; continue }
-
-      const userRes = await execute(c.env.DB, `
-        INSERT INTO users (email, password_hash, role, stemgroep, status, email_verified)
-        VALUES (?, ?, 'lid', ?, 'actief', 1)
-      `, [lid.email, defaultPasswordHash, lid.stemgroep || null])
-
-      const newUserId = userRes.meta.last_row_id
-
-      await execute(c.env.DB, `
-        INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, straat, stad)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `, [newUserId, lid.voornaam, lid.achternaam, lid.telefoon || null, lid.adres || null, null])
-
-      imported++
-    } catch (e: any) {
-      console.error('Import error for ' + lid.email, e)
-      errors.push(lid.email + ' (' + e.message + ')')
+    if (!leden || !Array.isArray(leden)) {
+      return c.json({ success: false, error: 'Geen geldige data ontvangen' }, 400)
     }
+
+    if (leden.length === 0) {
+      return c.json({ success: false, error: 'Geen leden in het bestand gevonden' }, 400)
+    }
+
+    if (leden.length > 500) {
+      return c.json({ success: false, error: 'Maximum 500 leden per import' }, 400)
+    }
+
+    let imported = 0
+    let skipped = 0
+    const errors: string[] = []
+
+    // Hash het standaard wachtwoord eenmaal
+    let defaultPasswordHash: string
+    try {
+      defaultPasswordHash = await hashPassword('Animato2025!')
+    } catch (hashErr: any) {
+      console.error('hashPassword failed:', hashErr)
+      return c.json({ success: false, error: 'Wachtwoord generatie mislukt: ' + hashErr.message }, 500)
+    }
+
+    for (const lid of leden) {
+      try {
+        // Valideer verplichte velden
+        if (!lid.voornaam || !lid.achternaam || !lid.email) {
+          errors.push((lid.email || 'onbekend') + ' (ontbrekende verplichte velden)')
+          continue
+        }
+
+        // Normaliseer email
+        const email = lid.email.toLowerCase().trim()
+
+        // Check of email al bestaat
+        const exists = await queryOne(c.env.DB, 'SELECT id FROM users WHERE email = ?', [email])
+        if (exists) { skipped++; continue }
+
+        // Normaliseer stemgroep (null als niet opgegeven)
+        const stemgroep = lid.stemgroep && ['S', 'A', 'T', 'B'].includes(lid.stemgroep) ? lid.stemgroep : null
+
+        // Insert user
+        const userRes = await execute(c.env.DB, `
+          INSERT INTO users (email, password_hash, role, stemgroep, status, email_verified)
+          VALUES (?, ?, 'lid', ?, 'actief', 1)
+        `, [email, defaultPasswordHash, stemgroep])
+
+        const newUserId = userRes.meta.last_row_id
+
+        if (!newUserId) {
+          errors.push(email + ' (gebruiker aangemaakt maar ID niet teruggekregen)')
+          continue
+        }
+
+        // Insert profile — gebruik het juiste schema met alle kolommen
+        await execute(c.env.DB, `
+          INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, adres, straat, huisnummer, bus, postcode, gemeente, stad)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `, [
+          newUserId,
+          lid.voornaam.trim(),
+          lid.achternaam.trim(),
+          lid.telefoon || null,
+          lid.adres || null,   // Bewaar volledig adres in 'adres' kolom
+          null,                // straat — wordt later door lid zelf ingevuld
+          null,                // huisnummer
+          null,                // bus
+          null,                // postcode
+          null,                // gemeente
+          null                 // stad
+        ])
+
+        imported++
+      } catch (e: any) {
+        console.error('Import error for ' + (lid.email || 'unknown'), e)
+        errors.push((lid.email || 'onbekend') + ' (' + (e.message || 'onbekende fout') + ')')
+      }
+    }
+
+    // Audit log (ook in try/catch om te voorkomen dat het hele resultaat verloren gaat)
+    try {
+      await execute(c.env.DB, `
+        INSERT INTO audit_logs (user_id, actie, entity_type, meta)
+        VALUES (?, 'import_leden', 'user', ?)
+      `, [user.id, JSON.stringify({ imported, skipped, errors: errors.length, total: leden.length })])
+    } catch (auditErr: any) {
+      console.error('Audit log error:', auditErr)
+      // Niet fataal — we geven toch het resultaat terug
+    }
+
+    return c.json({ success: true, imported, skipped, errors })
+  } catch (topErr: any) {
+    console.error('Import top-level error:', topErr)
+    return c.json({ success: false, error: 'Serverfout: ' + (topErr.message || 'onbekende fout') }, 500)
   }
-
-  await execute(c.env.DB, `
-    INSERT INTO audit_logs (user_id, actie, entity_type, meta)
-    VALUES (?, 'import_leden', 'user', ?)
-  `, [user.id, JSON.stringify({ imported, skipped, errors: errors.length, total: leden.length })])
-
-  return c.json({ success: true, imported, skipped, errors })
 })
 
 export default app

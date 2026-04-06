@@ -399,9 +399,9 @@ app.post('/api/admin/leden/import', async (c) => {
       const newUserId = userRes.meta.last_row_id
 
       await execute(c.env.DB, `
-        INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, adres, gemeente, stad)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `, [newUserId, lid.voornaam, lid.achternaam, lid.telefoon || null, lid.adres || null, null, null])
+        INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, straat, stad)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `, [newUserId, lid.voornaam, lid.achternaam, lid.telefoon || null, lid.adres || null, null])
 
       imported++
     } catch (e: any) {

@@ -1958,37 +1958,57 @@ app.post('/api/admin/leden/:id/approve', async (c) => {
 // MEMBER DELETE API
 // =====================================================
 
+// Shared helper: delete all user data (full cascade)
+async function deleteUserCascade(db: D1Database, userId: string) {
+  // Verwijder alle gerelateerde data vóór de user zelf
+  const tables: Array<[string, string]> = [
+    ['user_sessions',            'user_id'],
+    ['user_memberships',         'user_id'],
+    ['user_relations',           'user_id'],
+    ['event_attendance',         'user_id'],
+    ['poll_votes',               'user_id'],
+    ['proposal_votes',           'user_id'],
+    ['notifications',            'user_id'],
+    ['password_resets',          'user_id'],
+    ['member_favorites',         'user_id'],
+    ['member_favorites',         'favorite_member_id'],
+    ['walkthrough_progress',     'user_id'],
+    ['voice_analyses',           'user_id'],
+    ['feedback',                 'user_id'],
+    ['donations',                'user_id'],
+    ['activity_registrations',   'user_id'],
+    ['activity_invitations',     'user_id'],
+    ['activity_custom_answers',  'user_id'],
+    ['meeting_participants',     'user_id'],
+    ['meeting_action_items',     'verantwoordelijke_id'],
+    ['post_replies',             'user_id'],
+    ['karaoke_selections',       'user_id'],
+    ['karaoke_song_requests',    'user_id'],
+    ['print_requests',           'user_id'],
+    ['form_submissions',         'user_id'],
+    ['notification_subscriptions','user_id'],
+    ['profiles',                 'user_id'],
+  ]
+  for (const [table, col] of tables) {
+    try {
+      await db.prepare(`DELETE FROM ${table} WHERE ${col} = ?`).bind(userId).run()
+    } catch (_) { /* kolom bestaat niet in deze tabel → skip */ }
+  }
+  await db.prepare('DELETE FROM users WHERE id = ?').bind(userId).run()
+}
+
 app.get('/api/admin/leden/:id/delete', async (c) => {
   const user = c.get('user') as SessionUser
   const userId = c.req.param('id')
 
   try {
-    // Don't allow deleting yourself
     if (userId === user.id.toString()) {
       return c.redirect('/admin/leden?error=cannot_delete_self')
     }
-
-    // Audit log before deletion
     await c.env.DB.prepare(
-      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
-       VALUES (?, 'user_delete', 'user', ?, ?)`
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta) VALUES (?, 'user_delete', 'user', ?, ?)`
     ).bind(user.id, userId, JSON.stringify({ deleted_by: 'admin' })).run()
-
-    // Delete all related data first
-    await c.env.DB.prepare('DELETE FROM user_sessions WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM user_memberships WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM event_attendance WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM poll_votes WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM notifications WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM user_relations WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM member_favorites WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM walkthrough_progress WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(userId).run()
-
-    // Finally delete user
-    await c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run()
-
+    await deleteUserCascade(c.env.DB, userId)
     return c.redirect('/admin/leden?success=deleted')
   } catch (error) {
     console.error('Member delete error:', error)
@@ -2005,24 +2025,10 @@ app.post('/api/admin/leden/:id/delete', async (c) => {
     if (userId === user.id.toString()) {
       return c.json({ success: false, error: 'cannot_delete_self' }, 400)
     }
-
     await c.env.DB.prepare(
-      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
-       VALUES (?, 'user_delete', 'user', ?, ?)`
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta) VALUES (?, 'user_delete', 'user', ?, ?)`
     ).bind(user.id, userId, JSON.stringify({ deleted_by: 'admin' })).run()
-
-    await c.env.DB.prepare('DELETE FROM user_sessions WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM user_memberships WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM event_attendance WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM poll_votes WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM notifications WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM password_resets WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM user_relations WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM member_favorites WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM walkthrough_progress WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(userId).run()
-    await c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run()
-
+    await deleteUserCascade(c.env.DB, userId)
     return c.json({ success: true })
   } catch (error) {
     console.error('Member delete error:', error)
@@ -2045,11 +2051,7 @@ app.post('/api/admin/leden/:id/reject', async (c) => {
        VALUES (?, 'user_reject', 'user', ?, ?)`
     ).bind(user.id, userId, JSON.stringify({ rejected_by: 'admin' })).run()
 
-    // Delete profile first (foreign key)
-    await c.env.DB.prepare('DELETE FROM profiles WHERE user_id = ?').bind(userId).run()
-
-    // Delete user
-    await c.env.DB.prepare('DELETE FROM users WHERE id = ?').bind(userId).run()
+    await deleteUserCascade(c.env.DB, userId)
 
     return c.redirect('/admin/leden?success=rejected')
   } catch (error) {

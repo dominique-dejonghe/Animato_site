@@ -408,6 +408,9 @@ app.get('/admin/fotoboek/album/nieuw', async (c) => {
                   <p class="text-xs text-gray-500 mt-1">Gebruik Unsplash voor gratis afbeeldingen</p>
                 </div>
 
+                {/* Size info feedback */}
+                <p id="cover_size_info" class="hidden text-xs text-green-600 mt-2 bg-green-50 rounded px-2 py-1"></p>
+
                 {/* Hidden field for base64 data */}
                 <input type="hidden" name="cover_data" id="cover_data" />
               </div>
@@ -447,47 +450,90 @@ app.get('/admin/fotoboek/album/nieuw', async (c) => {
         {/* JavaScript for file upload handling */}
         <script dangerouslySetInnerHTML={{
           __html: `
+            // === Shared image compression function ===
+            function compressImage(file, maxWidth, maxHeight, quality) {
+              maxWidth = maxWidth || 1200;
+              maxHeight = maxHeight || 900;
+              quality = quality || 0.75;
+              return new Promise(function(resolve, reject) {
+                var img = new Image();
+                img.onload = function() {
+                  var w = img.width, h = img.height;
+                  if (w > maxWidth || h > maxHeight) {
+                    var ratio = Math.min(maxWidth / w, maxHeight / h);
+                    w = Math.round(w * ratio);
+                    h = Math.round(h * ratio);
+                  }
+                  var canvas = document.createElement('canvas');
+                  canvas.width = w;
+                  canvas.height = h;
+                  canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                  var result = canvas.toDataURL('image/jpeg', quality);
+                  // If still too big (>800KB base64 ≈ 600KB file), reduce quality further
+                  if (result.length > 800000 && quality > 0.3) {
+                    canvas.toBlob(function(blob) {
+                      compressImage(new File([blob], file.name, {type:'image/jpeg'}), maxWidth, maxHeight, quality - 0.15)
+                        .then(resolve).catch(reject);
+                    }, 'image/jpeg', quality - 0.15);
+                    return;
+                  }
+                  resolve({ data: result, width: w, height: h, size: result.length });
+                };
+                img.onerror = function() { reject(new Error('Afbeelding kon niet geladen worden')); };
+                if (file instanceof File || file instanceof Blob) {
+                  img.src = URL.createObjectURL(file);
+                } else {
+                  img.src = file;
+                }
+              });
+            }
+
+            function formatBytes(bytes) {
+              if (bytes < 1024) return bytes + ' B';
+              if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+              return (bytes / 1048576).toFixed(1) + ' MB';
+            }
+
             function handleCoverFileSelect(event) {
-              const file = event.target.files[0];
+              var file = event.target.files[0];
               if (!file) return;
 
-              // Validate file type
               if (!file.type.startsWith('image/')) {
                 alert('Alleen afbeeldingen zijn toegestaan');
                 return;
               }
 
-              // Validate file size (max 5MB)
-              if (file.size > 5 * 1024 * 1024) {
-                alert('Bestand is te groot. Maximaal 5MB toegestaan.');
+              if (file.size > 10 * 1024 * 1024) {
+                alert('Bestand is te groot. Maximaal 10MB toegestaan.');
                 return;
               }
 
-              // Read file and create preview
-              const reader = new FileReader();
-              reader.onload = function(e) {
-                const base64Data = e.target.result;
-                
-                // Show preview
-                document.getElementById('cover_preview_img').src = base64Data;
+              var originalSize = file.size;
+              compressImage(file, 1200, 900, 0.75).then(function(result) {
+                document.getElementById('cover_preview_img').src = result.data;
                 document.getElementById('cover_preview').classList.remove('hidden');
-                
-                // Store base64 in hidden field
-                document.getElementById('cover_data').value = base64Data;
-                
-                // Clear URL input
+                document.getElementById('cover_data').value = result.data;
                 document.getElementById('cover_url_input').value = '';
-              };
-              reader.readAsDataURL(file);
+                
+                // Show size info
+                var info = document.getElementById('cover_size_info');
+                if (info) {
+                  info.innerHTML = '<i class="fas fa-compress-arrows-alt mr-1"></i>Origineel: ' + formatBytes(originalSize) + ' → Gecomprimeerd: ' + formatBytes(result.size) + ' (' + result.width + 'x' + result.height + 'px)';
+                  info.classList.remove('hidden');
+                }
+              }).catch(function(err) {
+                alert('Fout bij verwerken afbeelding: ' + err.message);
+              });
             }
 
             function handleCoverUrlChange() {
-              const url = document.getElementById('cover_url_input').value;
+              var url = document.getElementById('cover_url_input').value;
               if (url) {
-                // Clear file input and preview
                 document.getElementById('cover_file').value = '';
                 document.getElementById('cover_data').value = '';
                 document.getElementById('cover_preview').classList.add('hidden');
+                var info = document.getElementById('cover_size_info');
+                if (info) info.classList.add('hidden');
               }
             }
 
@@ -496,6 +542,8 @@ app.get('/admin/fotoboek/album/nieuw', async (c) => {
               document.getElementById('cover_data').value = '';
               document.getElementById('cover_preview').classList.add('hidden');
               document.getElementById('cover_preview_img').src = '';
+              var info = document.getElementById('cover_size_info');
+              if (info) info.classList.add('hidden');
             }
           `
         }}></script>
@@ -673,6 +721,9 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
                   />
                 </div>
 
+                {/* Size info feedback */}
+                <p id="edit_cover_size_info" class="hidden text-xs text-green-600 mt-2 bg-green-50 rounded px-2 py-1"></p>
+
                 {/* Hidden field for base64 data */}
                 <input type="hidden" name="cover_data" id="edit_cover_data" />
               </div>
@@ -745,7 +796,8 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
                     class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-animato-primary file:text-white hover:file:bg-animato-secondary cursor-pointer"
                     onchange="handlePhotoFileSelect(event)"
                   />
-                  <p class="text-xs text-gray-500 mt-1">Maximaal 5MB per foto</p>
+                  <p class="text-xs text-gray-500 mt-1">Foto's worden automatisch gecomprimeerd voor optimale opslag</p>
+                  <p id="photo_size_info" class="hidden text-xs text-green-600 mt-2 bg-green-50 rounded px-2 py-1"></p>
                   
                   {/* Preview */}
                   <div id="photo_file_preview" class="hidden mt-3">
@@ -894,46 +946,44 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
       <script dangerouslySetInnerHTML={{
         __html: `
           function handleEditCoverFileSelect(event) {
-            const file = event.target.files[0];
+            var file = event.target.files[0];
             if (!file) return;
 
-            // Validate file type
             if (!file.type.startsWith('image/')) {
               alert('Alleen afbeeldingen zijn toegestaan');
               return;
             }
 
-            // Validate file size (max 5MB)
-            if (file.size > 5 * 1024 * 1024) {
-              alert('Bestand is te groot. Maximaal 5MB toegestaan.');
+            if (file.size > 10 * 1024 * 1024) {
+              alert('Bestand is te groot. Maximaal 10MB toegestaan.');
               return;
             }
 
-            // Read file and create preview
-            const reader = new FileReader();
-            reader.onload = function(e) {
-              const base64Data = e.target.result;
-              
-              // Show preview
-              document.getElementById('edit_cover_preview_img').src = base64Data;
+            var originalSize = file.size;
+            compressImage(file, 1200, 900, 0.75).then(function(result) {
+              document.getElementById('edit_cover_preview_img').src = result.data;
               document.getElementById('edit_cover_preview').classList.remove('hidden');
-              
-              // Store base64 in hidden field
-              document.getElementById('edit_cover_data').value = base64Data;
-              
-              // Clear URL input
+              document.getElementById('edit_cover_data').value = result.data;
               document.getElementById('edit_cover_url_input').value = '';
-            };
-            reader.readAsDataURL(file);
+              
+              var info = document.getElementById('edit_cover_size_info');
+              if (info) {
+                info.innerHTML = '<i class="fas fa-compress-arrows-alt mr-1"></i>Origineel: ' + formatBytes(originalSize) + ' → Gecomprimeerd: ' + formatBytes(result.size) + ' (' + result.width + 'x' + result.height + 'px)';
+                info.classList.remove('hidden');
+              }
+            }).catch(function(err) {
+              alert('Fout bij verwerken afbeelding: ' + err.message);
+            });
           }
 
           function handleEditCoverUrlChange() {
-            const url = document.getElementById('edit_cover_url_input').value;
+            var url = document.getElementById('edit_cover_url_input').value;
             if (url) {
-              // Clear file input and preview
               document.getElementById('edit_cover_file').value = '';
               document.getElementById('edit_cover_data').value = '';
               document.getElementById('edit_cover_preview').classList.add('hidden');
+              var info = document.getElementById('edit_cover_size_info');
+              if (info) info.classList.add('hidden');
             }
           }
 
@@ -942,6 +992,8 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
             document.getElementById('edit_cover_data').value = '';
             document.getElementById('edit_cover_preview').classList.add('hidden');
             document.getElementById('edit_cover_preview_img').src = '';
+            var info = document.getElementById('edit_cover_size_info');
+            if (info) info.classList.add('hidden');
           }
 
           // ===== Photo Upload/URL Toggle =====
@@ -979,48 +1031,49 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
           }
 
           function handlePhotoFileSelect(event) {
-            const file = event.target.files[0];
+            var file = event.target.files[0];
             if (!file) return;
 
-            // Validate file type
             if (!file.type.startsWith('image/')) {
               alert('Alleen afbeeldingen zijn toegestaan');
               event.target.value = '';
               return;
             }
 
-            // Validate file size (max 5MB)
-            if (file.size > 5 * 1024 * 1024) {
-              alert('Bestand is te groot. Maximaal 5MB toegestaan.');
+            if (file.size > 10 * 1024 * 1024) {
+              alert('Bestand is te groot. Maximaal 10MB toegestaan.');
               event.target.value = '';
               return;
             }
 
-            // Read file and create preview
-            const reader = new FileReader();
-            reader.onload = function(e) {
-              const base64Data = e.target.result;
-              
-              // Show preview
-              document.getElementById('photo_file_preview_img').src = base64Data;
+            var originalSize = file.size;
+            compressImage(file, 1600, 1200, 0.8).then(function(result) {
+              document.getElementById('photo_file_preview_img').src = result.data;
               document.getElementById('photo_file_preview').classList.remove('hidden');
+              document.getElementById('photo_data_input').value = result.data;
               
-              // Store base64 in hidden field
-              document.getElementById('photo_data_input').value = base64Data;
-            };
-            reader.readAsDataURL(file);
+              var info = document.getElementById('photo_size_info');
+              if (info) {
+                info.innerHTML = '<i class="fas fa-compress-arrows-alt mr-1"></i>Origineel: ' + formatBytes(originalSize) + ' → Gecomprimeerd: ' + formatBytes(result.size) + ' (' + result.width + 'x' + result.height + 'px)';
+                info.classList.remove('hidden');
+              }
+            }).catch(function(err) {
+              alert('Fout bij verwerken afbeelding: ' + err.message);
+            });
           }
 
           function clearPhotoFile() {
-            const fileInput = document.getElementById('photo_file_input');
-            const preview = document.getElementById('photo_file_preview');
-            const previewImg = document.getElementById('photo_file_preview_img');
-            const dataInput = document.getElementById('photo_data_input');
+            var fileInput = document.getElementById('photo_file_input');
+            var preview = document.getElementById('photo_file_preview');
+            var previewImg = document.getElementById('photo_file_preview_img');
+            var dataInput = document.getElementById('photo_data_input');
+            var info = document.getElementById('photo_size_info');
             
             if (fileInput) fileInput.value = '';
             if (preview) preview.classList.add('hidden');
             if (previewImg) previewImg.src = '';
             if (dataInput) dataInput.value = '';
+            if (info) info.classList.add('hidden');
           }
 
           function resetPhotoForm() {
@@ -1129,10 +1182,12 @@ app.post('/admin/fotoboek/album/create', async (c) => {
   // Priority: uploaded file (base64) > URL input
   let finalCoverUrl = null
   if (cover_data && String(cover_data).startsWith('data:image/')) {
-    // Use base64 data directly
-    finalCoverUrl = cover_data as string
+    const dataStr = String(cover_data)
+    if (dataStr.length > 900000) {
+      return c.redirect('/admin/fotoboek?error=' + encodeURIComponent('Cover foto is te groot (' + Math.round(dataStr.length / 1024) + ' KB). Gebruik een kleinere foto of een URL.'))
+    }
+    finalCoverUrl = dataStr
   } else if (cover_url) {
-    // Use provided URL
     finalCoverUrl = cover_url as string
   }
 
@@ -1152,6 +1207,9 @@ app.post('/admin/fotoboek/album/create', async (c) => {
 
     return c.redirect(`/admin/fotoboek/album/${result.meta.last_row_id}`)
   } catch (error: any) {
+    if (error.message && error.message.includes('TOOBIG')) {
+      return c.redirect('/admin/fotoboek?error=' + encodeURIComponent('Foto is te groot voor de database. Gebruik een kleinere foto of een externe URL.'))
+    }
     return c.json({ error: 'Album aanmaken mislukt', message: error.message }, 500)
   }
 })
@@ -1172,11 +1230,14 @@ app.post('/admin/fotoboek/album/:id/update', async (c) => {
   // Priority: uploaded file (base64) > URL input > keep existing
   let finalCoverUrl = cover_url || null
   if (cover_data && String(cover_data).startsWith('data:image/')) {
-    // Use base64 data directly
-    finalCoverUrl = cover_data as string
+    // Check base64 size (D1 has ~1MB row limit)
+    const dataStr = String(cover_data)
+    if (dataStr.length > 900000) {
+      return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Cover foto is te groot (' + Math.round(dataStr.length / 1024) + ' KB). Gebruik een kleinere foto of een URL.'))
+    }
+    finalCoverUrl = dataStr
   } else if (!cover_url) {
     // If no new data provided, keep existing (don't update)
-    // We need to fetch current value
     const current = await c.env.DB.prepare(
       `SELECT cover_url FROM albums WHERE id = ?`
     ).bind(albumId).first() as any
@@ -1200,6 +1261,9 @@ app.post('/admin/fotoboek/album/:id/update', async (c) => {
 
     return c.redirect(`/admin/fotoboek/album/${albumId}`)
   } catch (error: any) {
+    if (error.message && error.message.includes('TOOBIG')) {
+      return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Foto is te groot voor de database. Gebruik een kleinere foto of een externe URL (bv. Imgur, Unsplash).'))
+    }
     return c.json({ error: 'Album bijwerken mislukt', message: error.message }, 500)
   }
 })
@@ -1233,10 +1297,12 @@ app.post('/admin/fotoboek/album/:id/foto/add', async (c) => {
   // Priority: uploaded file (base64) > URL input
   let finalPhotoUrl = null
   if (photo_data && String(photo_data).startsWith('data:image/')) {
-    // Use base64 data directly
-    finalPhotoUrl = photo_data as string
+    const dataStr = String(photo_data)
+    if (dataStr.length > 900000) {
+      return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Foto is te groot (' + Math.round(dataStr.length / 1024) + ' KB). Gebruik een kleinere foto of een URL.'))
+    }
+    finalPhotoUrl = dataStr
   } else if (url) {
-    // Use provided URL
     finalPhotoUrl = url as string
   }
 
@@ -1260,6 +1326,9 @@ app.post('/admin/fotoboek/album/:id/foto/add', async (c) => {
 
     return c.redirect(`/admin/fotoboek/album/${albumId}`)
   } catch (error: any) {
+    if (error.message && error.message.includes('TOOBIG')) {
+      return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Foto is te groot voor de database. Gebruik een kleinere foto of een externe URL.'))
+    }
     return c.json({ error: 'Foto toevoegen mislukt', message: error.message }, 500)
   }
 })

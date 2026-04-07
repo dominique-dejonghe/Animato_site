@@ -945,6 +945,49 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
       {/* JavaScript for edit form file upload handling */}
       <script dangerouslySetInnerHTML={{
         __html: `
+          // === Shared image compression function ===
+          function compressImage(file, maxWidth, maxHeight, quality) {
+            maxWidth = maxWidth || 1200;
+            maxHeight = maxHeight || 900;
+            quality = quality || 0.75;
+            return new Promise(function(resolve, reject) {
+              var img = new Image();
+              img.onload = function() {
+                var w = img.width, h = img.height;
+                if (w > maxWidth || h > maxHeight) {
+                  var ratio = Math.min(maxWidth / w, maxHeight / h);
+                  w = Math.round(w * ratio);
+                  h = Math.round(h * ratio);
+                }
+                var canvas = document.createElement('canvas');
+                canvas.width = w;
+                canvas.height = h;
+                canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                var result = canvas.toDataURL('image/jpeg', quality);
+                if (result.length > 800000 && quality > 0.3) {
+                  canvas.toBlob(function(blob) {
+                    compressImage(new File([blob], file.name, {type:'image/jpeg'}), maxWidth, maxHeight, quality - 0.15)
+                      .then(resolve).catch(reject);
+                  }, 'image/jpeg', quality - 0.15);
+                  return;
+                }
+                resolve({ data: result, width: w, height: h, size: result.length });
+              };
+              img.onerror = function() { reject(new Error('Afbeelding kon niet geladen worden')); };
+              if (file instanceof File || file instanceof Blob) {
+                img.src = URL.createObjectURL(file);
+              } else {
+                img.src = file;
+              }
+            });
+          }
+
+          function formatBytes(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / 1048576).toFixed(1) + ' MB';
+          }
+
           function handleEditCoverFileSelect(event) {
             var file = event.target.files[0];
             if (!file) return;

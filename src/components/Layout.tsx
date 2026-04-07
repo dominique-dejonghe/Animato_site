@@ -343,10 +343,35 @@ export const Layout: FC<LayoutProps> = ({
                     <div id="my-feedback-loading" class="p-6 text-center text-gray-400 text-sm">
                         <i class="fas fa-spinner fa-spin mr-2"></i> Laden...
                     </div>
-                    <div id="my-feedback-list" class="hidden overflow-y-auto" style="max-height: 340px;"></div>
+                    <div id="my-feedback-list" class="hidden overflow-y-auto" style="max-height: 420px;"></div>
                     <div id="my-feedback-empty" class="hidden p-6 text-center">
                         <i class="fas fa-inbox text-3xl text-gray-200 mb-2 block"></i>
                         <p class="text-sm text-gray-400">Je hebt nog geen feedback ingediend.</p>
+                    </div>
+                    {/* Conversation detail view (replaces list when opened) */}
+                    <div id="my-feedback-detail" class="hidden">
+                        <button onclick="closeFeedbackDetail()" class="flex items-center gap-1 text-xs text-animato-primary font-semibold px-4 pt-3 hover:underline">
+                            <i class="fas fa-arrow-left"></i> Terug naar overzicht
+                        </button>
+                        <div id="my-feedback-detail-header" class="px-4 py-2 border-b border-gray-100"></div>
+                        <div id="my-feedback-detail-messages" class="overflow-y-auto px-4 py-2 space-y-2" style="max-height: 260px;"></div>
+                        <div class="px-4 py-3 border-t border-gray-100">
+                            <div class="flex gap-2">
+                                <input
+                                    type="text"
+                                    id="my-feedback-reply-input"
+                                    placeholder="Reageer of geef meer info..."
+                                    class="flex-1 text-xs border border-gray-200 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                                    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendUserComment()}"
+                                />
+                                <button
+                                    onclick="sendUserComment()"
+                                    class="px-3 py-2 bg-animato-primary text-white text-xs font-semibold rounded-lg hover:bg-animato-secondary transition"
+                                >
+                                    <i class="fas fa-paper-plane"></i>
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -448,14 +473,18 @@ export const Layout: FC<LayoutProps> = ({
                 }
             }
 
+            let currentDetailFeedbackId = null;
+
             async function loadMyFeedback() {
                 const loading = document.getElementById('my-feedback-loading');
                 const list = document.getElementById('my-feedback-list');
                 const empty = document.getElementById('my-feedback-empty');
+                const detail = document.getElementById('my-feedback-detail');
 
                 loading.classList.remove('hidden');
                 list.classList.add('hidden');
                 empty.classList.add('hidden');
+                detail.classList.add('hidden');
 
                 try {
                     const res = await fetch('/api/feedback/mine');
@@ -475,42 +504,169 @@ export const Layout: FC<LayoutProps> = ({
                     const statusColors = {
                         open: 'bg-blue-100 text-blue-700',
                         in_progress: 'bg-yellow-100 text-yellow-700',
-                        done: 'bg-green-100 text-green-700',
-                        closed: 'bg-gray-100 text-gray-500',
-                        wontfix: 'bg-red-50 text-red-500'
+                        resolved: 'bg-green-100 text-green-700',
+                        rejected: 'bg-red-50 text-red-500'
                     };
                     const statusLabels = {
                         open: 'Open',
                         in_progress: 'In behandeling',
-                        done: 'Opgelost',
-                        closed: 'Gesloten',
-                        wontfix: 'Niet opgelost'
+                        resolved: 'Opgelost',
+                        rejected: 'Afgewezen'
                     };
 
-                    list.innerHTML = data.items.map(item => {
+                    list.innerHTML = data.items.map(function(item) {
                         const sColor = statusColors[item.status] || 'bg-gray-100 text-gray-500';
                         const sLabel = statusLabels[item.status] || item.status;
                         const tLabel = typeLabels[item.type] || item.type;
                         const date = new Date(item.created_at).toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: 'numeric' });
-                        const notes = item.admin_notes ? '<p class="text-xs text-indigo-600 mt-1.5 bg-indigo-50 rounded p-1.5"><i class="fas fa-comment-dots mr-1"></i>' + item.admin_notes + '</p>' : '';
-                        return '<div class="px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition">' +
+                        const hasComments = item.comment_count > 0;
+                        const hasNewReplies = item.unread_admin_replies > 0;
+                        
+                        const commentBadge = hasNewReplies 
+                            ? '<span style="display:inline-flex;align-items:center;gap:2px;background:#fef3c7;color:#d97706;font-size:10px;font-weight:600;padding:1px 6px;border-radius:9999px;"><i class="fas fa-comment-dots"></i> Nieuw antwoord</span>'
+                            : hasComments 
+                            ? '<span style="display:inline-flex;align-items:center;gap:2px;color:#9ca3af;font-size:10px;"><i class="fas fa-comments"></i> ' + item.comment_count + '</span>'
+                            : '';
+
+                        return '<div onclick="openFeedbackDetail(' + item.id + ')" class="px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition cursor-pointer">' +
                             '<div class="flex items-start justify-between gap-2">' +
                             '<div class="flex-1 min-w-0">' +
-                            '<div class="flex items-center gap-1.5 mb-1">' +
+                            '<div class="flex items-center gap-1.5 mb-1 flex-wrap">' +
                             '<span class="text-xs text-gray-500">' + tLabel + '</span>' +
-                            '<span class="text-gray-300">·</span>' +
+                            '<span class="text-gray-300">&middot;</span>' +
                             '<span class="text-xs text-gray-400">' + date + '</span>' +
+                            commentBadge +
                             '</div>' +
-                            '<p class="text-xs text-gray-700 leading-relaxed line-clamp-3">' + item.message + '</p>' +
-                            notes +
+                            '<p class="text-xs text-gray-700 leading-relaxed" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">' + _escHtml(item.message) + '</p>' +
                             '</div>' +
-                            '<span class="flex-shrink-0 text-xs font-medium px-2 py-0.5 rounded-full ' + sColor + '">' + sLabel + '</span>' +
+                            '<div class="flex flex-col items-end gap-1 shrink-0">' +
+                            '<span class="text-xs font-medium px-2 py-0.5 rounded-full ' + sColor + '">' + sLabel + '</span>' +
+                            '<i class="fas fa-chevron-right text-xs text-gray-300"></i>' +
+                            '</div>' +
                             '</div>' +
                             '</div>';
                     }).join('');
                     list.classList.remove('hidden');
                 } catch(e) {
                     loading.innerHTML = '<i class="fas fa-exclamation-circle text-red-300 text-2xl mb-2 block"></i><p class="text-xs text-gray-400">Kon feedback niet laden.</p>';
+                }
+            }
+
+            function _escHtml(text) {
+                const d = document.createElement('div');
+                d.textContent = text;
+                return d.innerHTML;
+            }
+
+            async function openFeedbackDetail(feedbackId) {
+                currentDetailFeedbackId = feedbackId;
+                const list = document.getElementById('my-feedback-list');
+                const detail = document.getElementById('my-feedback-detail');
+                const header = document.getElementById('my-feedback-detail-header');
+                const messages = document.getElementById('my-feedback-detail-messages');
+                const empty = document.getElementById('my-feedback-empty');
+
+                list.classList.add('hidden');
+                empty.classList.add('hidden');
+                detail.classList.remove('hidden');
+                messages.innerHTML = '<div class="text-center text-xs text-gray-400 py-4"><i class="fas fa-spinner fa-spin mr-1"></i> Laden...</div>';
+
+                try {
+                    // Load the feedback item details + comments
+                    const [mineRes, commentsRes] = await Promise.all([
+                        fetch('/api/feedback/mine'),
+                        fetch('/api/feedback/' + feedbackId + '/comments')
+                    ]);
+                    
+                    const mineData = await mineRes.json();
+                    const commentsData = await commentsRes.json();
+                    const item = (mineData.items || []).find(function(i) { return i.id === feedbackId; });
+                    
+                    if (!item) {
+                        messages.innerHTML = '<div class="text-center text-xs text-red-400 py-4">Item niet gevonden.</div>';
+                        return;
+                    }
+
+                    const typeLabels = { bug: '🐛 Bug', feature: '💡 Idee', other: '📝 Anders' };
+                    const statusLabels = { open: 'Open', in_progress: 'In behandeling', resolved: 'Opgelost', rejected: 'Afgewezen' };
+                    const statusColors = { open: '#3b82f6', in_progress: '#f59e0b', resolved: '#22c55e', rejected: '#ef4444' };
+                    
+                    header.innerHTML = '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' +
+                        '<span style="font-size:11px;font-weight:600;">' + (typeLabels[item.type] || item.type) + '</span>' +
+                        '<span style="font-size:10px;font-weight:600;padding:1px 8px;border-radius:9999px;background:' + (statusColors[item.status] || '#9ca3af') + '15;color:' + (statusColors[item.status] || '#9ca3af') + ';">' + (statusLabels[item.status] || item.status) + '</span>' +
+                        '</div>' +
+                        '<p style="font-size:12px;color:#374151;margin-top:4px;line-height:1.5;">' + _escHtml(item.message) + '</p>';
+
+                    const comments = commentsData.comments || [];
+                    if (comments.length === 0) {
+                        messages.innerHTML = '<div class="text-center py-6">' +
+                            '<i class="fas fa-comments text-2xl text-gray-200 mb-2 block"></i>' +
+                            '<p class="text-xs text-gray-400">Nog geen reacties.</p>' +
+                            '<p class="text-xs text-gray-300 mt-1">Stel een vraag of geef meer info hieronder.</p>' +
+                            '</div>';
+                    } else {
+                        messages.innerHTML = comments.map(function(c) {
+                            const isAdmin = c.is_admin === 1;
+                            const name = ((c.voornaam || '') + ' ' + (c.achternaam || '')).trim();
+                            const date = new Date(c.created_at).toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+                            
+                            if (isAdmin) {
+                                return '<div style="display:flex;justify-content:flex-start;">' +
+                                    '<div style="max-width:85%;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;border-bottom-left-radius:2px;padding:6px 10px;">' +
+                                    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">' +
+                                    '<span style="font-size:10px;font-weight:700;color:#166534;"><i class="fas fa-shield-alt" style="margin-right:2px;"></i>Admin</span>' +
+                                    '<span style="font-size:9px;color:#9ca3af;">' + date + '</span>' +
+                                    '</div>' +
+                                    '<p style="font-size:12px;color:#1f2937;margin:0;line-height:1.4;">' + _escHtml(c.message) + '</p>' +
+                                    '</div></div>';
+                            } else {
+                                return '<div style="display:flex;justify-content:flex-end;">' +
+                                    '<div style="max-width:85%;background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;border-bottom-right-radius:2px;padding:6px 10px;">' +
+                                    '<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">' +
+                                    '<span style="font-size:10px;font-weight:600;color:#1e40af;"><i class="fas fa-user" style="margin-right:2px;"></i>Jij</span>' +
+                                    '<span style="font-size:9px;color:#9ca3af;">' + date + '</span>' +
+                                    '</div>' +
+                                    '<p style="font-size:12px;color:#1f2937;margin:0;line-height:1.4;">' + _escHtml(c.message) + '</p>' +
+                                    '</div></div>';
+                            }
+                        }).join('');
+                        messages.scrollTop = messages.scrollHeight;
+                    }
+                } catch(e) {
+                    messages.innerHTML = '<div class="text-center text-xs text-red-400 py-4"><i class="fas fa-exclamation-triangle mr-1"></i> Kon conversatie niet laden.</div>';
+                }
+            }
+
+            function closeFeedbackDetail() {
+                currentDetailFeedbackId = null;
+                document.getElementById('my-feedback-detail').classList.add('hidden');
+                loadMyFeedback();
+            }
+
+            async function sendUserComment() {
+                if (!currentDetailFeedbackId) return;
+                const input = document.getElementById('my-feedback-reply-input');
+                const message = input.value.trim();
+                if (!message) return;
+                
+                input.disabled = true;
+                try {
+                    const res = await fetch('/api/feedback/' + currentDetailFeedbackId + '/comments', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ message: message })
+                    });
+                    if (!res.ok) {
+                        const err = await res.json();
+                        throw new Error(err.error || 'Fout');
+                    }
+                    input.value = '';
+                    openFeedbackDetail(currentDetailFeedbackId);
+                } catch(e) {
+                    alert('Fout: ' + e.message);
+                } finally {
+                    input.disabled = false;
+                    input.focus();
                 }
             }
 

@@ -12,6 +12,7 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({ activeSection = 'dashboard
     { id: 'verjaardagen', label: 'Verjaardagslijst', href: '/leden/verjaardagen', icon: 'fas fa-birthday-cake' },
     { id: 'content', label: 'Nieuws & Berichten', href: '/admin/content', icon: 'fas fa-newspaper' },
     { id: 'events', label: 'Agenda, Events & Activiteiten', href: '/admin/events', icon: 'fas fa-calendar-alt' },
+    { id: 'attendance', label: 'Aanwezigheid & Streaks', href: '/admin/attendance', icon: 'fas fa-qrcode' },
     { id: 'seating', label: 'Zaalplannen', href: '/admin/seating', icon: 'fas fa-chair' },
     { id: 'finance', label: 'Financiën & Lidgeld', href: '/admin/lidgelden', icon: 'fas fa-euro-sign' },
     { id: 'communications', label: 'Communicatie', href: '/admin/communicatie', icon: 'fas fa-envelope' },

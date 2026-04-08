@@ -46,6 +46,8 @@ import adminModulesRoutes from './routes/admin-modules'
 import adminWalkthroughRoutes from './routes/admin-walkthrough'
 import walkthroughApiRoutes from './routes/walkthrough-api'
 import publicDonationRoutes from './routes/public-donation'
+import adminAttendanceRoutes from './routes/admin-attendance'
+import checkinRoutes from './routes/checkin'
 
 // =====================================================
 // APP INITIALIZATION
@@ -94,6 +96,9 @@ app.route('/', voiceAnalyzerRoutes)
 // Feedback routes (MUST be before auth-protected routes - beta-status is public)
 app.route('/', feedbackRoutes)
 
+// Check-in routes (QR scan page is public, streaks require auth)
+app.route('/', checkinRoutes)
+
 // Leden portal routes
 app.route('/', ledenRoutes)
 
@@ -101,6 +106,7 @@ app.route('/', ledenRoutes)
 // BELANGRIJK: adminLedenImportRoutes MOET voor adminRoutes staan,
 // omdat adminRoutes /admin/leden/:id bevat die anders "import" als ID matcht
 app.route('/', adminLedenImportRoutes)
+app.route('/', adminAttendanceRoutes)
 app.route('/', adminRoutes)
 app.route('/', adminEventsRoutes)
 app.route('/', adminCalendarRoutes)
@@ -124,7 +130,7 @@ app.route('/', walkthroughApiRoutes)
 app.route('/', ledenActivityRoutes)
 app.route('/', adminCommunicationsRoutes) // Added route
 app.route('/', adminFeedbackRoutes)
-// adminLedenImportRoutes is verplaatst naar boven (voor adminRoutes)
+// adminLedenImportRoutes en adminAttendanceRoutes zijn verplaatst naar boven (voor adminRoutes)
 app.route('/', adminAnalyticsRoutes)
 
 // Tickets & Webhooks

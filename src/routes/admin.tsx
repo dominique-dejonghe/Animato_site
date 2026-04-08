@@ -10,7 +10,7 @@ import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-// Apply auth middleware - only admin and moderator
+// Apply auth middleware - admin and moderator for ALL /admin/* routes
 app.use('*', requireAuth)
 app.use('*', requireRole('admin', 'moderator'))
 

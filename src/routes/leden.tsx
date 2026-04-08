@@ -279,6 +279,17 @@ app.get('/leden', async (c) => {
             </a>
 
             <a
+              href="/leden/streaks"
+              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center border-2 border-orange-200"
+            >
+              <div class="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <span class="text-2xl">🔥</span>
+              </div>
+              <h3 class="font-semibold text-gray-900 mb-1">Streaks</h3>
+              <p class="text-sm text-gray-600">Aanwezigheid & badges</p>
+            </a>
+
+            <a
               href="/stem-test"
               class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
             >
@@ -1185,6 +1196,29 @@ app.get('/leden/profiel', async (c) => {
     ORDER BY e.start_at DESC
   `, [user.id])
 
+  // Get attendance streak data
+  let attendanceStreak = { current: 0, longest: 0, total: 0 }
+  try {
+    const checkins = await queryAll<any>(c.env.DB,
+      `SELECT qc.event_id FROM qr_checkins qc
+       JOIN events e ON e.id = qc.event_id
+       WHERE qc.user_id = ? AND e.type = 'repetitie'
+       ORDER BY e.start_at DESC`,
+      [user.id]
+    )
+    const allRehearsals = await queryAll<any>(c.env.DB,
+      `SELECT id FROM events WHERE type = 'repetitie' AND start_at <= datetime('now') ORDER BY start_at DESC`
+    )
+    if (checkins.length > 0 && allRehearsals.length > 0) {
+      const checkedIds = new Set(checkins.map((ci: any) => ci.event_id))
+      let current = 0
+      for (const r of allRehearsals) { if (checkedIds.has(r.id)) current++; else break; }
+      let longest = 0, temp = 0
+      for (const r of allRehearsals) { if (checkedIds.has(r.id)) { temp++; longest = Math.max(longest, temp); } else { temp = 0; } }
+      attendanceStreak = { current, longest, total: checkins.length }
+    }
+  } catch (e) { /* table may not exist yet */ }
+
   return c.html(
     <Layout 
       title="Mijn Profiel" 
@@ -1382,6 +1416,58 @@ app.get('/leden/profiel', async (c) => {
               </p>
             )}
           </div>
+
+          {/* Attendance Streak Card */}
+          {attendanceStreak.total > 0 && (
+            <div class="bg-gradient-to-r from-orange-50 to-red-50 rounded-lg shadow-md p-6 mb-6 border-2 border-orange-200">
+              <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-bold text-gray-900">
+                  <span class="mr-2">🔥</span>
+                  Repetitie Streak
+                </h3>
+                <a href="/leden/streaks" class="text-sm px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors">
+                  <i class="fas fa-trophy mr-1"></i> Leaderboard
+                </a>
+              </div>
+              <div class="grid grid-cols-3 gap-4">
+                <div class="bg-white rounded-lg p-4 text-center shadow-sm">
+                  <div class="text-sm text-gray-600 mb-1">Huidige Streak</div>
+                  <div class="text-3xl font-black text-orange-600">🔥 {attendanceStreak.current}</div>
+                  <div class="text-xs text-gray-500">{attendanceStreak.current === 1 ? 'week' : 'weken'} op rij</div>
+                </div>
+                <div class="bg-white rounded-lg p-4 text-center shadow-sm">
+                  <div class="text-sm text-gray-600 mb-1">Langste Streak</div>
+                  <div class="text-3xl font-black text-purple-600">{attendanceStreak.longest}</div>
+                  <div class="text-xs text-gray-500">weken</div>
+                </div>
+                <div class="bg-white rounded-lg p-4 text-center shadow-sm">
+                  <div class="text-sm text-gray-600 mb-1">Totaal Aanwezig</div>
+                  <div class="text-3xl font-black text-green-600">{attendanceStreak.total}</div>
+                  <div class="text-xs text-gray-500">repetities</div>
+                </div>
+              </div>
+              {attendanceStreak.current >= 52 && (
+                <div class="mt-4 text-center bg-yellow-100 rounded-lg p-3">
+                  <span class="text-xl">🏆</span> <span class="font-bold text-yellow-700">Gouden Noot - Fantastisch!</span>
+                </div>
+              )}
+              {attendanceStreak.current >= 25 && attendanceStreak.current < 52 && (
+                <div class="mt-4 text-center bg-gray-100 rounded-lg p-3">
+                  <span class="text-xl">🥈</span> <span class="font-bold text-gray-700">Zilveren Noot</span>
+                </div>
+              )}
+              {attendanceStreak.current >= 10 && attendanceStreak.current < 25 && (
+                <div class="mt-4 text-center bg-amber-100 rounded-lg p-3">
+                  <span class="text-xl">🥉</span> <span class="font-bold text-amber-700">Bronzen Noot</span>
+                </div>
+              )}
+              {attendanceStreak.current >= 5 && attendanceStreak.current < 10 && (
+                <div class="mt-4 text-center bg-blue-100 rounded-lg p-3">
+                  <span class="text-xl">⭐</span> <span class="font-bold text-blue-700">Trouw Lid</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Voice Range Analysis Card */}
           {voiceAnalysis && (

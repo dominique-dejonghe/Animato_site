@@ -59,6 +59,15 @@ app.get('/admin', async (c) => {
     total_meetings: await queryOne<any>(c.env.DB,
       `SELECT COUNT(*) as count FROM meetings WHERE datetime(datum || ' ' || COALESCE(start_tijd, '00:00')) >= datetime('now')`
     ),
+    total_checkins: await queryOne<any>(c.env.DB,
+      `SELECT COUNT(DISTINCT user_id) as count FROM qr_checkins`
+    ).catch(() => ({ count: 0 })),
+    last_attendance: await queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as count FROM qr_checkins qc 
+       JOIN events e ON e.id = qc.event_id 
+       WHERE e.type = 'repetitie'
+       AND e.start_at = (SELECT MAX(e2.start_at) FROM events e2 JOIN qr_checkins qc2 ON qc2.event_id = e2.id WHERE e2.type = 'repetitie')`
+    ).catch(() => ({ count: 0 })),
   }
 
   // Get recent activity from audit logs
@@ -233,14 +242,14 @@ app.get('/admin', async (c) => {
 
             <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
               <div class="flex items-start justify-between gap-2">
-                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Karaoke Songs</p>
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Aanwezigheid</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-orange-100 rounded-lg flex items-center justify-center">
-                  <i class="fas fa-microphone text-orange-600 text-base"></i>
+                  <i class="fas fa-qrcode text-orange-600 text-base"></i>
                 </div>
               </div>
-              <p class="text-3xl font-bold text-gray-900 leading-none">20</p>
-              <a href="/admin/karaoke" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
-                Beheer karaoke <i class="fas fa-arrow-right text-xs"></i>
+              <p class="text-3xl font-bold text-gray-900 leading-none">{stats.last_attendance?.count || 0}</p>
+              <a href="/admin/attendance" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+                QR Check-in & Streaks <i class="fas fa-arrow-right text-xs"></i>
               </a>
             </div>
 

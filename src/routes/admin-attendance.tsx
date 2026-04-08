@@ -169,6 +169,52 @@ app.get('/admin/attendance', async (c) => {
               </div>
             </div>
 
+            {/* How it works - Admin side */}
+            <div class="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-6 mb-8">
+              <h2 class="text-lg font-bold text-gray-900 mb-4">
+                <i class="fas fa-info-circle text-blue-500 mr-2"></i>
+                Hoe werkt het?
+              </h2>
+              <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div class="flex flex-col items-center text-center">
+                  <div class="w-14 h-14 bg-white rounded-full shadow-md flex items-center justify-center mb-3">
+                    <span class="text-2xl font-bold text-blue-600">1</span>
+                  </div>
+                  <h3 class="font-bold text-gray-900 text-sm mb-1">QR Genereren</h3>
+                  <p class="text-xs text-gray-600">Klik "Genereer QR Code" bij een komende repetitie hieronder</p>
+                </div>
+                <div class="flex flex-col items-center text-center">
+                  <div class="w-14 h-14 bg-white rounded-full shadow-md flex items-center justify-center mb-3">
+                    <span class="text-2xl font-bold text-blue-600">2</span>
+                  </div>
+                  <h3 class="font-bold text-gray-900 text-sm mb-1">Afdrukken</h3>
+                  <p class="text-xs text-gray-600">Print de QR poster (A4) en hang die op in het repetitielokaal</p>
+                </div>
+                <div class="flex flex-col items-center text-center">
+                  <div class="w-14 h-14 bg-white rounded-full shadow-md flex items-center justify-center mb-3">
+                    <span class="text-2xl font-bold text-blue-600">3</span>
+                  </div>
+                  <h3 class="font-bold text-gray-900 text-sm mb-1">Leden Scannen</h3>
+                  <p class="text-xs text-gray-600">Leden openen hun camera, scannen de QR code en checken in</p>
+                </div>
+                <div class="flex flex-col items-center text-center">
+                  <div class="w-14 h-14 bg-white rounded-full shadow-md flex items-center justify-center mb-3">
+                    <span class="text-2xl font-bold text-orange-500">🔥</span>
+                  </div>
+                  <h3 class="font-bold text-gray-900 text-sm mb-1">Streaks Groeien</h3>
+                  <p class="text-xs text-gray-600">Elke opeenvolgende week bouwt een streak op. Badges bij 5, 10, 25, 52 weken!</p>
+                </div>
+              </div>
+              <div class="mt-4 p-3 bg-white bg-opacity-60 rounded-lg">
+                <p class="text-xs text-gray-500">
+                  <i class="fas fa-user mr-1"></i>
+                  <strong>Wat ziet het lid?</strong> Na het scannen van de QR code ziet het lid direct zijn/haar huidige streak, 
+                  badge-voortgang en hoe ver ze zijn van de volgende badge. Alles is zichtbaar via <a href="/leden/streaks" class="text-blue-600 underline">Leaderboard</a> 
+                  en op het <a href="/leden/profiel" class="text-blue-600 underline">Profiel</a>.
+                </p>
+              </div>
+            </div>
+
             {/* Upcoming Rehearsals - QR Codes */}
             <div class="bg-white rounded-xl shadow-md p-6 mb-8">
               <h2 class="text-xl font-bold text-gray-900 mb-4">

@@ -358,6 +358,28 @@ app.get('/leden/streaks', async (c) => {
             <p class="mt-2 text-gray-600">Wie is het meest trouw aanwezig?</p>
           </div>
 
+          {/* How it works - for members */}
+          <div class="bg-gradient-to-r from-orange-50 to-yellow-50 border border-orange-200 rounded-xl p-5 mb-8">
+            <div class="flex items-start gap-4">
+              <div class="flex-shrink-0 w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
+                <i class="fas fa-qrcode text-orange-600"></i>
+              </div>
+              <div>
+                <h3 class="font-bold text-gray-900 mb-1">Hoe bouw je een streak op?</h3>
+                <p class="text-sm text-gray-600 mb-3">
+                  Bij elke repetitie hangt er een QR-poster in het lokaal. Scan de code met je telefoon-camera,
+                  log in (eenmalig), en je bent ingecheckt! Elke opeenvolgende week dat je aanwezig bent groeit je streak.
+                </p>
+                <div class="flex flex-wrap gap-3 text-xs">
+                  <span class="bg-blue-100 text-blue-700 px-3 py-1 rounded-full font-medium">⭐ 5 weken = Trouw Lid</span>
+                  <span class="bg-amber-100 text-amber-700 px-3 py-1 rounded-full font-medium">🥉 10 weken = Bronzen Noot</span>
+                  <span class="bg-gray-100 text-gray-700 px-3 py-1 rounded-full font-medium">🥈 25 weken = Zilveren Noot</span>
+                  <span class="bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full font-medium">🏆 52 weken = Gouden Noot</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* My Stats Card */}
           {myData && (
             <div class="bg-gradient-to-r from-animato-primary to-animato-secondary rounded-2xl shadow-lg p-6 mb-8 text-white">

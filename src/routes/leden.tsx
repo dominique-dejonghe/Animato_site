@@ -2710,13 +2710,15 @@ app.get('/leden/smoelenboek', async (c) => {
   const view = c.req.query('view') || 'grid' // 'grid' or 'list'
   const stemgroepFilter = c.req.query('stemgroep') || 'all'
   
-  // Get members with optional search + stemgroep filter
+  // Get members with optional search + stemgroep filter + checkin count for streaks
   let query = `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio, p.favoriete_werk,
             p.toon_email, p.toon_telefoon, u.email, p.telefoon,
-            CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite
+            CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite,
+            COUNT(qc.id) as total_checkins
      FROM users u
      JOIN profiles p ON u.id = p.user_id
      LEFT JOIN member_favorites f ON f.favorite_member_id = u.id AND f.user_id = ?
+     LEFT JOIN qr_checkins qc ON qc.user_id = u.id
      WHERE u.status = 'actief' AND p.smoelenboek_zichtbaar = 1`
   
   const params: any[] = [user.id]
@@ -2731,9 +2733,39 @@ app.get('/leden/smoelenboek', async (c) => {
     params.push(stemgroepFilter)
   }
 
-  query += ` ORDER BY p.voornaam ASC`
+  query += ` GROUP BY u.id ORDER BY p.voornaam ASC`
 
   const members = await queryAll(c.env.DB, query, params)
+
+  // Calculate streaks for members that have checkins (batch all past rehearsals once)
+  const allRehearsals = await queryAll<any>(c.env.DB,
+    `SELECT id, start_at FROM events WHERE type = 'repetitie' AND start_at <= datetime('now') ORDER BY start_at DESC`
+  )
+  const allCheckins = await queryAll<any>(c.env.DB,
+    `SELECT user_id, event_id FROM qr_checkins`
+  )
+  // Build checkin sets per user
+  const checkinsByUser: Record<number, Set<number>> = {}
+  for (const ci of allCheckins) {
+    if (!checkinsByUser[ci.user_id]) checkinsByUser[ci.user_id] = new Set()
+    checkinsByUser[ci.user_id].add(ci.event_id)
+  }
+  // Quick streak calculator
+  function quickStreak(userId: number): number {
+    const userCheckins = checkinsByUser[userId]
+    if (!userCheckins || userCheckins.size === 0) return 0
+    let streak = 0
+    for (const r of allRehearsals) {
+      if (userCheckins.has(r.id)) streak++
+      else break
+    }
+    return streak
+  }
+  // Attach streaks to members
+  const memberStreaks: Record<number, number> = {}
+  for (const m of members as any[]) {
+    memberStreaks[m.id] = quickStreak(m.id)
+  }
 
   // Group by voice (only for grid view grouping, list view is flat or sorted)
   const byVoice: any = { 'Dirigent': [], 'S': [], 'A': [], 'T': [], 'B': [], 'Pianist': [], 'Other': [] }
@@ -2864,6 +2896,11 @@ app.get('/leden/smoelenboek', async (c) => {
                                   )}
                                 </div>
                                 <h3 class="font-bold text-gray-900 text-lg group-hover:text-animato-primary transition-colors">{m.voornaam} {m.achternaam}</h3>
+                                {memberStreaks[m.id] > 0 && (
+                                  <div class="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 text-orange-600 rounded-full text-xs font-bold">
+                                    <span>🔥</span> {memberStreaks[m.id]} week{memberStreaks[m.id] !== 1 ? 'en' : ''} streak
+                                  </div>
+                                )}
                                 {m.bio && <p class="text-sm text-gray-500 mt-2 line-clamp-2">{m.bio}</p>}
                               </div>
                           </a>
@@ -2927,6 +2964,9 @@ app.get('/leden/smoelenboek', async (c) => {
                                           <button onclick={`toggleFavorite(${m.id}, this)`} class={`text-xl focus:outline-none ${m.is_favorite ? 'text-yellow-400' : 'text-gray-300 hover:text-yellow-200'}`}>
                                               <i class="fas fa-star"></i>
                                           </button>
+                                          {memberStreaks[m.id] > 0 && (
+                                              <span class="text-orange-500 text-xs font-bold">🔥 {memberStreaks[m.id]}</span>
+                                          )}
                                           <a href={`/leden/smoelenboek/${m.id}`} class="text-animato-primary hover:text-animato-secondary">Bekijk <i class="fas fa-chevron-right ml-1"></i></a>
                                       </div>
                                   </td>
@@ -2992,6 +3032,42 @@ app.get('/leden/smoelenboek/:id', async (c) => {
   )
 
   if (!member) return c.redirect('/leden/smoelenboek')
+
+  // Calculate streak for this member
+  const memberCheckins = await queryAll<any>(c.env.DB,
+    `SELECT qc.event_id FROM qr_checkins qc
+     JOIN events e ON e.id = qc.event_id
+     WHERE qc.user_id = ? AND e.type = 'repetitie'
+     ORDER BY e.start_at DESC`,
+    [memberId]
+  )
+  const allPastRehearsals = await queryAll<any>(c.env.DB,
+    `SELECT id FROM events WHERE type = 'repetitie' AND start_at <= datetime('now') ORDER BY start_at DESC`
+  )
+  const checkedEventIds = new Set(memberCheckins.map((ci: any) => ci.event_id))
+  let memberCurrentStreak = 0
+  let memberLongestStreak = 0
+  let memberTempStreak = 0
+  for (const r of allPastRehearsals) {
+    if (checkedEventIds.has(r.id)) {
+      if (memberCurrentStreak === memberTempStreak) memberCurrentStreak++
+      memberTempStreak++
+      memberLongestStreak = Math.max(memberLongestStreak, memberTempStreak)
+    } else {
+      if (memberCurrentStreak === memberTempStreak) { /* streak already broken */ }
+      memberTempStreak = 0
+    }
+  }
+  // Simpler approach for current streak
+  memberCurrentStreak = 0
+  for (const r of allPastRehearsals) {
+    if (checkedEventIds.has(r.id)) memberCurrentStreak++
+    else break
+  }
+  const memberStreakBadge = memberCurrentStreak >= 52 ? { name: 'Gouden Noot', icon: 'fas fa-trophy', bg: 'bg-yellow-100 text-yellow-700' } :
+    memberCurrentStreak >= 25 ? { name: 'Zilveren Noot', icon: 'fas fa-medal', bg: 'bg-gray-100 text-gray-700' } :
+    memberCurrentStreak >= 10 ? { name: 'Bronzen Noot', icon: 'fas fa-award', bg: 'bg-amber-100 text-amber-700' } :
+    memberCurrentStreak >= 5 ? { name: 'Trouw Lid', icon: 'fas fa-star', bg: 'bg-blue-100 text-blue-700' } : null
 
   // Auto-calculate jaren in koor from created_at (account registration date)
   const lidSindsDate = new Date(member.created_at)
@@ -3213,6 +3289,41 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                                         </li>
                                     </ul>
                                 </div>
+
+                                {/* Streak Card */}
+                                {(memberCheckins.length > 0 || memberCurrentStreak > 0) && (
+                                    <div class={`rounded-lg p-6 shadow-sm border ${memberCurrentStreak >= 10 ? 'bg-gradient-to-br from-orange-50 to-amber-50 border-orange-200' : 'bg-gray-50 border-gray-200'}`}>
+                                        <h3 class="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                                            <span class="text-xl">🔥</span> Repetitie Streak
+                                        </h3>
+                                        <div class="text-center mb-4">
+                                            <div class={`text-4xl font-black ${memberCurrentStreak >= 10 ? 'text-orange-600' : memberCurrentStreak >= 5 ? 'text-amber-600' : 'text-gray-700'}`}>
+                                                {memberCurrentStreak}
+                                            </div>
+                                            <div class="text-xs text-gray-500 uppercase tracking-wide mt-1">
+                                                {memberCurrentStreak === 1 ? 'week op rij' : 'weken op rij'}
+                                            </div>
+                                        </div>
+                                        {memberStreakBadge && (
+                                            <div class={`flex items-center justify-center gap-2 ${memberStreakBadge.bg} rounded-full px-3 py-1.5 text-sm font-bold mb-3`}>
+                                                <i class={memberStreakBadge.icon}></i> {memberStreakBadge.name}
+                                            </div>
+                                        )}
+                                        <div class="grid grid-cols-2 gap-3 text-center">
+                                            <div class="bg-white bg-opacity-60 rounded-lg p-2">
+                                                <div class="text-lg font-bold text-gray-800">{memberLongestStreak}</div>
+                                                <div class="text-xs text-gray-500">Langste</div>
+                                            </div>
+                                            <div class="bg-white bg-opacity-60 rounded-lg p-2">
+                                                <div class="text-lg font-bold text-gray-800">{memberCheckins.length}</div>
+                                                <div class="text-xs text-gray-500">Totaal</div>
+                                            </div>
+                                        </div>
+                                        <a href="/leden/streaks" class="block mt-3 text-center text-xs text-animato-primary hover:underline">
+                                            Bekijk leaderboard <i class="fas fa-chevron-right ml-1"></i>
+                                        </a>
+                                    </div>
+                                )}
 
                                 {/* Admin birthday list link */}
                                 {isAdmin && (

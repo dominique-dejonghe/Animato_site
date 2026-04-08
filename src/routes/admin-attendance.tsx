@@ -98,7 +98,24 @@ function getStreakBadge(streak: number): { name: string; icon: string; color: st
 app.get('/admin/attendance', async (c) => {
   const user = c.get('user') as SessionUser
 
-  // Get upcoming rehearsals (next 4 weeks)
+  // AUTO-GENERATE QR tokens for ALL future rehearsals that don't have one yet
+  const futureWithoutQR = await queryAll<any>(c.env.DB,
+    `SELECT e.id FROM events e
+     LEFT JOIN qr_tokens qt ON qt.event_id = e.id
+     WHERE e.type = 'repetitie' AND e.start_at >= datetime('now', '-1 day') AND qt.id IS NULL
+     ORDER BY e.start_at ASC`
+  )
+  for (const evt of futureWithoutQR) {
+    const token = generateQRToken()
+    try {
+      await execute(c.env.DB,
+        `INSERT INTO qr_tokens (event_id, token, created_by) VALUES (?, ?, ?)`,
+        [evt.id, token, user.id]
+      )
+    } catch (e) { /* ignore duplicate */ }
+  }
+
+  // Get upcoming rehearsals (next 4 weeks) - all should now have QR tokens
   const upcomingRehearsals = await queryAll<any>(c.env.DB,
     `SELECT e.id, e.titel, e.start_at, e.locatie,
             qt.token, qt.valid_from, qt.valid_until, qt.id as qr_id
@@ -166,6 +183,12 @@ app.get('/admin/attendance', async (c) => {
                   Aanwezigheid & Streaks
                 </h1>
                 <p class="mt-2 text-gray-600">QR check-in voor repetities • {memberCount?.count || 0} actieve leden</p>
+                {futureWithoutQR.length > 0 && (
+                  <p class="mt-1 text-sm text-green-600 font-medium">
+                    <i class="fas fa-magic mr-1"></i>
+                    {futureWithoutQR.length} nieuwe QR code(s) automatisch aangemaakt!
+                  </p>
+                )}
               </div>
             </div>
 
@@ -180,8 +203,8 @@ app.get('/admin/attendance', async (c) => {
                   <div class="w-14 h-14 bg-white rounded-full shadow-md flex items-center justify-center mb-3">
                     <span class="text-2xl font-bold text-blue-600">1</span>
                   </div>
-                  <h3 class="font-bold text-gray-900 text-sm mb-1">QR Genereren</h3>
-                  <p class="text-xs text-gray-600">Klik "Genereer QR Code" bij een komende repetitie hieronder</p>
+                  <h3 class="font-bold text-gray-900 text-sm mb-1">QR Automatisch</h3>
+                  <p class="text-xs text-gray-600">QR codes worden automatisch aangemaakt voor alle toekomstige repetities</p>
                 </div>
                 <div class="flex flex-col items-center text-center">
                   <div class="w-14 h-14 bg-white rounded-full shadow-md flex items-center justify-center mb-3">

@@ -11,6 +11,7 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({ activeSection = 'dashboard
     { id: 'leden', label: 'Leden', href: '/admin/leden', icon: 'fas fa-users', badge: pendingRegistrationsCount > 0 ? pendingRegistrationsCount : undefined },
     { id: 'verjaardagen', label: 'Verjaardagslijst', href: '/leden/verjaardagen', icon: 'fas fa-birthday-cake' },
     { id: 'content', label: 'Nieuws & Berichten', href: '/admin/content', icon: 'fas fa-newspaper' },
+    { id: 'ai-news', label: 'AI Nieuwsgenerator', href: '/admin/ai-nieuws', icon: 'fas fa-robot' },
     { id: 'events', label: 'Agenda & Activiteiten', href: '/admin/events', icon: 'fas fa-calendar-alt' },
     { id: 'attendance', label: 'Aanwezigheid & Streaks', href: '/admin/attendance', icon: 'fas fa-qrcode' },
     { id: 'seating', label: 'Zaalplannen', href: '/admin/seating', icon: 'fas fa-chair' },

@@ -353,6 +353,11 @@ app.get('/admin', async (c) => {
                 <i class="fas fa-handshake text-2xl text-indigo-600 mb-2"></i>
                 <span class="text-sm font-medium text-gray-700">Vergaderingen</span>
               </a>
+              <a href="/admin/ai-nieuws" class="flex flex-col items-center p-4 border-2 border-purple-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition relative">
+                <span class="absolute -top-2 -right-2 bg-purple-600 text-white text-[9px] px-1.5 py-0.5 rounded-full font-bold">AI</span>
+                <i class="fas fa-robot text-2xl text-purple-600 mb-2"></i>
+                <span class="text-sm font-medium text-purple-700">AI Nieuws</span>
+              </a>
             </div>
           </div>
 

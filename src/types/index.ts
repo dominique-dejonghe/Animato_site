@@ -13,6 +13,7 @@ export type Bindings = {
   SESSION_SECRET: string
   RESEND_API_KEY: string
   OPENAI_API_KEY: string
+  OPENAI_BASE_URL: string
   STRIPE_SECRET_KEY: string
   STRIPE_PUBLISHABLE_KEY: string
   STRIPE_WEBHOOK_SECRET: string

@@ -47,6 +47,7 @@ import adminWalkthroughRoutes from './routes/admin-walkthrough'
 import walkthroughApiRoutes from './routes/walkthrough-api'
 import publicDonationRoutes from './routes/public-donation'
 import adminAttendanceRoutes from './routes/admin-attendance'
+import adminAiNewsRoutes from './routes/admin-ai-news'
 import checkinRoutes from './routes/checkin'
 
 // =====================================================
@@ -107,6 +108,7 @@ app.route('/', ledenRoutes)
 // omdat adminRoutes /admin/leden/:id bevat die anders "import" als ID matcht
 app.route('/', adminLedenImportRoutes)
 app.route('/', adminAttendanceRoutes)
+app.route('/', adminAiNewsRoutes)
 app.route('/', adminRoutes)
 app.route('/', adminEventsRoutes)
 app.route('/', adminCalendarRoutes)

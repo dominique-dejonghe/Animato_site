@@ -10,6 +10,17 @@ import { verifyToken } from '../utils/auth'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
+// Default cartoon avatars per stemgroep (famous singers!)
+function getDefaultAvatar(stemgroep: string): string {
+  switch (stemgroep) {
+    case 'S': return '/static/avatars/sopraan-callas.png'
+    case 'A': return '/static/avatars/alt-bartoli.png'
+    case 'T': return '/static/avatars/tenor-pavarotti.png'
+    case 'B': return '/static/avatars/bas-terfel.png'
+    default:  return '/static/avatars/tenor-pavarotti.png'
+  }
+}
+
 // =====================================================
 // HELPER: Calculate streaks for a user
 // =====================================================
@@ -455,7 +466,7 @@ app.get('/leden/streaks', async (c) => {
                       
                       {/* Avatar */}
                       <div class="w-10 h-10 rounded-full bg-animato-primary bg-opacity-10 flex items-center justify-center text-sm font-bold text-animato-primary overflow-hidden flex-shrink-0">
-                        {m.foto_url ? <img src={m.foto_url} class="w-full h-full object-cover" alt="" /> : `${m.voornaam?.charAt(0) || ''}${m.achternaam?.charAt(0) || ''}`}
+                          <img src={m.foto_url || getDefaultAvatar(m.stemgroep)} class="w-full h-full object-cover" alt="" />
                       </div>
 
                       {/* Name & Badge */}

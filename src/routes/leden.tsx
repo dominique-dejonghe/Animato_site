@@ -10,6 +10,17 @@ import { createMolliePayment } from '../utils/mollie'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
+// Default cartoon avatars per stemgroep (famous singers!)
+function getDefaultAvatar(stemgroep: string): string {
+  switch (stemgroep) {
+    case 'S': return '/static/avatars/sopraan-callas.png'     // Maria Callas
+    case 'A': return '/static/avatars/alt-bartoli.png'        // Cecilia Bartoli
+    case 'T': return '/static/avatars/tenor-pavarotti.png'    // Luciano Pavarotti
+    case 'B': return '/static/avatars/bas-terfel.png'         // Bryn Terfel
+    default:  return '/static/avatars/tenor-pavarotti.png'    // Pavarotti als default
+  }
+}
+
 // Apply auth middleware to all leden routes
 app.use('*', requireAuth)
 
@@ -148,11 +159,7 @@ app.get('/leden', async (c) => {
                     <a href={`/leden/smoelenboek/${bm.id}`} class="flex flex-col items-center group" title={`${bm.voornaam} ${bm.achternaam}`}>
                       <div class="relative w-20 h-20 mb-2">
                         <div class={`w-20 h-20 rounded-full overflow-hidden border-4 ${isMe ? 'border-amber-400 shadow-lg' : 'border-yellow-200'} bg-white flex items-center justify-center`}>
-                          {bm.foto_url ? (
-                            <img src={bm.foto_url} class="w-full h-full object-cover" alt={bm.voornaam} />
-                          ) : (
-                            <i class="fas fa-user text-3xl text-gray-300"></i>
-                          )}
+                          <img src={bm.foto_url || getDefaultAvatar(bm.stemgroep)} class="w-full h-full object-cover" alt={bm.voornaam} />
                         </div>
                         {/* Crown icon */}
                         <span class="absolute -top-4 left-1/2 -translate-x-1/2 text-2xl" title="Jarig deze week!">👑</span>
@@ -2887,13 +2894,7 @@ app.get('/leden/smoelenboek', async (c) => {
                               <div class={`h-2 bg-${color}-500`}></div>
                               <div class="p-6 text-center">
                                 <div class="w-24 h-24 mx-auto bg-gray-200 rounded-full mb-4 overflow-hidden border-4 border-white shadow-sm">
-                                  {m.foto_url ? (
-                                    <img src={m.foto_url} class="w-full h-full object-cover" alt={m.voornaam} />
-                                  ) : (
-                                    <div class="w-full h-full flex items-center justify-center text-gray-400">
-                                      <i class="fas fa-user text-3xl"></i>
-                                    </div>
-                                  )}
+                                  <img src={m.foto_url || getDefaultAvatar(m.stemgroep)} class="w-full h-full object-cover" alt={m.voornaam} />
                                 </div>
                                 <h3 class="font-bold text-gray-900 text-lg group-hover:text-animato-primary transition-colors">{m.voornaam} {m.achternaam}</h3>
                                 {memberStreaks[m.id] > 0 && (
@@ -2933,9 +2934,9 @@ app.get('/leden/smoelenboek', async (c) => {
                                       <div class="flex items-center">
                                           <div class="flex-shrink-0 h-10 w-10">
                                               {m.foto_url ? (
-                                                  <img class="h-10 w-10 rounded-full object-cover" src={m.foto_url} alt="" />
+                                                  <img class="h-10 w-10 rounded-full object-cover" src={m.foto_url || getDefaultAvatar(m.stemgroep)} alt="" />
                                               ) : (
-                                                  <div class="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-400"><i class="fas fa-user"></i></div>
+                                                  <img class="h-10 w-10 rounded-full object-cover" src={getDefaultAvatar(m.stemgroep)} alt="" />
                                               )}
                                           </div>
                                           <div class="ml-4">
@@ -3128,11 +3129,7 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                         <div class="flex flex-col md:flex-row items-start md:items-end -mt-12 mb-6">
                             {/* Clickable photo for zoom */}
                             <div class="w-32 h-32 rounded-full border-4 border-white shadow-lg overflow-hidden bg-white flex items-center justify-center cursor-pointer" onclick="openPhotoModal()" title="Klik om te vergroten">
-                                {member.foto_url ? (
-                                    <img src={member.foto_url} class="w-full h-full object-cover" alt={member.voornaam} id="profile-photo-thumb" />
-                                ) : (
-                                    <i class="fas fa-user text-4xl text-gray-300"></i>
-                                )}
+                                <img src={member.foto_url || getDefaultAvatar(member.stemgroep)} class="w-full h-full object-cover" alt={member.voornaam} id="profile-photo-thumb" />
                             </div>
                             <div class="mt-4 md:mt-0 md:ml-6 flex-1">
                                 <h1 class="text-3xl font-bold text-gray-900">{member.voornaam} {member.achternaam}</h1>
@@ -3341,17 +3338,21 @@ app.get('/leden/smoelenboek/:id', async (c) => {
         </div>
 
         {/* Photo zoom modal */}
-        {member.foto_url && (
-            <div id="photo-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black bg-opacity-80" onclick="closePhotoModal()">
-                <div class="relative max-w-2xl max-h-screen p-4">
-                    <button class="absolute top-2 right-2 text-white text-2xl z-10 hover:text-gray-300" onclick="closePhotoModal()">
-                        <i class="fas fa-times"></i>
-                    </button>
-                    <img src={member.foto_url} class="max-w-full max-h-screen object-contain rounded-lg shadow-2xl" alt={`${member.voornaam} ${member.achternaam}`} />
-                    <p class="text-white text-center mt-3 font-semibold text-lg">{member.voornaam} {member.achternaam}</p>
-                </div>
+        <div id="photo-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black bg-opacity-80" onclick="closePhotoModal()">
+            <div class="relative max-w-2xl max-h-screen p-4">
+                <button class="absolute top-2 right-2 text-white text-2xl z-10 hover:text-gray-300" onclick="closePhotoModal()">
+                    <i class="fas fa-times"></i>
+                </button>
+                <img src={member.foto_url || getDefaultAvatar(member.stemgroep)} class="max-w-full max-h-screen object-contain rounded-lg shadow-2xl" alt={`${member.voornaam} ${member.achternaam}`} />
+                <p class="text-white text-center mt-3 font-semibold text-lg">{member.voornaam} {member.achternaam}</p>
+                {!member.foto_url && (
+                    <p class="text-gray-400 text-center text-sm mt-1 italic">
+                        Cartoon: {member.stemgroep === 'S' ? 'Maria Callas' : member.stemgroep === 'A' ? 'Cecilia Bartoli' : member.stemgroep === 'T' ? 'Luciano Pavarotti' : 'Bryn Terfel'}
+                        {' '} — upload je eigen foto via Profiel!
+                    </p>
+                )}
             </div>
-        )}
+        </div>
 
         <script dangerouslySetInnerHTML={{__html: `
             function openPhotoModal() {
@@ -3495,11 +3496,7 @@ app.get('/leden/verjaardagen', async (c) => {
                     return (
                       <div class={`flex items-center gap-4 px-6 py-3 ${isThisWeek ? 'bg-yellow-50' : 'hover:bg-gray-50'}`}>
                         <div class="w-10 h-10 rounded-full overflow-hidden border-2 border-gray-200 bg-gray-100 flex items-center justify-center flex-shrink-0">
-                          {m.foto_url ? (
-                            <img src={m.foto_url} class="w-full h-full object-cover" alt={m.voornaam} />
-                          ) : (
-                            <i class="fas fa-user text-gray-400"></i>
-                          )}
+                          <img src={m.foto_url || getDefaultAvatar(m.stemgroep)} class="w-full h-full object-cover" alt={m.voornaam} />
                         </div>
                         <div class="flex-1 min-w-0">
                           <div class="flex items-center gap-2">

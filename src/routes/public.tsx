@@ -1527,4 +1527,119 @@ app.get('/privacyverklaring', async (c) => {
 // Redirect /privacy → /privacyverklaring voor backwards compatibiliteit
 app.get('/privacy', (c) => c.redirect('/privacyverklaring', 301))
 
+// =====================================================
+// COOKIEBELEID
+// =====================================================
+app.get('/cookies', async (c) => {
+  const user = c.get('user')
+  return c.html(
+    <Layout title="Cookiebeleid" user={user} currentPath="/cookies">
+      <div class="py-16 bg-white">
+        <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+          <h1 class="text-4xl font-bold text-animato-secondary mb-8" style="font-family: 'Playfair Display', serif;">
+            Cookiebeleid
+          </h1>
+          <p class="text-sm text-gray-500 mb-8">Laatste update: april 2026</p>
+
+          <div class="prose prose-gray max-w-none space-y-8 text-gray-700 leading-relaxed">
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">1. Wat zijn cookies?</h2>
+              <p>Cookies zijn kleine tekstbestanden die door een website op uw computer, tablet of smartphone worden geplaatst wanneer u de website bezoekt. Ze worden veel gebruikt om websites goed te laten werken en om informatie te verstrekken aan de beheerders van de site.</p>
+            </section>
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">2. Welke cookies gebruiken wij?</h2>
+              <p>De website van Gemengd Koor Animato gebruikt uitsluitend <strong>strikt noodzakelijke cookies</strong>. Wij gebruiken géén tracking-, marketing- of analytische cookies.</p>
+
+              <div class="mt-4 overflow-x-auto">
+                <table class="min-w-full border border-gray-200 rounded-lg overflow-hidden">
+                  <thead class="bg-gray-50">
+                    <tr>
+                      <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Cookie</th>
+                      <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Doel</th>
+                      <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Type</th>
+                      <th class="px-4 py-3 text-left text-xs font-bold text-gray-600 uppercase">Bewaartermijn</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-gray-200">
+                    <tr>
+                      <td class="px-4 py-3 text-sm font-mono text-gray-800">auth_token</td>
+                      <td class="px-4 py-3 text-sm text-gray-600">Houdt uw inlogsessie bij zodat u niet telkens opnieuw hoeft in te loggen op het ledenportaal.</td>
+                      <td class="px-4 py-3 text-sm"><span class="px-2 py-0.5 bg-green-100 text-green-800 rounded-full text-xs font-medium">Noodzakelijk</span></td>
+                      <td class="px-4 py-3 text-sm text-gray-600">7 dagen</td>
+                    </tr>
+                    <tr>
+                      <td class="px-4 py-3 text-sm font-mono text-gray-800">cookie_consent</td>
+                      <td class="px-4 py-3 text-sm text-gray-600">Onthoudt of u het cookiebeleid heeft geaccepteerd, zodat de melding niet opnieuw verschijnt.</td>
+                      <td class="px-4 py-3 text-sm"><span class="px-2 py-0.5 bg-green-100 text-green-800 rounded-full text-xs font-medium">Noodzakelijk</span></td>
+                      <td class="px-4 py-3 text-sm text-gray-600">1 jaar</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">3. Cookies van derden</h2>
+              <p>Onze website maakt gebruik van enkele externe diensten die mogelijk hun eigen cookies plaatsen:</p>
+              <ul class="list-disc list-inside mt-2 space-y-1">
+                <li><strong>Cloudflare</strong> — onze hostingprovider kan technische cookies plaatsen voor beveiliging en prestatieverbetering (bijv. <code class="bg-gray-100 px-1 rounded text-sm">__cf_bm</code>). Dit zijn strikt noodzakelijke cookies.</li>
+                <li><strong>Google Fonts</strong> — voor het laden van lettertypes. Google kan hierbij technische verzoeken verwerken, maar plaatst geen tracking cookies via dit gebruik.</li>
+                <li><strong>Font Awesome (CDN)</strong> — voor iconen. Puur technisch, geen tracking.</li>
+              </ul>
+              <p class="mt-2">Wij gebruiken <strong>geen</strong> Google Analytics, Facebook Pixel, of andere tracking- en marketingcookies.</p>
+            </section>
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">4. Rechtsgrond</h2>
+              <p>Voor strikt noodzakelijke cookies is geen toestemming vereist op basis van de Belgische wet (Wet van 13 juni 2005 betreffende de elektronische communicatie, Art. 129) en de Europese ePrivacy-richtlijn (Richtlijn 2002/58/EG, Art. 5(3)). Deze cookies zijn essentieel voor de goede werking van de website en het ledenportaal.</p>
+            </section>
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">5. Cookies beheren</h2>
+              <p>U kunt cookies beheren of verwijderen via de instellingen van uw webbrowser. Houd er rekening mee dat het blokkeren van essentiële cookies de werking van het ledenportaal kan beïnvloeden — u kunt dan bijvoorbeeld niet ingelogd blijven.</p>
+              <p class="mt-2">Instructies per browser:</p>
+              <ul class="list-disc list-inside mt-2 space-y-1">
+                <li><a href="https://support.google.com/chrome/answer/95647" target="_blank" rel="noopener" class="text-animato-primary hover:underline">Google Chrome</a></li>
+                <li><a href="https://support.mozilla.org/nl/kb/cookies-in-en-uitschakelen-websites-voorkeuren" target="_blank" rel="noopener" class="text-animato-primary hover:underline">Mozilla Firefox</a></li>
+                <li><a href="https://support.apple.com/nl-be/guide/safari/sfri11471/mac" target="_blank" rel="noopener" class="text-animato-primary hover:underline">Safari</a></li>
+                <li><a href="https://support.microsoft.com/nl-be/microsoft-edge/cookies-verwijderen-in-microsoft-edge-63947406-40ac-c3b8-57b9-2a946a29ae09" target="_blank" rel="noopener" class="text-animato-primary hover:underline">Microsoft Edge</a></li>
+              </ul>
+            </section>
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">6. Wijzigingen</h2>
+              <p>Wij behouden ons het recht voor om dit cookiebeleid op elk moment aan te passen. Wijzigingen worden op deze pagina gepubliceerd. Bij ingrijpende wijzigingen informeren wij u actief.</p>
+            </section>
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">7. Contact</h2>
+              <p>Heeft u vragen over ons cookiebeleid? Neem gerust contact op:</p>
+              <p class="mt-2">
+                <strong>Gemengd Koor Animato</strong><br/>
+                E-mail: <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">gemengdkooranimato@gmail.com</a><br/>
+                Adres: Oppuursdorp 15, 2890 Oppuurs
+              </p>
+            </section>
+
+            <section>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">8. Meer informatie</h2>
+              <p>Raadpleeg ook onze <a href="/privacyverklaring" class="text-animato-primary hover:underline">privacyverklaring</a> voor meer informatie over hoe wij omgaan met uw persoonsgegevens.</p>
+              <p class="mt-2">Voor meer informatie over cookies in het algemeen kunt u terecht bij de <a href="https://www.gegevensbeschermingsautoriteit.be" target="_blank" rel="noopener" class="text-animato-primary hover:underline">Belgische Gegevensbeschermingsautoriteit (GBA)</a>.</p>
+            </section>
+
+          </div>
+
+          <div class="mt-12 pt-6 border-t border-gray-200">
+            <a href="/" class="text-animato-primary hover:underline">
+              <i class="fas fa-arrow-left mr-2"></i>Terug naar de startpagina
+            </a>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
 export default app

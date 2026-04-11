@@ -177,14 +177,14 @@ app.get('/admin', async (c) => {
 
             <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
               <div class="flex items-start justify-between gap-2">
-                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Aankomende Events</p>
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Aankomende Activiteiten</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-purple-100 rounded-lg flex items-center justify-center">
                   <i class="fas fa-calendar text-purple-600 text-base"></i>
                 </div>
               </div>
               <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_events?.count || 0}</p>
               <a href="/admin/events" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
-                Beheer events <i class="fas fa-arrow-right text-xs"></i>
+                Beheer activiteiten <i class="fas fa-arrow-right text-xs"></i>
               </a>
             </div>
 
@@ -2258,7 +2258,7 @@ app.get('/admin/content', async (c) => {
                   }`}
                 >
                   <i class="fas fa-calendar mr-2"></i>
-                  Events ({counts.events_all?.count || 0})
+                  Activiteiten ({counts.events_all?.count || 0})
                 </a>
               </nav>
             </div>
@@ -2680,7 +2680,7 @@ app.get('/admin/content/:id', async (c) => {
                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                     >
                       <option value="nieuws" selected={post?.type === 'nieuws' || (!post && contentType !== 'event')}>Nieuws</option>
-                      <option value="event" selected={post?.type === 'event' || (!post && contentType === 'event')}>Event</option>
+                      <option value="event" selected={post?.type === 'event' || (!post && contentType === 'event')}>Activiteit</option>
                       <option value="board" selected={post?.type === 'board'}>Board Post</option>
                     </select>
                   </div>

@@ -83,11 +83,11 @@ app.get('/admin/events', async (c) => {
 
   return c.html(
     <Layout 
-      title="Events Beheer"
+      title="Activiteiten Beheer"
       user={user}
       breadcrumbs={[
         { label: 'Admin', href: '/admin' },
-        { label: 'Events', href: '/admin/events' }
+        { label: 'Activiteiten', href: '/admin/events' }
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
@@ -100,10 +100,10 @@ app.get('/admin/events', async (c) => {
               <div>
                 <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
                   <i class="fas fa-calendar-alt text-purple-600 mr-3"></i>
-                  Events Beheer
+                  Activiteiten Beheer
                 </h1>
                 <p class="mt-2 text-gray-600">
-                  Beheer repetities, concerten en andere events
+                  Beheer repetities, concerten en andere activiteiten
                 </p>
               </div>
               <div class="flex items-center gap-3">
@@ -126,7 +126,7 @@ app.get('/admin/events', async (c) => {
                   class="px-4 py-2 bg-animato-primary text-white hover:bg-animato-secondary rounded-lg transition"
                 >
                   <i class="fas fa-plus mr-2"></i>
-                  Nieuw Event
+                  Nieuwe Activiteit
                 </a>
               </div>
             </div>
@@ -146,10 +146,10 @@ app.get('/admin/events', async (c) => {
                   onchange={`window.location.href='/admin/events?view=' + this.value + '&type=${type}' + '&search=${search}'`}
                   class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary"
                 >
-                  <option value="upcoming" selected={view === 'upcoming'}>Komende Events</option>
-                  <option value="past" selected={view === 'past'}>Afgelopen Events</option>
-                  <option value="recurring" selected={view === 'recurring'}>Terugkerende Events</option>
-                  <option value="all" selected={view === 'all'}>Alle Events</option>
+                  <option value="upcoming" selected={view === 'upcoming'}>Komende Activiteiten</option>
+                  <option value="past" selected={view === 'past'}>Afgelopen Activiteiten</option>
+                  <option value="recurring" selected={view === 'recurring'}>Terugkerende Activiteiten</option>
+                  <option value="all" selected={view === 'all'}>Alle Activiteiten</option>
                 </select>
               </div>
 
@@ -237,7 +237,7 @@ app.get('/admin/events', async (c) => {
                     </th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                       <a href={`/admin/events?view=${view}&type=${type}&search=${search}&sort=titel&order=${sortBy === 'titel' && sortOrder === 'asc' ? 'desc' : 'asc'}`} class="flex items-center hover:text-animato-primary cursor-pointer">
-                        Event
+                        Activiteit
                         {sortBy === 'titel' && (
                           <i class={`fas fa-sort-${sortOrder === 'asc' ? 'up' : 'down'} ml-2 text-animato-primary`}></i>
                         )}
@@ -290,7 +290,7 @@ app.get('/admin/events', async (c) => {
                     <tr>
                       <td colspan="7" class="px-6 py-8 text-center text-gray-500">
                         <i class="fas fa-calendar-times text-4xl mb-2"></i>
-                        <p>Geen events gevonden</p>
+                        <p>Geen activiteiten gevonden</p>
                       </td>
                     </tr>
                   ) : (
@@ -307,7 +307,7 @@ app.get('/admin/events', async (c) => {
                         <td class="px-6 py-4">
                           <div class="flex items-center">
                             {!!event.is_recurring && (
-                              <i class="fas fa-sync text-purple-600 mr-2" title="Terugkerend event"></i>
+                              <i class="fas fa-sync text-purple-600 mr-2" title="Terugkerende activiteit"></i>
                             )}
                             {!!event.parent_event_id && (
                               <i class="fas fa-link text-gray-400 mr-2" title="Onderdeel van reeks"></i>
@@ -395,7 +395,7 @@ app.get('/admin/events', async (c) => {
                                     onclick={`openDeleteModal('/admin/events/${event.id}/delete', 'POST', 'Weet je zeker dat je dit event wilt verwijderen?${event.is_recurring ? '\\n\\nLET OP: Dit verwijdert ALLE herhalingen!' : ''}')`}
                                     class="block w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
                                   >
-                                    <i class="fas fa-trash mr-2"></i>Verwijder Event
+                                    <i class="fas fa-trash mr-2"></i>Verwijder
                                   </button>
                                 </div>
                               </div>
@@ -413,7 +413,7 @@ app.get('/admin/events', async (c) => {
           {/* Stats */}
           <div class="mt-6 grid grid-cols-1 md:grid-cols-4 gap-4">
             <div class="bg-white p-4 rounded-lg shadow">
-              <div class="text-sm text-gray-600">Totaal Events</div>
+              <div class="text-sm text-gray-600">Totaal Activiteiten</div>
               <div class="text-2xl font-bold text-gray-900">{events.length}</div>
             </div>
             <div class="bg-white p-4 rounded-lg shadow">
@@ -498,7 +498,7 @@ app.get('/admin/events', async (c) => {
             const eventIds = Array.from(checkboxes).map(cb => cb.dataset.eventId);
             
             if (eventIds.length === 0) {
-              alert('Geen events geselecteerd');
+              alert('Geen activiteiten geselecteerd');
               return;
             }
 
@@ -507,7 +507,7 @@ app.get('/admin/events', async (c) => {
             const modalBody = document.getElementById('deleteModalBody');
             
             modalBody.innerText = 'Weet je zeker dat je ' + eventIds.length + ' event(s) wilt verwijderen?\\n\\n' +
-              'Let op: Als je terugkerende events verwijdert, worden ALLE occurrences verwijderd!';
+              'Let op: Als je terugkerende activiteiten verwijdert, worden ALLE occurrences verwijderd!';
             
             // Override the onclick handler for this specific action
             const newConfirmBtn = confirmBtn.cloneNode(true);
@@ -519,7 +519,7 @@ app.get('/admin/events', async (c) => {
               // Show loading state
               const bulkBar = document.getElementById('bulkActionsBar');
               const originalHTML = bulkBar.innerHTML;
-              bulkBar.innerHTML = '<div class="text-center py-2"><i class="fas fa-spinner fa-spin mr-2"></i>Events verwijderen...</div>';
+              bulkBar.innerHTML = '<div class="text-center py-2"><i class="fas fa-spinner fa-spin mr-2"></i>Activiteiten verwijderen...</div>';
 
               try {
                 // Delete events one by one
@@ -533,7 +533,7 @@ app.get('/admin/events', async (c) => {
                 location.reload();
               } catch (error) {
                 bulkBar.innerHTML = originalHTML;
-                alert('Er is een fout opgetreden bij het verwijderen van events');
+                alert('Er is een fout opgetreden bij het verwijderen van activiteiten');
                 console.error('Delete error:', error);
               }
             });
@@ -546,7 +546,7 @@ app.get('/admin/events', async (c) => {
             const eventIds = Array.from(checkboxes).map(cb => cb.dataset.eventId);
             
             if (eventIds.length === 0) {
-              alert('Geen events geselecteerd');
+              alert('Geen activiteiten geselecteerd');
               return;
             }
 
@@ -691,12 +691,12 @@ app.get('/admin/events/nieuw', async (c) => {
 
   return c.html(
     <Layout 
-      title="Nieuw Event"
+      title="Nieuwe Activiteit"
       user={user}
       breadcrumbs={[
         { label: 'Admin', href: '/admin' },
-        { label: 'Events', href: '/admin/events' },
-        { label: 'Nieuw Event', href: '/admin/events/nieuw' }
+        { label: 'Activiteiten', href: '/admin/events' },
+        { label: 'Nieuwe Activiteit', href: '/admin/events/nieuw' }
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
@@ -740,11 +740,11 @@ app.get('/admin/events/:id', async (c) => {
 
   return c.html(
     <Layout 
-      title={`Bewerk Event: ${event.titel}`}
+      title={`Bewerk Activiteit: ${event.titel}`}
       user={user}
       breadcrumbs={[
         { label: 'Admin', href: '/admin' },
-        { label: 'Events', href: '/admin/events' },
+        { label: 'Activiteiten', href: '/admin/events' },
         { label: 'Bewerken', href: `/admin/events/${id}` }
       ]}
     >
@@ -1183,7 +1183,7 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
               {/* Type */}
               <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-700 mb-2">
-                  Event Type *
+                  Type *
                 </label>
                 <select
                   name="type"
@@ -1492,7 +1492,7 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
             <div class="mb-8">
               <h2 class="text-xl font-bold text-gray-900 mb-4 pb-2 border-b">
                 <i class="fas fa-sync text-purple-600 mr-2"></i>
-                Terugkerend Event
+                Terugkerende Activiteit
               </h2>
 
               {/* Enable Recurring */}
@@ -1768,7 +1768,7 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
                 class="px-6 py-2 bg-animato-primary text-white hover:bg-animato-secondary rounded-lg transition"
               >
                 <i class="fas fa-save mr-2"></i>
-                {isEdit ? 'Wijzigingen Opslaan' : 'Event Aanmaken'}
+                {isEdit ? 'Wijzigingen Opslaan' : 'Activiteit Aanmaken'}
               </button>
             </div>
           </form>

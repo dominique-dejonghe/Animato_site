@@ -76,7 +76,7 @@ app.get('/admin/locations', async (c) => {
       user={user}
       breadcrumbs={[
         { label: 'Admin', href: '/admin' },
-        { label: 'Events', href: '/admin/events' },
+        { label: 'Activiteiten', href: '/admin/events' },
         { label: 'Locaties', href: '/admin/locations' }
       ]}
     >
@@ -100,7 +100,7 @@ app.get('/admin/locations', async (c) => {
                   class="px-4 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg transition"
                 >
                   <i class="fas fa-calendar-alt mr-2"></i>
-                  Terug naar Events
+                  Terug naar Activiteiten
                 </a>
                 <a
                   href="/admin/locations/nieuw"
@@ -379,7 +379,7 @@ app.get('/admin/locations/nieuw', async (c) => {
       user={user}
       breadcrumbs={[
         { label: 'Admin', href: '/admin' },
-        { label: 'Events', href: '/admin/events' },
+        { label: 'Activiteiten', href: '/admin/events' },
         { label: 'Locaties', href: '/admin/locations' },
         { label: 'Nieuw', href: '/admin/locations/nieuw' }
       ]}
@@ -409,7 +409,7 @@ app.get('/admin/locations/:id', async (c) => {
       user={user}
       breadcrumbs={[
         { label: 'Admin', href: '/admin' },
-        { label: 'Events', href: '/admin/events' },
+        { label: 'Activiteiten', href: '/admin/events' },
         { label: 'Locaties', href: '/admin/locations' },
         { label: 'Bewerken', href: `/admin/locations/${id}` }
       ]}

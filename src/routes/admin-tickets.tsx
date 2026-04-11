@@ -271,7 +271,7 @@ app.get('/admin/tickets', async (c) => {
                         class="w-full bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50 transition text-center"
                       >
                         <i class="fas fa-edit mr-2"></i>
-                        Event Bewerken
+                        Activiteit Bewerken
                       </a>
                     </div>
                   </div>

@@ -138,7 +138,7 @@ function renderCalendarView(
               </a>
               <a href="/admin/events/nieuw" class="px-4 py-2 bg-animato-primary text-white hover:bg-animato-secondary rounded-lg transition">
                 <i class="fas fa-plus mr-2"></i>
-                Nieuw Event
+                Nieuwe Activiteit
               </a>
             </div>
           </div>

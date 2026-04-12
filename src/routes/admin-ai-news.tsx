@@ -79,74 +79,69 @@ function parseLLMJson<T = any>(content: string): T {
   return JSON.parse(cleaned)
 }
 
-/** Perform a real web search using Google search scraping */
+/** Perform a real web search using DuckDuckGo HTML (reliable, no CAPTCHA) */
 async function webSearch(query: string, numResults: number = 8): Promise<Array<{title: string; snippet: string; url: string; source: string}>> {
   const results: Array<{title: string; snippet: string; url: string; source: string}> = []
   
-  // Use Google search via HTML parsing
-  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${numResults}&hl=nl&gl=be`
-  
   try {
+    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`
+    
     const response = await fetch(searchUrl, {
+      method: 'POST',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'nl-BE,nl;q=0.9'
-      }
+        'Accept-Language': 'nl-BE,nl;q=0.9',
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: `q=${encodeURIComponent(query)}`
     })
     
     const html = await response.text()
     
-    // Extract search results from Google HTML
-    // Google wraps results in <div class="g"> blocks
-    const resultRegex = /<a href="\/url\?q=([^&"]+).*?<h3[^>]*>(.*?)<\/h3>.*?<span[^>]*>(.*?)<\/span>/gs
-    const altRegex = /<a href="(https?:\/\/[^"]+)"[^>]*>.*?<h3[^>]*>(.*?)<\/h3>/gs
+    // DuckDuckGo HTML results are in blocks with class "result results_links"
+    const blocks = html.split('class="result results_links')
     
-    // Try to parse structured results
-    const blocks = html.split('<div class="g"')
-    for (const block of blocks.slice(1)) { // skip first empty split
-      // Extract URL
-      const urlMatch = block.match(/href="\/url\?q=(https?:\/\/[^&"]+)/) || block.match(/href="(https?:\/\/(?!google\.com)[^"]+)"/)
-      // Extract title from h3
-      const titleMatch = block.match(/<h3[^>]*>(.*?)<\/h3>/)
-      // Extract snippet text
-      const snippetMatch = block.match(/<span[^>]*class="[^"]*st[^"]*"[^>]*>(.*?)<\/span>/) || 
-                          block.match(/<div[^>]*data-sncf[^>]*>(.*?)<\/div>/) ||
-                          block.match(/<div class="[^"]*VwiC3b[^"]*"[^>]*>(.*?)<\/div>/)
+    for (const block of blocks.slice(1)) {
+      if (results.length >= numResults) break
+      
+      // Extract URL from uddg parameter
+      const urlMatch = block.match(/uddg=(https?[^&"]+)/)
+      // Extract title
+      const titleMatch = block.match(/class="result__a"[^>]*>(.*?)<\/a>/s)
+      // Extract snippet
+      const snippetMatch = block.match(/class="result__snippet"[^>]*>(.*?)<\/(?:a|span)/s)
       
       if (urlMatch && titleMatch) {
-        const url = decodeURIComponent(urlMatch[1]).split('&')[0]
-        const title = titleMatch[1].replace(/<[^>]+>/g, '').trim()
-        const snippet = snippetMatch 
-          ? snippetMatch[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim()
-          : ''
+        // Decode the URL
+        let url = urlMatch[1]
+        try {
+          url = decodeURIComponent(url)
+        } catch(e) {
+          url = url.replace(/%3A/g, ':').replace(/%2F/g, '/').replace(/%2D/g, '-').replace(/%2E/g, '.').replace(/%3F/g, '?').replace(/%3D/g, '=').replace(/%26/g, '&')
+        }
+        
+        // Clean title (remove HTML tags)
+        const title = titleMatch[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x27;/g, "'").replace(/&quot;/g, '"').trim()
+        
+        // Clean snippet
+        let snippet = ''
+        if (snippetMatch) {
+          snippet = snippetMatch[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x27;/g, "'").replace(/&quot;/g, '"').trim()
+        }
         
         // Extract source domain
         const sourceMatch = url.match(/https?:\/\/(?:www\.)?([^\/]+)/)
         const source = sourceMatch ? sourceMatch[1] : 'Onbekend'
         
-        if (title && url && !url.includes('google.com')) {
-          results.push({ title, snippet: snippet || 'Geen samenvatting beschikbaar.', url, source })
+        if (title && url.startsWith('http')) {
+          results.push({ 
+            title, 
+            snippet: snippet || 'Klik door voor meer informatie.', 
+            url, 
+            source 
+          })
         }
-      }
-      
-      if (results.length >= numResults) break
-    }
-
-    // If structured parsing fails, try simple regex on the whole HTML
-    if (results.length === 0) {
-      const simpleRegex = /href="\/url\?q=(https?:\/\/(?!google)[^&"]+)[^"]*"[^>]*>.*?<h3[^>]*>(.*?)<\/h3>/gs
-      let match
-      while ((match = simpleRegex.exec(html)) !== null && results.length < numResults) {
-        const url = decodeURIComponent(match[1]).split('&')[0]
-        const title = match[2].replace(/<[^>]+>/g, '').trim()
-        const sourceMatch = url.match(/https?:\/\/(?:www\.)?([^\/]+)/)
-        results.push({
-          title,
-          snippet: 'Klik door voor meer informatie.',
-          url,
-          source: sourceMatch ? sourceMatch[1] : 'Onbekend'
-        })
       }
     }
   } catch (e: any) {

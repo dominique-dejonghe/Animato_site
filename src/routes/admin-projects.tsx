@@ -17,29 +17,28 @@ app.use('*', requireRole('admin', 'moderator'))
 app.get('/admin/projects', async (c) => {
   const user = c.get('user') as SessionUser
 
-  // Get all projects with event info
+  // Get all projects with optional event info
   const projects = await queryAll(
     c.env.DB,
-    `SELECT p.*, e.titel as event_titel, e.start_at,
+    `SELECT p.*, e.titel as event_titel, e.start_at, e.type as event_type,
             (SELECT COUNT(*) FROM concert_project_tasks WHERE project_id = p.id) as total_tasks,
             (SELECT COUNT(*) FROM concert_project_tasks WHERE project_id = p.id AND status = 'done') as completed_tasks
      FROM concert_projects p
-     JOIN events e ON e.id = p.event_id
-     ORDER BY e.start_at DESC`
+     LEFT JOIN events e ON e.id = p.event_id
+     ORDER BY p.created_at DESC`
   )
 
-  // Get available concerts without projects
-  const availableConcerts = await queryAll(
+  // Get available events (concerts + other) that can be linked
+  const availableEvents = await queryAll(
     c.env.DB,
-    `SELECT id, titel, start_at 
+    `SELECT id, titel, start_at, type 
      FROM events 
-     WHERE type = 'concert' 
-       AND id NOT IN (SELECT event_id FROM concert_projects)
-     ORDER BY start_at ASC`
+     WHERE id NOT IN (SELECT event_id FROM concert_projects WHERE event_id IS NOT NULL)
+     ORDER BY start_at DESC`
   )
 
   return c.html(
-    <Layout title="Concert Projecten" user={user}>
+    <Layout title="Projecten" user={user}>
       <div class="flex min-h-screen bg-gray-100">
         {/* Sidebar (simplified for brevity, normally imported) */}
         <AdminSidebar activeSection="projects" />
@@ -48,7 +47,7 @@ app.get('/admin/projects', async (c) => {
         <div class="flex-1 p-8 overflow-y-auto">
           <div class="flex justify-between items-center mb-8">
             <h1 class="text-3xl font-bold text-gray-800" style="font-family: 'Playfair Display', serif;">
-              Concert Projecten
+              Projecten
             </h1>
           </div>
 
@@ -80,18 +79,18 @@ app.get('/admin/projects', async (c) => {
               <h3 class="text-lg font-semibold text-gray-700">Projecten Overzicht</h3>
               
               {/* Create Project Modal Trigger */}
-              {availableConcerts.length > 0 && (
-                <button onclick="document.getElementById('create-project-modal').classList.remove('hidden')" class="bg-animato-primary text-white px-4 py-2 rounded hover:bg-animato-secondary transition text-sm">
-                  <i class="fas fa-plus mr-2"></i>Nieuw Project Starten
-                </button>
-              )}
+              <button onclick="document.getElementById('create-project-modal').classList.remove('hidden')" class="bg-animato-primary text-white px-4 py-2 rounded hover:bg-animato-secondary transition text-sm">
+                <i class="fas fa-plus mr-2"></i>Nieuw Project Starten
+              </button>
             </div>
 
             {projects.length > 0 ? (
+              <div class="overflow-x-auto">
               <table class="min-w-full divide-y divide-gray-200">
                 <thead class="bg-gray-50">
                   <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project / Concert</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
+                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Taken voortgang</th>
                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Budget Balans</th>
@@ -110,16 +109,54 @@ app.get('/admin/projects', async (c) => {
                       <tr class="hover:bg-gray-50">
                         <td class="px-6 py-4 whitespace-nowrap">
                           <div class="flex items-center">
-                            <div class="flex-shrink-0 h-10 w-10 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center text-animato-primary">
-                              <i class="fas fa-tasks"></i>
+                            <div class={`flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center ${
+                              project.categorie === 'concert' ? 'bg-purple-100 text-purple-600' :
+                              project.categorie === 'evenement' ? 'bg-blue-100 text-blue-600' :
+                              project.categorie === 'organisatie' ? 'bg-amber-100 text-amber-600' :
+                              project.categorie === 'financieel' ? 'bg-green-100 text-green-600' :
+                              project.categorie === 'communicatie' ? 'bg-pink-100 text-pink-600' :
+                              project.categorie === 'materiaal' ? 'bg-indigo-100 text-indigo-600' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>
+                              <i class={`fas ${
+                                project.categorie === 'concert' ? 'fa-music' :
+                                project.categorie === 'evenement' ? 'fa-calendar-star' :
+                                project.categorie === 'organisatie' ? 'fa-bus' :
+                                project.categorie === 'financieel' ? 'fa-euro-sign' :
+                                project.categorie === 'communicatie' ? 'fa-bullhorn' :
+                                project.categorie === 'materiaal' ? 'fa-box' :
+                                'fa-tasks'
+                              }`}></i>
                             </div>
                             <div class="ml-4">
                               <div class="text-sm font-medium text-gray-900">{project.titel}</div>
                               <div class="text-sm text-gray-500">
-                                {new Date(project.start_at).toLocaleDateString('nl-BE', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                {project.event_titel ? (
+                                  <span><i class="fas fa-link text-xs mr-1"></i>{project.event_titel}</span>
+                                ) : (
+                                  <span class="italic">Losstaand project</span>
+                                )}
+                                {project.start_at && (
+                                  <span class="ml-2 text-xs">
+                                    ({new Date(project.start_at).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short', year: 'numeric' })})
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
+                        </td>
+                        <td class="px-6 py-4 whitespace-nowrap">
+                          <span class={`px-2 py-1 text-xs rounded-full font-medium ${
+                            project.categorie === 'concert' ? 'bg-purple-100 text-purple-700' :
+                            project.categorie === 'evenement' ? 'bg-blue-100 text-blue-700' :
+                            project.categorie === 'organisatie' ? 'bg-amber-100 text-amber-700' :
+                            project.categorie === 'financieel' ? 'bg-green-100 text-green-700' :
+                            project.categorie === 'communicatie' ? 'bg-pink-100 text-pink-700' :
+                            project.categorie === 'materiaal' ? 'bg-indigo-100 text-indigo-700' :
+                            'bg-gray-100 text-gray-700'
+                          }`}>
+                            {project.categorie || 'algemeen'}
+                          </span>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap">
                           <span class={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -160,15 +197,15 @@ app.get('/admin/projects', async (c) => {
                   })}
                 </tbody>
               </table>
+              </div>
             ) : (
               <div class="p-8 text-center text-gray-500">
                 <i class="fas fa-clipboard-list text-4xl mb-3 text-gray-300"></i>
                 <p>Nog geen projecten gestart.</p>
-                {availableConcerts.length > 0 ? (
-                  <p class="text-sm mt-2">Kies een concert om een project te starten.</p>
-                ) : (
-                  <p class="text-sm mt-2">Maak eerst een concert aan in de agenda.</p>
-                )}
+                <p class="text-sm mt-2">Start een project — gekoppeld aan een concert/event, of losstaand (bijv. busreis, ledenwerving).</p>
+                <button onclick="document.getElementById('create-project-modal').classList.remove('hidden')" class="mt-4 bg-animato-primary text-white px-6 py-2 rounded-lg hover:bg-animato-secondary transition">
+                  <i class="fas fa-plus mr-2"></i>Start je eerste project
+                </button>
               </div>
             )}
           </div>
@@ -186,19 +223,42 @@ app.get('/admin/projects', async (c) => {
                     </h3>
                     <form action="/api/admin/projects/create" method="POST">
                       <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Kies Concert</label>
-                        <select name="event_id" required class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
-                          <option value="">Selecteer een concert...</option>
-                          {availableConcerts.map((concert: any) => (
-                            <option value={concert.id}>
-                              {concert.titel} ({new Date(concert.start_at).toLocaleDateString()})
-                            </option>
-                          ))}
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Project Titel</label>
+                        <input type="text" name="titel" required placeholder="bv. Organisatie Busreis, Lenteconcert 2026, Ledenwerving..." class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                      </div>
+                      <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Categorie</label>
+                        <select name="categorie" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
+                          <option value="algemeen">Algemeen</option>
+                          <option value="concert">Concert</option>
+                          <option value="evenement">Evenement / Uitstap</option>
+                          <option value="organisatie">Organisatie (busreis, teambuilding...)</option>
+                          <option value="financieel">Financieel (sponsoring, fondsenwerving...)</option>
+                          <option value="communicatie">Communicatie (website, flyers...)</option>
+                          <option value="materiaal">Materiaal (uniformen, partituren...)</option>
                         </select>
                       </div>
                       <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Project Titel</label>
-                        <input type="text" name="titel" required placeholder="bv. Organisatie Lenteconcert" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                        <label class="block text-sm font-medium text-gray-700 mb-1">
+                          Koppel aan activiteit <span class="text-gray-400 font-normal">(optioneel)</span>
+                        </label>
+                        <select name="event_id" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
+                          <option value="">Geen — losstaand project</option>
+                          {availableEvents.length > 0 && (
+                            <optgroup label="Beschikbare activiteiten">
+                              {availableEvents.map((evt: any) => (
+                                <option value={evt.id}>
+                                  {evt.type === 'concert' ? '🎵' : evt.type === 'repetitie' ? '🎼' : '📅'} {evt.titel} ({new Date(evt.start_at).toLocaleDateString('nl-BE')})
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                        <p class="text-xs text-gray-400 mt-1">Koppel optioneel aan een concert of event uit de agenda</p>
+                      </div>
+                      <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Beschrijving <span class="text-gray-400 font-normal">(optioneel)</span></label>
+                        <textarea name="beschrijving" rows={2} placeholder="Korte beschrijving van het project..." class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary"></textarea>
                       </div>
                       <div class="flex justify-end gap-3 mt-6">
                         <button type="button" onclick="document.getElementById('create-project-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition">Annuleren</button>
@@ -302,19 +362,20 @@ app.post('/api/admin/projects/create', async (c) => {
   const body = await c.req.parseBody()
   
   try {
-    const { event_id, titel } = body
+    const { titel, categorie, beschrijving } = body
+    const event_id = body.event_id ? body.event_id : null
     
     // Create project
-    await c.env.DB.prepare(
-      `INSERT INTO concert_projects (event_id, titel, status, beschrijving) 
-       VALUES (?, ?, 'planning', 'Automatisch aangemaakt project')`
-    ).bind(event_id, titel).run()
+    const result = await c.env.DB.prepare(
+      `INSERT INTO concert_projects (event_id, titel, categorie, status, beschrijving) 
+       VALUES (?, ?, ?, 'planning', ?)`
+    ).bind(event_id, titel, categorie || 'algemeen', beschrijving || null).run()
 
     // Audit log
     await c.env.DB.prepare(
       `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
        VALUES (?, 'project_created', 'project', ?, ?)`
-    ).bind(user.id, event_id, JSON.stringify({ titel })).run()
+    ).bind(user.id, result.meta.last_row_id, JSON.stringify({ titel, categorie, event_id })).run()
 
     return c.redirect('/admin/projects?success=created')
   } catch (error) {
@@ -335,9 +396,9 @@ app.get('/admin/projects/:id', async (c) => {
   // Get project info
   const project = await queryOne<any>(
     c.env.DB,
-    `SELECT p.*, e.titel as event_titel, e.start_at, e.locatie, e.location_id
+    `SELECT p.*, e.titel as event_titel, e.start_at, e.locatie, e.location_id, e.type as event_type
      FROM concert_projects p
-     JOIN events e ON e.id = p.event_id
+     LEFT JOIN events e ON e.id = p.event_id
      WHERE p.id = ?`,
     [projectId]
   )
@@ -382,14 +443,13 @@ app.get('/admin/projects/:id', async (c) => {
      ORDER BY p.voornaam`
   )
 
-  // Get available concerts for edit dropdown (current project's event + unassigned concerts)
-  const availableConcerts = await queryAll(
+  // Get available events for edit dropdown (current project's event + unassigned events)
+  const availableEvents = await queryAll(
     c.env.DB,
-    `SELECT id, titel, start_at 
+    `SELECT id, titel, start_at, type 
      FROM events 
-     WHERE type = 'concert' 
-       AND id NOT IN (SELECT event_id FROM concert_projects WHERE id != ?)
-     ORDER BY start_at ASC`,
+     WHERE id NOT IN (SELECT event_id FROM concert_projects WHERE event_id IS NOT NULL AND id != ?)
+     ORDER BY start_at DESC`,
     [projectId]
   )
 
@@ -430,12 +490,39 @@ app.get('/admin/projects/:id', async (c) => {
                       <i class="fas fa-edit"></i>
                     </button>
                   </h1>
-                  <p class="text-gray-600 mt-1">
-                    <i class="fas fa-calendar mr-2"></i>
-                    {new Date(project.start_at).toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-                    <span class="mx-2">•</span>
-                    <i class="fas fa-map-marker-alt mr-2"></i>
-                    {project.locatie}
+                  <p class="text-gray-600 mt-1 flex items-center flex-wrap gap-2">
+                    <span class={`px-2 py-0.5 text-xs rounded-full font-medium ${
+                      project.categorie === 'concert' ? 'bg-purple-100 text-purple-700' :
+                      project.categorie === 'evenement' ? 'bg-blue-100 text-blue-700' :
+                      project.categorie === 'organisatie' ? 'bg-amber-100 text-amber-700' :
+                      project.categorie === 'financieel' ? 'bg-green-100 text-green-700' :
+                      project.categorie === 'communicatie' ? 'bg-pink-100 text-pink-700' :
+                      project.categorie === 'materiaal' ? 'bg-indigo-100 text-indigo-700' :
+                      'bg-gray-100 text-gray-700'
+                    }`}>
+                      {project.categorie || 'algemeen'}
+                    </span>
+                    {project.event_titel && (
+                      <span>
+                        <i class="fas fa-link text-xs mr-1"></i>
+                        {project.event_titel}
+                      </span>
+                    )}
+                    {project.start_at && (
+                      <span>
+                        <i class="fas fa-calendar mr-1"></i>
+                        {new Date(project.start_at).toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                      </span>
+                    )}
+                    {project.locatie && (
+                      <span>
+                        <i class="fas fa-map-marker-alt mr-1"></i>
+                        {project.locatie}
+                      </span>
+                    )}
+                    {!project.event_titel && (
+                      <span class="italic text-gray-400">Losstaand project</span>
+                    )}
                   </p>
                </div>
                <div class="flex gap-2 items-center">
@@ -474,21 +561,38 @@ app.get('/admin/projects/:id', async (c) => {
                         <label class="block text-sm font-medium text-gray-700 mb-1">Project Titel</label>
                         <input type="text" name="titel" value={project.titel} required class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
                       </div>
-                      <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                        <select name="status" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
-                          <option value="planning" selected={project.status === 'planning'}>In Planning</option>
-                          <option value="in_uitvoering" selected={project.status === 'in_uitvoering'}>In Uitvoering</option>
-                          <option value="afgerond" selected={project.status === 'afgerond'}>Afgerond</option>
-                          <option value="geannuleerd" selected={project.status === 'geannuleerd'}>Geannuleerd</option>
-                        </select>
+                      <div class="grid grid-cols-2 gap-4 mb-4">
+                        <div>
+                          <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                          <select name="status" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
+                            <option value="planning" selected={project.status === 'planning'}>In Planning</option>
+                            <option value="in_uitvoering" selected={project.status === 'in_uitvoering'}>In Uitvoering</option>
+                            <option value="afgerond" selected={project.status === 'afgerond'}>Afgerond</option>
+                            <option value="geannuleerd" selected={project.status === 'geannuleerd'}>Geannuleerd</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label class="block text-sm font-medium text-gray-700 mb-1">Categorie</label>
+                          <select name="categorie" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
+                            <option value="algemeen" selected={project.categorie === 'algemeen'}>Algemeen</option>
+                            <option value="concert" selected={project.categorie === 'concert'}>Concert</option>
+                            <option value="evenement" selected={project.categorie === 'evenement'}>Evenement / Uitstap</option>
+                            <option value="organisatie" selected={project.categorie === 'organisatie'}>Organisatie</option>
+                            <option value="financieel" selected={project.categorie === 'financieel'}>Financieel</option>
+                            <option value="communicatie" selected={project.categorie === 'communicatie'}>Communicatie</option>
+                            <option value="materiaal" selected={project.categorie === 'materiaal'}>Materiaal</option>
+                          </select>
+                        </div>
                       </div>
                       <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Koppel aan Concert</label>
-                        <select name="event_id" required class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
-                          {availableConcerts.map((concert: any) => (
-                            <option value={concert.id} selected={concert.id === project.event_id}>
-                              {concert.titel} ({new Date(concert.start_at).toLocaleDateString()})
+                        <label class="block text-sm font-medium text-gray-700 mb-1">
+                          Koppel aan activiteit <span class="text-gray-400 font-normal">(optioneel)</span>
+                        </label>
+                        <select name="event_id" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
+                          <option value="">Geen — losstaand project</option>
+                          {availableEvents.map((evt: any) => (
+                            <option value={evt.id} selected={evt.id === project.event_id}>
+                              {evt.type === 'concert' ? '\ud83c\udfb5' : evt.type === 'repetitie' ? '\ud83c\udfbc' : '\ud83d\udcc5'} {evt.titel} ({new Date(evt.start_at).toLocaleDateString('nl-BE')})
                             </option>
                           ))}
                         </select>
@@ -537,12 +641,17 @@ app.get('/admin/projects/:id', async (c) => {
                   
                   {/* Days left */}
                   <div class="bg-white p-6 rounded-lg shadow border-t-4 border-purple-500">
-                     <h3 class="text-gray-500 text-sm font-semibold uppercase">Dagen te gaan</h3>
+                     <h3 class="text-gray-500 text-sm font-semibold uppercase">
+                       {project.start_at ? 'Dagen te gaan' : 'Project Status'}
+                     </h3>
                      <div class="mt-2 text-3xl font-bold text-gray-800">
-                        {Math.ceil((new Date(project.start_at).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))}
+                        {project.start_at 
+                          ? Math.ceil((new Date(project.start_at).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+                          : <span class="text-lg capitalize">{(project.status || 'planning').replace('_', ' ')}</span>
+                        }
                      </div>
                      <div class="text-xs text-gray-500 mt-2">
-                        Tot concertdatum
+                        {project.start_at ? 'Tot eventdatum' : 'Losstaand project — geen einddatum'}
                      </div>
                   </div>
                </div>
@@ -1145,11 +1254,12 @@ app.get('/admin/projects/:id', async (c) => {
 app.post('/api/admin/projects/:id/update', async (c) => {
   const projectId = c.req.param('id')
   const body = await c.req.parseBody()
-  const { titel, status, event_id } = body
+  const { titel, status, categorie } = body
+  const event_id = body.event_id ? body.event_id : null
   
   await c.env.DB.prepare(
-    `UPDATE concert_projects SET titel = ?, status = ?, event_id = ? WHERE id = ?`
-  ).bind(titel, status, event_id, projectId).run()
+    `UPDATE concert_projects SET titel = ?, status = ?, event_id = ?, categorie = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+  ).bind(titel, status, event_id, categorie || 'algemeen', projectId).run()
 
   return c.redirect(`/admin/projects/${projectId}?tab=dashboard`)
 })

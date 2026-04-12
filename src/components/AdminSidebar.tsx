@@ -18,7 +18,7 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({ activeSection = 'dashboard
     { id: 'finance', label: 'Financiën & Lidgeld', href: '/admin/lidgelden', icon: 'fas fa-euro-sign' },
     { id: 'communications', label: 'Communicatie', href: '/admin/communicatie', icon: 'fas fa-envelope' },
     { id: 'meetings', label: 'Vergaderingen', href: '/admin/meetings', icon: 'fas fa-handshake' },
-    { id: 'projects', label: 'Concert Projecten', href: '/admin/projects', icon: 'fas fa-project-diagram' },
+    { id: 'projects', label: 'Projecten', href: '/admin/projects', icon: 'fas fa-project-diagram' },
     { id: 'prints', label: 'Afdrukken', href: '/admin/prints', icon: 'fas fa-print' },
     { id: 'materials', label: 'Materiaal', href: '/admin/bestanden', icon: 'fas fa-music' },
     { id: 'photos', label: 'Fotoboek', href: '/admin/fotoboek', icon: 'fas fa-images' },

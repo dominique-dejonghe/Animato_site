@@ -405,6 +405,10 @@ app.get('/admin/ai-nieuws', async (c) => {
         let currentImagePrompt = '';
         let loadingInterval = null;
 
+        function handleImageError(img) {
+          img.parentElement.innerHTML = '<div class="text-center text-red-400 py-8"><i class="fas fa-exclamation-triangle text-2xl mb-2"></i><p class="text-sm">Afbeelding kon niet geladen worden</p></div>';
+        }
+
         // ===== LOADING ANIMATION =====
         function showLoading(text, subtext) {
           document.getElementById('loadingState').classList.remove('hidden');
@@ -608,7 +612,7 @@ app.get('/admin/ai-nieuws', async (c) => {
 
             if (data.imageUrl) {
               generatedImageUrl = data.imageUrl;
-              preview.innerHTML = '<img src="' + data.imageUrl + '" class="w-full h-full object-cover rounded-lg" alt="AI-gegenereerde afbeelding" onerror="this.parentElement.innerHTML=\\'<div class=\\\\'text-center text-red-400 py-8\\\\'><i class=\\\\'fas fa-exclamation-triangle text-2xl mb-2\\\\'></i><p class=\\\\'text-sm\\\\'>Afbeelding kon niet geladen worden</p></div>\\'" />' +
+              preview.innerHTML = '<img src="' + data.imageUrl + '" class="w-full h-full object-cover rounded-lg" alt="AI-gegenereerde afbeelding" onerror="handleImageError(this)" />' +
                 '<div class="absolute bottom-2 right-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded"><i class="fas fa-robot mr-1"></i>AI Generated</div>';
             } else {
               preview.innerHTML = '<div class="text-center text-gray-400 py-8"><i class="fas fa-image text-3xl mb-2"></i><p class="text-sm">' + (data.error || 'Geen afbeelding gegenereerd') + '</p><button onclick="regenerateImage()" class="mt-2 text-purple-600 hover:underline text-sm">Opnieuw proberen</button></div>';

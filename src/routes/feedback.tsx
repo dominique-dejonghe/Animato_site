@@ -134,6 +134,13 @@ app.post('/api/feedback/:id/comments', async (c) => {
         `UPDATE feedback SET status = 'in_progress', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'open'`,
         [feedbackId]
       )
+    } else {
+      // If user replies to 'meer_info_nodig', set back to 'open' (info provided)
+      await execute(
+        c.env.DB,
+        `UPDATE feedback SET status = 'open', updated_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'meer_info_nodig'`,
+        [feedbackId]
+      )
     }
 
     return c.json({ success: true })
@@ -156,6 +163,7 @@ app.post('/api/feedback', async (c) => {
     const message = body.message as string
     const url = body.url as string
     const screenshot = body.screenshot as string || null
+    const browserInfo = body.browser_info as string || null
 
     if (!message) return c.json({ error: 'Message required' }, 400)
 
@@ -166,8 +174,8 @@ app.post('/api/feedback', async (c) => {
 
     await execute(
       c.env.DB,
-      `INSERT INTO feedback (user_id, type, message, url, screenshot, status) VALUES (?, ?, ?, ?, ?, 'open')`,
-      [user.id, type, message, url, screenshot]
+      `INSERT INTO feedback (user_id, type, message, url, screenshot, browser_info, status) VALUES (?, ?, ?, ?, ?, ?, 'open')`,
+      [user.id, type, message, url, screenshot, browserInfo]
     )
 
     return c.json({ success: true })

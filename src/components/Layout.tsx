@@ -503,13 +503,17 @@ export const Layout: FC<LayoutProps> = ({
                     const typeLabels = { bug: '🐛 Bug', feature: '💡 Idee', other: '📝 Anders' };
                     const statusColors = {
                         open: 'bg-blue-100 text-blue-700',
+                        meer_info_nodig: 'bg-orange-100 text-orange-700',
                         in_progress: 'bg-yellow-100 text-yellow-700',
+                        hertesten: 'bg-purple-100 text-purple-700',
                         resolved: 'bg-green-100 text-green-700',
                         rejected: 'bg-red-50 text-red-500'
                     };
                     const statusLabels = {
                         open: 'Open',
+                        meer_info_nodig: '\u26a0\ufe0f Meer info nodig',
                         in_progress: 'In behandeling',
+                        hertesten: '\ud83d\udd01 Hertesten',
                         resolved: 'Opgelost',
                         rejected: 'Afgewezen'
                     };
@@ -522,6 +526,11 @@ export const Layout: FC<LayoutProps> = ({
                         const hasComments = item.comment_count > 0;
                         const hasNewReplies = item.unread_admin_replies > 0;
                         
+                        const actionBadge = item.status === 'hertesten'
+                            ? '<span style="display:inline-flex;align-items:center;gap:2px;background:#f3e8ff;color:#7c3aed;font-size:10px;font-weight:600;padding:1px 6px;border-radius:9999px;animation:pulse 2s infinite;"><i class="fas fa-sync-alt"></i> Graag hertesten!</span>'
+                            : item.status === 'meer_info_nodig'
+                            ? '<span style="display:inline-flex;align-items:center;gap:2px;background:#fff7ed;color:#ea580c;font-size:10px;font-weight:600;padding:1px 6px;border-radius:9999px;animation:pulse 2s infinite;"><i class="fas fa-question-circle"></i> Info gevraagd</span>'
+                            : '';
                         const commentBadge = hasNewReplies 
                             ? '<span style="display:inline-flex;align-items:center;gap:2px;background:#fef3c7;color:#d97706;font-size:10px;font-weight:600;padding:1px 6px;border-radius:9999px;"><i class="fas fa-comment-dots"></i> Nieuw antwoord</span>'
                             : hasComments 
@@ -535,6 +544,7 @@ export const Layout: FC<LayoutProps> = ({
                             '<span class="text-xs text-gray-500">' + tLabel + '</span>' +
                             '<span class="text-gray-300">&middot;</span>' +
                             '<span class="text-xs text-gray-400">' + date + '</span>' +
+                            actionBadge +
                             commentBadge +
                             '</div>' +
                             '<p class="text-xs text-gray-700 leading-relaxed" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">' + _escHtml(item.message) + '</p>' +
@@ -588,8 +598,8 @@ export const Layout: FC<LayoutProps> = ({
                     }
 
                     const typeLabels = { bug: '🐛 Bug', feature: '💡 Idee', other: '📝 Anders' };
-                    const statusLabels = { open: 'Open', in_progress: 'In behandeling', resolved: 'Opgelost', rejected: 'Afgewezen' };
-                    const statusColors = { open: '#3b82f6', in_progress: '#f59e0b', resolved: '#22c55e', rejected: '#ef4444' };
+                    const statusLabels = { open: 'Open', meer_info_nodig: '\u26a0\ufe0f Meer info nodig', in_progress: 'In behandeling', hertesten: '\ud83d\udd01 Hertesten', resolved: 'Opgelost', rejected: 'Afgewezen' };
+                    const statusColors = { open: '#3b82f6', meer_info_nodig: '#f97316', in_progress: '#f59e0b', hertesten: '#a855f7', resolved: '#22c55e', rejected: '#ef4444' };
                     
                     header.innerHTML = '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' +
                         '<span style="font-size:11px;font-weight:600;">' + (typeLabels[item.type] || item.type) + '</span>' +
@@ -702,7 +712,8 @@ export const Layout: FC<LayoutProps> = ({
                     type: formData.get('type'),
                     message: formData.get('message'),
                     url: window.location.href,
-                    screenshot: betaScreenshotData || ''
+                    screenshot: betaScreenshotData || '',
+                    browser_info: navigator.userAgent + ' | ' + screen.width + 'x' + screen.height + ' | ' + (navigator.language || '')
                 };
 
                 try {

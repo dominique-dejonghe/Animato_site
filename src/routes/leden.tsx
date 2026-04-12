@@ -197,6 +197,18 @@ app.get('/leden', async (c) => {
 
           {/* Quick actions */}
           <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 mb-12">
+            {/* Volgorde: Agenda - Oefenmateriaal - Berichten - Onze Zangers - Inschrijvingen - Polls - Voorstellen - Streaks - Stem Test - Profiel */}
+            <a
+              href="/leden/agenda"
+              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
+            >
+              <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mx-auto mb-3">
+                <i class="far fa-calendar text-animato-primary text-xl"></i>
+              </div>
+              <h3 class="font-semibold text-gray-900 mb-1">Agenda</h3>
+              <p class="text-sm text-gray-600">Repetities & concerten</p>
+            </a>
+
             <a
               href="/leden/materiaal"
               class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
@@ -204,7 +216,7 @@ app.get('/leden', async (c) => {
               <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mx-auto mb-3">
                 <i class="fas fa-file-audio text-animato-primary text-2xl"></i>
               </div>
-              <h3 class="font-semibold text-gray-900 mb-1">Materiaal</h3>
+              <h3 class="font-semibold text-gray-900 mb-1">Oefenmateriaal</h3>
               <p class="text-sm text-gray-600">Partituren & oefentracks</p>
             </a>
 
@@ -216,7 +228,7 @@ app.get('/leden', async (c) => {
                 <i class="fas fa-comments text-animato-primary text-xl"></i>
               </div>
               <h3 class="font-semibold text-gray-900 mb-1">Berichten</h3>
-              <p class="text-sm text-gray-600">Berichten & discussies</p>
+              <p class="text-sm text-gray-600">Nieuws & discussies</p>
             </a>
 
             <a
@@ -231,17 +243,6 @@ app.get('/leden', async (c) => {
             </a>
 
             <a
-              href="/leden/agenda"
-              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
-            >
-              <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mx-auto mb-3">
-                <i class="far fa-calendar text-animato-primary text-xl"></i>
-              </div>
-              <h3 class="font-semibold text-gray-900 mb-1">Agenda</h3>
-              <p class="text-sm text-gray-600">Repetities & concerten</p>
-            </a>
-
-            <a
               href="/leden/activiteiten"
               class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center border-2 border-animato-primary border-opacity-20"
             >
@@ -250,17 +251,6 @@ app.get('/leden', async (c) => {
               </div>
               <h3 class="font-semibold text-gray-900 mb-1">Inschrijvingen</h3>
               <p class="text-sm text-gray-600">Feesten & Activiteiten</p>
-            </a>
-
-            <a
-              href="/leden/profiel"
-              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
-            >
-              <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mx-auto mb-3">
-                <i class="fas fa-user text-animato-primary text-xl"></i>
-              </div>
-              <h3 class="font-semibold text-gray-900 mb-1">Profiel</h3>
-              <p class="text-sm text-gray-600">Mijn gegevens</p>
             </a>
 
             <a
@@ -305,6 +295,17 @@ app.get('/leden', async (c) => {
               </div>
               <h3 class="font-semibold text-gray-900 mb-1">Stem Test</h3>
               <p class="text-sm text-gray-600">Test je stembereik</p>
+            </a>
+
+            <a
+              href="/leden/profiel"
+              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
+            >
+              <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mx-auto mb-3">
+                <i class="fas fa-user text-animato-primary text-xl"></i>
+              </div>
+              <h3 class="font-semibold text-gray-900 mb-1">Profiel</h3>
+              <p class="text-sm text-gray-600">Mijn gegevens</p>
             </a>
           </div>
 
@@ -394,14 +395,14 @@ app.get('/leden', async (c) => {
               </div>
             </div>
 
-            {/* Right column - Board & Materials */}
+            {/* Right column - Berichten & Materials */}
             <div class="space-y-8">
               {/* Latest board posts */}
               <div class="bg-white rounded-lg shadow-md p-6">
                 <div class="flex items-center justify-between mb-4">
                   <h2 class="text-xl font-bold text-gray-900">
                     <i class="fas fa-comments mr-2 text-animato-primary"></i>
-                    Board
+                    Berichten
                   </h2>
                   <a href="/leden/board" class="text-animato-primary hover:underline text-sm font-semibold">
                     Bekijk alles
@@ -2785,6 +2786,11 @@ app.get('/leden/smoelenboek', async (c) => {
     <Layout title="Onze Zangers" user={user} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Smoelenboek', href: '/leden/smoelenboek'}]}>
       <div class="py-12 bg-gray-50 min-h-screen">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="mb-4">
+            <a href="/leden" class="inline-flex items-center text-sm text-animato-primary hover:underline font-semibold">
+              <i class="fas fa-arrow-left mr-2"></i> Terug naar dashboard
+            </a>
+          </div>
           <div class="text-center mb-8">
             <h1 class="text-4xl font-bold text-gray-900 mb-4" style="font-family: 'Playfair Display', serif;">
               Onze Zangers

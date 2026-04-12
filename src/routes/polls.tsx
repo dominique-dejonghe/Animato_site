@@ -32,7 +32,7 @@ app.get('/leden/polls', async (c) => {
 
   return c.html(
     <Layout 
-      title="Polls & Stemmingen" 
+      title="Polls" 
       user={user}
       breadcrumbs={[
         { label: 'Ledenportaal', href: '/leden' },
@@ -46,7 +46,7 @@ app.get('/leden/polls', async (c) => {
           <div class="mb-8">
             <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
               <i class="fas fa-poll text-animato-primary mr-3"></i>
-              Polls & Stemmingen
+              Polls
             </h1>
             <p class="mt-2 text-gray-600">
               Stem mee over repertoire, data, en andere koor beslissingen
@@ -90,13 +90,7 @@ app.get('/leden/polls', async (c) => {
                   <i class="fas fa-list mr-2"></i>
                   Alle
                 </a>
-                <a
-                  href="/leden/voorstellen"
-                  class="px-6 py-4 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                >
-                  <i class="fas fa-lightbulb mr-2"></i>
-                  Mijn Voorstellen
-                </a>
+
               </nav>
             </div>
           </div>

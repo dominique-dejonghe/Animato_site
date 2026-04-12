@@ -361,6 +361,12 @@ app.get('/leden/streaks', async (c) => {
       <div class="bg-gray-50 min-h-screen py-8">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           
+          <div class="mb-4">
+            <a href="/leden" class="inline-flex items-center text-sm text-animato-primary hover:underline font-semibold">
+              <i class="fas fa-arrow-left mr-2"></i> Terug naar dashboard
+            </a>
+          </div>
+
           {/* Header */}
           <div class="mb-8">
             <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">

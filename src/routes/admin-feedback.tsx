@@ -557,13 +557,7 @@ app.get('/admin/feedback', async (c) => {
                       >
                         <i class="fas fa-question-circle"></i> Info vragen
                       </button>
-                      <button
-                        onclick={`toggleConversation(${item.id})`}
-                        class="text-xs px-2 py-1 bg-indigo-50 text-indigo-700 rounded hover:bg-indigo-100 transition border border-indigo-200"
-                      >
-                        <i class="fas fa-comments"></i>
-                        <span id={`conv-btn-label-${item.id}`}>Chat</span>
-                      </button>
+
                     </div>
                   </div>
                 </div>
@@ -580,8 +574,8 @@ app.get('/admin/feedback', async (c) => {
                   </div>
                 )}
 
-                {/* Conversation panel (hidden by default) */}
-                <div id={`conv-panel-${item.id}`} class="hidden mt-4 border-t pt-4 ml-6">
+                {/* Conversation panel (auto-shown when there are comments) */}
+                <div id={`conv-panel-${item.id}`} class={`${item.comment_count > 0 ? '' : 'hidden'} mt-4 border-t pt-4 ml-6`}>
                   <div id={`conv-messages-${item.id}`} class="space-y-3 mb-3 max-h-64 overflow-y-auto">
                     <div class="text-center text-xs text-gray-400 py-2">
                       <i class="fas fa-spinner fa-spin mr-1"></i> Berichten laden...
@@ -676,21 +670,15 @@ app.get('/admin/feedback', async (c) => {
         const loadedConversations = {};
 
         // ===================== CONVERSATION FUNCTIONS =====================
-        function toggleConversation(feedbackId) {
-          const panel = document.getElementById('conv-panel-' + feedbackId);
-          const label = document.getElementById('conv-btn-label-' + feedbackId);
-          
-          if (panel.classList.contains('hidden')) {
-            panel.classList.remove('hidden');
-            label.textContent = 'Sluiten';
-            if (!loadedConversations[feedbackId]) {
+        // Auto-load conversations that are already visible (items with comments)
+        document.querySelectorAll('[id^="conv-panel-"]').forEach(function(panel) {
+          if (!panel.classList.contains('hidden')) {
+            const feedbackId = parseInt(panel.id.replace('conv-panel-', ''));
+            if (feedbackId && !loadedConversations[feedbackId]) {
               loadConversation(feedbackId);
             }
-          } else {
-            panel.classList.add('hidden');
-            label.textContent = 'Chat';
           }
-        }
+        });
 
         async function loadConversation(feedbackId) {
           const container = document.getElementById('conv-messages-' + feedbackId);

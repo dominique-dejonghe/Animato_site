@@ -13,43 +13,147 @@ const app = new Hono<{ Bindings: Bindings }>()
 // HELPERS
 // =====================================================
 
-/** Call the LLM proxy (OpenAI-compatible) */
-async function callLLM(
-  apiKey: string,
-  baseUrl: string,
+/** Call AI - uses Cloudflare Workers AI (free, no API key needed) with fallback to external LLM */
+async function callAI(
+  env: any,
   messages: Array<{ role: string; content: string }>,
-  opts: { model?: string; temperature?: number; max_tokens?: number } = {}
+  opts: { temperature?: number; max_tokens?: number } = {}
 ): Promise<string> {
-  const response = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: opts.model || 'gpt-5-mini',
-      messages,
-      temperature: opts.temperature ?? 0.7,
-      max_tokens: opts.max_tokens || 4000
-    })
-  })
-
-  if (!response.ok) {
-    const errText = await response.text()
-    throw new Error(`LLM API error ${response.status}: ${errText}`)
+  // Strategy 1: Cloudflare Workers AI (free, no key needed)
+  if (env.AI) {
+    try {
+      const result = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+        messages,
+        temperature: opts.temperature ?? 0.7,
+        max_tokens: opts.max_tokens || 4000
+      })
+      if (result?.response) return result.response
+    } catch (e: any) {
+      console.error('Workers AI error, trying fallback:', e.message)
+    }
   }
 
-  const data = await response.json() as any
-  return data.choices?.[0]?.message?.content || ''
+  // Strategy 2: External OpenAI-compatible API (if configured)
+  const apiKey = env.OPENAI_API_KEY
+  const baseUrl = env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1'
+  
+  if (apiKey) {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'gpt-5-mini',
+        messages,
+        temperature: opts.temperature ?? 0.7,
+        max_tokens: opts.max_tokens || 4000
+      })
+    })
+
+    if (!response.ok) {
+      const errText = await response.text()
+      throw new Error(`LLM API error ${response.status}: ${errText}`)
+    }
+
+    const data = await response.json() as any
+    return data.choices?.[0]?.message?.content || ''
+  }
+
+  throw new Error('Geen AI beschikbaar. Controleer de Workers AI binding in wrangler.json.')
 }
 
 /** Parse JSON from LLM response, handling markdown code blocks */
 function parseLLMJson<T = any>(content: string): T {
-  const cleaned = content
+  let cleaned = content
     .replace(/```json\s*/g, '')
     .replace(/```\s*/g, '')
     .trim()
+  // Sometimes LLM adds text before/after JSON - try to extract it
+  const jsonStart = cleaned.indexOf('[') !== -1 ? cleaned.indexOf('[') : cleaned.indexOf('{')
+  const jsonEndBracket = cleaned.lastIndexOf(']') !== -1 ? cleaned.lastIndexOf(']') : cleaned.lastIndexOf('}')
+  if (jsonStart !== -1 && jsonEndBracket !== -1) {
+    cleaned = cleaned.substring(jsonStart, jsonEndBracket + 1)
+  }
   return JSON.parse(cleaned)
+}
+
+/** Perform a real web search using Google search scraping */
+async function webSearch(query: string, numResults: number = 8): Promise<Array<{title: string; snippet: string; url: string; source: string}>> {
+  const results: Array<{title: string; snippet: string; url: string; source: string}> = []
+  
+  // Use Google search via HTML parsing
+  const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(query)}&num=${numResults}&hl=nl&gl=be`
+  
+  try {
+    const response = await fetch(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'nl-BE,nl;q=0.9'
+      }
+    })
+    
+    const html = await response.text()
+    
+    // Extract search results from Google HTML
+    // Google wraps results in <div class="g"> blocks
+    const resultRegex = /<a href="\/url\?q=([^&"]+).*?<h3[^>]*>(.*?)<\/h3>.*?<span[^>]*>(.*?)<\/span>/gs
+    const altRegex = /<a href="(https?:\/\/[^"]+)"[^>]*>.*?<h3[^>]*>(.*?)<\/h3>/gs
+    
+    // Try to parse structured results
+    const blocks = html.split('<div class="g"')
+    for (const block of blocks.slice(1)) { // skip first empty split
+      // Extract URL
+      const urlMatch = block.match(/href="\/url\?q=(https?:\/\/[^&"]+)/) || block.match(/href="(https?:\/\/(?!google\.com)[^"]+)"/)
+      // Extract title from h3
+      const titleMatch = block.match(/<h3[^>]*>(.*?)<\/h3>/)
+      // Extract snippet text
+      const snippetMatch = block.match(/<span[^>]*class="[^"]*st[^"]*"[^>]*>(.*?)<\/span>/) || 
+                          block.match(/<div[^>]*data-sncf[^>]*>(.*?)<\/div>/) ||
+                          block.match(/<div class="[^"]*VwiC3b[^"]*"[^>]*>(.*?)<\/div>/)
+      
+      if (urlMatch && titleMatch) {
+        const url = decodeURIComponent(urlMatch[1]).split('&')[0]
+        const title = titleMatch[1].replace(/<[^>]+>/g, '').trim()
+        const snippet = snippetMatch 
+          ? snippetMatch[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim()
+          : ''
+        
+        // Extract source domain
+        const sourceMatch = url.match(/https?:\/\/(?:www\.)?([^\/]+)/)
+        const source = sourceMatch ? sourceMatch[1] : 'Onbekend'
+        
+        if (title && url && !url.includes('google.com')) {
+          results.push({ title, snippet: snippet || 'Geen samenvatting beschikbaar.', url, source })
+        }
+      }
+      
+      if (results.length >= numResults) break
+    }
+
+    // If structured parsing fails, try simple regex on the whole HTML
+    if (results.length === 0) {
+      const simpleRegex = /href="\/url\?q=(https?:\/\/(?!google)[^&"]+)[^"]*"[^>]*>.*?<h3[^>]*>(.*?)<\/h3>/gs
+      let match
+      while ((match = simpleRegex.exec(html)) !== null && results.length < numResults) {
+        const url = decodeURIComponent(match[1]).split('&')[0]
+        const title = match[2].replace(/<[^>]+>/g, '').trim()
+        const sourceMatch = url.match(/https?:\/\/(?:www\.)?([^\/]+)/)
+        results.push({
+          title,
+          snippet: 'Klik door voor meer informatie.',
+          url,
+          source: sourceMatch ? sourceMatch[1] : 'Onbekend'
+        })
+      }
+    }
+  } catch (e: any) {
+    console.error('Web search error:', e.message)
+  }
+  
+  return results
 }
 
 // =====================================================
@@ -730,55 +834,14 @@ app.post('/api/admin/ai-news/search', async (c) => {
   if (!query) return c.json({ error: 'Zoekterm is verplicht' }, 400)
 
   try {
-    const apiKey = c.env.OPENAI_API_KEY
-    const baseUrl = c.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1'
+    // Use REAL web search — no LLM hallucination
+    const enrichedQuery = `${query} koor muziek amateurkoor`
+    const results = await webSearch(enrichedQuery, 10)
 
-    if (!apiKey) {
-      return c.json({ error: 'AI API key niet geconfigureerd. Stel OPENAI_API_KEY in via Cloudflare secrets.' }, 500)
-    }
-
-    // Use AI with web search grounding to find real, current news
-    const searchPrompt = `Je bent een onderzoeksassistent voor Gemengd Koor Animato, een amateurkoor in Oppuurs (Klein-Brabant), België.
-
-OPDRACHT: Zoek op het internet naar actuele, relevante informatie over: "${query}"
-
-FOCUS GEBIEDEN:
-- Actueel nieuws over amateurkoren in België en Nederland
-- Koorfestivals, -wedstrijden en evenementen (2025-2026)
-- Trends in koormuziek en amateurkunsten
-- Culturele subsidies, beleid rond amateurkunsten (VLAMO, Koor&Stem, etc.)
-- Internationale koorevents (Europa Cantat, World Choir Games, etc.)
-- Relevante organisaties: VLAMO, Koor&Stem, Koornetwerk, Interkultur, etc.
-
-BELANGRIJK: 
-- Gebruik ECHTE, bestaande informatie die je kunt vinden
-- Geef ECHTE URLs van bestaande websites (vlamo.be, koorenstem.be, interkultur.com, vrt.be, standaard.be, etc.)
-- Als je geen actueel nieuws vindt, geef dan bestaande informatiepagina's van koororganisaties
-- Geef 5-8 resultaten
-- Wees eerlijk over wat je wel en niet kunt vinden
-
-Antwoord UITSLUITEND als JSON array (geen extra tekst):
-[
-  {
-    "title": "Titel van het artikel of de pagina",
-    "snippet": "Korte samenvatting in 2-3 zinnen met de kerninfo",
-    "url": "https://echte-url-van-de-bron.be/pad",
-    "source": "Naam van de bron (bijv. VLAMO, De Standaard, VRT NWS)"
-  }
-]`
-
-    const content = await callLLM(apiKey, baseUrl, [
-      { role: 'system', content: 'Je bent een Nederlandstalige onderzoeksassistent die actueel nieuws zoekt over amateurkoren en koormuziek. Je hebt toegang tot het internet. Antwoord altijd in pure JSON zonder markdown formatting.' },
-      { role: 'user', content: searchPrompt }
-    ], { temperature: 0.5, max_tokens: 3000 })
-
-    let results = []
-    try {
-      results = parseLLMJson(content)
-      if (!Array.isArray(results)) results = []
-    } catch (e) {
-      console.error('JSON parse error:', content)
-      return c.json({ error: 'AI gaf een ongeldig antwoord. Probeer opnieuw.' }, 500)
+    if (results.length === 0) {
+      // Fallback: try a broader search
+      const fallbackResults = await webSearch(query, 10)
+      return c.json({ results: fallbackResults })
     }
 
     return c.json({ results })
@@ -798,13 +861,6 @@ app.post('/api/admin/ai-news/generate', async (c) => {
   if (!sources || sources.length === 0) return c.json({ error: 'Geen bronnen geselecteerd' }, 400)
 
   try {
-    const apiKey = c.env.OPENAI_API_KEY
-    const baseUrl = c.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1'
-
-    if (!apiKey) {
-      return c.json({ error: 'AI API key niet geconfigureerd' }, 500)
-    }
-
     const sourceSummary = sources.map((s: any, i: number) =>
       `Bron ${i + 1}: "${s.title}" — ${s.snippet} (${s.url || 'geen URL'})`
     ).join('\n')
@@ -845,10 +901,10 @@ FORMAAT VAN JE ANTWOORD (pure JSON, geen markdown):
   "imagePrompt": "Gedetailleerde Engelstalige beschrijving voor AI image generation. Beschrijf een sfeervolle, warme foto die past bij dit artikel. Denk aan: koor dat zingt, concertzaal, muzieknoten, repetitielokaal, dirigent, etc. Stijl: warm, professioneel, editorial photography."
 }`
 
-    const content = await callLLM(apiKey, baseUrl, [
+    const content = await callAI(c.env, [
       { role: 'system', content: 'Je bent een professionele Nederlandstalige contentschrijver voor een Belgisch amateurkoor. Antwoord uitsluitend in pure JSON zonder markdown formatting.' },
       { role: 'user', content: prompt }
-    ], { model: 'gpt-5-mini', temperature: 0.7, max_tokens: 4000 })
+    ], { temperature: 0.7, max_tokens: 4000 })
 
     let article: any = {}
     try {
@@ -873,76 +929,37 @@ app.post('/api/admin/ai-news/image', async (c) => {
   const { title, imagePrompt } = await c.req.json()
 
   try {
-    const apiKey = c.env.OPENAI_API_KEY
-    const baseUrl = c.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1'
-
-    if (!apiKey) {
-      return c.json({ error: 'AI API key niet geconfigureerd' }, 500)
-    }
-
-    // Generate an image using the LLM's image generation capabilities
-    // We use a two-step approach: first optimize the prompt, then generate
     const prompt = imagePrompt || `A warm, professional editorial photo related to: ${title}. Amateur choir, singing, music, concert hall.`
 
-    // Use the LLM to create an optimized image generation prompt
-    const optimizedPromptContent = await callLLM(apiKey, baseUrl, [
-      { role: 'system', content: 'You are an expert at creating prompts for AI image generation. Create vivid, detailed prompts that result in beautiful, warm, professional editorial-style photographs.' },
-      { role: 'user', content: `Create an optimized image generation prompt for this article image. The image should look like a professional editorial photograph (NOT a cartoon or illustration).
-
-Original prompt: ${prompt}
-Article title: ${title}
-
-Requirements:
-- Warm, inviting editorial photography style
-- Related to amateur choir/singing/music
-- Professional lighting, good composition
-- No text or watermarks in the image
-- 16:9 aspect ratio, suitable as article header image
-- Realistic, not AI-looking
-
-Respond with ONLY the prompt text, nothing else.` }
-    ], { temperature: 0.8, max_tokens: 300 })
-
-    // Now use the OpenAI-compatible API to generate an image
-    // Since we're using the genspark proxy, try the images endpoint
-    try {
-      const imageResponse = await fetch(`${baseUrl}/images/generations`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: 'gpt-image-1',
-          prompt: optimizedPromptContent.trim(),
-          n: 1,
-          size: '1536x1024'
+    // Try Cloudflare Workers AI image generation (free)
+    if (c.env.AI) {
+      try {
+        const result = await c.env.AI.run('@cf/stabilityai/stable-diffusion-xl-base-1.0', {
+          prompt: `Professional editorial photograph, warm lighting, high quality: ${prompt}. Style: realistic photography, not illustration.`,
+          num_steps: 20
         })
-      })
-
-      if (imageResponse.ok) {
-        const imageData = await imageResponse.json() as any
-        const imageUrl = imageData.data?.[0]?.url || imageData.data?.[0]?.b64_json
-        if (imageUrl) {
-          // If it's base64, we'd need to handle differently, but URL should work
-          if (imageUrl.startsWith('http')) {
-            return c.json({ imageUrl })
-          }
+        
+        if (result) {
+          // Workers AI returns raw image bytes - convert to base64 data URL
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(result)))
+          return c.json({ imageUrl: `data:image/png;base64,${base64}` })
         }
+      } catch (imgErr: any) {
+        console.error('Workers AI image generation failed:', imgErr.message)
       }
-    } catch (imgErr) {
-      console.error('Image API direct generation failed, using fallback:', imgErr)
     }
 
-    // Fallback: Use a curated Unsplash image based on topic
-    const keywords = encodeURIComponent(
-      (imagePrompt || title || 'choir singing music')
-        .replace(/[^a-zA-Z0-9\s]/g, '')
-        .split(' ')
-        .slice(0, 3)
-        .join(',')
-    )
-    const fallbackUrl = `https://images.unsplash.com/photo-1507838153414-b4b713384a76?w=800&h=400&fit=crop&auto=format`
+    // Fallback: Use curated Unsplash images based on search query
+    const searchTerms = (title || 'choir music').replace(/[^a-zA-Z0-9\s]/g, '').split(' ').slice(0, 3).join('+')
+    const unsplashImages = [
+      'photo-1507838153414-b4b713384a76', // choir/music
+      'photo-1514320291840-2e0a9bf2a9ae', // concert hall
+      'photo-1493225457124-a3eb161ffa5f', // audience
+      'photo-1460723237483-7a6dc9d0b212', // piano/music
+      'photo-1511671782779-c97d3d27a1d4', // singing/music
+    ]
+    const idx = Math.floor(Math.random() * unsplashImages.length)
+    const fallbackUrl = `https://images.unsplash.com/${unsplashImages[idx]}?w=800&h=400&fit=crop&auto=format`
 
     return c.json({ imageUrl: fallbackUrl, fallback: true })
   } catch (e: any) {

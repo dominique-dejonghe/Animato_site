@@ -8,6 +8,7 @@ import type { D1Database } from '@cloudflare/workers-types'
 
 export type Bindings = {
   DB: D1Database
+  AI: any // Cloudflare Workers AI binding
   // R2: R2Bucket // Uncomment wanneer R2 toegevoegd wordt
   JWT_SECRET: string
   SESSION_SECRET: string

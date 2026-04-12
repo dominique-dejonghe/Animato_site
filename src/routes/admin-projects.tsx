@@ -792,6 +792,10 @@ app.get('/admin/projects/:id', async (c) => {
                                <input type="text" name="titel" required class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
                              </div>
                              <div class="mb-3">
+                               <label class="block text-sm font-medium text-gray-700 mb-1">Beschrijving</label>
+                               <textarea name="beschrijving" rows="3" placeholder="Geef meer uitleg over deze taak..." class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary"></textarea>
+                             </div>
+                             <div class="mb-3">
                                <label class="block text-sm font-medium text-gray-700 mb-1">Deadline</label>
                                <input type="date" name="deadline" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
                              </div>
@@ -1294,12 +1298,12 @@ app.get('/api/admin/projects/documents/:id/delete', async (c) => {
 
 app.post('/api/admin/projects/tasks/create', async (c) => {
   const body = await c.req.parseBody()
-  const { project_id, titel, deadline, verantwoordelijke_id, prioriteit } = body
+  const { project_id, titel, beschrijving, deadline, verantwoordelijke_id, prioriteit } = body
   
   await c.env.DB.prepare(
-    `INSERT INTO concert_project_tasks (project_id, titel, deadline, verantwoordelijke_id, prioriteit)
-     VALUES (?, ?, ?, ?, ?)`
-  ).bind(project_id, titel, deadline || null, verantwoordelijke_id || null, prioriteit).run()
+    `INSERT INTO concert_project_tasks (project_id, titel, beschrijving, deadline, verantwoordelijke_id, prioriteit)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(project_id, titel, beschrijving || null, deadline || null, verantwoordelijke_id || null, prioriteit).run()
 
   return c.redirect(`/admin/projects/${project_id}?tab=tasks`)
 })

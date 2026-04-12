@@ -20,10 +20,12 @@ app.get('/nieuws', async (c) => {
   const user = c.get('user')
   const page = parseInt(c.req.query('page') || '1')
   const search = c.req.query('search') || ''
+  const archief = c.req.query('archief') === '1'
+  const maandenRecent = 6 // Berichten ouder dan 6 maanden zijn "archief"
 
   // Build query
   let baseQuery = `
-    SELECT p.id, p.titel, p.slug, p.excerpt, p.published_at, p.views,
+    SELECT p.id, p.titel, p.slug, p.excerpt, p.published_at, p.views, p.cover_image,
            u.id as auteur_id, pr.voornaam as auteur_voornaam, pr.achternaam as auteur_achternaam
     FROM posts p
     LEFT JOIN users u ON u.id = p.auteur_id
@@ -35,6 +37,13 @@ app.get('/nieuws', async (c) => {
 
   const filters: any[] = []
 
+  // Archive filter (#69)
+  if (archief) {
+    baseQuery += ` AND p.published_at < datetime('now', '-${maandenRecent} months')`
+  } else {
+    baseQuery += ` AND p.published_at >= datetime('now', '-${maandenRecent} months')`
+  }
+
   if (search) {
     baseQuery += ` AND (p.titel LIKE ? OR p.body LIKE ?)`
     const searchTerm = `%${search}%`
@@ -43,12 +52,17 @@ app.get('/nieuws', async (c) => {
 
   baseQuery += ` ORDER BY p.published_at DESC`
 
+  const archiveCondition = archief 
+    ? `AND p.published_at < datetime('now', '-${maandenRecent} months')`
+    : `AND p.published_at >= datetime('now', '-${maandenRecent} months')`
+
   const countQuery = `
     SELECT COUNT(*) as total
     FROM posts p
     WHERE p.type = 'nieuws' 
       AND p.is_published = 1 
       AND p.zichtbaarheid = 'publiek'
+    ${archiveCondition}
     ${search ? ` AND (p.titel LIKE ? OR p.body LIKE ?)` : ''}
   `
 
@@ -72,6 +86,16 @@ app.get('/nieuws', async (c) => {
             <p class="text-gray-600 text-lg max-w-2xl mx-auto">
               Blijf op de hoogte van alle activiteiten en updates van Gemengd Koor Animato
             </p>
+          </div>
+
+          {/* Archive toggle (#69) */}
+          <div class="flex justify-center gap-3 mb-8">
+            <a href="/nieuws" class={`px-5 py-2 rounded-full font-medium transition ${!archief ? 'bg-animato-primary text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+              <i class="fas fa-newspaper mr-2"></i> Recent
+            </a>
+            <a href="/nieuws?archief=1" class={`px-5 py-2 rounded-full font-medium transition ${archief ? 'bg-animato-primary text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+              <i class="fas fa-archive mr-2"></i> Archief
+            </a>
           </div>
 
           {/* Search bar */}
@@ -112,16 +136,20 @@ app.get('/nieuws', async (c) => {
           {/* Articles grid */}
           {result.data.length > 0 ? (
             <>
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 mb-12">
+              <div class={`grid gap-6 mb-12 ${result.data.length > 6 ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4' : 'grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8'}`}>
                 {result.data.map((artikel: any) => (
                   <a 
                     href={`/nieuws/${artikel.slug}`}
                     class="group bg-white rounded-lg shadow-md hover:shadow-xl transition overflow-hidden"
                   >
                     <div class="aspect-video bg-gradient-to-br from-animato-primary to-animato-secondary relative overflow-hidden">
-                      <div class="absolute inset-0 flex items-center justify-center">
-                        <i class="fas fa-newspaper text-white text-5xl opacity-50"></i>
-                      </div>
+                      {artikel.cover_image ? (
+                        <img src={artikel.cover_image} alt={artikel.titel} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+                      ) : (
+                        <div class="absolute inset-0 flex items-center justify-center">
+                          <i class="fas fa-newspaper text-white text-5xl opacity-50"></i>
+                        </div>
+                      )}
                     </div>
                     <div class="p-6">
                       <div class="flex items-center text-sm text-gray-500 mb-3">

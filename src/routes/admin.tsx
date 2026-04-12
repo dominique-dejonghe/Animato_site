@@ -68,6 +68,9 @@ app.get('/admin', async (c) => {
        WHERE e.type = 'repetitie'
        AND e.start_at = (SELECT MAX(e2.start_at) FROM events e2 JOIN qr_checkins qc2 ON qc2.event_id = e2.id WHERE e2.type = 'repetitie')`
     ).catch(() => ({ count: 0 })),
+    total_form_submissions: await queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as count FROM form_submissions WHERE status = 'nieuw'`
+    ).catch(() => ({ count: 0 })),
   }
 
   // Get recent activity from audit logs
@@ -149,7 +152,7 @@ app.get('/admin', async (c) => {
               </div>
             )}
 
-            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+            <a href="/admin/leden" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg hover:border-animato-primary transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Actieve Leden</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-animato-primary/10 rounded-lg flex items-center justify-center">
@@ -157,12 +160,12 @@ app.get('/admin', async (c) => {
                 </div>
               </div>
               <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_leden?.count || 0}</p>
-              <a href="/admin/leden" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+              <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 Bekijk alle leden <i class="fas fa-arrow-right text-xs"></i>
-              </a>
-            </div>
+              </span>
+            </a>
 
-            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+            <a href="/admin/content" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Gepubliceerde Posts</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center">
@@ -170,12 +173,12 @@ app.get('/admin', async (c) => {
                 </div>
               </div>
               <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_posts?.count || 0}</p>
-              <a href="/admin/content" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+              <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 Beheer content <i class="fas fa-arrow-right text-xs"></i>
-              </a>
-            </div>
+              </span>
+            </a>
 
-            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+            <a href="/admin/events" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Aankomende Activiteiten</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-purple-100 rounded-lg flex items-center justify-center">
@@ -183,12 +186,12 @@ app.get('/admin', async (c) => {
                 </div>
               </div>
               <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_events?.count || 0}</p>
-              <a href="/admin/events" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+              <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 Beheer activiteiten <i class="fas fa-arrow-right text-xs"></i>
-              </a>
-            </div>
+              </span>
+            </a>
 
-            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+            <a href="/admin/fotoboek" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Foto Albums</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-pink-100 rounded-lg flex items-center justify-center">
@@ -196,12 +199,12 @@ app.get('/admin', async (c) => {
                 </div>
               </div>
               <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_albums?.count || 0}</p>
-              <a href="/admin/fotoboek" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+              <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 Beheer fotoboek <i class="fas fa-arrow-right text-xs"></i>
-              </a>
-            </div>
+              </span>
+            </a>
 
-            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+            <a href="/admin/bestanden" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Actieve Materialen</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-amber-100 rounded-lg flex items-center justify-center">
@@ -209,12 +212,12 @@ app.get('/admin', async (c) => {
                 </div>
               </div>
               <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_materials?.count || 0}</p>
-              <a href="/admin/bestanden" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+              <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 Beheer bestanden <i class="fas fa-arrow-right text-xs"></i>
-              </a>
-            </div>
+              </span>
+            </a>
 
-            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+            <a href="/admin/locaties" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Actieve Locaties</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-red-100 rounded-lg flex items-center justify-center">
@@ -222,12 +225,12 @@ app.get('/admin', async (c) => {
                 </div>
               </div>
               <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_locations?.count || 0}</p>
-              <a href="/admin/locaties" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+              <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 Beheer locaties <i class="fas fa-arrow-right text-xs"></i>
-              </a>
-            </div>
+              </span>
+            </a>
 
-            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+            <a href="/admin/polls" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Actieve Polls</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center">
@@ -235,12 +238,12 @@ app.get('/admin', async (c) => {
                 </div>
               </div>
               <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_polls?.count || 0}</p>
-              <a href="/admin/polls" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+              <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 Beheer polls <i class="fas fa-arrow-right text-xs"></i>
-              </a>
-            </div>
+              </span>
+            </a>
 
-            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+            <a href="/admin/attendance" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Aanwezigheid</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-orange-100 rounded-lg flex items-center justify-center">
@@ -248,12 +251,12 @@ app.get('/admin', async (c) => {
                 </div>
               </div>
               <p class="text-3xl font-bold text-gray-900 leading-none">{stats.last_attendance?.count || 0}</p>
-              <a href="/admin/attendance" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+              <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 QR Check-in & Streaks <i class="fas fa-arrow-right text-xs"></i>
-              </a>
-            </div>
+              </span>
+            </a>
 
-            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+            <a href="/admin/voorstellen" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Voorstellen</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-yellow-100 rounded-lg flex items-center justify-center">
@@ -261,12 +264,12 @@ app.get('/admin', async (c) => {
                 </div>
               </div>
               <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_proposals_pending?.count || 0}</p>
-              <a href="/admin/voorstellen" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+              <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 Beoordeel voorstellen <i class="fas fa-arrow-right text-xs"></i>
-              </a>
-            </div>
+              </span>
+            </a>
 
-            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+            <a href="/admin/projects" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Lopende Projecten</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center">
@@ -274,12 +277,12 @@ app.get('/admin', async (c) => {
                 </div>
               </div>
               <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_projects?.count || 0}</p>
-              <a href="/admin/projects" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+              <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 Beheer projecten <i class="fas fa-arrow-right text-xs"></i>
-              </a>
-            </div>
+              </span>
+            </a>
 
-            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden">
+            <a href="/admin/meetings" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Vergaderingen</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-indigo-100 rounded-lg flex items-center justify-center">
@@ -287,12 +290,12 @@ app.get('/admin', async (c) => {
                 </div>
               </div>
               <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_meetings?.count || 0}</p>
-              <a href="/admin/meetings" class="text-xs text-animato-primary hover:underline inline-flex items-center gap-1 font-medium">
+              <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 Bekijk agenda <i class="fas fa-arrow-right text-xs"></i>
-              </a>
-            </div>
+              </span>
+            </a>
 
-            <div class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden border-2 border-animato-accent">
+            <a href="/admin/audit" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden border-2 border-animato-accent hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Gebruikers Activiteit</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-animato-accent/10 rounded-lg flex items-center justify-center">
@@ -300,10 +303,24 @@ app.get('/admin', async (c) => {
                 </div>
               </div>
               <p class="text-3xl font-bold text-animato-accent leading-none"><i class="fas fa-chart-line"></i></p>
-              <a href="/admin/audit" class="text-xs text-animato-accent hover:underline inline-flex items-center gap-1 font-semibold">
+              <span class="text-xs text-animato-accent group-hover:underline inline-flex items-center gap-1 font-semibold">
                 Bekijk login activiteit <i class="fas fa-arrow-right text-xs"></i>
-              </a>
-            </div>
+              </span>
+            </a>
+
+            {/* Lid-aanvragen (#74) */}
+            <a href="/admin/aanmeldingen" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden border-2 border-green-300 hover:shadow-lg transition cursor-pointer group">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Lid-aanvragen</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-user-plus text-green-600 text-base"></i>
+                </div>
+              </div>
+              <p class="text-3xl font-bold text-green-700 leading-none">{stats.total_form_submissions?.count || 0}</p>
+              <span class="text-xs text-green-700 group-hover:underline inline-flex items-center gap-1 font-semibold">
+                Beheer aanvragen <i class="fas fa-arrow-right text-xs"></i>
+              </span>
+            </a>
           </div>
 
           {/* Quick Actions */}
@@ -462,6 +479,143 @@ app.get('/admin', async (c) => {
 })
 
 // =====================================================
+// LID-AANVRAGEN BEHEER (#74)
+// =====================================================
+
+app.get('/admin/aanmeldingen', async (c) => {
+  const user = c.get('user') as SessionUser
+  noCacheHeaders(c)
+
+  const submissions = await queryAll(
+    c.env.DB,
+    `SELECT id, type, payload, email, naam, status, created_at, verwerkt_at, notities
+     FROM form_submissions
+     WHERE type = 'word_lid'
+     ORDER BY CASE status WHEN 'nieuw' THEN 0 WHEN 'verwerkt' THEN 1 ELSE 2 END, created_at DESC`
+  )
+
+  return c.html(
+    <Layout 
+      title="Lid-aanvragen" 
+      user={user}
+      breadcrumbs={[
+        { label: 'Admin', href: '/admin' },
+        { label: 'Lid-aanvragen', href: '/admin/aanmeldingen' }
+      ]}
+    >
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="leden" />
+        <div class="flex-1 min-w-0">
+          <div class="bg-white border-b border-gray-200">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+              <div class="flex items-center justify-between">
+                <div>
+                  <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+                    <i class="fas fa-user-plus text-green-600 mr-3"></i>
+                    Lid-aanvragen
+                  </h1>
+                  <p class="mt-2 text-gray-600">
+                    Beheer aanvragen van mensen die lid willen worden via het 'Word Lid' formulier
+                  </p>
+                </div>
+                <a href="/admin" class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition">
+                  <i class="fas fa-arrow-left mr-2"></i>
+                  Terug
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            {submissions.length === 0 ? (
+              <div class="text-center py-16 text-gray-500">
+                <i class="fas fa-inbox text-6xl text-gray-300 mb-4"></i>
+                <h3 class="text-xl font-semibold mb-2">Geen aanvragen</h3>
+                <p>Er zijn momenteel geen lid-aanvragen.</p>
+              </div>
+            ) : (
+              <div class="space-y-4">
+                {submissions.map((sub: any) => {
+                  const data = (() => { try { return JSON.parse(sub.payload) } catch { return {} } })()
+                  const isNew = sub.status === 'nieuw'
+                  return (
+                    <div class={`bg-white rounded-lg shadow-md p-6 ${isNew ? 'border-l-4 border-green-500' : 'border-l-4 border-gray-200'}`}>
+                      <div class="flex items-start justify-between">
+                        <div class="flex-1">
+                          <div class="flex items-center gap-3 mb-2">
+                            <h3 class="text-lg font-bold text-gray-900">{sub.naam}</h3>
+                            <span class={`text-xs px-2 py-1 rounded-full font-semibold ${
+                              isNew ? 'bg-green-100 text-green-800' : 
+                              sub.status === 'verwerkt' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {isNew ? 'Nieuw' : sub.status === 'verwerkt' ? 'Verwerkt' : 'Gearchiveerd'}
+                            </span>
+                          </div>
+                          <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-gray-600 mb-3">
+                            <div><i class="fas fa-envelope mr-2 text-gray-400"></i>{sub.email}</div>
+                            {data.telefoon && <div><i class="fas fa-phone mr-2 text-gray-400"></i>{data.telefoon}</div>}
+                            {data.stemgroep && <div><i class="fas fa-music mr-2 text-gray-400"></i>Stemgroep: {data.stemgroep}</div>}
+                          </div>
+                          {data.muzikale_ervaring && (
+                            <p class="text-sm text-gray-700 mb-2"><strong>Ervaring:</strong> {data.muzikale_ervaring}</p>
+                          )}
+                          {data.motivatie && (
+                            <p class="text-sm text-gray-700 mb-2"><strong>Bericht:</strong> {data.motivatie}</p>
+                          )}
+                          <p class="text-xs text-gray-400">
+                            Aangemeld op {new Date(sub.created_at).toLocaleDateString('nl-BE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                            {sub.verwerkt_at && ` · Verwerkt op ${new Date(sub.verwerkt_at).toLocaleDateString('nl-BE')}`}
+                          </p>
+                        </div>
+                        {isNew && (
+                          <div class="flex gap-2 ml-4">
+                            <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/verwerk`}>
+                              <button type="submit" class="px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition">
+                                <i class="fas fa-check mr-1"></i> Verwerkt
+                              </button>
+                            </form>
+                            <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/archiveer`}>
+                              <button type="submit" class="px-3 py-2 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 transition">
+                                <i class="fas fa-archive mr-1"></i> Archiveer
+                              </button>
+                            </form>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
+// API endpoints for form submissions management
+app.post('/api/admin/aanmeldingen/:id/verwerk', async (c) => {
+  const id = c.req.param('id')
+  const user = c.get('user') as SessionUser
+  await execute(c.env.DB, 
+    `UPDATE form_submissions SET status = 'verwerkt', verwerkt_door = ?, verwerkt_at = datetime('now') WHERE id = ?`,
+    [user.id, id]
+  )
+  return c.redirect('/admin/aanmeldingen')
+})
+
+app.post('/api/admin/aanmeldingen/:id/archiveer', async (c) => {
+  const id = c.req.param('id')
+  const user = c.get('user') as SessionUser
+  await execute(c.env.DB,
+    `UPDATE form_submissions SET status = 'gearchiveerd', verwerkt_door = ?, verwerkt_at = datetime('now') WHERE id = ?`,
+    [user.id, id]
+  )
+  return c.redirect('/admin/aanmeldingen')
+})
+
+// =====================================================
 // MEMBER MANAGEMENT - Overview
 // =====================================================
 
@@ -507,7 +661,13 @@ app.get('/admin/leden', async (c) => {
     params.push(status)
   }
 
-  query += ` ORDER BY p.achternaam ASC, p.voornaam ASC`
+  // Default sort: stemgroep first, then alphabetically (#54)
+  const sortBy = c.req.query('sort') || 'stemgroep'
+  if (sortBy === 'stemgroep') {
+    query += ` ORDER BY u.stemgroep ASC, p.achternaam ASC, p.voornaam ASC`
+  } else {
+    query += ` ORDER BY p.achternaam ASC, p.voornaam ASC`
+  }
 
   const leden = await queryAll(c.env.DB, query, params)
 
@@ -697,12 +857,14 @@ app.get('/admin/leden', async (c) => {
                     value={search}
                     placeholder="Naam of email..."
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    oninput="clearTimeout(window._searchTimer); window._searchTimer = setTimeout(() => this.form.submit(), 500)"
                   />
                 </div>
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-2">Rol</label>
                   <select
                     name="role"
+                    onchange="this.form.submit()"
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                   >
                     <option value="all" selected={role === 'all'}>Alle rollen</option>
@@ -718,6 +880,7 @@ app.get('/admin/leden', async (c) => {
                   <label class="block text-sm font-medium text-gray-700 mb-2">Stemgroep</label>
                   <select
                     name="stemgroep"
+                    onchange="this.form.submit()"
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                   >
                     <option value="all" selected={stemgroep === 'all'}>Alle stemmen</option>
@@ -731,6 +894,7 @@ app.get('/admin/leden', async (c) => {
                   <label class="block text-sm font-medium text-gray-700 mb-2">Status</label>
                   <select
                     name="status"
+                    onchange="this.form.submit()"
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                   >
                     <option value="all" selected={status === 'all'}>Alle statussen</option>
@@ -747,6 +911,7 @@ app.get('/admin/leden', async (c) => {
                   <a href="/admin/leden" class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition">
                     Reset
                   </a>
+                  <input type="hidden" name="sort" value={sortBy} />
                   <button
                     type="submit"
                     class="px-4 py-2 bg-animato-primary text-white hover:bg-animato-secondary rounded-lg transition"
@@ -757,6 +922,19 @@ app.get('/admin/leden', async (c) => {
                 </div>
               </div>
             </form>
+          </div>
+
+          {/* Sort options */}
+          <div class="flex items-center gap-2 mb-4">
+            <span class="text-sm text-gray-600 font-medium">Sorteren:</span>
+            <a href={`/admin/leden?search=${search}&role=${role}&stemgroep=${stemgroep}&status=${status}&sort=naam`}
+               class={`text-sm px-3 py-1 rounded-full transition ${sortBy === 'naam' ? 'bg-animato-primary text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+              <i class="fas fa-sort-alpha-down mr-1"></i> Op naam
+            </a>
+            <a href={`/admin/leden?search=${search}&role=${role}&stemgroep=${stemgroep}&status=${status}&sort=stemgroep`}
+               class={`text-sm px-3 py-1 rounded-full transition ${sortBy === 'stemgroep' ? 'bg-animato-primary text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+              <i class="fas fa-music mr-1"></i> Op stemgroep
+            </a>
           </div>
 
           {/* Members Table */}
@@ -823,7 +1001,7 @@ app.get('/admin/leden', async (c) => {
                         : 'Nooit'
                       
                       return (
-                        <tr class="hover:bg-gray-50 transition">
+                        <tr class="hover:bg-gray-50 transition cursor-pointer" onclick={`window.location='/admin/leden/${lid.id}'`}>
                           <td class="px-6 py-4 whitespace-nowrap">
                             <div class="flex items-center">
                               <div class="relative">
@@ -1912,9 +2090,13 @@ app.post('/api/admin/leden/create', async (c) => {
     ).run()
 
     return c.redirect(`/admin/leden/${newUserId}?success=created`)
-  } catch (error) {
-    console.error('Member create error:', error)
-    return c.redirect('/admin/leden/nieuw?error=create_failed')
+  } catch (error: any) {
+    console.error('Member create error:', error?.message || error)
+    // Check for common SQLite errors
+    if (error?.message?.includes('UNIQUE constraint')) {
+      return c.redirect('/admin/leden/nieuw?error=email_exists')
+    }
+    return c.redirect(`/admin/leden/nieuw?error=create_failed&details=${encodeURIComponent(String(error?.message || 'onbekend'))}`)
   }
 })
 
@@ -2136,7 +2318,7 @@ app.get('/admin/content', async (c) => {
   if (tab === 'posts') {
     // Get posts (nieuws + board)
     let query = `
-      SELECT p.id, p.type, p.titel, p.slug, p.is_published, p.zichtbaarheid, p.created_at, p.published_at,
+      SELECT p.id, p.type, p.titel, p.slug, p.is_published, p.zichtbaarheid, p.categorie, p.created_at, p.published_at,
              u.email as auteur_email, pr.voornaam as auteur_voornaam, pr.achternaam as auteur_achternaam,
              (SELECT COUNT(*) FROM post_replies WHERE post_id = p.id) as reply_count
       FROM posts p
@@ -2313,7 +2495,7 @@ app.get('/admin/content', async (c) => {
 
             {/* Filters */}
             <div class="p-6">
-              <form method="GET" action="/admin/content" class="flex gap-4">
+              <form id="contentFilterForm" method="GET" action="/admin/content" class="flex gap-4">
                 <input type="hidden" name="tab" value={tab} />
                 <div class="flex-1">
                   <input
@@ -2322,11 +2504,13 @@ app.get('/admin/content', async (c) => {
                     value={search}
                     placeholder="Zoeken..."
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    oninput="clearTimeout(window._searchTimer); window._searchTimer = setTimeout(() => this.form.submit(), 500)"
                   />
                 </div>
                 <div>
                   <select
                     name="type"
+                    onchange="this.form.submit()"
                     class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                   >
                     <option value="all" selected={type === 'all'}>Alle types</option>
@@ -2368,6 +2552,9 @@ app.get('/admin/content', async (c) => {
                     </th>
                     {tab === 'posts' ? (
                       <>
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          Doelgroep
+                        </th>
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Auteur
                         </th>
@@ -2417,6 +2604,22 @@ app.get('/admin/content', async (c) => {
                         </td>
                         {tab === 'posts' ? (
                           <>
+                            <td class="px-6 py-4 whitespace-nowrap">
+                              {item.categorie ? (
+                                <span class={`px-2 py-1 text-xs font-semibold rounded-full ${
+                                  item.categorie === 'sopraan' ? 'bg-pink-100 text-pink-700' :
+                                  item.categorie === 'alt' ? 'bg-orange-100 text-orange-700' :
+                                  item.categorie === 'tenor' ? 'bg-blue-100 text-blue-700' :
+                                  item.categorie === 'bas' ? 'bg-indigo-100 text-indigo-700' :
+                                  item.categorie === 'bestuur' ? 'bg-amber-100 text-amber-700' :
+                                  'bg-gray-100 text-gray-700'
+                                }`}>
+                                  {item.categorie}
+                                </span>
+                              ) : (
+                                <span class="text-xs text-gray-400">Algemeen</span>
+                              )}
+                            </td>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                               {item.auteur_voornaam} {item.auteur_achternaam}
                             </td>
@@ -2823,6 +3026,22 @@ app.get('/admin/content/:id', async (c) => {
                 </div>
               </div>
 
+              <div class="mt-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">
+                  Publicatiedatum
+                </label>
+                <input
+                  type="datetime-local"
+                  name="published_at"
+                  value={post?.published_at ? new Date(post.published_at).toISOString().slice(0, 16) : ''}
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                />
+                <p class="mt-1 text-xs text-gray-500">
+                  <i class="fas fa-info-circle mr-1"></i>
+                  Laat leeg om de huidige datum/tijd te gebruiken bij publicatie.
+                </p>
+              </div>
+
               <div class="mt-4 flex items-center">
                 <input
                   type="checkbox"
@@ -2835,6 +3054,36 @@ app.get('/admin/content/:id', async (c) => {
                 <label for="is_pinned" class="ml-2 text-sm text-gray-700">
                   Pin dit bericht bovenaan (voor belangrijke berichten)
                 </label>
+              </div>
+            </div>
+
+            {/* Afbeelding (#76) */}
+            <div class="pt-6 border-t border-gray-200">
+              <h3 class="text-lg font-semibold text-gray-900 mb-4">
+                <i class="fas fa-image text-purple-600 mr-2"></i>
+                Afbeelding
+              </h3>
+              <div>
+                <input
+                  type="file"
+                  id="postImageUpload"
+                  accept="image/*"
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-animato-primary file:text-white hover:file:bg-animato-secondary file:cursor-pointer"
+                  onchange="handlePostImageUpload(event)"
+                />
+                <input type="hidden" name="cover_image" id="postImageValue" value={post?.cover_image || ''} />
+                <p class="text-xs text-gray-500 mt-1">
+                  <i class="fas fa-info-circle mr-1"></i>
+                  Upload een omslagfoto (JPG, PNG, max 2MB). Wordt weergegeven als thumbnail bij het bericht.
+                </p>
+                <div id="postImagePreview" class={`mt-3 ${post?.cover_image ? '' : 'hidden'}`}>
+                  <div class="relative w-48 h-32 bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+                    <img id="postPreviewImg" src={post?.cover_image || ''} alt="Preview" class="w-full h-full object-cover" />
+                    <button type="button" onclick="clearPostImage()" class="absolute top-1 right-1 bg-red-500 text-white w-6 h-6 rounded-full hover:bg-red-600 transition text-xs">
+                      <i class="fas fa-times"></i>
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -2996,6 +3245,34 @@ app.get('/admin/content/:id', async (c) => {
                   slugInput.value = generateSlug(titelInput.value);
                 }
               })();
+
+              // Post image upload handler (#76)
+              function handlePostImageUpload(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                if (file.size > 2 * 1024 * 1024) {
+                  alert('Bestand te groot! Max 2MB.');
+                  event.target.value = '';
+                  return;
+                }
+                if (!file.type.startsWith('image/')) {
+                  alert('Alleen afbeeldingen!');
+                  event.target.value = '';
+                  return;
+                }
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                  document.getElementById('postImageValue').value = e.target.result;
+                  document.getElementById('postPreviewImg').src = e.target.result;
+                  document.getElementById('postImagePreview').classList.remove('hidden');
+                };
+                reader.readAsDataURL(file);
+              }
+              function clearPostImage() {
+                document.getElementById('postImageUpload').value = '';
+                document.getElementById('postImageValue').value = '';
+                document.getElementById('postImagePreview').classList.add('hidden');
+              }
             `
           }}></script>
 
@@ -3097,7 +3374,9 @@ app.post('/api/admin/content/save', async (c) => {
       body: postBody,
       zichtbaarheid,
       is_published,
-      is_pinned
+      is_pinned,
+      cover_image,
+      published_at: customPublishedAt
     } = body
 
     // Debug logging
@@ -3129,13 +3408,18 @@ app.post('/api/admin/content/save', async (c) => {
     const publishedValue = is_published === '1' ? 1 : 0
     const pinnedValue = is_pinned === '1' ? 1 : 0
 
+    // Determine published_at: use custom date if provided, else auto-set on publish
+    const resolvedPublishedAt = customPublishedAt 
+      ? String(customPublishedAt).replace('T', ' ') + ':00'
+      : (publishedValue === 1 ? now : null)
+
     if (is_new === '1') {
       // Create new post
       const result = await c.env.DB.prepare(
         `INSERT INTO posts (
           type, categorie, titel, slug, excerpt, body, zichtbaarheid, 
-          is_published, is_pinned, auteur_id, created_at, published_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          is_published, is_pinned, auteur_id, created_at, published_at, cover_image
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         type,
         categorie || null,
@@ -3148,7 +3432,8 @@ app.post('/api/admin/content/save', async (c) => {
         pinnedValue,
         user.id,
         now,
-        publishedValue === 1 ? now : null
+        resolvedPublishedAt,
+        cover_image || null
       ).run()
 
       // Audit log
@@ -3164,7 +3449,9 @@ app.post('/api/admin/content/save', async (c) => {
         `UPDATE posts 
          SET type = ?, categorie = ?, titel = ?, slug = ?, excerpt = ?, body = ?, 
              zichtbaarheid = ?, is_published = ?, is_pinned = ?,
-             published_at = CASE WHEN is_published = 0 AND ? = 1 THEN ? ELSE published_at END
+             published_at = CASE WHEN ? IS NOT NULL THEN ? WHEN is_published = 0 AND ? = 1 THEN ? ELSE published_at END,
+             cover_image = ?,
+             updated_at = ?
          WHERE id = ?`
       ).bind(
         type,
@@ -3176,7 +3463,11 @@ app.post('/api/admin/content/save', async (c) => {
         zichtbaarheid,
         publishedValue,
         pinnedValue,
+        customPublishedAt || null,
+        customPublishedAt ? String(customPublishedAt).replace('T', ' ') + ':00' : null,
         publishedValue,
+        now,
+        cover_image || null,
         now,
         post_id
       ).run()

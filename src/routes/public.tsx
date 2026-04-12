@@ -33,7 +33,8 @@ app.get('/', async (c) => {
   // Fetch aankomende concerten
   const concerten = await queryAll(
     c.env.DB,
-    `SELECT e.id, e.titel, e.slug, e.start_at, e.locatie, c.poster_url
+    `SELECT e.id, e.titel, e.slug, e.start_at, e.locatie, e.image_url, c.poster_url,
+            COALESCE(c.poster_url, e.image_url) as display_image
      FROM events e
      LEFT JOIN concerts c ON c.event_id = e.id
      WHERE e.type = 'concert' AND e.is_publiek = 1 AND e.start_at > datetime('now')
@@ -214,8 +215,8 @@ app.get('/', async (c) => {
                 <div class="group bg-white rounded-lg shadow-md hover:shadow-xl transition overflow-hidden w-full">
                   <a href={`/concerten/${concert.slug}`} class="block">
                     <div class="aspect-video bg-gray-200 overflow-hidden">
-                      {concert.poster_url ? (
-                        <img src={concert.poster_url} alt={concert.titel} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
+                      {(concert.display_image || concert.poster_url) ? (
+                        <img src={concert.display_image || concert.poster_url} alt={concert.titel} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
                       ) : (
                         <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-animato-primary to-animato-secondary">
                           <i class="fas fa-music text-white text-4xl"></i>
@@ -562,7 +563,11 @@ app.get('/word-lid', async (c) => {
                   <h3 class="text-lg font-bold text-red-800">Er ging iets mis</h3>
                   <p class="text-red-700">
                     {error === 'duplicate' ? 'Je hebt al een aanvraag ingediend.' : 
-                     error === 'email_exists' ? 'Dit email adres is al bekend.' :
+                     error === 'email_exists' ? 'Dit emailadres is al bekend bij ons. Log in als je al een account hebt.' :
+                     error === 'required' ? 'Vul alle verplichte velden (*) in.' :
+                     error === 'invalid_email' ? 'Vul een geldig emailadres in.' :
+                     error === 'invalid_phone' ? 'Vul een geldig telefoonnummer in.' :
+                     error === 'server' ? 'Er is een serverfout opgetreden. Probeer het later opnieuw.' :
                      'Controleer of alle velden correct zijn ingevuld.'}
                   </p>
                 </div>
@@ -664,7 +669,7 @@ app.get('/word-lid', async (c) => {
               <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
                   <label for="voornaam" class="block text-sm font-semibold text-gray-700 mb-2">
-                    Voornaam *
+                    Voornaam <span class="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -677,7 +682,7 @@ app.get('/word-lid', async (c) => {
 
                 <div>
                   <label for="achternaam" class="block text-sm font-semibold text-gray-700 mb-2">
-                    Achternaam *
+                    Achternaam <span class="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
@@ -691,7 +696,7 @@ app.get('/word-lid', async (c) => {
 
               <div>
                 <label for="email" class="block text-sm font-semibold text-gray-700 mb-2">
-                  Email *
+                  Email <span class="text-red-500">*</span>
                 </label>
                 <input
                   type="email"
@@ -704,7 +709,7 @@ app.get('/word-lid', async (c) => {
 
               <div>
                 <label for="telefoon" class="block text-sm font-semibold text-gray-700 mb-2">
-                  Telefoon
+                  Telefoon <span class="text-gray-400 text-xs font-normal">(optioneel)</span>
                 </label>
                 <input
                   type="tel"
@@ -716,7 +721,7 @@ app.get('/word-lid', async (c) => {
 
               <div>
                 <label for="stemgroep" class="block text-sm font-semibold text-gray-700 mb-2">
-                  Stemgroep *
+                  Stemgroep <span class="text-red-500">*</span>
                 </label>
                 <select
                   id="stemgroep"
@@ -735,7 +740,7 @@ app.get('/word-lid', async (c) => {
 
               <div>
                 <label for="muzikale_ervaring" class="block text-sm font-semibold text-gray-700 mb-2">
-                  Muzikale ervaring
+                  Muzikale ervaring <span class="text-gray-400 text-xs font-normal">(optioneel)</span>
                 </label>
                 <textarea
                   id="muzikale_ervaring"
@@ -748,7 +753,7 @@ app.get('/word-lid', async (c) => {
 
               <div>
                 <label for="motivatie" class="block text-sm font-semibold text-gray-700 mb-2">
-                  Bericht / Vragen
+                  Bericht / Vragen <span class="text-gray-400 text-xs font-normal">(optioneel)</span>
                 </label>
                 <textarea
                   id="motivatie"
@@ -768,9 +773,11 @@ app.get('/word-lid', async (c) => {
                   class="mt-1 h-4 w-4 text-animato-primary focus:ring-animato-primary border-gray-300 rounded"
                 />
                 <label for="consent" class="ml-2 text-sm text-gray-600">
-                  Ik ga akkoord met de verwerking van mijn gegevens volgens de <a href="/privacyverklaring" class="text-animato-primary hover:underline">privacyverklaring</a>.
+                  Ik ga akkoord met de verwerking van mijn gegevens volgens de <a href="/privacyverklaring" class="text-animato-primary hover:underline">privacyverklaring</a>. <span class="text-red-500">*</span>
                 </label>
               </div>
+
+              <p class="text-xs text-gray-500"><span class="text-red-500">*</span> = verplicht veld</p>
 
               <button
                 type="submit"
@@ -788,13 +795,9 @@ app.get('/word-lid', async (c) => {
               Of neem direct contact met ons op:
             </p>
             <div class="flex flex-col sm:flex-row justify-center gap-4">
-              <a href="mailto:info@animato.be" class="inline-flex items-center text-animato-primary hover:text-animato-secondary font-semibold">
+              <a href="mailto:gemengdkooranimato@gmail.com" class="inline-flex items-center text-animato-primary hover:text-animato-secondary font-semibold">
                 <i class="fas fa-envelope mr-2"></i>
-                info@animato.be
-              </a>
-              <a href="tel:+32470123456" class="inline-flex items-center text-animato-primary hover:text-animato-secondary font-semibold">
-                <i class="fas fa-phone mr-2"></i>
-                +32 470 12 34 56
+                gemengdkooranimato@gmail.com
               </a>
             </div>
           </div>
@@ -1115,10 +1118,17 @@ app.get('/fotoboek', async (c) => {
               </div>
             )}
 
-            {/* Stats */}
-            <div class="ml-auto text-sm text-gray-600">
-              <i class="fas fa-folder mr-1"></i>
-              {albums.length} album(s)
+            {/* Admin link + Stats */}
+            <div class="ml-auto flex items-center gap-4">
+              {user && (user.role === 'admin' || user.role === 'moderator') && (
+                <a href="/admin/fotoboek" class="text-sm px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition">
+                  <i class="fas fa-cog mr-1"></i> Beheer Albums
+                </a>
+              )}
+              <span class="text-sm text-gray-600">
+                <i class="fas fa-folder mr-1"></i>
+                {albums.length} album(s)
+              </span>
             </div>
           </div>
         </div>

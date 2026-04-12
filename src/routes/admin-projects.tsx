@@ -106,7 +106,7 @@ app.get('/admin/projects', async (c) => {
                     const balans = (project.werkelijke_inkomsten || 0) - (project.werkelijke_uitgaven || 0);
                     
                     return (
-                      <tr class="hover:bg-gray-50">
+                      <tr class="hover:bg-gray-50 cursor-pointer" onclick={`window.location.href='/admin/projects/${project.id}'`}>
                         <td class="px-6 py-4 whitespace-nowrap">
                           <div class="flex items-center">
                             <div class={`flex-shrink-0 h-10 w-10 rounded-full flex items-center justify-center ${

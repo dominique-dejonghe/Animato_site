@@ -141,8 +141,8 @@ app.post('/api/word-lid', async (c) => {
     const motivatie = body.motivatie as string
     const consent = body.consent === 'on'
 
-    // Validation
-    if (!voornaam || !achternaam || !email || !telefoon || !stemgroep || !consent) {
+    // Validation — telefoon is optional
+    if (!voornaam || !achternaam || !email || !stemgroep || !consent) {
       return c.redirect('/word-lid?error=required')
     }
 
@@ -150,7 +150,7 @@ app.post('/api/word-lid', async (c) => {
       return c.redirect('/word-lid?error=invalid_email')
     }
 
-    if (!isValidPhone(telefoon)) {
+    if (telefoon && !isValidPhone(telefoon)) {
       return c.redirect('/word-lid?error=invalid_phone')
     }
 
@@ -288,6 +288,83 @@ app.post('/api/contact', async (c) => {
     console.error('Contact form submission error:', error)
     return c.redirect('/contact?error=server')
   }
+})
+
+// =====================================================
+// ONE-TIME SEED: #43 Anja dirigent + #53 Arjan Vervaet
+// Remove this endpoint after running once!
+// =====================================================
+app.get('/api/admin/seed-once', async (c) => {
+  const secret = c.req.query('key')
+  if (secret !== 'animato-seed-2026') {
+    return c.json({ error: 'unauthorized' }, 401)
+  }
+
+  const results: string[] = []
+
+  try {
+    // #43: Set Anja Holbrechts (id=28) as dirigent
+    // First check current constraint — if it fails, the migration hasn't run yet
+    try {
+      await c.env.DB.prepare("UPDATE users SET role = 'dirigent' WHERE id = 28").run()
+      results.push('✅ Anja Holbrechts (id=28) → rol dirigent')
+    } catch (e: any) {
+      results.push('⚠️ Anja rol update mislukt (CHECK constraint?): ' + e.message)
+    }
+
+    // #53: Add Arjan Vervaet
+    const existingArjan = await c.env.DB.prepare(
+      "SELECT id FROM users WHERE email = 'arjan.vervaet@gmail.com'"
+    ).first()
+
+    if (existingArjan) {
+      results.push('ℹ️ Arjan Vervaet bestaat al (id=' + existingArjan.id + ')')
+    } else {
+      // Hash password using Web Crypto (same as auth.ts)
+      const encoder = new TextEncoder()
+      const salt = crypto.getRandomValues(new Uint8Array(16))
+      const passwordData = encoder.encode('Animato2025!')
+      const key = await crypto.subtle.importKey('raw', passwordData, { name: 'PBKDF2' }, false, ['deriveBits'])
+      const hashBuffer = await crypto.subtle.deriveBits(
+        { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+        key, 256
+      )
+      const hashArray = new Uint8Array(hashBuffer)
+      const saltHex = Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join('')
+      const hashHex = Array.from(hashArray).map(b => b.toString(16).padStart(2, '0')).join('')
+      const password_hash = saltHex + ':' + hashHex
+
+      const userResult = await c.env.DB.prepare(
+        "INSERT INTO users (email, password_hash, role, stemgroep, status, email_verified) VALUES (?, ?, 'lid', 'B', 'actief', 1)"
+      ).bind('arjan.vervaet@gmail.com', password_hash).run()
+
+      const newId = userResult.meta.last_row_id
+      await c.env.DB.prepare(
+        "INSERT INTO profiles (user_id, voornaam, achternaam) VALUES (?, 'Arjan', 'Vervaet')"
+      ).bind(newId).run()
+
+      results.push('✅ Arjan Vervaet aangemaakt (id=' + newId + '), stemgroep=Bas, wachtwoord=Animato2025!')
+    }
+
+    // #53: Clear Els Bocken's invalid birthday (29/2)
+    const els = await c.env.DB.prepare(
+      "SELECT u.id, p.geboortedatum FROM users u JOIN profiles p ON p.user_id = u.id WHERE p.voornaam LIKE '%Els%' AND p.achternaam LIKE '%Bocken%'"
+    ).first()
+
+    if (els) {
+      await c.env.DB.prepare(
+        "UPDATE profiles SET geboortedatum = NULL WHERE user_id = ?"
+      ).bind(els.id).run()
+      results.push('✅ Els Bocken (id=' + els.id + ') geboortedatum gewist (was: ' + els.geboortedatum + ')')
+    } else {
+      results.push('ℹ️ Els Bocken niet gevonden')
+    }
+
+  } catch (error: any) {
+    results.push('❌ Fout: ' + error.message)
+  }
+
+  return c.json({ results })
 })
 
 export default app

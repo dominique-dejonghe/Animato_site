@@ -35,7 +35,8 @@ app.get('/agenda', async (c) => {
 
   // Build query
   let query = `
-    SELECT e.id, e.type, e.titel, e.slug, e.start_at, e.end_at, e.locatie, e.doelgroep, e.location_id
+    SELECT e.id, e.type, e.titel, e.slug, e.start_at, e.end_at, e.locatie, e.doelgroep, e.location_id,
+           e.is_recurring, e.parent_event_id
     FROM events e
     WHERE (e.is_publiek = 1 OR (e.is_publiek = 0 AND ? IS NOT NULL))
   `
@@ -63,7 +64,32 @@ app.get('/agenda', async (c) => {
 
   query += ` ORDER BY e.start_at ASC LIMIT 50`
 
-  const events = await queryAll(c.env.DB, query, filters)
+  const rawEvents = await queryAll(c.env.DB, query, filters)
+
+  // Group recurring events (#41): in list view, collapse same-title weekly recurring events
+  let events = rawEvents
+  if (view === 'list') {
+    const seen = new Map<string, any>()
+    const collapsed: any[] = []
+    for (const event of rawEvents as any[]) {
+      if (event.is_recurring || event.parent_event_id) {
+        const key = event.titel + '|' + event.type
+        if (seen.has(key)) {
+          // Increment count
+          seen.get(key)._recurring_count = (seen.get(key)._recurring_count || 1) + 1
+          seen.get(key)._recurring_last = event.start_at
+        } else {
+          event._recurring_count = 1
+          event._recurring_grouped = true
+          seen.set(key, event)
+          collapsed.push(event)
+        }
+      } else {
+        collapsed.push(event)
+      }
+    }
+    events = collapsed
+  }
 
   // Group events by month
   const eventsByMonth: Record<string, any[]> = {}
@@ -228,7 +254,15 @@ app.get('/agenda', async (c) => {
                                      event.type === 'activiteit' ? 'Activiteit' :
                                      'Overige'}
                                   </span>
-                                  <h3 class="text-xl font-bold text-gray-900">{event.titel}</h3>
+                                  <h3 class="text-xl font-bold text-gray-900">
+                                    {event.titel}
+                                    {event._recurring_grouped && event._recurring_count > 1 && (
+                                      <span class="ml-2 text-xs font-normal bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">
+                                        <i class="fas fa-redo mr-1"></i>
+                                        Wekelijks · volgende {event._recurring_count} weken
+                                      </span>
+                                    )}
+                                  </h3>
                                 </div>
                               </div>
 
@@ -469,7 +503,8 @@ app.get('/concerten', async (c) => {
 
   // Query based on view parameter — admins also see non-public concerts
   let query = `
-    SELECT e.*, c.poster_url, c.programma, c.uitverkocht
+    SELECT e.*, c.poster_url, c.programma, c.uitverkocht,
+           COALESCE(c.poster_url, e.image_url) as display_image
     FROM events e
     LEFT JOIN concerts c ON c.event_id = e.id
     WHERE e.type = 'concert'${isAdmin ? '' : ' AND e.is_publiek = 1'}
@@ -567,9 +602,9 @@ app.get('/concerten', async (c) => {
                   )}
                   <a href={`/concerten/${concert.slug}`} class="block">
                     <div class="aspect-video bg-gray-200 overflow-hidden relative">
-                      {concert.poster_url ? (
+                      {(concert.display_image || concert.poster_url) ? (
                         <img 
-                          src={concert.poster_url} 
+                          src={concert.display_image || concert.poster_url} 
                           alt={concert.titel}
                           class="w-full h-full object-cover group-hover:scale-105 transition duration-300"
                         />
@@ -727,9 +762,9 @@ app.get('/concerten/:slug', async (c) => {
 
         {/* Hero image */}
         <div class="relative h-96 bg-gradient-to-br from-animato-primary to-animato-secondary mb-12">
-          {concert.poster_url ? (
+          {(concert.poster_url || concert.image_url) ? (
             <img 
-              src={concert.poster_url} 
+              src={concert.poster_url || concert.image_url} 
               alt={concert.titel}
               class="w-full h-full object-cover"
             />
@@ -1107,16 +1142,27 @@ function renderCalendarGrid(events: any[], year: number, month: number) {
       {weeks.map((week) => (
         <div class="grid grid-cols-7 gap-2 mb-2">
           {week.map((cell: any) => (
-            <div class={`min-h-[100px] p-2 rounded-lg border ${
-              cell ? 'bg-white hover:bg-gray-50' : 'bg-gray-50'
+            <div class={`min-h-[120px] p-2 rounded-lg border-2 ${
+              cell 
+                ? (cell.events.length > 0 
+                    ? 'bg-white border-animato-primary/30 shadow-sm' 
+                    : 'bg-white border-gray-100 hover:bg-gray-50') 
+                : 'bg-gray-50 border-transparent'
             }`}>
               {cell && (
                 <div>
-                  <div class="text-right text-sm font-semibold text-gray-700 mb-1">
+                  <div class={`text-right text-sm font-semibold mb-1 ${
+                    cell.events.length > 0 ? 'text-animato-primary' : 'text-gray-500'
+                  }`}>
                     {cell.day}
+                    {cell.events.length > 0 && (
+                      <span class="ml-1 inline-flex items-center justify-center w-5 h-5 text-xs rounded-full bg-animato-primary text-white">
+                        {cell.events.length}
+                      </span>
+                    )}
                   </div>
                   <div class="space-y-1">
-                    {cell.events.slice(0, 2).map((event: any) => {
+                    {cell.events.slice(0, 3).map((event: any) => {
                       const eventHref = event.type === 'concert' && event.slug
                         ? `/concerten/${event.slug}`
                         : event.slug
@@ -1133,12 +1179,12 @@ function renderCalendarGrid(events: any[], year: number, month: number) {
                         data-event-locatie={event.locatie || ''}
                         data-event-slug={event.slug || ''}
                         data-event-beschrijving={event.beschrijving || ''}
-                        class={`block text-xs p-1 rounded truncate hover:opacity-80 transition cursor-pointer ${
-                          event.type === 'concert' ? 'bg-yellow-100 text-yellow-800' :
-                          event.type === 'repetitie' ? 'bg-blue-100 text-blue-800' :
-                          event.type === 'activiteit' ? 'bg-green-100 text-green-800' :
-                          event.type === 'workshop' ? 'bg-purple-100 text-purple-800' :
-                          'bg-gray-100 text-gray-800'
+                        class={`block text-xs px-2 py-1.5 rounded-md truncate hover:opacity-80 transition cursor-pointer font-medium shadow-sm ${
+                          event.type === 'concert' ? 'bg-yellow-200 text-yellow-900 border-l-4 border-yellow-500' :
+                          event.type === 'repetitie' ? 'bg-blue-200 text-blue-900 border-l-4 border-blue-500' :
+                          event.type === 'activiteit' ? 'bg-green-200 text-green-900 border-l-4 border-green-500' :
+                          event.type === 'workshop' ? 'bg-purple-200 text-purple-900 border-l-4 border-purple-500' :
+                          'bg-gray-200 text-gray-800 border-l-4 border-gray-500'
                         }`}
                         title={`${event.titel} - ${new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}`}
                       >
@@ -1146,9 +1192,9 @@ function renderCalendarGrid(events: any[], year: number, month: number) {
                       </span>
                       )
                     })}
-                    {cell.events.length > 2 && (
-                      <div class="text-xs text-gray-500 text-center">
-                        +{cell.events.length - 2} meer
+                    {cell.events.length > 3 && (
+                      <div class="text-xs text-animato-primary font-semibold text-center mt-1">
+                        +{cell.events.length - 3} meer
                       </div>
                     )}
                   </div>

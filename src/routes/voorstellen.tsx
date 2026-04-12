@@ -450,20 +450,31 @@ app.get('/leden/voorstellen/:id', async (c) => {
       reviewer_pr.achternaam as reviewer_achternaam,
       (SELECT COUNT(*) FROM proposal_votes WHERE proposal_id = mp.id AND vote_type = 'up') as upvotes,
       (SELECT COUNT(*) FROM proposal_votes WHERE proposal_id = mp.id AND vote_type = 'down') as downvotes,
-      (SELECT vote_type FROM proposal_votes WHERE proposal_id = mp.id AND user_id = ?) as user_vote
+      (SELECT vote_type FROM proposal_votes WHERE proposal_id = mp.id AND user_id = ?) as user_vote,
+      (SELECT comment FROM proposal_votes WHERE proposal_id = mp.id AND user_id = ?) as user_vote_comment
     FROM member_proposals mp
     LEFT JOIN users u ON u.id = mp.voorgesteld_door
     LEFT JOIN profiles pr ON pr.user_id = u.id
     LEFT JOIN users reviewer ON reviewer.id = mp.reviewed_by
     LEFT JOIN profiles reviewer_pr ON reviewer_pr.user_id = reviewer.id
     WHERE mp.id = ?
-  `, [user.id, proposalId])
+  `, [user.id, user.id, proposalId])
 
   if (!proposal) {
     return c.redirect('/leden/voorstellen?error=not_found')
   }
 
   const net_votes = (proposal.upvotes || 0) - (proposal.downvotes || 0)
+
+  // Fetch vote comments (#65)
+  const voteComments = await queryAll<any>(c.env.DB,
+    `SELECT pv.vote_type, pv.comment, pv.created_at, pr.voornaam, pr.achternaam
+     FROM proposal_votes pv
+     JOIN profiles pr ON pr.user_id = pv.user_id
+     WHERE pv.proposal_id = ? AND pv.comment IS NOT NULL AND pv.comment != ''
+     ORDER BY pv.created_at DESC`,
+    [proposalId]
+  )
 
   return c.html(
     <Layout 
@@ -548,7 +559,7 @@ app.get('/leden/voorstellen/:id', async (c) => {
                   <input type="hidden" name="vote_type" value="up" />
                   <button 
                     type="submit"
-                    class={`w-12 h-12 rounded-full transition-colors flex items-center justify-center ${
+                    class={`w-12 h-12 rounded-full transition-colors flex items-center justify-center mx-auto ${
                       proposal.user_vote === 'up'
                         ? 'text-green-600 bg-green-100 border-2 border-green-600'
                         : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
@@ -571,7 +582,7 @@ app.get('/leden/voorstellen/:id', async (c) => {
                   <input type="hidden" name="vote_type" value="down" />
                   <button 
                     type="submit"
-                    class={`w-12 h-12 rounded-full transition-colors flex items-center justify-center ${
+                    class={`w-12 h-12 rounded-full transition-colors flex items-center justify-center mx-auto ${
                       proposal.user_vote === 'down'
                         ? 'text-red-600 bg-red-100 border-2 border-red-600'
                         : 'text-gray-400 hover:text-red-600 hover:bg-red-50'
@@ -585,6 +596,21 @@ app.get('/leden/voorstellen/:id', async (c) => {
                 <div class="mt-3 text-xs text-gray-500">
                   {proposal.upvotes} <i class="fas fa-thumbs-up"></i> · {proposal.downvotes} <i class="fas fa-thumbs-down"></i>
                 </div>
+
+                {/* Vote comment (#65) */}
+                <div class="mt-4 border-t border-gray-200 pt-3">
+                  <form method="POST" action={`/api/voorstellen/${proposal.id}/vote-comment`}>
+                    <textarea
+                      name="comment"
+                      rows={2}
+                      placeholder="Laat een opmerking achter..."
+                      class="w-full text-xs px-2 py-1 border border-gray-300 rounded-md focus:ring-1 focus:ring-animato-primary resize-none"
+                    >{proposal.user_vote_comment || ''}</textarea>
+                    <button type="submit" class="mt-1 text-xs text-animato-primary hover:underline">
+                      <i class="fas fa-comment mr-1"></i> Opslaan
+                    </button>
+                  </form>
+                </div>
               </div>
             </div>
 
@@ -595,6 +621,29 @@ app.get('/leden/voorstellen/:id', async (c) => {
               <h3 class="text-lg font-semibold text-gray-900 mb-3">Beschrijving</h3>
               <p class="text-gray-700 whitespace-pre-wrap">{proposal.beschrijving}</p>
             </div>
+
+            {/* Vote Comments (#65) */}
+            {voteComments.length > 0 && (
+              <div class="mb-6">
+                <h3 class="text-lg font-semibold text-gray-900 mb-3">
+                  <i class="fas fa-comments text-animato-primary mr-2"></i>
+                  Reacties bij stemmen ({voteComments.length})
+                </h3>
+                <div class="space-y-3">
+                  {voteComments.map((vc: any) => (
+                    <div class="flex items-start bg-gray-50 rounded-lg p-3 border border-gray-100">
+                      <span class={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center mr-3 ${vc.vote_type === 'up' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                        <i class={`fas fa-thumbs-${vc.vote_type}`}></i>
+                      </span>
+                      <div class="flex-1">
+                        <p class="text-sm text-gray-800">{vc.comment}</p>
+                        <p class="text-xs text-gray-500 mt-1">— {vc.voornaam} {vc.achternaam}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Review Section (if reviewed) */}
             {proposal.status === 'rejected' && proposal.review_opmerking && (
@@ -744,6 +793,29 @@ app.post('/api/voorstellen/:id/vote', async (c) => {
     return c.redirect(referer)
   }
   return c.redirect(`/leden/voorstellen?success=voted`)
+})
+
+// Vote comment (#65)
+app.post('/api/voorstellen/:id/vote-comment', async (c) => {
+  const user = c.get('user') as SessionUser
+  const proposalId = c.req.param('id')
+  const body = await c.req.parseBody()
+  const comment = (body.comment as string || '').trim()
+
+  // Update or insert the comment on existing vote
+  const existingVote = await queryOne<any>(c.env.DB,
+    `SELECT id FROM proposal_votes WHERE proposal_id = ? AND user_id = ?`,
+    [proposalId, user.id]
+  )
+
+  if (existingVote) {
+    await c.env.DB.prepare(
+      `UPDATE proposal_votes SET comment = ? WHERE proposal_id = ? AND user_id = ?`
+    ).bind(comment || null, proposalId, user.id).run()
+  }
+  // If no vote exists yet, they need to vote first before commenting
+
+  return c.redirect(`/leden/voorstellen/${proposalId}`)
 })
 
 export default app

@@ -123,6 +123,20 @@ app.get('/leden', async (c) => {
     SELECT SUM(amount) as total FROM donations WHERE user_id = ? AND status = 'paid'
   `, [user.id]);
 
+  // Profile completeness (#57)
+  const profileData = await queryOne<any>(c.env.DB, `
+    SELECT voornaam, achternaam, telefoon, straat, huisnummer, postcode, gemeente, 
+           geboortedatum, foto_url, bio, muzikale_ervaring
+    FROM profiles WHERE user_id = ?
+  `, [user.id])
+  const profileFields = profileData ? [
+    profileData.voornaam, profileData.achternaam, profileData.telefoon,
+    profileData.straat, profileData.postcode, profileData.gemeente,
+    profileData.geboortedatum, profileData.foto_url, profileData.bio, profileData.muzikale_ervaring
+  ] : []
+  const filledFields = profileFields.filter((f: any) => f && String(f).trim() !== '').length
+  const profileCompleteness = profileData ? Math.round((filledFields / profileFields.length) * 100) : 0
+
   return c.html(
     <Layout title="Ledenportaal" user={user}>
       <div class="py-12 bg-gray-50">
@@ -165,7 +179,7 @@ app.get('/leden', async (c) => {
                         <span class="absolute -top-4 left-1/2 -translate-x-1/2 text-2xl" title="Jarig deze week!">👑</span>
                       </div>
                       <span class={`text-sm font-semibold ${isMe ? 'text-amber-700' : 'text-gray-700'} group-hover:text-amber-600 transition text-center`}>
-                        {bm.voornaam}{isMe ? ' (jij!)' : ''}
+                        {bm.voornaam?.split(' ')[0]}{isMe ? ' (jij!)' : ''}
                       </span>
                       <span class="text-xs text-amber-500 font-medium">
                         {new Date(bm.geboortedatum).toLocaleDateString('nl-BE', { day: 'numeric', month: 'long' })}
@@ -306,6 +320,14 @@ app.get('/leden', async (c) => {
               </div>
               <h3 class="font-semibold text-gray-900 mb-1">Profiel</h3>
               <p class="text-sm text-gray-600">Mijn gegevens</p>
+              <div class="mt-2">
+                <div class="w-full bg-gray-200 rounded-full h-1.5">
+                  <div class={`h-1.5 rounded-full ${profileCompleteness >= 80 ? 'bg-green-500' : profileCompleteness >= 50 ? 'bg-amber-500' : 'bg-red-400'}`} style={`width: ${profileCompleteness}%`}></div>
+                </div>
+                <p class={`text-xs mt-1 ${profileCompleteness >= 80 ? 'text-green-600' : profileCompleteness >= 50 ? 'text-amber-600' : 'text-red-500'}`}>
+                  {profileCompleteness}% ingevuld
+                </p>
+              </div>
             </a>
           </div>
 

@@ -2,13 +2,13 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
-import { requireRole } from '../middleware/auth'
+import { requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-// Middleware: Require admin or moderator
-app.use('*', requireRole('admin', 'moderator'))
+// Middleware: Require board member (admin, moderator, or bestuurslid)
+app.use('*', requireBestuurslid)
 
 // =====================================================
 // MEETINGS DASHBOARD
@@ -305,14 +305,21 @@ app.get('/admin/meetings/:id', async (c) => {
     [meetingId]
   )
   
-  // Get all users for assignment
+  // Get users for assignment - for board meetings, only show board members + admin/moderator
+  const isBoardMeeting = meeting.type === 'bestuur'
   const users = await queryAll(
     c.env.DB,
-    `SELECT u.id, p.voornaam, p.achternaam, u.role
-     FROM users u
-     LEFT JOIN profiles p ON p.user_id = u.id
-     WHERE u.status = 'actief'
-     ORDER BY p.voornaam`
+    isBoardMeeting
+      ? `SELECT u.id, p.voornaam, p.achternaam, u.role, u.is_bestuurslid
+         FROM users u
+         LEFT JOIN profiles p ON p.user_id = u.id
+         WHERE u.status = 'actief' AND (u.role IN ('admin', 'moderator') OR u.is_bestuurslid = 1)
+         ORDER BY p.voornaam`
+      : `SELECT u.id, p.voornaam, p.achternaam, u.role, u.is_bestuurslid
+         FROM users u
+         LEFT JOIN profiles p ON p.user_id = u.id
+         WHERE u.status = 'actief'
+         ORDER BY p.voornaam`
   )
 
   return c.html(

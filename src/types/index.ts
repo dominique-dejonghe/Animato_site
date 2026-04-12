@@ -75,6 +75,7 @@ export interface SessionUser {
   stemgroep: Stemgroep | null
   voornaam: string
   achternaam: string
+  is_bestuurslid?: number
 }
 
 // =====================================================

@@ -1851,6 +1851,24 @@ app.get('/admin/leden/:id', async (c) => {
                     </select>
                   </div>
                 </div>
+
+                {/* Board member checkbox */}
+                <div class="mt-4">
+                  <label class="inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="is_bestuurslid"
+                      value="1"
+                      checked={member.is_bestuurslid === 1}
+                      class="w-4 h-4 text-animato-primary border-gray-300 rounded focus:ring-animato-primary"
+                    />
+                    <span class="ml-2 text-sm font-medium text-gray-700">
+                      <i class="fas fa-shield-alt text-yellow-500 mr-1"></i>
+                      Bestuurslid
+                    </span>
+                    <span class="ml-2 text-xs text-gray-500">(toegang tot vergaderingen & projecten)</span>
+                  </label>
+                </div>
               </div>
 
               {/* Musical Experience */}
@@ -2127,7 +2145,8 @@ app.post('/api/admin/leden/update', async (c) => {
       bus,
       postcode,
       gemeente,
-      foto_url
+      foto_url,
+      is_bestuurslid
     } = body
 
     // Validation
@@ -2135,12 +2154,14 @@ app.post('/api/admin/leden/update', async (c) => {
       return c.redirect(`/admin/leden/${user_id}?error=required_fields`)
     }
 
-    // Update user table
+    const bestuurValue = is_bestuurslid === '1' ? 1 : 0
+
+    // Update user table (including board member status)
     await c.env.DB.prepare(
       `UPDATE users 
-       SET email = ?, role = ?, stemgroep = ?, status = ?
+       SET email = ?, role = ?, stemgroep = ?, status = ?, is_bestuurslid = ?
        WHERE id = ?`
-    ).bind(email, role, stemgroep || null, status, user_id).run()
+    ).bind(email, role, stemgroep || null, status, bestuurValue, user_id).run()
 
     // Update profile table (inclusief foto_url)
     await c.env.DB.prepare(

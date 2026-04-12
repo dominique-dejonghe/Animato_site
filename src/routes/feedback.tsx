@@ -184,4 +184,85 @@ app.post('/api/feedback', async (c) => {
   }
 })
 
+// =====================================================
+// USER RETEST RESPONSE - Confirm fix or report still broken
+// =====================================================
+
+app.post('/api/feedback/:id/retest-response', async (c) => {
+  const token = getCookie(c, 'auth_token')
+  if (!token) return c.json({ error: 'Unauthorized' }, 401)
+  
+  const user = await verifyToken(token, c.env.JWT_SECRET)
+  if (!user) return c.json({ error: 'Unauthorized' }, 401)
+
+  const feedbackId = parseInt(c.req.param('id'))
+  
+  // Check ownership
+  const feedback = await queryOne<{ user_id: number; status: string }>(
+    c.env.DB,
+    'SELECT user_id, status FROM feedback WHERE id = ?',
+    [feedbackId]
+  )
+
+  if (!feedback) return c.json({ error: 'Not found' }, 404)
+  if (feedback.user_id !== user.id) return c.json({ error: 'Forbidden' }, 403)
+  
+  // Only allow response when status is 'hertesten'
+  if (feedback.status !== 'hertesten') {
+    return c.json({ error: 'Dit item staat niet op hertesten' }, 400)
+  }
+
+  try {
+    const body = await c.req.json()
+    const verdict = body.verdict as string // 'ok' or 'not_ok'
+    const comment = (body.comment as string || '').trim()
+
+    if (verdict !== 'ok' && verdict !== 'not_ok') {
+      return c.json({ error: 'Ongeldige reactie. Kies "ok" of "not_ok".' }, 400)
+    }
+
+    if (verdict === 'ok') {
+      // User confirms: fix works → mark as resolved
+      await execute(
+        c.env.DB,
+        `UPDATE feedback SET status = 'resolved', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [feedbackId]
+      )
+
+      // Add auto-comment
+      const autoMessage = comment 
+        ? `✅ Bevestigd als opgelost door melder: "${comment}"`
+        : '✅ Bevestigd als opgelost door melder.'
+
+      await execute(
+        c.env.DB,
+        `INSERT INTO feedback_comments (feedback_id, user_id, message, is_admin) VALUES (?, ?, ?, 0)`,
+        [feedbackId, user.id, autoMessage]
+      )
+    } else {
+      // User says: still broken → reopen
+      await execute(
+        c.env.DB,
+        `UPDATE feedback SET status = 'open', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [feedbackId]
+      )
+
+      // Add comment with the user's feedback
+      const reopenMessage = comment 
+        ? `❌ Nog niet opgelost – ${comment}`
+        : '❌ Nog niet opgelost. Het probleem bestaat nog steeds.'
+
+      await execute(
+        c.env.DB,
+        `INSERT INTO feedback_comments (feedback_id, user_id, message, is_admin) VALUES (?, ?, ?, 0)`,
+        [feedbackId, user.id, reopenMessage]
+      )
+    }
+
+    return c.json({ success: true, new_status: verdict === 'ok' ? 'resolved' : 'open' })
+  } catch (e: any) {
+    return c.json({ error: e.message }, 500)
+  }
+})
+
 export default app

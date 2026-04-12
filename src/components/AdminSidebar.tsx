@@ -3,10 +3,21 @@ import type { FC } from 'hono/jsx'
 interface AdminSidebarProps {
   activeSection?: string
   pendingRegistrationsCount?: number
+  isBestuurslid?: boolean  // Show board-only items (override)
+  userRole?: string        // User role for board access check
 }
 
-export const AdminSidebar: FC<AdminSidebarProps> = ({ activeSection = 'dashboard', pendingRegistrationsCount = 0 }) => {
-  const links = [
+export const AdminSidebar: FC<AdminSidebarProps> = ({ 
+  activeSection = 'dashboard', 
+  pendingRegistrationsCount = 0,
+  isBestuurslid = false,
+  userRole = ''
+}) => {
+  // Board access: admins and moderators always have access, or explicit board members
+  // When userRole is empty (not passed), default to showing board items for backward compatibility
+  const hasBoardAccess = !userRole || userRole === 'admin' || userRole === 'moderator' || isBestuurslid
+
+  const allLinks = [
     { id: 'dashboard', label: 'Dashboard', href: '/admin', icon: 'fas fa-tachometer-alt' },
     { id: 'leden', label: 'Leden', href: '/admin/leden', icon: 'fas fa-users', badge: pendingRegistrationsCount > 0 ? pendingRegistrationsCount : undefined },
     { id: 'verjaardagen', label: 'Verjaardagslijst', href: '/leden/verjaardagen', icon: 'fas fa-birthday-cake' },
@@ -17,8 +28,8 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({ activeSection = 'dashboard
     { id: 'seating', label: 'Zaalplannen', href: '/admin/seating', icon: 'fas fa-chair' },
     { id: 'finance', label: 'Financiën & Lidgeld', href: '/admin/lidgelden', icon: 'fas fa-euro-sign' },
     { id: 'communications', label: 'Communicatie', href: '/admin/communicatie', icon: 'fas fa-envelope' },
-    { id: 'meetings', label: 'Vergaderingen', href: '/admin/meetings', icon: 'fas fa-handshake' },
-    { id: 'projects', label: 'Projecten', href: '/admin/projects', icon: 'fas fa-project-diagram' },
+    { id: 'meetings', label: 'Vergaderingen', href: '/admin/meetings', icon: 'fas fa-handshake', boardOnly: true },
+    { id: 'projects', label: 'Projecten', href: '/admin/projects', icon: 'fas fa-project-diagram', boardOnly: true },
     { id: 'prints', label: 'Printservice', href: '/admin/prints', icon: 'fas fa-print' },
     { id: 'materials', label: 'Oefenmateriaal', href: '/admin/bestanden', icon: 'fas fa-music' },
     { id: 'photos', label: "Foto's & Video's", href: '/admin/fotoboek', icon: 'fas fa-images' },
@@ -28,6 +39,9 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({ activeSection = 'dashboard
     { id: 'walkthrough', label: 'Walkthrough Tours', href: '/admin/walkthrough', icon: 'fas fa-route' },
     { id: 'settings', label: 'Instellingen', href: '/admin/settings', icon: 'fas fa-cogs' },
   ]
+
+  // Filter board-only items if user doesn't have board access
+  const links = allLinks.filter(link => !link.boardOnly || hasBoardAccess)
 
   return (
     <aside class="w-64 bg-animato-secondary text-white hidden md:block flex-shrink-0 min-h-screen">
@@ -49,6 +63,9 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({ activeSection = 'dashboard
               <div class="flex items-center">
                 <i class={`${link.icon} w-6 mr-2.5 text-center ${isActive ? 'text-animato-secondary' : 'text-white text-opacity-80'}`}></i>
                 <span class={isActive ? 'text-animato-secondary' : ''}>{link.label}</span>
+                {link.boardOnly && (
+                  <i class="fas fa-shield-alt text-xs ml-1.5 text-yellow-300 opacity-70" title="Alleen bestuur"></i>
+                )}
               </div>
               {link.badge && (
                 <span class="bg-blue-500 text-white text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">

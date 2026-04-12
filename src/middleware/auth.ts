@@ -118,6 +118,35 @@ export function requireStemgroep(stem: Stemgroep) {
 }
 
 /**
+ * Require board member (bestuurslid) - or admin/moderator
+ * Board members have is_bestuurslid=1, admins/moderators always have access
+ */
+export async function requireBestuurslid(c: Context<{ Bindings: Bindings }>, next: Next) {
+  const user = c.get('user') as SessionUser
+
+  if (!user) {
+    return c.json({ error: 'Niet ingelogd' }, 401)
+  }
+
+  // Admins and moderators always have access
+  if (user.role === 'admin' || user.role === 'moderator') {
+    await next()
+    return
+  }
+
+  // Check is_bestuurslid flag
+  if (user.is_bestuurslid) {
+    await next()
+    return
+  }
+
+  return c.json({ 
+    error: 'Alleen voor bestuursleden', 
+    message: 'Je hebt geen toegang tot dit gedeelte. Neem contact op met het bestuur.'
+  }, 403)
+}
+
+/**
  * Optional auth - attach user if present but don't require
  */
 export async function optionalAuth(c: Context<{ Bindings: Bindings }>, next: Next) {

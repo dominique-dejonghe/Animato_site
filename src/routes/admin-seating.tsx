@@ -123,6 +123,8 @@ function renderEditor(c: any, layout: any) {
   var isDraggingAnySeat = false;
   var canvasW = ${canvasWidth};
   var canvasH = ${canvasHeight};
+  var gridSize = 20; // Snap-to-grid size in pixels
+  var showGrid = true; // Show grid overlay
 
   // ── DOM refs ───────────────────────────────────────
   var wrapper      = document.getElementById('canvasWrapper');
@@ -136,7 +138,59 @@ function renderEditor(c: any, layout: any) {
   function initCanvas() {
     wrapper.style.width  = canvasW + 'px';
     wrapper.style.height = canvasH + 'px';
+    renderGrid();
     renderSeats();
+  }
+
+  // ── Grid Overlay ─────────────────────────────────────
+  function renderGrid() {
+    var existing = document.getElementById('gridOverlay');
+    if (existing) existing.remove();
+    if (!showGrid) return;
+
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'gridOverlay';
+    svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:0.3;';
+    svg.setAttribute('width', canvasW);
+    svg.setAttribute('height', canvasH);
+
+    // Vertical lines
+    for (var x = 0; x <= canvasW; x += gridSize) {
+      var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', x); line.setAttribute('y1', 0);
+      line.setAttribute('x2', x); line.setAttribute('y2', canvasH);
+      line.setAttribute('stroke', '#ccc'); line.setAttribute('stroke-width', '0.5');
+      if (x % (gridSize * 5) === 0) line.setAttribute('stroke-width', '1');
+      svg.appendChild(line);
+    }
+    // Horizontal lines
+    for (var y = 0; y <= canvasH; y += gridSize) {
+      var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('x1', 0); line.setAttribute('y1', y);
+      line.setAttribute('x2', canvasW); line.setAttribute('y2', y);
+      line.setAttribute('stroke', '#ccc'); line.setAttribute('stroke-width', '0.5');
+      if (y % (gridSize * 5) === 0) line.setAttribute('stroke-width', '1');
+      svg.appendChild(line);
+    }
+    wrapper.insertBefore(svg, wrapper.firstChild.nextSibling);
+  }
+
+  // Grid toggle handler
+  var gridToggle = document.getElementById('gridToggle');
+  if (gridToggle) {
+    gridToggle.addEventListener('change', function() {
+      showGrid = this.checked;
+      renderGrid();
+    });
+  }
+
+  // Grid size handler
+  var gridSizeSelect = document.getElementById('gridSizeSelect');
+  if (gridSizeSelect) {
+    gridSizeSelect.addEventListener('change', function() {
+      gridSize = parseInt(this.value) || 20;
+      renderGrid();
+    });
   }
 
   document.getElementById('resizeBtn').addEventListener('click', function() {
@@ -198,8 +252,8 @@ function renderEditor(c: any, layout: any) {
         var rect = wrapper.getBoundingClientRect();
         var nx = e.clientX - rect.left - offX;
         var ny = e.clientY - rect.top  - offY;
-        nx = Math.max(0, Math.min(canvasW - 32, Math.round(nx / 8) * 8));
-        ny = Math.max(28, Math.min(canvasH - 32, Math.round(ny / 8) * 8));
+        nx = Math.max(0, Math.min(canvasW - 32, Math.round(nx / gridSize) * gridSize));
+        ny = Math.max(28, Math.min(canvasH - 32, Math.round(ny / gridSize) * gridSize));
         el.style.left = nx + 'px';
         el.style.top  = ny + 'px';
         seat.x = nx;
@@ -450,6 +504,25 @@ function renderEditor(c: any, layout: any) {
                       <input type="number" id="canvasH" value={canvasHeight} class="w-full border rounded p-2" placeholder="Hoogte" />
                     </div>
                     <button id="resizeBtn" class="mt-2 w-full bg-gray-100 text-xs py-1 rounded">Update Canvas</button>
+                  </div>
+
+                  {/* Grid Settings */}
+                  <div class="mt-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                      <i class="fas fa-th text-animato-primary mr-1"></i>
+                      Raster (snap-to-grid)
+                    </label>
+                    <div class="flex items-center gap-3">
+                      <select id="gridSizeSelect" class="flex-1 border rounded p-2 text-sm">
+                        <option value="10">10px (fijn)</option>
+                        <option value="20" selected>20px (normaal)</option>
+                        <option value="40">40px (grof)</option>
+                      </select>
+                      <label class="inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="gridToggle" checked class="w-4 h-4 text-animato-primary border-gray-300 rounded" />
+                        <span class="ml-1.5 text-xs text-gray-600">Toon</span>
+                      </label>
+                    </div>
                   </div>
                 </div>
               </div>

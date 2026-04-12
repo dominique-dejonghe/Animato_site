@@ -601,11 +601,28 @@ export const Layout: FC<LayoutProps> = ({
                     const statusLabels = { open: 'Open', meer_info_nodig: '\u26a0\ufe0f Meer info nodig', in_progress: 'In behandeling', hertesten: '\ud83d\udd01 Hertesten', resolved: 'Opgelost', rejected: 'Afgewezen' };
                     const statusColors = { open: '#3b82f6', meer_info_nodig: '#f97316', in_progress: '#f59e0b', hertesten: '#a855f7', resolved: '#22c55e', rejected: '#ef4444' };
                     
-                    header.innerHTML = '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' +
+                    // Build header with status badge
+                    let headerHtml = '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">' +
                         '<span style="font-size:11px;font-weight:600;">' + (typeLabels[item.type] || item.type) + '</span>' +
                         '<span style="font-size:10px;font-weight:600;padding:1px 8px;border-radius:9999px;background:' + (statusColors[item.status] || '#9ca3af') + '15;color:' + (statusColors[item.status] || '#9ca3af') + ';">' + (statusLabels[item.status] || item.status) + '</span>' +
                         '</div>' +
                         '<p style="font-size:12px;color:#374151;margin-top:4px;line-height:1.5;">' + _escHtml(item.message) + '</p>';
+
+                    // Add retest response buttons when status is 'hertesten'
+                    if (item.status === 'hertesten') {
+                        headerHtml += '<div id="retest-response-block" style="margin-top:10px;padding:10px;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:10px;">' +
+                            '<p style="font-size:11px;font-weight:600;color:#6d28d9;margin-bottom:8px;"><i class="fas fa-sync-alt" style="margin-right:4px;"></i> Er is een fix toegepast. Werkt het nu?</p>' +
+                            '<div style="display:flex;gap:6px;margin-bottom:6px;">' +
+                            '<button onclick="submitRetestResponse(' + item.id + ', \'ok\')" style="flex:1;padding:8px 12px;background:#22c55e;color:white;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;transition:all .2s;" onmouseover="this.style.background=\'#16a34a\'" onmouseout="this.style.background=\'#22c55e\'">' +
+                            '<i class="fas fa-check-circle"></i> Ja, werkt nu!</button>' +
+                            '<button onclick="submitRetestResponse(' + item.id + ', \'not_ok\')" style="flex:1;padding:8px 12px;background:#ef4444;color:white;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;transition:all .2s;" onmouseover="this.style.background=\'#dc2626\'" onmouseout="this.style.background=\'#ef4444\'">' +
+                            '<i class="fas fa-times-circle"></i> Nee, nog niet goed</button>' +
+                            '</div>' +
+                            '<input type="text" id="retest-comment-input" placeholder="Optioneel: geef extra uitleg..." style="width:100%;box-sizing:border-box;padding:6px 10px;border:1px solid #ddd6fe;border-radius:6px;font-size:11px;background:white;" />' +
+                            '</div>';
+                    }
+
+                    header.innerHTML = headerHtml;
 
                     const comments = commentsData.comments || [];
                     if (comments.length === 0) {
@@ -651,6 +668,52 @@ export const Layout: FC<LayoutProps> = ({
                 currentDetailFeedbackId = null;
                 document.getElementById('my-feedback-detail').classList.add('hidden');
                 loadMyFeedback();
+            }
+
+            async function submitRetestResponse(feedbackId, verdict) {
+                const commentInput = document.getElementById('retest-comment-input');
+                const comment = commentInput ? commentInput.value.trim() : '';
+                
+                // Disable buttons to prevent double-click
+                const block = document.getElementById('retest-response-block');
+                if (block) {
+                    block.innerHTML = '<div style="text-align:center;padding:8px;"><i class="fas fa-spinner fa-spin" style="color:#6d28d9;"></i> <span style="font-size:11px;color:#6d28d9;font-weight:600;">Verwerken...</span></div>';
+                }
+
+                try {
+                    const res = await fetch('/api/feedback/' + feedbackId + '/retest-response', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ verdict: verdict, comment: comment })
+                    });
+
+                    if (!res.ok) {
+                        const err = await res.json();
+                        throw new Error(err.error || 'Fout bij versturen');
+                    }
+
+                    const data = await res.json();
+                    
+                    // Show success message
+                    if (block) {
+                        if (verdict === 'ok') {
+                            block.innerHTML = '<div style="text-align:center;padding:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;">' +
+                                '<i class="fas fa-check-circle" style="color:#22c55e;font-size:18px;display:block;margin-bottom:4px;"></i>' +
+                                '<span style="font-size:11px;color:#166534;font-weight:600;">Bedankt! Gemarkeerd als opgelost.</span></div>';
+                        } else {
+                            block.innerHTML = '<div style="text-align:center;padding:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;">' +
+                                '<i class="fas fa-redo" style="color:#ef4444;font-size:18px;display:block;margin-bottom:4px;"></i>' +
+                                '<span style="font-size:11px;color:#991b1b;font-weight:600;">Feedback ontvangen. We kijken er opnieuw naar!</span></div>';
+                        }
+                    }
+
+                    // Refresh the detail view after a short delay
+                    setTimeout(function() { openFeedbackDetail(feedbackId); }, 1500);
+                } catch(e) {
+                    if (block) {
+                        block.innerHTML = '<div style="text-align:center;padding:8px;color:#ef4444;font-size:11px;font-weight:600;"><i class="fas fa-exclamation-triangle" style="margin-right:4px;"></i> ' + _escHtml(e.message) + '</div>';
+                    }
+                }
             }
 
             async function sendUserComment() {

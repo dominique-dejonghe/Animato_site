@@ -799,6 +799,10 @@ app.get('/word-lid', async (c) => {
                 <i class="fas fa-envelope mr-2"></i>
                 gemengdkooranimato@gmail.com
               </a>
+              <a href="https://wa.me/?text=Hallo%2C%20ik%20heb%20interesse%20in%20Gemengd%20Koor%20Animato!" target="_blank" rel="noopener" class="inline-flex items-center text-green-600 hover:text-green-700 font-semibold">
+                <i class="fab fa-whatsapp mr-2 text-xl"></i>
+                Stuur een WhatsApp bericht
+              </a>
             </div>
           </div>
         </div>
@@ -909,6 +913,9 @@ app.get('/contact', async (c) => {
                   </a>
                   <a href="https://www.youtube.com/@GemengdkoorAnimato" target="_blank" rel="noopener" class="w-12 h-12 bg-animato-primary text-white rounded-lg flex items-center justify-center hover:bg-animato-secondary transition">
                     <i class="fab fa-youtube text-xl"></i>
+                  </a>
+                  <a href="https://wa.me/?text=Hallo%2C%20ik%20heb%20een%20vraag%20over%20Gemengd%20Koor%20Animato." target="_blank" rel="noopener" class="w-12 h-12 bg-green-500 text-white rounded-lg flex items-center justify-center hover:bg-green-600 transition" title="WhatsApp">
+                    <i class="fab fa-whatsapp text-xl"></i>
                   </a>
                 </div>
               </div>

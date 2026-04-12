@@ -405,7 +405,8 @@ app.post('/api/auth/login', async (c) => {
       role: user.role,
       stemgroep: user.stemgroep,
       voornaam: user.voornaam || 'Gebruiker',
-      achternaam: user.achternaam || ''
+      achternaam: user.achternaam || '',
+      is_bestuurslid: user.is_bestuurslid || 0
     }
 
     // Generate JWT token
@@ -545,7 +546,8 @@ app.post('/api/auth/register', async (c) => {
       role: 'lid',
       stemgroep: stemgroep as any,
       voornaam,
-      achternaam
+      achternaam,
+      is_bestuurslid: 0
     }
 
     const token = await generateToken(sessionUser, c.env.JWT_SECRET, '7d')

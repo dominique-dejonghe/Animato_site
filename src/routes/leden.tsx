@@ -2619,10 +2619,34 @@ app.get('/leden/materiaal', async (c) => {
 
   const groupEntries = Object.values(grouped)
 
+  const successMsg = c.req.query('success')
+  const errorMsg = c.req.query('error')
+  const infoMsg = c.req.query('info')
+
   return c.html(
     <Layout title="Materiaal" user={user} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Materiaal', href: '/leden/materiaal'}]}>
       <div class="py-12 bg-gray-50 min-h-screen">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Success/Error/Info messages */}
+          {successMsg === 'print_requested' && (
+            <div class="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg mb-6 flex items-center">
+              <i class="fas fa-check-circle text-green-500 mr-3"></i>
+              <span>Je print-aanvraag is verstuurd! Het bestuur zal de papieren versie voor je klaarzetten.</span>
+            </div>
+          )}
+          {infoMsg === 'already_requested' && (
+            <div class="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg mb-6 flex items-center">
+              <i class="fas fa-info-circle text-blue-500 mr-3"></i>
+              <span>Je hebt al een aanvraag lopen voor dit materiaal. Die wordt zo snel mogelijk verwerkt.</span>
+            </div>
+          )}
+          {errorMsg && (
+            <div class="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg mb-6 flex items-center">
+              <i class="fas fa-exclamation-circle text-red-500 mr-3"></i>
+              <span>Er is iets misgegaan bij het verwerken van je aanvraag.</span>
+            </div>
+          )}
+
           <div class="mb-8 flex items-center gap-4">
             <div>
               <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
@@ -2703,8 +2727,8 @@ app.get('/leden/materiaal', async (c) => {
                             )}
                           </div>
 
-                          {/* Action button */}
-                          <div class="flex-shrink-0">
+                          {/* Action buttons */}
+                          <div class="flex-shrink-0 flex gap-2">
                             <a 
                               href={mat.url} 
                               target="_blank" 
@@ -2714,6 +2738,20 @@ app.get('/leden/materiaal', async (c) => {
                               <i class={`${info.icon} text-xs`}></i>
                               <span class="hidden sm:inline">Openen</span>
                             </a>
+                            {/* Print request button for PDF materials */}
+                            {(info.label === 'PDF' || info.label === 'Google Drive') && (
+                              <form action="/api/leden/materiaal/print-aanvraag" method="POST" class="inline">
+                                <input type="hidden" name="material_id" value={mat.id} />
+                                <button 
+                                  type="submit"
+                                  class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-600 bg-gray-100 hover:bg-amber-100 hover:text-amber-700 transition border border-gray-200"
+                                  title="Papieren versie aanvragen"
+                                >
+                                  <i class="fas fa-print text-xs"></i>
+                                  <span class="hidden lg:inline">Print</span>
+                                </button>
+                              </form>
+                            )}
                           </div>
                         </div>
                       )
@@ -3707,6 +3745,55 @@ app.post('/api/leden/profiel/wachtwoord', async (c) => {
   } catch (error) {
     console.error('Password change error:', error)
     return c.redirect('/leden/profiel?error=update_failed')
+  }
+})
+
+// =====================================================
+// MATERIAL PRINT REQUEST (#1)
+// =====================================================
+
+app.post('/api/leden/materiaal/print-aanvraag', async (c) => {
+  const user = c.get('user') as SessionUser
+  
+  try {
+    const body = await c.req.parseBody()
+    const material_id = body.material_id
+
+    if (!material_id) {
+      return c.redirect('/leden/materiaal?error=missing_material')
+    }
+
+    // Check if material exists and get work_id
+    const material = await queryOne<any>(
+      c.env.DB,
+      `SELECT m.*, pi.work_id FROM materials m JOIN pieces pi ON pi.id = m.piece_id WHERE m.id = ?`,
+      [material_id]
+    )
+
+    if (!material) {
+      return c.redirect('/leden/materiaal?error=material_not_found')
+    }
+
+    // Check for existing pending request to avoid duplicates
+    const existingRequest = await queryOne<any>(
+      c.env.DB,
+      `SELECT id FROM print_requests WHERE user_id = ? AND material_id = ? AND status = 'pending'`,
+      [user.id, material_id]
+    )
+
+    if (existingRequest) {
+      return c.redirect('/leden/materiaal?info=already_requested')
+    }
+
+    // Create print request
+    await c.env.DB.prepare(
+      `INSERT INTO print_requests (user_id, material_id, work_id, status) VALUES (?, ?, ?, 'pending')`
+    ).bind(user.id, material_id, material.work_id).run()
+
+    return c.redirect('/leden/materiaal?success=print_requested')
+  } catch (error) {
+    console.error('Print request error:', error)
+    return c.redirect('/leden/materiaal?error=print_failed')
   }
 })
 

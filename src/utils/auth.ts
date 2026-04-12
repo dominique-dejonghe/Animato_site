@@ -184,7 +184,8 @@ export async function verifyToken(token: string, secret: string): Promise<Sessio
       role: payload.role,
       stemgroep: payload.stemgroep,
       voornaam: payload.voornaam,
-      achternaam: payload.achternaam
+      achternaam: payload.achternaam,
+      is_bestuurslid: payload.is_bestuurslid || 0
     }
   } catch (error) {
     console.error('Token verification error:', error)

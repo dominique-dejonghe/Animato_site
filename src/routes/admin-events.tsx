@@ -1077,6 +1077,23 @@ app.post('/admin/events/save', async (c) => {
 // DELETE EVENT
 // =====================================================
 
+// Toggle publicatie status van een event
+app.post('/admin/events/:id/toggle-publiek', async (c) => {
+  const id = c.req.param('id')
+  try {
+    const { is_publiek } = await c.req.json<{ is_publiek: number }>()
+    await execute(
+      c.env.DB,
+      `UPDATE events SET is_publiek = ?, updated_at = datetime('now') WHERE id = ?`,
+      [is_publiek, id]
+    )
+    return c.json({ success: true, is_publiek })
+  } catch (error) {
+    console.error('Error toggling publiek:', error)
+    return c.json({ success: false, error: 'Failed to toggle visibility' }, 500)
+  }
+})
+
 app.post('/admin/events/:id/delete', async (c) => {
   const id = c.req.param('id')
 

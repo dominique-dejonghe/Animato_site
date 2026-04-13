@@ -650,16 +650,39 @@ app.get('/concerten', async (c) => {
                       )}
                     </div>
                   </a>
-                  {/* Admin edit button per card */}
+                  {/* Admin action bar per card */}
                   {isAdmin && (
                     <div class="px-6 pb-4 border-t border-amber-100 bg-amber-50">
-                      <a
-                        href={`/admin/events/${concert.id}`}
-                        class="inline-flex items-center gap-2 text-amber-700 hover:text-amber-900 text-sm font-semibold transition mt-3"
-                      >
-                        <i class="fas fa-edit"></i>
-                        Bewerk dit concert
-                      </a>
+                      <div class="flex items-center justify-between flex-wrap gap-2 mt-3">
+                        <a
+                          href={`/admin/events/${concert.id}`}
+                          class="inline-flex items-center gap-2 text-amber-700 hover:text-amber-900 text-sm font-semibold transition"
+                        >
+                          <i class="fas fa-edit"></i>
+                          Bewerken
+                        </a>
+                        <div class="flex items-center gap-3">
+                          <button
+                            onclick={`togglePubliek(${concert.id}, ${concert.is_publiek ? 0 : 1})`}
+                            class={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded transition ${
+                              concert.is_publiek
+                                ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                            }`}
+                            title={concert.is_publiek ? 'Klik om te verbergen' : 'Klik om publiek te maken'}
+                          >
+                            <i class={`fas ${concert.is_publiek ? 'fa-eye' : 'fa-eye-slash'}`}></i>
+                            {concert.is_publiek ? 'Publiek' : 'Verborgen'}
+                          </button>
+                          <button
+                            onclick={`if(confirm('Weet je zeker dat je dit concert wilt verwijderen?')) deleteConcert(${concert.id})`}
+                            class="inline-flex items-center gap-1 text-xs font-semibold text-red-500 hover:text-red-700 transition"
+                            title="Verwijder concert"
+                          >
+                            <i class="fas fa-trash-alt"></i>
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -691,6 +714,46 @@ app.get('/concerten', async (c) => {
           )}
         </div>
       </div>
+
+      {/* Admin CRUD scripts */}
+      {isAdmin && (
+        <script dangerouslySetInnerHTML={{__html: `
+          async function togglePubliek(eventId, newValue) {
+            try {
+              const res = await fetch('/admin/events/' + eventId + '/toggle-publiek', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_publiek: newValue })
+              });
+              const data = await res.json();
+              if (data.success) {
+                window.location.reload();
+              } else {
+                alert('Fout bij wijzigen zichtbaarheid: ' + (data.error || 'Onbekende fout'));
+              }
+            } catch (e) {
+              alert('Netwerkfout: ' + e.message);
+            }
+          }
+
+          async function deleteConcert(eventId) {
+            try {
+              const res = await fetch('/admin/events/' + eventId + '/delete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+              });
+              const data = await res.json();
+              if (data.success) {
+                window.location.reload();
+              } else {
+                alert('Fout bij verwijderen: ' + (data.error || 'Onbekende fout'));
+              }
+            } catch (e) {
+              alert('Netwerkfout: ' + e.message);
+            }
+          }
+        `}} />
+      )}
     </Layout>
   )
 })

@@ -179,7 +179,7 @@ app.get('/leden', async (c) => {
                         <span class="absolute -top-4 left-1/2 -translate-x-1/2 text-2xl" title="Jarig deze week!">👑</span>
                       </div>
                       <span class={`text-sm font-semibold ${isMe ? 'text-amber-700' : 'text-gray-700'} group-hover:text-amber-600 transition text-center`}>
-                        {bm.voornaam?.split(' ')[0]}{isMe ? ' (jij!)' : ''}
+                        {bm.voornaam} {bm.achternaam}{isMe ? ' (jij!)' : ''}
                       </span>
                       <span class="text-xs text-amber-500 font-medium">
                         {new Date(bm.geboortedatum).toLocaleDateString('nl-BE', { day: 'numeric', month: 'long' })}

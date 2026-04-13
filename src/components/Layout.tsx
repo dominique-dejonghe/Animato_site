@@ -340,10 +340,19 @@ export const Layout: FC<LayoutProps> = ({
 
                 {/* Tab: My Feedback */}
                 <div id="beta-tab-mine" class="hidden">
+                    {/* Filter bar */}
+                    <div id="my-feedback-filters" class="hidden px-3 py-2 border-b border-gray-100 bg-gray-50/80 flex gap-1.5 overflow-x-auto" style="scrollbar-width:none;">
+                        <button onclick="filterFeedback('all')" data-filter="all" class="fb-filter-btn active shrink-0 px-2.5 py-1 text-[10px] font-semibold rounded-full border transition bg-animato-primary text-white border-animato-primary">Alles</button>
+                        <button onclick="filterFeedback('open')" data-filter="open" class="fb-filter-btn shrink-0 px-2.5 py-1 text-[10px] font-semibold rounded-full border transition bg-white text-gray-500 border-gray-200 hover:border-blue-300 hover:text-blue-600">Open</button>
+                        <button onclick="filterFeedback('hertesten')" data-filter="hertesten" class="fb-filter-btn shrink-0 px-2.5 py-1 text-[10px] font-semibold rounded-full border transition bg-white text-gray-500 border-gray-200 hover:border-purple-300 hover:text-purple-600">Hertesten</button>
+                        <button onclick="filterFeedback('meer_info_nodig')" data-filter="meer_info_nodig" class="fb-filter-btn shrink-0 px-2.5 py-1 text-[10px] font-semibold rounded-full border transition bg-white text-gray-500 border-gray-200 hover:border-orange-300 hover:text-orange-600">Info nodig</button>
+                        <button onclick="filterFeedback('in_progress')" data-filter="in_progress" class="fb-filter-btn shrink-0 px-2.5 py-1 text-[10px] font-semibold rounded-full border transition bg-white text-gray-500 border-gray-200 hover:border-yellow-300 hover:text-yellow-600">In behandeling</button>
+                        <button onclick="filterFeedback('resolved')" data-filter="resolved" class="fb-filter-btn shrink-0 px-2.5 py-1 text-[10px] font-semibold rounded-full border transition bg-white text-gray-500 border-gray-200 hover:border-green-300 hover:text-green-600">Opgelost</button>
+                    </div>
                     <div id="my-feedback-loading" class="p-6 text-center text-gray-400 text-sm">
                         <i class="fas fa-spinner fa-spin mr-2"></i> Laden...
                     </div>
-                    <div id="my-feedback-list" class="hidden overflow-y-auto" style="max-height: 420px;"></div>
+                    <div id="my-feedback-list" class="hidden overflow-y-auto" style="max-height: 380px;"></div>
                     <div id="my-feedback-empty" class="hidden p-6 text-center">
                         <i class="fas fa-inbox text-3xl text-gray-200 mb-2 block"></i>
                         <p class="text-sm text-gray-400">Je hebt nog geen feedback ingediend.</p>
@@ -474,17 +483,141 @@ export const Layout: FC<LayoutProps> = ({
             }
 
             let currentDetailFeedbackId = null;
+            let allFeedbackItems = [];
+            let currentFeedbackFilter = 'all';
+
+            const fbTypeLabels = { bug: '\\u{1F41B} Bug', feature: '\\u{1F4A1} Idee', other: '\\u{1F4DD} Anders' };
+            const fbStatusColors = {
+                open: 'bg-blue-100 text-blue-700',
+                meer_info_nodig: 'bg-orange-100 text-orange-700',
+                in_progress: 'bg-yellow-100 text-yellow-700',
+                hertesten: 'bg-purple-100 text-purple-700',
+                resolved: 'bg-green-100 text-green-700',
+                rejected: 'bg-red-50 text-red-500'
+            };
+            const fbStatusLabels = {
+                open: 'Open',
+                meer_info_nodig: '\\u26a0\\ufe0f Meer info nodig',
+                in_progress: 'In behandeling',
+                hertesten: '\\ud83d\\udd01 Hertesten',
+                resolved: 'Opgelost',
+                rejected: 'Afgewezen'
+            };
+
+            function renderFeedbackItem(item) {
+                const sColor = fbStatusColors[item.status] || 'bg-gray-100 text-gray-500';
+                const sLabel = fbStatusLabels[item.status] || item.status;
+                const tLabel = fbTypeLabels[item.type] || item.type;
+                const date = new Date(item.created_at).toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: 'numeric' });
+                const hasComments = item.comment_count > 0;
+                const hasNewReplies = item.unread_admin_replies > 0;
+                
+                const actionBadge = item.status === 'hertesten'
+                    ? '<span style="display:inline-flex;align-items:center;gap:2px;background:#f3e8ff;color:#7c3aed;font-size:10px;font-weight:600;padding:1px 6px;border-radius:9999px;animation:pulse 2s infinite;"><i class="fas fa-sync-alt"></i> Graag hertesten!</span>'
+                    : item.status === 'meer_info_nodig'
+                    ? '<span style="display:inline-flex;align-items:center;gap:2px;background:#fff7ed;color:#ea580c;font-size:10px;font-weight:600;padding:1px 6px;border-radius:9999px;animation:pulse 2s infinite;"><i class="fas fa-question-circle"></i> Info gevraagd</span>'
+                    : '';
+                const commentBadge = hasNewReplies 
+                    ? '<span style="display:inline-flex;align-items:center;gap:2px;background:#fef3c7;color:#d97706;font-size:10px;font-weight:600;padding:1px 6px;border-radius:9999px;"><i class="fas fa-comment-dots"></i> Nieuw antwoord</span>'
+                    : hasComments 
+                    ? '<span style="display:inline-flex;align-items:center;gap:2px;color:#9ca3af;font-size:10px;"><i class="fas fa-comments"></i> ' + item.comment_count + '</span>'
+                    : '';
+
+                return '<div onclick="openFeedbackDetail(' + item.id + ')" class="px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition cursor-pointer" data-status="' + item.status + '">' +
+                    '<div class="flex items-start justify-between gap-2">' +
+                    '<div class="flex-1 min-w-0">' +
+                    '<div class="flex items-center gap-1.5 mb-1 flex-wrap">' +
+                    '<span class="text-xs text-gray-500">' + tLabel + '</span>' +
+                    '<span class="text-gray-300">&middot;</span>' +
+                    '<span class="text-xs text-gray-400">' + date + '</span>' +
+                    actionBadge +
+                    commentBadge +
+                    '</div>' +
+                    '<p class="text-xs text-gray-700 leading-relaxed" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">' + _escHtml(item.message) + '</p>' +
+                    '</div>' +
+                    '<div class="flex flex-col items-end gap-1 shrink-0">' +
+                    '<span class="text-xs font-medium px-2 py-0.5 rounded-full ' + sColor + '">' + sLabel + '</span>' +
+                    '<i class="fas fa-chevron-right text-xs text-gray-300"></i>' +
+                    '</div>' +
+                    '</div>' +
+                    '</div>';
+            }
+
+            function renderFilteredList(items) {
+                const list = document.getElementById('my-feedback-list');
+                const empty = document.getElementById('my-feedback-empty');
+                const filtered = currentFeedbackFilter === 'all' ? items : items.filter(function(i) { return i.status === currentFeedbackFilter; });
+                
+                if (filtered.length === 0) {
+                    list.classList.add('hidden');
+                    empty.classList.remove('hidden');
+                    const filterLabel = currentFeedbackFilter === 'all' ? '' : ' met status "' + (fbStatusLabels[currentFeedbackFilter] || currentFeedbackFilter) + '"';
+                    empty.innerHTML = '<i class="fas fa-filter text-3xl text-gray-200 mb-2 block"></i>' +
+                        '<p class="text-sm text-gray-400">Geen feedback' + filterLabel + ' gevonden.</p>';
+                } else {
+                    empty.classList.add('hidden');
+                    list.innerHTML = filtered.map(renderFeedbackItem).join('');
+                    list.classList.remove('hidden');
+                }
+
+                // Update filter button counts + active state
+                updateFilterButtons(items);
+            }
+
+            function updateFilterButtons(items) {
+                const counts = { all: items.length };
+                items.forEach(function(i) { counts[i.status] = (counts[i.status] || 0) + 1; });
+                
+                document.querySelectorAll('.fb-filter-btn').forEach(function(btn) {
+                    const f = btn.getAttribute('data-filter');
+                    const count = counts[f] || 0;
+                    const isActive = f === currentFeedbackFilter;
+                    
+                    // Determine color based on filter type
+                    var activeColors = {
+                        all: 'bg-animato-primary text-white border-animato-primary',
+                        open: 'bg-blue-500 text-white border-blue-500',
+                        hertesten: 'bg-purple-500 text-white border-purple-500',
+                        meer_info_nodig: 'bg-orange-500 text-white border-orange-500',
+                        in_progress: 'bg-yellow-500 text-white border-yellow-500',
+                        resolved: 'bg-green-500 text-white border-green-500'
+                    };
+                    var inactiveClass = 'bg-white text-gray-500 border-gray-200';
+                    
+                    // Strip all state classes
+                    btn.className = btn.className.replace(/bg-\\S+|text-\\S+|border-\\S+/g, '').trim();
+                    btn.classList.add(...(isActive ? (activeColors[f] || activeColors.all) : inactiveClass).split(' '));
+                    
+                    // Hide button if count is 0 (except 'all')
+                    if (f !== 'all' && count === 0) {
+                        btn.style.display = 'none';
+                    } else {
+                        btn.style.display = '';
+                    }
+                    
+                    // Update text with count
+                    var labels = { all: 'Alles', open: 'Open', hertesten: 'Hertesten', meer_info_nodig: 'Info nodig', in_progress: 'In behandeling', resolved: 'Opgelost' };
+                    btn.textContent = (labels[f] || f) + (count > 0 ? ' (' + count + ')' : '');
+                });
+            }
+
+            function filterFeedback(status) {
+                currentFeedbackFilter = status;
+                renderFilteredList(allFeedbackItems);
+            }
 
             async function loadMyFeedback() {
                 const loading = document.getElementById('my-feedback-loading');
                 const list = document.getElementById('my-feedback-list');
                 const empty = document.getElementById('my-feedback-empty');
                 const detail = document.getElementById('my-feedback-detail');
+                const filters = document.getElementById('my-feedback-filters');
 
                 loading.classList.remove('hidden');
                 list.classList.add('hidden');
                 empty.classList.add('hidden');
                 detail.classList.add('hidden');
+                filters.classList.add('hidden');
 
                 try {
                     const res = await fetch('/api/feedback/mine');
@@ -497,66 +630,13 @@ export const Layout: FC<LayoutProps> = ({
 
                     if (!data.items || data.items.length === 0) {
                         empty.classList.remove('hidden');
+                        empty.innerHTML = '<i class="fas fa-inbox text-3xl text-gray-200 mb-2 block"></i><p class="text-sm text-gray-400">Je hebt nog geen feedback ingediend.</p>';
                         return;
                     }
 
-                    const typeLabels = { bug: '🐛 Bug', feature: '💡 Idee', other: '📝 Anders' };
-                    const statusColors = {
-                        open: 'bg-blue-100 text-blue-700',
-                        meer_info_nodig: 'bg-orange-100 text-orange-700',
-                        in_progress: 'bg-yellow-100 text-yellow-700',
-                        hertesten: 'bg-purple-100 text-purple-700',
-                        resolved: 'bg-green-100 text-green-700',
-                        rejected: 'bg-red-50 text-red-500'
-                    };
-                    const statusLabels = {
-                        open: 'Open',
-                        meer_info_nodig: '\u26a0\ufe0f Meer info nodig',
-                        in_progress: 'In behandeling',
-                        hertesten: '\ud83d\udd01 Hertesten',
-                        resolved: 'Opgelost',
-                        rejected: 'Afgewezen'
-                    };
-
-                    list.innerHTML = data.items.map(function(item) {
-                        const sColor = statusColors[item.status] || 'bg-gray-100 text-gray-500';
-                        const sLabel = statusLabels[item.status] || item.status;
-                        const tLabel = typeLabels[item.type] || item.type;
-                        const date = new Date(item.created_at).toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: 'numeric' });
-                        const hasComments = item.comment_count > 0;
-                        const hasNewReplies = item.unread_admin_replies > 0;
-                        
-                        const actionBadge = item.status === 'hertesten'
-                            ? '<span style="display:inline-flex;align-items:center;gap:2px;background:#f3e8ff;color:#7c3aed;font-size:10px;font-weight:600;padding:1px 6px;border-radius:9999px;animation:pulse 2s infinite;"><i class="fas fa-sync-alt"></i> Graag hertesten!</span>'
-                            : item.status === 'meer_info_nodig'
-                            ? '<span style="display:inline-flex;align-items:center;gap:2px;background:#fff7ed;color:#ea580c;font-size:10px;font-weight:600;padding:1px 6px;border-radius:9999px;animation:pulse 2s infinite;"><i class="fas fa-question-circle"></i> Info gevraagd</span>'
-                            : '';
-                        const commentBadge = hasNewReplies 
-                            ? '<span style="display:inline-flex;align-items:center;gap:2px;background:#fef3c7;color:#d97706;font-size:10px;font-weight:600;padding:1px 6px;border-radius:9999px;"><i class="fas fa-comment-dots"></i> Nieuw antwoord</span>'
-                            : hasComments 
-                            ? '<span style="display:inline-flex;align-items:center;gap:2px;color:#9ca3af;font-size:10px;"><i class="fas fa-comments"></i> ' + item.comment_count + '</span>'
-                            : '';
-
-                        return '<div onclick="openFeedbackDetail(' + item.id + ')" class="px-4 py-3 border-b border-gray-50 hover:bg-gray-50 transition cursor-pointer">' +
-                            '<div class="flex items-start justify-between gap-2">' +
-                            '<div class="flex-1 min-w-0">' +
-                            '<div class="flex items-center gap-1.5 mb-1 flex-wrap">' +
-                            '<span class="text-xs text-gray-500">' + tLabel + '</span>' +
-                            '<span class="text-gray-300">&middot;</span>' +
-                            '<span class="text-xs text-gray-400">' + date + '</span>' +
-                            actionBadge +
-                            commentBadge +
-                            '</div>' +
-                            '<p class="text-xs text-gray-700 leading-relaxed" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">' + _escHtml(item.message) + '</p>' +
-                            '</div>' +
-                            '<div class="flex flex-col items-end gap-1 shrink-0">' +
-                            '<span class="text-xs font-medium px-2 py-0.5 rounded-full ' + sColor + '">' + sLabel + '</span>' +
-                            '<i class="fas fa-chevron-right text-xs text-gray-300"></i>' +
-                            '</div>' +
-                            '</div>' +
-                            '</div>';
-                    }).join('');
-                    list.classList.remove('hidden');
+                    allFeedbackItems = data.items;
+                    filters.classList.remove('hidden');
+                    renderFilteredList(allFeedbackItems);
                 } catch(e) {
                     loading.innerHTML = '<i class="fas fa-exclamation-circle text-red-300 text-2xl mb-2 block"></i><p class="text-xs text-gray-400">Kon feedback niet laden.</p>';
                 }
@@ -575,9 +655,11 @@ export const Layout: FC<LayoutProps> = ({
                 const header = document.getElementById('my-feedback-detail-header');
                 const messages = document.getElementById('my-feedback-detail-messages');
                 const empty = document.getElementById('my-feedback-empty');
+                const filters = document.getElementById('my-feedback-filters');
 
                 list.classList.add('hidden');
                 empty.classList.add('hidden');
+                if (filters) filters.classList.add('hidden');
                 detail.classList.remove('hidden');
                 messages.innerHTML = '<div class="text-center text-xs text-gray-400 py-4"><i class="fas fa-spinner fa-spin mr-1"></i> Laden...</div>';
 
@@ -667,6 +749,7 @@ export const Layout: FC<LayoutProps> = ({
             function closeFeedbackDetail() {
                 currentDetailFeedbackId = null;
                 document.getElementById('my-feedback-detail').classList.add('hidden');
+                // Re-fetch to get updated statuses (e.g. after retest response)
                 loadMyFeedback();
             }
 

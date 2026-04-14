@@ -158,31 +158,43 @@ app.get('/leden', async (c) => {
             </div>
           )}
 
-          {/* Birthday banner */}
+          {/* 🎂 Birthday banner — week overview for trakteermoment */}
           {birthdayMembers.length > 0 && (
-            <div class="mb-8 bg-gradient-to-r from-yellow-50 to-amber-50 border border-yellow-200 rounded-xl p-6 shadow-sm">
-              <h2 class="text-xl font-bold text-amber-800 mb-4 flex items-center gap-2">
-                <i class="fas fa-birthday-cake text-amber-500"></i>
-                Verjaardagen deze week
-                <span class="text-sm font-normal text-amber-600 ml-1">🎉 Er wordt getrakteerd op de aankomende repetitie!</span>
-              </h2>
-              <div class="flex flex-wrap gap-5">
+            <div class="mb-8 bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 border-2 border-amber-300 rounded-2xl p-6 shadow-md relative overflow-hidden">
+              <div class="absolute top-2 right-4 text-2xl opacity-30 select-none">🎊</div>
+              <div class="absolute bottom-2 left-4 text-2xl opacity-20 select-none">🎶</div>
+
+              <div class="flex items-center gap-3 mb-5">
+                <div class="w-10 h-10 bg-amber-400 rounded-full flex items-center justify-center shadow-sm">
+                  <i class="fas fa-birthday-cake text-white text-lg"></i>
+                </div>
+                <div>
+                  <h2 class="text-xl font-bold text-amber-900" style="font-family: 'Playfair Display', serif;">
+                    🎉 Jarig deze week!
+                  </h2>
+                  <p class="text-xs text-amber-600 mt-0.5">
+                    Er wordt getrakteerd op de repetitie — proficiat!
+                  </p>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap gap-6 justify-center sm:justify-start">
                 {birthdayMembers.map((bm: any) => {
                   const isMe = bm.id === user.id
                   return (
-                    <a href={`/leden/smoelenboek/${bm.id}`} class="flex flex-col items-center group" title={`${bm.voornaam} ${bm.achternaam}`}>
-                      <div class="relative w-20 h-20 mb-2">
-                        <div class={`w-20 h-20 rounded-full overflow-hidden border-4 ${isMe ? 'border-amber-400 shadow-lg' : 'border-yellow-200'} bg-white flex items-center justify-center`}>
-                          <img src={bm.foto_url || getDefaultAvatar(bm.stemgroep)} class="w-full h-full object-cover" alt={bm.voornaam} />
+                    <a href={`/leden/smoelenboek/${bm.id}`} class="flex flex-col items-center group transition hover:scale-105">
+                      <div class="relative mb-2">
+                        <div class={`w-20 h-20 rounded-full overflow-hidden border-4 ${isMe ? 'border-amber-400 ring-2 ring-amber-200' : 'border-amber-200'} bg-white shadow-md`}>
+                          <img src={bm.foto_url || getDefaultAvatar(bm.stemgroep)} class="w-full h-full object-cover" alt={`${bm.voornaam} ${bm.achternaam}`} />
                         </div>
-                        {/* Crown icon */}
-                        <span class="absolute -top-4 left-1/2 -translate-x-1/2 text-2xl" title="Jarig deze week!">👑</span>
+                        <span class="absolute -top-4 left-1/2 -translate-x-1/2 text-3xl drop-shadow-sm" title="Jarig deze week!">👑</span>
                       </div>
-                      <span class={`text-sm font-semibold ${isMe ? 'text-amber-700' : 'text-gray-700'} group-hover:text-amber-600 transition text-center`}>
-                        {bm.voornaam} {bm.achternaam}{isMe ? ' (jij!)' : ''}
+                      <span class={`text-sm font-bold ${isMe ? 'text-amber-800' : 'text-gray-800'} group-hover:text-amber-600 transition text-center leading-snug`}>
+                        {bm.voornaam} {bm.achternaam}
                       </span>
-                      <span class="text-xs text-amber-500 font-medium">
-                        {new Date(bm.geboortedatum).toLocaleDateString('nl-BE', { day: 'numeric', month: 'long' })}
+                      {isMe && <span class="text-[10px] font-bold text-amber-500 bg-amber-100 px-2 py-0.5 rounded-full mt-0.5">Dat ben jij! 🥳</span>}
+                      <span class="text-xs text-amber-600 font-semibold mt-0.5">
+                        {new Date(bm.geboortedatum).toLocaleDateString('nl-BE', { weekday: 'short', day: 'numeric', month: 'long' })}
                       </span>
                     </a>
                   )
@@ -2883,30 +2895,47 @@ app.get('/leden/smoelenboek', async (c) => {
             </p>
           </div>
 
-          {/* Birthday banner */}
+          {/* 🎂 Birthday banner — week overview for trakteermoment at rehearsal */}
           {birthdayMembers.length > 0 && (
-            <div class="mb-6 bg-gradient-to-r from-yellow-50 to-amber-50 border border-yellow-200 rounded-xl p-5 shadow-sm">
-              <h2 class="text-lg font-bold text-amber-800 mb-3 flex items-center gap-2">
-                <i class="fas fa-birthday-cake text-amber-500"></i>
-                Jarig deze week
-                <span class="text-sm font-normal text-amber-600">🎉</span>
-              </h2>
-              <div class="flex flex-wrap gap-4">
+            <div class="mb-8 bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 border-2 border-amber-300 rounded-2xl p-6 shadow-md relative overflow-hidden">
+              {/* Decorative confetti dots */}
+              <div class="absolute top-2 right-4 text-2xl opacity-30 select-none">🎊</div>
+              <div class="absolute bottom-2 left-4 text-2xl opacity-20 select-none">🎶</div>
+
+              <div class="flex items-center gap-3 mb-5">
+                <div class="w-10 h-10 bg-amber-400 rounded-full flex items-center justify-center shadow-sm">
+                  <i class="fas fa-birthday-cake text-white text-lg"></i>
+                </div>
+                <div>
+                  <h2 class="text-xl font-bold text-amber-900" style="font-family: 'Playfair Display', serif;">
+                    🎉 Jarig deze week!
+                  </h2>
+                  <p class="text-xs text-amber-600 mt-0.5">
+                    Er wordt getrakteerd op de repetitie — proficiat!
+                  </p>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap gap-6 justify-center sm:justify-start">
                 {birthdayMembers.map((bm: any) => {
                   const isMe = bm.id === user.id
                   return (
-                    <a href={`/leden/smoelenboek/${bm.id}`} class="flex flex-col items-center group" title={`${bm.voornaam} ${bm.achternaam}`}>
-                      <div class="relative w-16 h-16 mb-1.5">
-                        <div class={`w-16 h-16 rounded-full overflow-hidden border-3 ${isMe ? 'border-amber-400 shadow-lg' : 'border-yellow-200'} bg-white flex items-center justify-center`}>
-                          <img src={bm.foto_url || getDefaultAvatar(bm.stemgroep)} class="w-full h-full object-cover" alt={bm.voornaam} />
+                    <a href={`/leden/smoelenboek/${bm.id}`} class="flex flex-col items-center group transition hover:scale-105">
+                      {/* Photo with crown */}
+                      <div class="relative mb-2">
+                        <div class={`w-20 h-20 rounded-full overflow-hidden border-4 ${isMe ? 'border-amber-400 ring-2 ring-amber-200' : 'border-amber-200'} bg-white shadow-md`}>
+                          <img src={bm.foto_url || getDefaultAvatar(bm.stemgroep)} class="w-full h-full object-cover" alt={`${bm.voornaam} ${bm.achternaam}`} />
                         </div>
-                        <span class="absolute -top-3 left-1/2 -translate-x-1/2 text-xl" title="Jarig deze week!">👑</span>
+                        <span class="absolute -top-4 left-1/2 -translate-x-1/2 text-3xl drop-shadow-sm" title="Jarig deze week!">👑</span>
                       </div>
-                      <span class={`text-xs font-semibold ${isMe ? 'text-amber-700' : 'text-gray-700'} group-hover:text-amber-600 transition text-center leading-tight`}>
-                        {bm.voornaam} {bm.achternaam}{isMe ? ' (jij!)' : ''}
+                      {/* Name */}
+                      <span class={`text-sm font-bold ${isMe ? 'text-amber-800' : 'text-gray-800'} group-hover:text-amber-600 transition text-center leading-snug`}>
+                        {bm.voornaam} {bm.achternaam}
                       </span>
-                      <span class="text-[10px] text-amber-500 font-medium">
-                        {new Date(bm.geboortedatum).toLocaleDateString('nl-BE', { day: 'numeric', month: 'long' })}
+                      {isMe && <span class="text-[10px] font-bold text-amber-500 bg-amber-100 px-2 py-0.5 rounded-full mt-0.5">Dat ben jij! 🥳</span>}
+                      {/* Date */}
+                      <span class="text-xs text-amber-600 font-semibold mt-0.5">
+                        {new Date(bm.geboortedatum).toLocaleDateString('nl-BE', { weekday: 'short', day: 'numeric', month: 'long' })}
                       </span>
                     </a>
                   )

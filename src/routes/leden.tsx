@@ -2777,7 +2777,30 @@ app.get('/leden/smoelenboek', async (c) => {
   const search = c.req.query('search') || ''
   const view = c.req.query('view') || 'grid' // 'grid' or 'list'
   const stemgroepFilter = c.req.query('stemgroep') || 'all'
-  
+
+  // Birthday members this week
+  function getBirthdayWeekRangeSB() {
+    const today = new Date()
+    const day = today.getDay()
+    const diffToMon = day === 0 ? -6 : 1 - day
+    const mon = new Date(today); mon.setDate(today.getDate() + diffToMon)
+    const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
+    const fmt = (d: Date) => `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    return { start: fmt(mon), end: fmt(sun) }
+  }
+  const bwRange = getBirthdayWeekRangeSB()
+  const birthdayMembers = await queryAll<any>(
+    c.env.DB,
+    `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.geboortedatum
+     FROM users u
+     JOIN profiles p ON p.user_id = u.id
+     WHERE u.status = 'actief'
+       AND p.geboortedatum IS NOT NULL
+       AND strftime('%m-%d', p.geboortedatum) BETWEEN ? AND ?
+     ORDER BY strftime('%m-%d', p.geboortedatum) ASC`,
+    [bwRange.start, bwRange.end]
+  )
+
   // Get members with optional search + stemgroep filter + checkin count for streaks
   let query = `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio, p.favoriete_werk,
             p.toon_email, p.toon_telefoon, u.email, p.telefoon,
@@ -2860,59 +2883,91 @@ app.get('/leden/smoelenboek', async (c) => {
             </p>
           </div>
 
-          {/* Search, stemgroep filter & View Toggle */}
-          <div class="bg-white rounded-lg shadow-md p-4 mb-8">
-            <div class="flex flex-col md:flex-row gap-4 items-center justify-between">
-              <form method="GET" class="flex flex-col sm:flex-row gap-3 flex-1">
-                <input type="hidden" name="view" value={view} />
-                {/* Search */}
-                <div class="relative flex-1 min-w-[180px]">
-                  <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <i class="fas fa-search text-gray-400"></i>
-                  </div>
-                  <input 
-                    type="text" 
-                    name="search" 
-                    value={search} 
-                    placeholder="Zoek op naam..." 
-                    class="pl-10 w-full border border-gray-300 rounded-lg py-2 focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                  />
-                </div>
-                {/* Stemgroep filter */}
-                <div class="relative min-w-[150px]">
-                  <select
-                    name="stemgroep"
-                    onchange="this.form.submit()"
-                    class="w-full border border-gray-300 rounded-lg py-2 px-3 focus:ring-2 focus:ring-animato-primary focus:border-transparent appearance-none bg-white"
-                  >
-                    <option value="all" selected={stemgroepFilter === 'all'}>Alle stemgroepen</option>
-                    <option value="S" selected={stemgroepFilter === 'S'}>Sopraan</option>
-                    <option value="A" selected={stemgroepFilter === 'A'}>Alt</option>
-                    <option value="T" selected={stemgroepFilter === 'T'}>Tenor</option>
-                    <option value="B" selected={stemgroepFilter === 'B'}>Bas</option>
-                    <option value="Dirigent" selected={stemgroepFilter === 'Dirigent'}>Dirigent</option>
-                    <option value="Pianist" selected={stemgroepFilter === 'Pianist'}>Pianist</option>
-                  </select>
-                  <div class="absolute inset-y-0 right-2 flex items-center pointer-events-none">
-                    <i class="fas fa-chevron-down text-gray-400 text-xs"></i>
-                  </div>
-                </div>
-                <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm font-medium">
-                  <i class="fas fa-search mr-1"></i> Zoeken
-                </button>
-              </form>
-              <div class="flex gap-2 flex-shrink-0">
-                <a href={`/leden/smoelenboek?view=grid&search=${search}&stemgroep=${stemgroepFilter}`} class={`px-4 py-2 rounded-lg border ${view === 'grid' ? 'bg-animato-primary text-white border-animato-primary' : 'bg-white text-gray-600 border-gray-300'}`}>
-                  <i class="fas fa-th-large mr-2"></i> Grid
-                </a>
-                <a href={`/leden/smoelenboek?view=list&search=${search}&stemgroep=${stemgroepFilter}`} class={`px-4 py-2 rounded-lg border ${view === 'list' ? 'bg-animato-primary text-white border-animato-primary' : 'bg-white text-gray-600 border-gray-300'}`}>
-                  <i class="fas fa-list mr-2"></i> Lijst
-                </a>
+          {/* Birthday banner */}
+          {birthdayMembers.length > 0 && (
+            <div class="mb-6 bg-gradient-to-r from-yellow-50 to-amber-50 border border-yellow-200 rounded-xl p-5 shadow-sm">
+              <h2 class="text-lg font-bold text-amber-800 mb-3 flex items-center gap-2">
+                <i class="fas fa-birthday-cake text-amber-500"></i>
+                Jarig deze week
+                <span class="text-sm font-normal text-amber-600">🎉</span>
+              </h2>
+              <div class="flex flex-wrap gap-4">
+                {birthdayMembers.map((bm: any) => {
+                  const isMe = bm.id === user.id
+                  return (
+                    <a href={`/leden/smoelenboek/${bm.id}`} class="flex flex-col items-center group" title={`${bm.voornaam} ${bm.achternaam}`}>
+                      <div class="relative w-16 h-16 mb-1.5">
+                        <div class={`w-16 h-16 rounded-full overflow-hidden border-3 ${isMe ? 'border-amber-400 shadow-lg' : 'border-yellow-200'} bg-white flex items-center justify-center`}>
+                          <img src={bm.foto_url || getDefaultAvatar(bm.stemgroep)} class="w-full h-full object-cover" alt={bm.voornaam} />
+                        </div>
+                        <span class="absolute -top-3 left-1/2 -translate-x-1/2 text-xl" title="Jarig deze week!">👑</span>
+                      </div>
+                      <span class={`text-xs font-semibold ${isMe ? 'text-amber-700' : 'text-gray-700'} group-hover:text-amber-600 transition text-center leading-tight`}>
+                        {bm.voornaam} {bm.achternaam}{isMe ? ' (jij!)' : ''}
+                      </span>
+                      <span class="text-[10px] text-amber-500 font-medium">
+                        {new Date(bm.geboortedatum).toLocaleDateString('nl-BE', { day: 'numeric', month: 'long' })}
+                      </span>
+                    </a>
+                  )
+                })}
               </div>
             </div>
+          )}
+
+          {/* Search, stemgroep filter & View Toggle */}
+          <div class="bg-white rounded-xl shadow-md p-4 mb-8">
+            <form method="GET" class="flex flex-wrap items-center gap-3">
+              <input type="hidden" name="view" value={view} />
+              {/* Search input */}
+              <div class="relative flex-1 min-w-[200px]">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <i class="fas fa-search text-gray-400"></i>
+                </div>
+                <input 
+                  type="text" 
+                  name="search" 
+                  value={search} 
+                  placeholder="Zoek op naam..." 
+                  class="pl-10 w-full border border-gray-300 rounded-lg py-2.5 text-sm focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                />
+              </div>
+              {/* Stemgroep filter */}
+              <div class="relative">
+                <select
+                  name="stemgroep"
+                  onchange="this.form.submit()"
+                  class="border border-gray-300 rounded-lg py-2.5 pl-3 pr-8 text-sm focus:ring-2 focus:ring-animato-primary focus:border-transparent appearance-none bg-white"
+                >
+                  <option value="all" selected={stemgroepFilter === 'all'}>Alle stemgroepen</option>
+                  <option value="S" selected={stemgroepFilter === 'S'}>Sopraan</option>
+                  <option value="A" selected={stemgroepFilter === 'A'}>Alt</option>
+                  <option value="T" selected={stemgroepFilter === 'T'}>Tenor</option>
+                  <option value="B" selected={stemgroepFilter === 'B'}>Bas</option>
+                  <option value="Dirigent" selected={stemgroepFilter === 'Dirigent'}>Dirigent</option>
+                  <option value="Pianist" selected={stemgroepFilter === 'Pianist'}>Pianist</option>
+                </select>
+                <div class="absolute inset-y-0 right-2 flex items-center pointer-events-none">
+                  <i class="fas fa-chevron-down text-gray-400 text-xs"></i>
+                </div>
+              </div>
+              {/* Search button */}
+              <button type="submit" class="px-5 py-2.5 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm font-semibold">
+                <i class="fas fa-search mr-1.5"></i> Zoeken
+              </button>
+              {/* View toggles — aligned right */}
+              <div class="flex gap-1.5 ml-auto">
+                <a href={`/leden/smoelenboek?view=grid&search=${encodeURIComponent(search)}&stemgroep=${stemgroepFilter}`} class={`px-3 py-2.5 rounded-lg border text-sm font-medium transition ${view === 'grid' ? 'bg-animato-primary text-white border-animato-primary' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`} title="Grid weergave">
+                  <i class="fas fa-th-large"></i>
+                </a>
+                <a href={`/leden/smoelenboek?view=list&search=${encodeURIComponent(search)}&stemgroep=${stemgroepFilter}`} class={`px-3 py-2.5 rounded-lg border text-sm font-medium transition ${view === 'list' ? 'bg-animato-primary text-white border-animato-primary' : 'bg-white text-gray-500 border-gray-300 hover:bg-gray-50'}`} title="Lijst weergave">
+                  <i class="fas fa-list"></i>
+                </a>
+              </div>
+            </form>
             {/* Active filter indicator */}
             {(stemgroepFilter !== 'all' || search) && (
-              <div class="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 text-sm text-gray-500">
+              <div class="mt-3 pt-3 border-t border-gray-100 flex items-center gap-2 text-sm text-gray-500 flex-wrap">
                 <i class="fas fa-filter text-animato-primary"></i>
                 <span>Actieve filters:</span>
                 {search && <span class="px-2 py-0.5 bg-gray-100 rounded-full text-gray-700">"{search}"</span>}
@@ -2928,6 +2983,7 @@ app.get('/leden/smoelenboek', async (c) => {
                   </span>
                 )}
                 <a href="/leden/smoelenboek" class="text-animato-primary hover:underline ml-1">✕ Wis filters</a>
+                <span class="ml-auto text-xs text-gray-400">{members.length} leden gevonden</span>
               </div>
             )}
           </div>

@@ -79,14 +79,69 @@ function parseLLMJson<T = any>(content: string): T {
   return JSON.parse(cleaned)
 }
 
-/** Perform a real web search using DuckDuckGo HTML (reliable, no CAPTCHA) */
-async function webSearch(query: string, numResults: number = 8): Promise<Array<{title: string; snippet: string; url: string; source: string}>> {
-  const results: Array<{title: string; snippet: string; url: string; source: string}> = []
-  
+type SearchResult = { title: string; snippet: string; url: string; source: string; date?: string }
+
+/** Clean HTML entities and tags */
+function cleanHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+/** Source 1: Google News RSS (most reliable from CF Workers — no JS required) */
+async function searchGoogleNewsRSS(query: string, numResults: number = 10): Promise<SearchResult[]> {
+  const results: SearchResult[] = []
   try {
-    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`
+    const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=nl&gl=BE&ceid=BE:nl`
+    const response = await fetch(rssUrl, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AnimatoBot/1.0)' }
+    })
+    if (!response.ok) throw new Error(`Google News RSS HTTP ${response.status}`)
+    const xml = await response.text()
+
+    // Parse RSS items
+    const items = xml.match(/<item>([\s\S]*?)<\/item>/g) || []
+    for (const item of items.slice(0, numResults)) {
+      const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || item.match(/<title>(.*?)<\/title>/)
+      const linkMatch = item.match(/<link>(.*?)<\/link>/)
+      const sourceMatch = item.match(/<source[^>]*>(.*?)<\/source>/)
+      const pubDateMatch = item.match(/<pubDate>(.*?)<\/pubDate>/)
+      const descMatch = item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/) || item.match(/<description>(.*?)<\/description>/s)
+      
+      if (titleMatch && linkMatch) {
+        const rawTitle = cleanHtml(titleMatch[1])
+        // Google News often appends " - Source" to titles
+        const title = rawTitle.replace(/\s*-\s*[^-]+$/, '').trim() || rawTitle
+        const source = sourceMatch ? cleanHtml(sourceMatch[1]) : 'Google News'
+        let snippet = descMatch ? cleanHtml(descMatch[1]) : ''
+        // Limit snippet length
+        if (snippet.length > 300) snippet = snippet.substring(0, 297) + '...'
+        
+        results.push({
+          title,
+          snippet: snippet || `Nieuwsbericht van ${source}`,
+          url: linkMatch[1].trim(),
+          source,
+          date: pubDateMatch ? pubDateMatch[1] : undefined
+        })
+      }
+    }
+    console.log(`Google News RSS: ${results.length} results for "${query}"`)
+  } catch (e: any) {
+    console.error('Google News RSS error:', e.message)
+  }
+  return results
+}
+
+/** Source 2: DuckDuckGo HTML search (may be blocked from CF Worker IPs) */
+async function searchDuckDuckGo(query: string, numResults: number = 8): Promise<SearchResult[]> {
+  const results: SearchResult[] = []
+  try {
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 8000) // 8s timeout
     
-    const response = await fetch(searchUrl, {
+    const response = await fetch('https://html.duckduckgo.com/html/', {
       method: 'POST',
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -94,61 +149,76 @@ async function webSearch(query: string, numResults: number = 8): Promise<Array<{
         'Accept-Language': 'nl-BE,nl;q=0.9',
         'Content-Type': 'application/x-www-form-urlencoded'
       },
-      body: `q=${encodeURIComponent(query)}`
+      body: `q=${encodeURIComponent(query)}`,
+      signal: controller.signal
     })
+    clearTimeout(timeoutId)
     
+    if (!response.ok) throw new Error(`DDG HTTP ${response.status}`)
     const html = await response.text()
     
-    // DuckDuckGo HTML results are in blocks with class "result results_links"
-    const blocks = html.split('class="result results_links')
+    // Check for CAPTCHA/block
+    if (html.includes('Please try again') || html.includes('robot') || !html.includes('result__a')) {
+      console.log('DuckDuckGo: blocked or CAPTCHA detected')
+      return results
+    }
     
+    const blocks = html.split('class="result results_links')
     for (const block of blocks.slice(1)) {
       if (results.length >= numResults) break
       
-      // Extract URL from uddg parameter
       const urlMatch = block.match(/uddg=(https?[^&"]+)/)
-      // Extract title
       const titleMatch = block.match(/class="result__a"[^>]*>(.*?)<\/a>/s)
-      // Extract snippet
       const snippetMatch = block.match(/class="result__snippet"[^>]*>(.*?)<\/(?:a|span)/s)
       
       if (urlMatch && titleMatch) {
-        // Decode the URL
         let url = urlMatch[1]
-        try {
-          url = decodeURIComponent(url)
-        } catch(e) {
+        try { url = decodeURIComponent(url) } catch(e) {
           url = url.replace(/%3A/g, ':').replace(/%2F/g, '/').replace(/%2D/g, '-').replace(/%2E/g, '.').replace(/%3F/g, '?').replace(/%3D/g, '=').replace(/%26/g, '&')
         }
-        
-        // Clean title (remove HTML tags)
-        const title = titleMatch[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x27;/g, "'").replace(/&quot;/g, '"').trim()
-        
-        // Clean snippet
-        let snippet = ''
-        if (snippetMatch) {
-          snippet = snippetMatch[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&#x27;/g, "'").replace(/&quot;/g, '"').trim()
-        }
-        
-        // Extract source domain
-        const sourceMatch = url.match(/https?:\/\/(?:www\.)?([^\/]+)/)
-        const source = sourceMatch ? sourceMatch[1] : 'Onbekend'
+        const title = cleanHtml(titleMatch[1])
+        const snippet = snippetMatch ? cleanHtml(snippetMatch[1]) : ''
+        const srcMatch = url.match(/https?:\/\/(?:www\.)?([^\/]+)/)
         
         if (title && url.startsWith('http')) {
-          results.push({ 
-            title, 
-            snippet: snippet || 'Klik door voor meer informatie.', 
-            url, 
-            source 
-          })
+          results.push({ title, snippet: snippet || 'Klik door voor meer informatie.', url, source: srcMatch ? srcMatch[1] : 'Onbekend' })
         }
       }
     }
+    console.log(`DuckDuckGo: ${results.length} results for "${query}"`)
   } catch (e: any) {
-    console.error('Web search error:', e.message)
+    console.error('DuckDuckGo error:', e.message)
+  }
+  return results
+}
+
+/** Multi-source web search with automatic fallback */
+async function webSearch(query: string, numResults: number = 10): Promise<SearchResult[]> {
+  // Strategy: run Google News + DuckDuckGo in parallel, merge & deduplicate
+  const [googleResults, ddgResults] = await Promise.allSettled([
+    searchGoogleNewsRSS(query, numResults),
+    searchDuckDuckGo(query, numResults)
+  ])
+  
+  const google = googleResults.status === 'fulfilled' ? googleResults.value : []
+  const ddg = ddgResults.status === 'fulfilled' ? ddgResults.value : []
+  
+  console.log(`Search totals — Google News: ${google.length}, DDG: ${ddg.length}`)
+  
+  // Merge: prioritize Google News (more reliable from Workers), then DDG
+  const seen = new Set<string>()
+  const merged: SearchResult[] = []
+  
+  for (const r of [...google, ...ddg]) {
+    // Deduplicate by domain+title similarity
+    const key = r.source.toLowerCase() + '|' + r.title.toLowerCase().substring(0, 40)
+    if (!seen.has(key) && merged.length < numResults) {
+      seen.add(key)
+      merged.push(r)
+    }
   }
   
-  return results
+  return merged
 }
 
 // =====================================================
@@ -583,7 +653,16 @@ app.get('/admin/ai-nieuws', async (c) => {
           const panel = document.getElementById('searchResults');
 
           if (results.length === 0) {
-            container.innerHTML = '<div class="text-center py-8"><i class="fas fa-search text-4xl text-gray-300 mb-3"></i><p class="text-gray-500 italic">Geen relevante resultaten gevonden. Probeer andere zoektermen.</p></div>';
+            container.innerHTML = '<div class="text-center py-8">' +
+              '<i class="fas fa-search text-4xl text-gray-300 mb-3"></i>' +
+              '<p class="text-gray-600 font-medium mb-2">Geen resultaten gevonden</p>' +
+              '<p class="text-gray-500 text-sm max-w-md mx-auto">Probeer andere zoektermen. Tips: gebruik specifieke termen, namen van festivals, steden of organisaties.</p>' +
+              '<div class="mt-4 flex flex-wrap gap-2 justify-center">' +
+                ['koor België 2026', 'koorfestival Vlaanderen', 'World Choir Games', 'amateurkoor concert'].map(s =>
+                  '<button onclick="document.getElementById(\'searchQuery\').value=\'' + s + '\';searchNews()" class="text-xs px-3 py-1.5 bg-purple-50 text-purple-700 rounded-full hover:bg-purple-100 transition">🔍 ' + s + '</button>'
+                ).join('') +
+              '</div>' +
+            '</div>';
             countEl.textContent = '';
             panel.classList.remove('hidden');
             return;
@@ -598,8 +677,9 @@ app.get('/admin/ai-nieuws', async (c) => {
               '<div class="flex-1 min-w-0">' +
                 '<div class="font-semibold text-gray-900 text-sm">' + escapeHtml(r.title) + '</div>' +
                 '<p class="text-sm text-gray-600 mt-1">' + escapeHtml(r.snippet || '') + '</p>' +
-                '<div class="flex items-center gap-2 mt-2">' +
-                  '<span class="text-xs px-2 py-0.5 bg-gray-100 text-gray-500 rounded">' + escapeHtml(domain) + '</span>' +
+                '<div class="flex items-center gap-2 mt-2 flex-wrap">' +
+                  '<span class="text-xs px-2 py-0.5 bg-gray-100 text-gray-500 rounded">' + escapeHtml(r.source || domain) + '</span>' +
+                  (r.date ? '<span class="text-xs text-gray-400"><i class="far fa-clock mr-1"></i>' + new Date(r.date).toLocaleDateString('nl-BE', {day:'numeric',month:'short',year:'numeric'}) + '</span>' : '') +
                   (r.url ? '<a href="' + escapeHtml(r.url) + '" target="_blank" rel="noopener" class="text-xs text-blue-500 hover:underline"><i class="fas fa-external-link-alt mr-1"></i>Bekijk bron</a>' : '') +
                 '</div>' +
               '</div>' +
@@ -829,17 +909,37 @@ app.post('/api/admin/ai-news/search', async (c) => {
   if (!query) return c.json({ error: 'Zoekterm is verplicht' }, 400)
 
   try {
-    // Use REAL web search — no LLM hallucination
-    const enrichedQuery = `${query} koor muziek amateurkoor`
-    const results = await webSearch(enrichedQuery, 10)
+    // Step 1: Search with enriched query (koor context)
+    const enrichedQuery = `${query} koor muziek`
+    const results = await webSearch(enrichedQuery, 12)
 
-    if (results.length === 0) {
-      // Fallback: try a broader search
-      const fallbackResults = await webSearch(query, 10)
-      return c.json({ results: fallbackResults })
+    if (results.length >= 3) {
+      return c.json({ results, sources: ['Google News RSS', 'DuckDuckGo'] })
     }
 
-    return c.json({ results })
+    // Step 2: If too few results, try original query without enrichment  
+    console.log(`Only ${results.length} results with enriched query, trying original...`)
+    const fallbackResults = await webSearch(query, 12)
+    
+    // Merge both sets
+    const seen = new Set(results.map(r => r.url))
+    for (const r of fallbackResults) {
+      if (!seen.has(r.url)) {
+        results.push(r)
+        seen.add(r.url)
+      }
+    }
+
+    if (results.length === 0) {
+      // Step 3: Last resort — try broader Google News search (no DDG)
+      const broadResults = await searchGoogleNewsRSS(query, 12)
+      if (broadResults.length > 0) {
+        return c.json({ results: broadResults, sources: ['Google News RSS'] })
+      }
+      return c.json({ results: [], error: 'Geen resultaten gevonden. Probeer andere zoektermen.' })
+    }
+
+    return c.json({ results, sources: ['Google News RSS', 'DuckDuckGo'] })
   } catch (e: any) {
     console.error('Search error:', e)
     return c.json({ error: e.message || 'Onbekende fout bij zoeken' }, 500)

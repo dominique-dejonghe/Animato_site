@@ -494,13 +494,35 @@ app.get('/admin/aanmeldingen', async (c) => {
   const user = c.get('user') as SessionUser
   noCacheHeaders(c)
 
+  const filter = c.req.query('filter') || 'alle'
+  const success = c.req.query('success')
+  const error = c.req.query('error')
+
+  let whereClause = "WHERE type = 'word_lid'"
+  if (filter === 'nieuw') whereClause += " AND status = 'nieuw'"
+  else if (filter === 'verwerkt') whereClause += " AND status = 'verwerkt'"
+  else if (filter === 'gearchiveerd') whereClause += " AND status = 'gearchiveerd'"
+  else if (filter === 'omgezet') whereClause += " AND status = 'omgezet_naar_lid'"
+
   const submissions = await queryAll(
     c.env.DB,
     `SELECT id, type, payload, email, naam, status, created_at, verwerkt_at, notities
      FROM form_submissions
-     WHERE type = 'word_lid'
+     ${whereClause}
      ORDER BY CASE status WHEN 'nieuw' THEN 0 WHEN 'verwerkt' THEN 1 ELSE 2 END, created_at DESC`
   )
+
+  // Counts per status
+  const counts = await queryAll<any>(c.env.DB,
+    `SELECT status, COUNT(*) as cnt FROM form_submissions WHERE type = 'word_lid' GROUP BY status`)
+  const statusCounts: Record<string, number> = {}
+  let totalCount = 0
+  for (const r of counts) { statusCounts[r.status] = r.cnt; totalCount += r.cnt }
+
+  const stemgroepLabel = (s: string) => {
+    if (!s || s === 'weet_niet') return 'Weet niet'
+    return s === 'S' ? 'Sopraan' : s === 'A' ? 'Alt' : s === 'T' ? 'Tenor' : s === 'B' ? 'Bas' : s
+  }
 
   return c.html(
     <Layout 
@@ -527,68 +549,173 @@ app.get('/admin/aanmeldingen', async (c) => {
                   </p>
                 </div>
                 <a href="/admin" class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition">
-                  <i class="fas fa-arrow-left mr-2"></i>
-                  Terug
+                  <i class="fas fa-arrow-left mr-2"></i> Terug
                 </a>
               </div>
             </div>
           </div>
 
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+            {/* Success/error messages */}
+            {success === 'converted' && (
+              <div class="mb-6 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg flex items-center">
+                <i class="fas fa-check-circle mr-3 text-green-600"></i>
+                Aanvrager is succesvol omgezet naar een lid! Het nieuwe lid kan nu inloggen.
+              </div>
+            )}
+            {success === 'deleted' && (
+              <div class="mb-6 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg flex items-center">
+                <i class="fas fa-check-circle mr-3 text-green-600"></i>
+                Aanvraag succesvol verwijderd.
+              </div>
+            )}
+            {success === 'updated' && (
+              <div class="mb-6 bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg flex items-center">
+                <i class="fas fa-check-circle mr-3 text-green-600"></i>
+                Aanvraag bijgewerkt.
+              </div>
+            )}
+            {error === 'email_exists' && (
+              <div class="mb-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg flex items-center">
+                <i class="fas fa-exclamation-circle mr-3 text-red-600"></i>
+                Dit e-mailadres is al in gebruik door een bestaand lid.
+              </div>
+            )}
+            {error && error !== 'email_exists' && (
+              <div class="mb-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg flex items-center">
+                <i class="fas fa-exclamation-circle mr-3 text-red-600"></i>
+                Er ging iets mis: {error}
+              </div>
+            )}
+
+            {/* Status filter tabs */}
+            <div class="flex flex-wrap gap-2 mb-6">
+              {[
+                { key: 'alle', label: 'Alles', count: totalCount, color: 'bg-gray-100 text-gray-700', active: 'bg-gray-800 text-white' },
+                { key: 'nieuw', label: 'Nieuw', count: statusCounts['nieuw'] || 0, color: 'bg-green-50 text-green-700', active: 'bg-green-600 text-white' },
+                { key: 'verwerkt', label: 'Verwerkt', count: statusCounts['verwerkt'] || 0, color: 'bg-blue-50 text-blue-700', active: 'bg-blue-600 text-white' },
+                { key: 'omgezet', label: 'Omgezet naar lid', count: statusCounts['omgezet_naar_lid'] || 0, color: 'bg-purple-50 text-purple-700', active: 'bg-purple-600 text-white' },
+                { key: 'gearchiveerd', label: 'Gearchiveerd', count: statusCounts['gearchiveerd'] || 0, color: 'bg-gray-50 text-gray-500', active: 'bg-gray-500 text-white' },
+              ].filter(f => f.count > 0 || f.key === 'alle' || f.key === filter).map(f => (
+                <a
+                  href={`/admin/aanmeldingen?filter=${f.key}`}
+                  class={`px-4 py-2 rounded-full text-sm font-medium transition ${filter === f.key ? f.active : f.color + ' hover:opacity-80'}`}
+                >
+                  {f.label} {f.count > 0 && <span class="ml-1 opacity-75">({f.count})</span>}
+                </a>
+              ))}
+            </div>
+
             {submissions.length === 0 ? (
               <div class="text-center py-16 text-gray-500">
                 <i class="fas fa-inbox text-6xl text-gray-300 mb-4"></i>
                 <h3 class="text-xl font-semibold mb-2">Geen aanvragen</h3>
-                <p>Er zijn momenteel geen lid-aanvragen.</p>
+                <p>Er zijn momenteel geen lid-aanvragen{filter !== 'alle' ? ` met status "${filter}"` : ''}.</p>
               </div>
             ) : (
               <div class="space-y-4">
                 {submissions.map((sub: any) => {
                   const data = (() => { try { return JSON.parse(sub.payload) } catch { return {} } })()
                   const isNew = sub.status === 'nieuw'
+                  const isConverted = sub.status === 'omgezet_naar_lid'
+                  const borderColor = isNew ? 'border-green-500' : isConverted ? 'border-purple-500' : sub.status === 'verwerkt' ? 'border-blue-400' : 'border-gray-200'
+                  const statusBadge = isNew ? 'bg-green-100 text-green-800' 
+                    : sub.status === 'verwerkt' ? 'bg-blue-100 text-blue-800' 
+                    : isConverted ? 'bg-purple-100 text-purple-800'
+                    : 'bg-gray-100 text-gray-600'
+                  const statusLabel = isNew ? 'Nieuw' : sub.status === 'verwerkt' ? 'Verwerkt' : isConverted ? 'Omgezet naar lid' : 'Gearchiveerd'
+
                   return (
-                    <div class={`bg-white rounded-lg shadow-md p-6 ${isNew ? 'border-l-4 border-green-500' : 'border-l-4 border-gray-200'}`}>
-                      <div class="flex items-start justify-between">
-                        <div class="flex-1">
-                          <div class="flex items-center gap-3 mb-2">
+                    <div class={`bg-white rounded-lg shadow-md p-6 border-l-4 ${borderColor}`} id={`aanvraag-${sub.id}`}>
+                      {/* Header row */}
+                      <div class="flex items-start justify-between mb-4">
+                        <div class="flex items-center gap-3">
+                          <div class="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                            <i class={`fas ${isConverted ? 'fa-user-check text-purple-500' : 'fa-user text-gray-400'}`}></i>
+                          </div>
+                          <div>
                             <h3 class="text-lg font-bold text-gray-900">{sub.naam}</h3>
-                            <span class={`text-xs px-2 py-1 rounded-full font-semibold ${
-                              isNew ? 'bg-green-100 text-green-800' : 
-                              sub.status === 'verwerkt' ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-600'
-                            }`}>
-                              {isNew ? 'Nieuw' : sub.status === 'verwerkt' ? 'Verwerkt' : 'Gearchiveerd'}
+                            <span class={`text-xs px-2 py-0.5 rounded-full font-semibold ${statusBadge}`}>
+                              {statusLabel}
                             </span>
                           </div>
-                          <div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm text-gray-600 mb-3">
-                            <div><i class="fas fa-envelope mr-2 text-gray-400"></i>{sub.email}</div>
-                            {data.telefoon && <div><i class="fas fa-phone mr-2 text-gray-400"></i>{data.telefoon}</div>}
-                            {data.stemgroep && <div><i class="fas fa-music mr-2 text-gray-400"></i>Stemgroep: {data.stemgroep}</div>}
-                          </div>
-                          {data.muzikale_ervaring && (
-                            <p class="text-sm text-gray-700 mb-2"><strong>Ervaring:</strong> {data.muzikale_ervaring}</p>
-                          )}
-                          {data.motivatie && (
-                            <p class="text-sm text-gray-700 mb-2"><strong>Bericht:</strong> {data.motivatie}</p>
-                          )}
-                          <p class="text-xs text-gray-400">
-                            Aangemeld op {new Date(sub.created_at).toLocaleDateString('nl-BE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
-                            {sub.verwerkt_at && ` · Verwerkt op ${new Date(sub.verwerkt_at).toLocaleDateString('nl-BE')}`}
-                          </p>
                         </div>
-                        {isNew && (
-                          <div class="flex gap-2 ml-4">
-                            <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/verwerk`}>
-                              <button type="submit" class="px-3 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition">
+
+                        {/* Action buttons - always visible */}
+                        <div class="flex items-center gap-2">
+                          {/* Convert to member (not if already converted) */}
+                          {!isConverted && (
+                            <a
+                              href={`/admin/aanmeldingen/${sub.id}/omzetten`}
+                              class="px-3 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition font-medium"
+                              title="Omzetten naar lid"
+                            >
+                              <i class="fas fa-user-plus mr-1"></i> Omzetten naar lid
+                            </a>
+                          )}
+                          
+                          {/* Mark as processed */}
+                          {isNew && (
+                            <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/verwerk`} class="inline">
+                              <button type="submit" class="px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition">
                                 <i class="fas fa-check mr-1"></i> Verwerkt
                               </button>
                             </form>
-                            <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/archiveer`}>
+                          )}
+
+                          {/* Archive */}
+                          {(isNew || sub.status === 'verwerkt') && (
+                            <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/archiveer`} class="inline">
                               <button type="submit" class="px-3 py-2 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 transition">
-                                <i class="fas fa-archive mr-1"></i> Archiveer
+                                <i class="fas fa-archive mr-1"></i>
                               </button>
                             </form>
-                          </div>
-                        )}
+                          )}
+
+                          {/* Delete with confirmation */}
+                          <button
+                            onclick={`if(confirm('Aanvraag van ${sub.naam.replace(/'/g, "\\'")} definitief verwijderen?')) document.getElementById('delete-form-${sub.id}').submit()`}
+                            class="px-3 py-2 bg-red-50 text-red-600 text-sm rounded-lg hover:bg-red-100 transition"
+                            title="Verwijderen"
+                          >
+                            <i class="fas fa-trash"></i>
+                          </button>
+                          <form id={`delete-form-${sub.id}`} method="POST" action={`/api/admin/aanmeldingen/${sub.id}/delete`} class="hidden"></form>
+                        </div>
+                      </div>
+
+                      {/* Contact info */}
+                      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-gray-600 mb-3">
+                        <div><i class="fas fa-envelope mr-2 text-gray-400"></i>{sub.email}</div>
+                        {data.telefoon && <div><i class="fas fa-phone mr-2 text-gray-400"></i>{data.telefoon}</div>}
+                        <div><i class="fas fa-music mr-2 text-gray-400"></i>Stemgroep: {stemgroepLabel(data.stemgroep)}</div>
+                      </div>
+
+                      {/* Extra details */}
+                      {data.muzikale_ervaring && (
+                        <p class="text-sm text-gray-700 mb-1"><strong>Ervaring:</strong> {data.muzikale_ervaring}</p>
+                      )}
+                      {data.motivatie && (
+                        <p class="text-sm text-gray-700 mb-1"><strong>Motivatie:</strong> {data.motivatie}</p>
+                      )}
+                      {sub.notities && (
+                        <p class="text-sm text-amber-700 bg-amber-50 px-3 py-2 rounded mt-2">
+                          <i class="fas fa-sticky-note mr-1"></i> <strong>Notities:</strong> {sub.notities}
+                        </p>
+                      )}
+
+                      {/* Footer */}
+                      <div class="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+                        <p class="text-xs text-gray-400">
+                          <i class="far fa-clock mr-1"></i>
+                          Aangemeld op {new Date(sub.created_at).toLocaleDateString('nl-BE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                          {sub.verwerkt_at && ` · Verwerkt op ${new Date(sub.verwerkt_at).toLocaleDateString('nl-BE')}`}
+                        </p>
+                        {/* Inline edit button */}
+                        <a href={`/admin/aanmeldingen/${sub.id}/bewerk`} class="text-xs text-gray-500 hover:text-animato-primary transition">
+                          <i class="fas fa-pen mr-1"></i> Bewerken
+                        </a>
                       </div>
                     </div>
                   )
@@ -621,6 +748,320 @@ app.post('/api/admin/aanmeldingen/:id/archiveer', async (c) => {
     [user.id, id]
   )
   return c.redirect('/admin/aanmeldingen')
+})
+
+// Delete aanvraag
+app.post('/api/admin/aanmeldingen/:id/delete', async (c) => {
+  const id = c.req.param('id')
+  await execute(c.env.DB, `DELETE FROM form_submissions WHERE id = ? AND type = 'word_lid'`, [id])
+  return c.redirect('/admin/aanmeldingen?success=deleted')
+})
+
+// Edit aanvraag page
+app.get('/admin/aanmeldingen/:id/bewerk', async (c) => {
+  const user = c.get('user') as SessionUser
+  noCacheHeaders(c)
+  const id = c.req.param('id')
+  const sub = await queryOne<any>(c.env.DB,
+    `SELECT * FROM form_submissions WHERE id = ? AND type = 'word_lid'`, [id])
+  if (!sub) return c.redirect('/admin/aanmeldingen?error=not_found')
+
+  const data = (() => { try { return JSON.parse(sub.payload) } catch { return {} } })()
+
+  return c.html(
+    <Layout title="Aanvraag bewerken" user={user} breadcrumbs={[
+      { label: 'Admin', href: '/admin' },
+      { label: 'Lid-aanvragen', href: '/admin/aanmeldingen' },
+      { label: 'Bewerken', href: '#' }
+    ]}>
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="leden" />
+        <div class="flex-1 min-w-0">
+          <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="bg-white rounded-xl shadow-md p-8">
+              <h2 class="text-2xl font-bold text-gray-900 mb-6">
+                <i class="fas fa-pen text-animato-primary mr-2"></i>
+                Aanvraag bewerken
+              </h2>
+              <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/update`} class="space-y-5">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Voornaam</label>
+                    <input type="text" name="voornaam" value={data.voornaam || ''} class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Achternaam</label>
+                    <input type="text" name="achternaam" value={data.achternaam || ''} class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
+                    <input type="email" name="email" value={sub.email || ''} class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Telefoon</label>
+                    <input type="text" name="telefoon" value={data.telefoon || ''} class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-animato-primary focus:border-transparent" />
+                  </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Stemgroep</label>
+                    <select name="stemgroep" class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-animato-primary focus:border-transparent">
+                      <option value="weet_niet" selected={!data.stemgroep || data.stemgroep === 'weet_niet'}>Weet niet</option>
+                      <option value="S" selected={data.stemgroep === 'S'}>Sopraan</option>
+                      <option value="A" selected={data.stemgroep === 'A'}>Alt</option>
+                      <option value="T" selected={data.stemgroep === 'T'}>Tenor</option>
+                      <option value="B" selected={data.stemgroep === 'B'}>Bas</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <select name="status" class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-animato-primary focus:border-transparent">
+                      <option value="nieuw" selected={sub.status === 'nieuw'}>Nieuw</option>
+                      <option value="verwerkt" selected={sub.status === 'verwerkt'}>Verwerkt</option>
+                      <option value="gearchiveerd" selected={sub.status === 'gearchiveerd'}>Gearchiveerd</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Muzikale ervaring</label>
+                  <textarea name="muzikale_ervaring" rows={3} class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-animato-primary focus:border-transparent">{data.muzikale_ervaring || ''}</textarea>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Motivatie / Bericht</label>
+                  <textarea name="motivatie" rows={3} class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-animato-primary focus:border-transparent">{data.motivatie || ''}</textarea>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">Admin notities</label>
+                  <textarea name="notities" rows={2} placeholder="Interne notities (niet zichtbaar voor de aanvrager)" class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-animato-primary focus:border-transparent bg-amber-50">{sub.notities || ''}</textarea>
+                </div>
+                <div class="flex items-center gap-3 pt-4 border-t border-gray-200">
+                  <button type="submit" class="px-6 py-2.5 bg-animato-primary text-white rounded-lg hover:bg-opacity-90 transition font-medium">
+                    <i class="fas fa-save mr-2"></i> Opslaan
+                  </button>
+                  <a href="/admin/aanmeldingen" class="px-6 py-2.5 text-gray-600 hover:text-gray-800 transition">Annuleren</a>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
+// Update aanvraag
+app.post('/api/admin/aanmeldingen/:id/update', async (c) => {
+  const user = c.get('user') as SessionUser
+  const id = c.req.param('id')
+  const body = await c.req.parseBody()
+
+  const sub = await queryOne<any>(c.env.DB, `SELECT * FROM form_submissions WHERE id = ?`, [id])
+  if (!sub) return c.redirect('/admin/aanmeldingen?error=not_found')
+
+  const existingData = (() => { try { return JSON.parse(sub.payload) } catch { return {} } })()
+
+  // Update payload
+  const updatedPayload = JSON.stringify({
+    ...existingData,
+    voornaam: body.voornaam || existingData.voornaam,
+    achternaam: body.achternaam || existingData.achternaam,
+    email: body.email || existingData.email,
+    telefoon: body.telefoon || existingData.telefoon,
+    stemgroep: body.stemgroep || existingData.stemgroep,
+    muzikale_ervaring: body.muzikale_ervaring || null,
+    motivatie: body.motivatie || null,
+  })
+
+  const naam = `${body.voornaam || existingData.voornaam} ${body.achternaam || existingData.achternaam}`.trim()
+
+  await execute(c.env.DB,
+    `UPDATE form_submissions 
+     SET naam = ?, email = ?, payload = ?, status = ?, notities = ?, verwerkt_door = ?, verwerkt_at = datetime('now')
+     WHERE id = ?`,
+    [naam, body.email || sub.email, updatedPayload, body.status || sub.status, body.notities || null, user.id, id]
+  )
+
+  return c.redirect('/admin/aanmeldingen?success=updated')
+})
+
+// =====================================================
+// CONVERT AANVRAAG TO MEMBER
+// =====================================================
+
+app.get('/admin/aanmeldingen/:id/omzetten', async (c) => {
+  const user = c.get('user') as SessionUser
+  noCacheHeaders(c)
+  const id = c.req.param('id')
+
+  const sub = await queryOne<any>(c.env.DB,
+    `SELECT * FROM form_submissions WHERE id = ? AND type = 'word_lid'`, [id])
+  if (!sub) return c.redirect('/admin/aanmeldingen?error=not_found')
+
+  const data = (() => { try { return JSON.parse(sub.payload) } catch { return {} } })()
+
+  // Check if email already exists as user
+  const existingUser = await queryOne<any>(c.env.DB, 'SELECT id, email FROM users WHERE email = ?', [sub.email])
+
+  return c.html(
+    <Layout title="Omzetten naar lid" user={user} breadcrumbs={[
+      { label: 'Admin', href: '/admin' },
+      { label: 'Lid-aanvragen', href: '/admin/aanmeldingen' },
+      { label: 'Omzetten', href: '#' }
+    ]}>
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="leden" />
+        <div class="flex-1 min-w-0">
+          <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div class="bg-white rounded-xl shadow-md p-8">
+              <h2 class="text-2xl font-bold text-gray-900 mb-2">
+                <i class="fas fa-user-plus text-purple-600 mr-2"></i>
+                Omzetten naar lid
+              </h2>
+              <p class="text-gray-600 mb-6">
+                Maak een gebruikersaccount aan op basis van de aanvraag van <strong>{sub.naam}</strong>.
+              </p>
+
+              {existingUser && (
+                <div class="mb-6 bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg">
+                  <i class="fas fa-exclamation-triangle mr-2"></i>
+                  <strong>Let op:</strong> Er bestaat al een gebruiker met e-mail <strong>{sub.email}</strong> (id #{existingUser.id}). 
+                  Wijzig het e-mailadres of gebruik een ander adres.
+                </div>
+              )}
+
+              <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/convert`} class="space-y-5">
+                {/* Pre-filled from application */}
+                <div class="bg-gray-50 rounded-lg p-5 border border-gray-200">
+                  <h3 class="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-4">Gegevens uit aanvraag</h3>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-1">Voornaam *</label>
+                      <input type="text" name="voornaam" value={data.voornaam || ''} required class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-purple-500 focus:border-transparent" />
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-1">Achternaam *</label>
+                      <input type="text" name="achternaam" value={data.achternaam || ''} required class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-purple-500 focus:border-transparent" />
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-1">E-mail *</label>
+                      <input type="email" name="email" value={sub.email || ''} required class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-purple-500 focus:border-transparent" />
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-1">Telefoon</label>
+                      <input type="text" name="telefoon" value={data.telefoon || ''} class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-purple-500 focus:border-transparent" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* New member settings */}
+                <div class="bg-purple-50 rounded-lg p-5 border border-purple-200">
+                  <h3 class="text-sm font-semibold text-purple-700 uppercase tracking-wide mb-4">Instellingen nieuw lid</h3>
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-1">Stemgroep *</label>
+                      <select name="stemgroep" required class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                        <option value="">-- Kies --</option>
+                        <option value="S" selected={data.stemgroep === 'S'}>Sopraan</option>
+                        <option value="A" selected={data.stemgroep === 'A'}>Alt</option>
+                        <option value="T" selected={data.stemgroep === 'T'}>Tenor</option>
+                        <option value="B" selected={data.stemgroep === 'B'}>Bas</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-1">Rol</label>
+                      <select name="role" class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                        <option value="lid" selected>Lid</option>
+                        <option value="proeflid">Proeflid</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                      <select name="status" class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-purple-500 focus:border-transparent">
+                        <option value="actief" selected>Actief</option>
+                        <option value="proeflid">Proeflid</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-1">Wachtwoord *</label>
+                      <input type="text" name="password" value={`Animato${new Date().getFullYear()}!`} required class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-purple-500 focus:border-transparent font-mono" />
+                      <p class="text-xs text-gray-500 mt-1">Het lid moet dit wachtwoord wijzigen na eerste login.</p>
+                    </div>
+                  </div>
+                </div>
+
+                {data.muzikale_ervaring && (
+                  <div class="text-sm text-gray-600 bg-gray-50 rounded-lg p-4">
+                    <strong>Muzikale ervaring:</strong> {data.muzikale_ervaring}
+                  </div>
+                )}
+
+                <div class="flex items-center gap-3 pt-4 border-t border-gray-200">
+                  <button type="submit" class="px-6 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium">
+                    <i class="fas fa-user-plus mr-2"></i> Omzetten naar lid
+                  </button>
+                  <a href="/admin/aanmeldingen" class="px-6 py-2.5 text-gray-600 hover:text-gray-800 transition">Annuleren</a>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
+// Convert application to member
+app.post('/api/admin/aanmeldingen/:id/convert', async (c) => {
+  const user = c.get('user') as SessionUser
+  const id = c.req.param('id')
+  const body = await c.req.parseBody()
+
+  const { voornaam, achternaam, email, telefoon, stemgroep, role, status, password } = body as Record<string, string>
+
+  if (!voornaam || !achternaam || !email || !stemgroep || !password) {
+    return c.redirect(`/admin/aanmeldingen/${id}/omzetten?error=required`)
+  }
+
+  // Check email uniqueness
+  const existing = await queryOne<any>(c.env.DB, 'SELECT id FROM users WHERE email = ?', [email])
+  if (existing) {
+    return c.redirect('/admin/aanmeldingen?error=email_exists')
+  }
+
+  try {
+    const { hashPassword } = await import('../utils/auth')
+    const password_hash = await hashPassword(password)
+
+    // Create user
+    const userResult = await c.env.DB.prepare(
+      `INSERT INTO users (email, password_hash, role, stemgroep, status, two_fa_enabled, email_verified, is_bestuurslid, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 0, 1, 0, datetime('now'), datetime('now'))`
+    ).bind(email, password_hash, role || 'lid', stemgroep, status || 'actief').run()
+
+    const newUserId = userResult.meta.last_row_id
+
+    // Create profile
+    await c.env.DB.prepare(
+      `INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, smoelenboek_zichtbaar, toon_email, toon_telefoon)
+       VALUES (?, ?, ?, ?, 1, 1, 1)`
+    ).bind(newUserId, voornaam, achternaam, telefoon || null).run()
+
+    // Update form submission status
+    await execute(c.env.DB,
+      `UPDATE form_submissions 
+       SET status = 'omgezet_naar_lid', verwerkt_door = ?, verwerkt_at = datetime('now'),
+           notities = COALESCE(notities || ' | ', '') || 'Omgezet naar lid #' || ? || ' door admin'
+       WHERE id = ?`,
+      [user.id, newUserId, id]
+    )
+
+    return c.redirect('/admin/aanmeldingen?success=converted')
+  } catch (e: any) {
+    console.error('Convert error:', e)
+    return c.redirect(`/admin/aanmeldingen?error=${encodeURIComponent(e.message || 'server')}`)
+  }
 })
 
 // =====================================================

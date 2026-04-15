@@ -35,14 +35,14 @@ app.get('/leden', async (c) => {
   // Birthday helpers
   function getBirthdayWeekRange(): { start: string; end: string } {
     const now = new Date()
-    // Start of current week (Monday)
-    const day = now.getDay() // 0=Sun, 1=Mon, ...
+    // Use Monday-to-Sunday of the current week (Belgium time = UTC+1/+2)
+    // Shift +2h to align with Belgian time zone before calculating weekday
+    const be = new Date(now.getTime() + 2 * 60 * 60 * 1000) // approx CEST
+    const day = be.getUTCDay() // 0=Sun, 1=Mon, ...
     const diffToMon = (day === 0 ? -6 : 1 - day)
-    const mon = new Date(now)
-    mon.setDate(now.getDate() + diffToMon)
-    const sun = new Date(mon)
-    sun.setDate(mon.getDate() + 6)
-    const fmt = (d: Date) => `${String(d.getMonth() + 1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    const mon = new Date(be); mon.setUTCDate(be.getUTCDate() + diffToMon)
+    const sun = new Date(mon); sun.setUTCDate(mon.getUTCDate() + 6)
+    const fmt = (d: Date) => `${String(d.getUTCMonth() + 1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`
     return { start: fmt(mon), end: fmt(sun) }
   }
   const bwRange = getBirthdayWeekRange()
@@ -2790,28 +2790,44 @@ app.get('/leden/smoelenboek', async (c) => {
   const view = c.req.query('view') || 'grid' // 'grid' or 'list'
   const stemgroepFilter = c.req.query('stemgroep') || 'all'
 
-  // Birthday members this week
+  // Birthday members this week (Belgian time)
   function getBirthdayWeekRangeSB() {
-    const today = new Date()
-    const day = today.getDay()
+    const now = new Date()
+    const be = new Date(now.getTime() + 2 * 60 * 60 * 1000) // approx CEST
+    const day = be.getUTCDay()
     const diffToMon = day === 0 ? -6 : 1 - day
-    const mon = new Date(today); mon.setDate(today.getDate() + diffToMon)
-    const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
-    const fmt = (d: Date) => `${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    const mon = new Date(be); mon.setUTCDate(be.getUTCDate() + diffToMon)
+    const sun = new Date(mon); sun.setUTCDate(mon.getUTCDate() + 6)
+    const fmt = (d: Date) => `${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`
     return { start: fmt(mon), end: fmt(sun) }
   }
   const bwRange = getBirthdayWeekRangeSB()
-  const birthdayMembers = await queryAll<any>(
-    c.env.DB,
-    `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.geboortedatum
-     FROM users u
-     JOIN profiles p ON p.user_id = u.id
-     WHERE u.status = 'actief'
-       AND p.geboortedatum IS NOT NULL
-       AND strftime('%m-%d', p.geboortedatum) BETWEEN ? AND ?
-     ORDER BY strftime('%m-%d', p.geboortedatum) ASC`,
-    [bwRange.start, bwRange.end]
-  )
+  const [birthdayMembers, nextBirthdayMember] = await Promise.all([
+    queryAll<any>(
+      c.env.DB,
+      `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.geboortedatum
+       FROM users u
+       JOIN profiles p ON p.user_id = u.id
+       WHERE u.status = 'actief'
+         AND p.geboortedatum IS NOT NULL
+         AND strftime('%m-%d', p.geboortedatum) BETWEEN ? AND ?
+       ORDER BY strftime('%m-%d', p.geboortedatum) ASC`,
+      [bwRange.start, bwRange.end]
+    ),
+    // Next upcoming birthday (after this week) for "coming soon" hint
+    queryOne<any>(
+      c.env.DB,
+      `SELECT p.voornaam, p.achternaam, p.geboortedatum
+       FROM users u
+       JOIN profiles p ON p.user_id = u.id
+       WHERE u.status = 'actief'
+         AND p.geboortedatum IS NOT NULL
+         AND strftime('%m-%d', p.geboortedatum) > ?
+       ORDER BY strftime('%m-%d', p.geboortedatum) ASC
+       LIMIT 1`,
+      [bwRange.end]
+    )
+  ])
 
   // Get members with optional search + stemgroep filter + checkin count for streaks
   let query = `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio, p.favoriete_werk,
@@ -2895,27 +2911,29 @@ app.get('/leden/smoelenboek', async (c) => {
             </p>
           </div>
 
-          {/* 🎂 Birthday banner — week overview for trakteermoment at rehearsal */}
-          {birthdayMembers.length > 0 && (
-            <div class="mb-8 bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 border-2 border-amber-300 rounded-2xl p-6 shadow-md relative overflow-hidden">
-              {/* Decorative confetti dots */}
-              <div class="absolute top-2 right-4 text-2xl opacity-30 select-none">🎊</div>
-              <div class="absolute bottom-2 left-4 text-2xl opacity-20 select-none">🎶</div>
+          {/* 🎂 Birthday banner — always visible, shows this week's birthdays or next upcoming */}
+          <div class="mb-8 bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 border-2 border-amber-300 rounded-2xl p-6 shadow-md relative overflow-hidden">
+            {/* Decorative */}
+            <div class="absolute top-2 right-4 text-2xl opacity-30 select-none">🎊</div>
+            <div class="absolute bottom-2 left-4 text-2xl opacity-20 select-none">🎶</div>
 
-              <div class="flex items-center gap-3 mb-5">
-                <div class="w-10 h-10 bg-amber-400 rounded-full flex items-center justify-center shadow-sm">
-                  <i class="fas fa-birthday-cake text-white text-lg"></i>
-                </div>
-                <div>
-                  <h2 class="text-xl font-bold text-amber-900" style="font-family: 'Playfair Display', serif;">
-                    🎉 Jarig deze week!
-                  </h2>
-                  <p class="text-xs text-amber-600 mt-0.5">
-                    Er wordt getrakteerd op de repetitie — proficiat!
-                  </p>
-                </div>
+            <div class="flex items-center gap-3 mb-4">
+              <div class="w-10 h-10 bg-amber-400 rounded-full flex items-center justify-center shadow-sm">
+                <i class="fas fa-birthday-cake text-white text-lg"></i>
               </div>
+              <div>
+                <h2 class="text-xl font-bold text-amber-900" style="font-family: 'Playfair Display', serif;">
+                  {birthdayMembers.length > 0 ? '🎉 Jarig deze week!' : '🎂 Verjaardagen'}
+                </h2>
+                <p class="text-xs text-amber-600 mt-0.5">
+                  {birthdayMembers.length > 0
+                    ? 'Er wordt getrakteerd op de repetitie — proficiat!'
+                    : 'Geen jarigen deze week'}
+                </p>
+              </div>
+            </div>
 
+            {birthdayMembers.length > 0 ? (
               <div class="flex flex-wrap gap-6 justify-center sm:justify-start">
                 {birthdayMembers.map((bm: any) => {
                   const isMe = bm.id === user.id
@@ -2928,12 +2946,12 @@ app.get('/leden/smoelenboek', async (c) => {
                         </div>
                         <span class="absolute -top-4 left-1/2 -translate-x-1/2 text-3xl drop-shadow-sm" title="Jarig deze week!">👑</span>
                       </div>
-                      {/* Name */}
+                      {/* Full name */}
                       <span class={`text-sm font-bold ${isMe ? 'text-amber-800' : 'text-gray-800'} group-hover:text-amber-600 transition text-center leading-snug`}>
                         {bm.voornaam} {bm.achternaam}
                       </span>
                       {isMe && <span class="text-[10px] font-bold text-amber-500 bg-amber-100 px-2 py-0.5 rounded-full mt-0.5">Dat ben jij! 🥳</span>}
-                      {/* Date */}
+                      {/* Day of week + date */}
                       <span class="text-xs text-amber-600 font-semibold mt-0.5">
                         {new Date(bm.geboortedatum).toLocaleDateString('nl-BE', { weekday: 'short', day: 'numeric', month: 'long' })}
                       </span>
@@ -2941,8 +2959,17 @@ app.get('/leden/smoelenboek', async (c) => {
                   )
                 })}
               </div>
-            </div>
-          )}
+            ) : (
+              <div class="flex items-center gap-3 text-amber-700">
+                <i class="fas fa-calendar-check text-amber-400"></i>
+                <span class="text-sm">
+                  {nextBirthdayMember
+                    ? <>Volgende jarige: <strong>{nextBirthdayMember.voornaam} {nextBirthdayMember.achternaam}</strong> op {new Date(nextBirthdayMember.geboortedatum).toLocaleDateString('nl-BE', { day: 'numeric', month: 'long' })}</>
+                    : 'Geen verjaardagen geregistreerd.'}
+                </span>
+              </div>
+            )}
+          </div>
 
           {/* Search, stemgroep filter & View Toggle */}
           <div class="bg-white rounded-xl shadow-md p-4 mb-8">

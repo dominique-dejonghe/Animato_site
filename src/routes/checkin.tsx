@@ -312,27 +312,56 @@ app.get('/leden/streaks', async (c) => {
   const user = await verifyToken(authToken, c.env.JWT_SECRET)
   if (!user) return c.redirect('/login?redirect=/leden/streaks')
 
-  // Get all active members with checkins
-  const members = await queryAll<any>(c.env.DB,
-    `SELECT u.id, u.stemgroep, p.voornaam, p.achternaam, p.foto_url,
-            COUNT(qc.id) as total_checkins
-     FROM users u
-     LEFT JOIN profiles p ON p.user_id = u.id
-     LEFT JOIN qr_checkins qc ON qc.user_id = u.id
-     WHERE u.status = 'actief' AND u.role NOT IN ('bezoeker')
-     GROUP BY u.id
-     ORDER BY total_checkins DESC`
-  )
+  // BATCH: 3 queries total instead of N*2 queries
+  const [members, allRehearsals, allCheckins] = await Promise.all([
+    queryAll<any>(c.env.DB,
+      `SELECT u.id, u.stemgroep, p.voornaam, p.achternaam, p.foto_url,
+              COUNT(qc.id) as total_checkins
+       FROM users u
+       LEFT JOIN profiles p ON p.user_id = u.id
+       LEFT JOIN qr_checkins qc ON qc.user_id = u.id
+       WHERE u.status = 'actief' AND u.role NOT IN ('bezoeker')
+       GROUP BY u.id
+       ORDER BY total_checkins DESC`
+    ),
+    queryAll<any>(c.env.DB,
+      `SELECT id, start_at FROM events WHERE type = 'repetitie' AND start_at <= datetime('now') ORDER BY start_at DESC`
+    ),
+    queryAll<any>(c.env.DB,
+      `SELECT user_id, event_id FROM qr_checkins qc JOIN events e ON e.id = qc.event_id WHERE e.type = 'repetitie'`
+    )
+  ])
 
-  // Calculate streaks for everyone
-  const leaderboard = []
+  // Build checkin lookup per user
+  const checkinsByUser: Record<number, Set<number>> = {}
+  for (const ci of allCheckins) {
+    if (!checkinsByUser[ci.user_id]) checkinsByUser[ci.user_id] = new Set()
+    checkinsByUser[ci.user_id].add(ci.event_id)
+  }
+
+  // Calculate streaks in-memory (zero extra queries)
+  function calcStreakFast(userId: number): { current: number; longest: number; total: number } {
+    const userCheckins = checkinsByUser[userId]
+    if (!userCheckins || userCheckins.size === 0) return { current: 0, longest: 0, total: 0 }
+    let current = 0
+    for (const r of allRehearsals) {
+      if (userCheckins.has(r.id)) current++; else break
+    }
+    let longest = 0, temp = 0
+    for (const r of allRehearsals) {
+      if (userCheckins.has(r.id)) { temp++; longest = Math.max(longest, temp) } else { temp = 0 }
+    }
+    return { current, longest, total: userCheckins.size }
+  }
+
+  const leaderboard: any[] = []
   for (const m of members) {
-    const streak = await calculateStreak(c.env.DB, m.id)
+    const streak = calcStreakFast(m.id)
     if (streak.total > 0 || m.id === user.id) {
       leaderboard.push({ ...m, streak, isMe: m.id === user.id })
     }
   }
-  leaderboard.sort((a, b) => b.streak.current - a.streak.current || b.streak.total - a.streak.total)
+  leaderboard.sort((a: any, b: any) => b.streak.current - a.streak.current || b.streak.total - a.streak.total)
 
   // Get my position
   const myRank = leaderboard.findIndex((m) => m.id === user.id) + 1

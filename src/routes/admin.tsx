@@ -7,6 +7,8 @@ import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
 import { requireAuth, requireRole } from '../middleware/auth'
 import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
+import { setCookie } from 'hono/cookie'
+import { generateToken } from '../utils/auth'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -116,6 +118,12 @@ app.get('/admin', async (c) => {
                 </p>
               </div>
               <div class="flex items-center gap-3">
+                <form method="POST" action="/admin/impersonate/79" class="inline">
+                  <button type="submit" class="px-4 py-2 bg-orange-100 text-orange-700 hover:bg-orange-200 rounded-lg transition font-medium text-sm" title="Bekijk de site als een gewoon lid (Test Koorlid)">
+                    <i class="fas fa-user-secret mr-2"></i>
+                    Bekijk als lid
+                  </button>
+                </form>
                 <a href="/" class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition">
                   <i class="fas fa-home mr-2"></i>
                   Naar Website
@@ -2246,8 +2254,7 @@ async function deleteUserCascade(db: D1Database, userId: string) {
     ['meeting_participants',     'user_id'],
     ['meeting_action_items',     'verantwoordelijke_id'],
     ['post_replies',             'user_id'],
-    ['karaoke_selections',       'user_id'],
-    ['karaoke_song_requests',    'user_id'],
+    // karaoke tables removed
     ['print_requests',           'user_id'],
     ['form_submissions',         'user_id'],
     ['notification_subscriptions','user_id'],
@@ -3646,5 +3653,71 @@ app.get('/admin/audit', async (c) => {
     </Layout>
   )
 })
+
+// =====================================================
+// IMPERSONATE - Admin can view site as a regular member
+// =====================================================
+
+app.post('/admin/impersonate/:userId', async (c) => {
+  const admin = c.get('user') as SessionUser
+  if (admin.role !== 'admin') {
+    return c.text('Alleen hoofdadmins mogen impersoneren', 403)
+  }
+
+  const targetId = parseInt(c.req.param('userId'))
+  const target = await queryOne<any>(c.env.DB, `
+    SELECT u.id, u.email, u.role, u.stemgroep, u.is_bestuurslid,
+           p.voornaam, p.achternaam
+    FROM users u
+    LEFT JOIN profiles p ON p.user_id = u.id
+    WHERE u.id = ?
+  `, [targetId])
+
+  if (!target) return c.text('Gebruiker niet gevonden', 404)
+
+  // Create session as the target user, but store original admin id
+  const sessionUser: SessionUser = {
+    id: target.id,
+    email: target.email,
+    role: target.role,
+    stemgroep: target.stemgroep,
+    voornaam: target.voornaam || 'Gebruiker',
+    achternaam: target.achternaam || '',
+    is_bestuurslid: target.is_bestuurslid || 0
+  }
+
+  const token = await generateToken(sessionUser, c.env.JWT_SECRET, '1h')
+
+  // Set impersonate cookie (short-lived, 1 hour)
+  setCookie(c, 'auth_token', token, {
+    maxAge: 60 * 60, // 1 hour
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Lax',
+    path: '/'
+  })
+
+  // Store admin's original session so they can switch back
+  const adminToken = await generateToken({
+    id: admin.id,
+    email: admin.email,
+    role: admin.role,
+    stemgroep: admin.stemgroep,
+    voornaam: admin.voornaam,
+    achternaam: admin.achternaam,
+    is_bestuurslid: admin.is_bestuurslid || 0
+  }, c.env.JWT_SECRET, '7d')
+  setCookie(c, 'admin_impersonate_token', adminToken, {
+    maxAge: 60 * 60,
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Lax',
+    path: '/'
+  })
+
+  return c.redirect('/leden')
+})
+
+// Note: /admin/stop-impersonate is in leden.tsx (doesn't require admin role)
 
 export default app

@@ -9,6 +9,7 @@ interface LayoutProps {
   children: any
   user?: { voornaam: string; achternaam: string; role: string } | null
   currentPath?: string
+  impersonating?: boolean
 }
 
 export const Layout: FC<LayoutProps> = ({ 
@@ -16,7 +17,8 @@ export const Layout: FC<LayoutProps> = ({
   description = 'Koor met passie',
   children,
   user = null,
-  currentPath = '/'
+  currentPath = '/',
+  impersonating = false
 }) => {
   const fullTitle = title === 'Gemengd Koor Animato' ? title : `${title} | Gemengd Koor Animato`
 
@@ -69,6 +71,16 @@ export const Layout: FC<LayoutProps> = ({
       </head>
       
       <body class="font-sans bg-gray-50 text-gray-900" style="font-family: 'Inter', sans-serif;">
+        {/* Impersonate Banner */}
+        {impersonating && (
+          <div class="bg-orange-500 text-white py-2 px-4 text-center text-sm font-semibold sticky top-0 z-[100] shadow-lg">
+            <i class="fas fa-user-secret mr-2"></i>
+            Je bekijkt de site als <strong>{user?.voornaam} {user?.achternaam}</strong> (lid-weergave)
+            <a href="/admin/stop-impersonate" class="ml-4 bg-white text-orange-600 px-3 py-1 rounded-full text-xs font-bold hover:bg-orange-100 transition">
+              <i class="fas fa-sign-out-alt mr-1"></i> Terug naar admin
+            </a>
+          </div>
+        )}
         {/* Header */}
         <header class="bg-white shadow-sm sticky top-0 z-50">
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

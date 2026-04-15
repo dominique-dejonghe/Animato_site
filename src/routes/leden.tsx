@@ -2,6 +2,7 @@
 // Dashboard, Materiaal, Messageboard, Profiel
 
 import { Hono } from 'hono'
+import { getCookie, setCookie } from 'hono/cookie'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { requireAuth } from '../middleware/auth'
@@ -23,6 +24,37 @@ function getDefaultAvatar(stemgroep: string): string {
 
 // Apply auth middleware to all leden routes
 app.use('*', requireAuth)
+
+// Check impersonation status on every leden request
+app.use('*', async (c, next) => {
+  const impersonating = !!getCookie(c, 'admin_impersonate_token')
+  c.set('impersonating' as any, impersonating)
+  await next()
+})
+
+// Stop impersonating - restore admin session (placed here because admin/* requires admin role)
+app.get('/admin/stop-impersonate', async (c) => {
+  const adminToken = c.req.header('Cookie')?.match(/admin_impersonate_token=([^;]+)/)?.[1]
+
+  if (adminToken) {
+    setCookie(c, 'auth_token', adminToken, {
+      maxAge: 7 * 24 * 60 * 60,
+      httpOnly: true,
+      secure: true,
+      sameSite: 'Lax',
+      path: '/'
+    })
+    setCookie(c, 'admin_impersonate_token', '', {
+      maxAge: 0,
+      httpOnly: true,
+      secure: true,
+      sameSite: 'Lax',
+      path: '/'
+    })
+  }
+
+  return c.redirect('/admin')
+})
 
 // =====================================================
 // LEDENPORTAAL DASHBOARD
@@ -118,6 +150,14 @@ app.get('/leden', async (c) => {
     [user.stemgroep || 'SATB']
   )
 
+  // Fetch enabled modules for conditional rendering
+  const enabledModulesRaw = await queryAll<any>(c.env.DB,
+    `SELECT module_key, is_enabled FROM module_settings`, [])
+  const enabledModules = new Set(
+    enabledModulesRaw.filter((m: any) => m.is_enabled === 1).map((m: any) => m.module_key)
+  )
+  const isAdmin = user.role === 'admin' || user.role === 'bestuur'
+
   // Calculate total donations for user
   const totalDonations = await queryOne<any>(c.env.DB, `
     SELECT SUM(amount) as total FROM donations WHERE user_id = ? AND status = 'paid'
@@ -137,8 +177,11 @@ app.get('/leden', async (c) => {
   const filledFields = profileFields.filter((f: any) => f && String(f).trim() !== '').length
   const profileCompleteness = profileData ? Math.round((filledFields / profileFields.length) * 100) : 0
 
+  // Check if admin is impersonating this user
+  const impersonating = !!(c.get('impersonating' as any))
+
   return c.html(
-    <Layout title="Ledenportaal" user={user}>
+    <Layout title="Ledenportaal" user={user} impersonating={impersonating}>
       <div class="py-12 bg-gray-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Welcome message */}
@@ -221,127 +264,52 @@ app.get('/leden', async (c) => {
             </p>
           </div>
 
-          {/* Quick actions */}
-          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-12">
-            {/* Volgorde: Agenda - Oefenmateriaal - Berichten - Onze Zangers - Inschrijvingen - Polls - Voorstellen - Streaks - Stem Test - Profiel */}
-            <a
-              href="/leden/agenda"
-              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
-            >
-              <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mx-auto mb-3">
-                <i class="far fa-calendar text-animato-primary text-xl"></i>
-              </div>
-              <h3 class="font-semibold text-gray-900 mb-1">Agenda</h3>
-              <p class="text-sm text-gray-600">Repetities & concerten</p>
-            </a>
+          {/* Quick actions - modules filtered by admin toggle settings */}
+          {(() => {
+            // Module definitions with their module_key mapping
+            const allModules = [
+              { key: 'agenda',       href: '/leden/agenda',        icon: 'far fa-calendar',     iconBg: 'bg-animato-primary bg-opacity-10', iconColor: 'text-animato-primary text-xl', title: 'Agenda',         desc: 'Repetities & concerten',        border: '' },
+              { key: 'materiaal',    href: '/leden/materiaal',     icon: 'fas fa-file-audio',   iconBg: 'bg-animato-primary bg-opacity-10', iconColor: 'text-animato-primary text-2xl', title: 'Oefenmateriaal', desc: 'Partituren & oefentracks',      border: '' },
+              { key: 'nieuws',       href: '/leden/board',         icon: 'fas fa-comments',     iconBg: 'bg-animato-primary bg-opacity-10', iconColor: 'text-animato-primary text-xl', title: 'Berichten',      desc: 'Nieuws & discussies',           border: '' },
+              { key: null,           href: '/leden/smoelenboek',   icon: 'fas fa-users',        iconBg: 'bg-pink-100',                      iconColor: 'text-pink-600 text-xl',        title: 'Onze Zangers',   desc: 'Leer je mede-leden kennen',     border: '' },
+              { key: 'activiteiten', href: '/leden/activiteiten',  icon: 'fas fa-glass-cheers', iconBg: 'bg-animato-primary text-white shadow-sm', iconColor: 'text-xl',             title: 'Inschrijvingen', desc: 'Feesten & Activiteiten',        border: 'border-2 border-animato-primary border-opacity-20' },
+              { key: 'polls',        href: '/leden/polls',         icon: 'fas fa-poll',         iconBg: 'bg-green-100',                     iconColor: 'text-green-600 text-xl',       title: 'Polls',          desc: 'Stem mee!',                     border: '' },
+              { key: 'voorstellen',  href: '/leden/voorstellen',   icon: 'fas fa-lightbulb',    iconBg: 'bg-yellow-100',                    iconColor: 'text-yellow-600 text-xl',      title: 'Voorstellen',    desc: 'Deel je ideeën',                border: '' },
+              { key: null,           href: '/leden/streaks',       icon: null,                  iconBg: 'bg-orange-100',                    iconColor: '',                             title: 'Streaks',        desc: 'Aanwezigheid & badges',         border: 'border-2 border-orange-200', emoji: '🔥' },
+              { key: 'voice_analyzer', href: '/stem-test',         icon: 'fas fa-microphone',   iconBg: 'bg-purple-100',                    iconColor: 'text-purple-600 text-xl',      title: 'Stem Test',      desc: 'Test je stembereik',            border: '' },
+              { key: null,           href: '/leden/profiel',       icon: 'fas fa-user',         iconBg: 'bg-animato-primary bg-opacity-10', iconColor: 'text-animato-primary text-xl', title: 'Profiel',        desc: 'Mijn gegevens',                 border: '', isProfile: true },
+            ]
+            // Filter: admin sees everything, members only see enabled modules (null key = always visible)
+            const visibleModules = allModules.filter(m => isAdmin || m.key === null || enabledModules.has(m.key))
 
-            <a
-              href="/leden/materiaal"
-              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
-            >
-              <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mx-auto mb-3">
-                <i class="fas fa-file-audio text-animato-primary text-2xl"></i>
+            return (
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-12">
+                {visibleModules.map(m => (
+                  <a href={m.href} class={`bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center relative ${m.border} ${isAdmin && m.key && !enabledModules.has(m.key) ? 'opacity-50 ring-2 ring-red-300' : ''}`}>
+                    {/* Admin-only badge for disabled modules */}
+                    {isAdmin && m.key && !enabledModules.has(m.key) && (
+                      <span class="absolute top-1 right-1 bg-red-100 text-red-600 text-[10px] px-1.5 py-0.5 rounded-full font-semibold">UIT</span>
+                    )}
+                    <div class={`w-12 h-12 ${m.iconBg} rounded-full flex items-center justify-center mx-auto mb-3`}>
+                      {m.emoji ? <span class="text-2xl">{m.emoji}</span> : <i class={`${m.icon} ${m.iconColor}`}></i>}
+                    </div>
+                    <h3 class="font-semibold text-gray-900 mb-1">{m.title}</h3>
+                    <p class="text-sm text-gray-600">{m.desc}</p>
+                    {m.isProfile && (
+                      <div class="mt-2">
+                        <div class="w-full bg-gray-200 rounded-full h-1.5">
+                          <div class={`h-1.5 rounded-full ${profileCompleteness >= 80 ? 'bg-green-500' : profileCompleteness >= 50 ? 'bg-amber-500' : 'bg-red-400'}`} style={`width: ${profileCompleteness}%`}></div>
+                        </div>
+                        <p class={`text-xs mt-1 ${profileCompleteness >= 80 ? 'text-green-600' : profileCompleteness >= 50 ? 'text-amber-600' : 'text-red-500'}`}>
+                          {profileCompleteness}% ingevuld
+                        </p>
+                      </div>
+                    )}
+                  </a>
+                ))}
               </div>
-              <h3 class="font-semibold text-gray-900 mb-1">Oefenmateriaal</h3>
-              <p class="text-sm text-gray-600">Partituren & oefentracks</p>
-            </a>
-
-            <a
-              href="/leden/board"
-              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
-            >
-              <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mx-auto mb-3">
-                <i class="fas fa-comments text-animato-primary text-xl"></i>
-              </div>
-              <h3 class="font-semibold text-gray-900 mb-1">Berichten</h3>
-              <p class="text-sm text-gray-600">Nieuws & discussies</p>
-            </a>
-
-            <a
-              href="/leden/smoelenboek"
-              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
-            >
-              <div class="w-12 h-12 bg-pink-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <i class="fas fa-users text-pink-600 text-xl"></i>
-              </div>
-              <h3 class="font-semibold text-gray-900 mb-1">Onze Zangers</h3>
-              <p class="text-sm text-gray-600">Leer je mede-leden kennen</p>
-            </a>
-
-            <a
-              href="/leden/activiteiten"
-              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center border-2 border-animato-primary border-opacity-20"
-            >
-              <div class="w-12 h-12 bg-animato-primary rounded-full flex items-center justify-center mx-auto mb-3 text-white shadow-sm">
-                <i class="fas fa-glass-cheers text-xl"></i>
-              </div>
-              <h3 class="font-semibold text-gray-900 mb-1">Inschrijvingen</h3>
-              <p class="text-sm text-gray-600">Feesten & Activiteiten</p>
-            </a>
-
-            <a
-              href="/leden/polls"
-              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
-            >
-              <div class="w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <i class="fas fa-poll text-green-600 text-xl"></i>
-              </div>
-              <h3 class="font-semibold text-gray-900 mb-1">Polls</h3>
-              <p class="text-sm text-gray-600">Stem mee!</p>
-            </a>
-
-            <a
-              href="/leden/voorstellen"
-              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
-            >
-              <div class="w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <i class="fas fa-lightbulb text-yellow-600 text-xl"></i>
-              </div>
-              <h3 class="font-semibold text-gray-900 mb-1">Voorstellen</h3>
-              <p class="text-sm text-gray-600">Deel je ideeën</p>
-            </a>
-
-            <a
-              href="/leden/streaks"
-              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center border-2 border-orange-200"
-            >
-              <div class="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <span class="text-2xl">🔥</span>
-              </div>
-              <h3 class="font-semibold text-gray-900 mb-1">Streaks</h3>
-              <p class="text-sm text-gray-600">Aanwezigheid & badges</p>
-            </a>
-
-            <a
-              href="/stem-test"
-              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
-            >
-              <div class="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                <i class="fas fa-microphone text-purple-600 text-xl"></i>
-              </div>
-              <h3 class="font-semibold text-gray-900 mb-1">Stem Test</h3>
-              <p class="text-sm text-gray-600">Test je stembereik</p>
-            </a>
-
-            <a
-              href="/leden/profiel"
-              class="bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center"
-            >
-              <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mx-auto mb-3">
-                <i class="fas fa-user text-animato-primary text-xl"></i>
-              </div>
-              <h3 class="font-semibold text-gray-900 mb-1">Profiel</h3>
-              <p class="text-sm text-gray-600">Mijn gegevens</p>
-              <div class="mt-2">
-                <div class="w-full bg-gray-200 rounded-full h-1.5">
-                  <div class={`h-1.5 rounded-full ${profileCompleteness >= 80 ? 'bg-green-500' : profileCompleteness >= 50 ? 'bg-amber-500' : 'bg-red-400'}`} style={`width: ${profileCompleteness}%`}></div>
-                </div>
-                <p class={`text-xs mt-1 ${profileCompleteness >= 80 ? 'text-green-600' : profileCompleteness >= 50 ? 'text-amber-600' : 'text-red-500'}`}>
-                  {profileCompleteness}% ingevuld
-                </p>
-              </div>
-            </a>
-          </div>
+            )
+          })()}
 
           {/* Main content grid */}
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -538,7 +506,7 @@ app.get('/leden/donaties', async (c) => {
   const total = donations.filter((d: any) => d.status === 'paid').reduce((sum: number, d: any) => sum + d.amount, 0);
 
   return c.html(
-    <Layout title="Mijn Donaties" user={user} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Donaties', href: '/leden/donaties'}]}>
+    <Layout title="Mijn Donaties" user={user} impersonating={!!(c.get('impersonating' as any))} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Donaties', href: '/leden/donaties'}]}>
       <div class="py-12 bg-gray-50 min-h-screen">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           
@@ -771,7 +739,7 @@ app.get('/leden/board', async (c) => {
   const threads = await queryAll(c.env.DB, query, filters)
 
   return c.html(
-    <Layout title="Berichten" user={user}>
+    <Layout title="Berichten" user={user} impersonating={!!(c.get('impersonating' as any))}>
       <div class="py-12 bg-gray-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Header */}
@@ -1013,7 +981,7 @@ app.get('/leden/board/:id', async (c) => {
   )
 
   return c.html(
-    <Layout title={thread.titel} user={user}>
+    <Layout title={thread.titel} user={user} impersonating={!!(c.get('impersonating' as any))}>
       <div class="py-12 bg-gray-50">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Back button */}
@@ -1265,6 +1233,7 @@ app.get('/leden/profiel', async (c) => {
     <Layout 
       title="Mijn Profiel" 
       user={user}
+      impersonating={!!(c.get('impersonating' as any))}
       breadcrumbs={[
         { label: 'Ledenportaal', href: '/leden' },
         { label: 'Mijn Profiel', href: '/leden/profiel' }
@@ -2320,7 +2289,7 @@ app.get('/leden/betaling-lidgeld', async (c) => {
   const communication = `Lidgeld ${membership.season} - ${user.voornaam} ${user.achternaam}`
 
   return c.html(
-    <Layout title="Lidgeld Betalen" user={user}>
+    <Layout title="Lidgeld Betalen" user={user} impersonating={!!(c.get('impersonating' as any))}>
       <div class="py-12 bg-gray-50 min-h-screen">
         <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
           <div class="mb-8">
@@ -2636,7 +2605,7 @@ app.get('/leden/materiaal', async (c) => {
   const infoMsg = c.req.query('info')
 
   return c.html(
-    <Layout title="Materiaal" user={user} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Materiaal', href: '/leden/materiaal'}]}>
+    <Layout title="Materiaal" user={user} impersonating={!!(c.get('impersonating' as any))} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Materiaal', href: '/leden/materiaal'}]}>
       <div class="py-12 bg-gray-50 min-h-screen">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Success/Error/Info messages */}
@@ -2894,7 +2863,7 @@ app.get('/leden/smoelenboek', async (c) => {
   })
 
   return c.html(
-    <Layout title="Onze Zangers" user={user} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Smoelenboek', href: '/leden/smoelenboek'}]}>
+    <Layout title="Onze Zangers" user={user} impersonating={!!(c.get('impersonating' as any))} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Smoelenboek', href: '/leden/smoelenboek'}]}>
       <div class="py-12 bg-gray-50 min-h-screen">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div class="mb-4">
@@ -3280,7 +3249,7 @@ app.get('/leden/smoelenboek/:id', async (c) => {
   const stemgroepLabel = (s: string) => s === 'S' ? 'Sopraan' : s === 'A' ? 'Alt' : s === 'T' ? 'Tenor' : 'Bas'
 
   return c.html(
-    <Layout title={`${member.voornaam} ${member.achternaam}`} user={user} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Smoelenboek', href: '/leden/smoelenboek'}, {label: `${member.voornaam} ${member.achternaam}`, href: '#'}]}>
+    <Layout title={`${member.voornaam} ${member.achternaam}`} user={user} impersonating={!!(c.get('impersonating' as any))} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Smoelenboek', href: '/leden/smoelenboek'}, {label: `${member.voornaam} ${member.achternaam}`, href: '#'}]}>
         <div class="py-12 bg-gray-50 min-h-screen">
             <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
 
@@ -3624,7 +3593,7 @@ app.get('/leden/verjaardagen', async (c) => {
   const stemgroepLabel = (s: string) => s === 'S' ? 'Sopraan' : s === 'A' ? 'Alt' : s === 'T' ? 'Tenor' : 'Bas'
 
   return c.html(
-    <Layout title="Verjaardagslijst" user={user} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Verjaardagslijst', href: '#'}]}>
+    <Layout title="Verjaardagslijst" user={user} impersonating={!!(c.get('impersonating' as any))} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Verjaardagslijst', href: '#'}]}>
       <div class="py-12 bg-gray-50 min-h-screen">
         <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div class="flex items-center justify-between mb-8">

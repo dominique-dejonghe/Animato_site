@@ -222,7 +222,7 @@ app.get('/leden', async (c) => {
           </div>
 
           {/* Quick actions */}
-          <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4 mb-12">
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-12">
             {/* Volgorde: Agenda - Oefenmateriaal - Berichten - Onze Zangers - Inschrijvingen - Polls - Voorstellen - Streaks - Stem Test - Profiel */}
             <a
               href="/leden/agenda"

@@ -32,8 +32,9 @@ app.use('*', async (c, next) => {
   await next()
 })
 
-// Stop impersonating - restore admin session (placed here because admin/* requires admin role)
-app.get('/admin/stop-impersonate', async (c) => {
+// Stop impersonating - restore admin session
+// Uses /leden/ path so it's NOT blocked by admin role middleware
+app.get('/leden/stop-impersonate', async (c) => {
   const adminToken = c.req.header('Cookie')?.match(/admin_impersonate_token=([^;]+)/)?.[1]
 
   if (adminToken) {

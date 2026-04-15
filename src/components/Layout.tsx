@@ -76,7 +76,7 @@ export const Layout: FC<LayoutProps> = ({
           <div class="bg-orange-500 text-white py-2 px-4 text-center text-sm font-semibold sticky top-0 z-[100] shadow-lg">
             <i class="fas fa-user-secret mr-2"></i>
             Je bekijkt de site als <strong>{user?.voornaam} {user?.achternaam}</strong> (lid-weergave)
-            <a href="/admin/stop-impersonate" class="ml-4 bg-white text-orange-600 px-3 py-1 rounded-full text-xs font-bold hover:bg-orange-100 transition">
+            <a href="/leden/stop-impersonate" class="ml-4 bg-white text-orange-600 px-3 py-1 rounded-full text-xs font-bold hover:bg-orange-100 transition">
               <i class="fas fa-sign-out-alt mr-1"></i> Terug naar admin
             </a>
           </div>

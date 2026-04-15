@@ -12,6 +12,19 @@ import { generateToken } from '../utils/auth'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
+// If user is impersonating (has admin_impersonate_token), auto-restore admin session
+app.use('*', async (c, next) => {
+  const { getCookie: gc, setCookie: sc } = await import('hono/cookie')
+  const impersonateToken = gc(c, 'admin_impersonate_token')
+  if (impersonateToken) {
+    // Restore admin session automatically when navigating to /admin/*
+    sc(c, 'auth_token', impersonateToken, { maxAge: 7 * 24 * 60 * 60, httpOnly: true, secure: true, sameSite: 'Lax', path: '/' })
+    sc(c, 'admin_impersonate_token', '', { maxAge: 0, httpOnly: true, secure: true, sameSite: 'Lax', path: '/' })
+    return c.redirect(c.req.url)
+  }
+  await next()
+})
+
 // Apply auth middleware - admin and moderator for ALL /admin/* routes
 app.use('*', requireAuth)
 app.use('*', requireRole('admin', 'moderator'))
@@ -4159,6 +4172,6 @@ app.post('/admin/impersonate/:userId', async (c) => {
   return c.redirect('/leden')
 })
 
-// Note: /admin/stop-impersonate is in leden.tsx (doesn't require admin role)
+// Note: /leden/stop-impersonate is in leden.tsx (uses /leden/ path to bypass admin role check)
 
 export default app

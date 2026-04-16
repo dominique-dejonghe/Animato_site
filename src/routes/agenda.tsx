@@ -2,6 +2,7 @@
 // Kalender, filters, ICS export, concert details
 
 import { Hono } from 'hono'
+import { getCookie, setCookie } from 'hono/cookie'
 import type { Bindings } from '../types'
 import { Layout } from '../components/Layout'
 import { optionalAuth } from '../middleware/auth'
@@ -16,6 +17,20 @@ app.use('*', optionalAuth)
 // AGENDA OVERZICHT
 // =====================================================
 
+// Toggle birthday visibility via cookie
+app.get('/agenda/toggle-verjaardagen', (c) => {
+  const current = getCookie(c, 'show_birthdays')
+  const newVal = current === '0' ? '1' : '0'
+  setCookie(c, 'show_birthdays', newVal, {
+    path: '/',
+    maxAge: 365 * 24 * 60 * 60, // 1 year
+    httpOnly: false,
+    sameSite: 'Lax'
+  })
+  const referer = c.req.header('referer') || '/agenda'
+  return c.redirect(referer)
+})
+
 app.get('/agenda', async (c) => {
   const user = c.get('user')
   const type = c.req.query('type') || 'all'
@@ -23,6 +38,10 @@ app.get('/agenda', async (c) => {
   const view = c.req.query('view') || 'list' // 'list' or 'calendar'
   const dateParam = c.req.query('date') || new Date().toISOString().split('T')[0]
   const isAdmin = (user as any)?.role === 'admin'
+
+  // Birthday toggle — default ON for logged-in users
+  const birthdayCookie = getCookie(c, 'show_birthdays')
+  const showBirthdays = user ? (birthdayCookie !== '0') : false
 
   // Parse date for calendar view
   const currentDate = new Date(dateParam)
@@ -65,6 +84,82 @@ app.get('/agenda', async (c) => {
   query += ` ORDER BY e.start_at ASC LIMIT 50`
 
   const rawEvents = await queryAll(c.env.DB, query, filters)
+
+  // Fetch birthdays if enabled
+  let birthdaysByDate: Record<string, any[]> = {}
+  let birthdaysByMonth: Record<string, any[]> = {}
+  if (showBirthdays && user) {
+    let birthdayQuery = ''
+    let birthdayFilters: any[] = []
+    
+    if (view === 'calendar') {
+      // Get birthdays for this month
+      const monthStr = String(month + 1).padStart(2, '0')
+      birthdayQuery = `
+        SELECT p.voornaam, p.achternaam, p.foto_url, p.geboortedatum, u.id as user_id, u.stemgroep
+        FROM profiles p
+        JOIN users u ON u.id = p.user_id
+        WHERE u.status = 'actief'
+          AND p.geboortedatum IS NOT NULL
+          AND strftime('%m', p.geboortedatum) = ?
+        ORDER BY strftime('%d', p.geboortedatum) ASC
+      `
+      birthdayFilters = [monthStr]
+    } else {
+      // Get birthdays for the next 3 months from today
+      const today = new Date()
+      const mmddStart = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      const future = new Date(today)
+      future.setMonth(future.getMonth() + 3)
+      const mmddEnd = `${String(future.getMonth() + 1).padStart(2, '0')}-${String(future.getDate()).padStart(2, '0')}`
+      
+      // Handle year wrap (e.g. Nov -> Feb)
+      if (mmddEnd < mmddStart) {
+        birthdayQuery = `
+          SELECT p.voornaam, p.achternaam, p.foto_url, p.geboortedatum, u.id as user_id, u.stemgroep
+          FROM profiles p
+          JOIN users u ON u.id = p.user_id
+          WHERE u.status = 'actief'
+            AND p.geboortedatum IS NOT NULL
+            AND (strftime('%m-%d', p.geboortedatum) >= ? OR strftime('%m-%d', p.geboortedatum) <= ?)
+          ORDER BY CASE
+            WHEN strftime('%m-%d', p.geboortedatum) >= ? THEN 0 ELSE 1
+          END, strftime('%m-%d', p.geboortedatum) ASC
+        `
+        birthdayFilters = [mmddStart, mmddEnd, mmddStart]
+      } else {
+        birthdayQuery = `
+          SELECT p.voornaam, p.achternaam, p.foto_url, p.geboortedatum, u.id as user_id, u.stemgroep
+          FROM profiles p
+          JOIN users u ON u.id = p.user_id
+          WHERE u.status = 'actief'
+            AND p.geboortedatum IS NOT NULL
+            AND strftime('%m-%d', p.geboortedatum) BETWEEN ? AND ?
+          ORDER BY strftime('%m-%d', p.geboortedatum) ASC
+        `
+        birthdayFilters = [mmddStart, mmddEnd]
+      }
+    }
+    
+    const birthdayMembers = await queryAll<any>(c.env.DB, birthdayQuery, birthdayFilters)
+    
+    // Group by date (using current year for display)
+    const currentYear = new Date().getFullYear()
+    for (const bm of birthdayMembers as any[]) {
+      if (!bm.geboortedatum) continue
+      const mmdd = bm.geboortedatum.substring(5) // "MM-DD"
+      const displayDate = `${currentYear}-${mmdd}`
+      
+      if (!birthdaysByDate[displayDate]) birthdaysByDate[displayDate] = []
+      birthdaysByDate[displayDate].push(bm)
+      
+      // Also group by month label for list view
+      const bdDate = new Date(displayDate)
+      const monthLabel = bdDate.toLocaleDateString('nl-BE', { year: 'numeric', month: 'long' })
+      if (!birthdaysByMonth[monthLabel]) birthdaysByMonth[monthLabel] = []
+      birthdaysByMonth[monthLabel].push({ ...bm, displayDate })
+    }
+  }
 
   // Group recurring events (#41): in list view, collapse same-title weekly recurring events
   let events = rawEvents
@@ -187,6 +282,25 @@ app.get('/agenda', async (c) => {
               </div>
 
               <div class="flex items-end space-x-2">
+                {/* Birthday toggle — only for logged-in users */}
+                {user && (
+                  <a
+                    href="/agenda/toggle-verjaardagen"
+                    class={`inline-flex items-center px-4 py-2 rounded-lg font-semibold transition border-2 ${
+                      showBirthdays
+                        ? 'bg-pink-50 border-pink-300 text-pink-700 hover:bg-pink-100'
+                        : 'bg-gray-50 border-gray-300 text-gray-500 hover:bg-gray-100'
+                    }`}
+                    title={showBirthdays ? 'Verjaardagen verbergen' : 'Verjaardagen tonen'}
+                  >
+                    <i class={`fas fa-birthday-cake mr-2 ${showBirthdays ? 'text-pink-500' : 'text-gray-400'}`}></i>
+                    Verjaardagen
+                    {showBirthdays
+                      ? <span class="ml-2 text-xs bg-pink-200 text-pink-800 px-2 py-0.5 rounded-full">AAN</span>
+                      : <span class="ml-2 text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">UIT</span>
+                    }
+                  </a>
+                )}
                 <a
                   href="/api/agenda/ics/all"
                   class="inline-flex items-center px-4 py-2 bg-animato-primary hover:bg-animato-secondary text-white rounded-lg font-semibold transition"
@@ -200,14 +314,83 @@ app.get('/agenda', async (c) => {
           </div>
 
           {/* LIST VIEW */}
-          {view === 'list' && Object.keys(eventsByMonth).length > 0 ? (
+          {view === 'list' && (Object.keys(eventsByMonth).length > 0 || Object.keys(birthdaysByMonth).length > 0) ? (
             <div class="space-y-12">
-              {Object.entries(eventsByMonth).map(([month, monthEvents]) => (
+              {/* Merge event months and birthday months */}
+              {(() => {
+                const allMonths = new Set([...Object.keys(eventsByMonth), ...Object.keys(birthdaysByMonth)])
+                // Sort months chronologically
+                const sortedMonths = Array.from(allMonths).sort((a, b) => {
+                  const parseMonth = (s: string) => {
+                    const months: Record<string,number> = { januari:0, februari:1, maart:2, april:3, mei:4, juni:5, juli:6, augustus:7, september:8, oktober:9, november:10, december:11 }
+                    const parts = s.split(' ')
+                    return new Date(parseInt(parts[1] || '2026'), months[parts[0].toLowerCase()] || 0, 1).getTime()
+                  }
+                  return parseMonth(a) - parseMonth(b)
+                })
+                return sortedMonths.map((monthKey) => {
+                  const monthEvents = eventsByMonth[monthKey] || []
+                  const monthBirthdays = birthdaysByMonth[monthKey] || []
+                  return (
                 <div>
                   <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center">
                     <i class="far fa-calendar-alt text-animato-primary mr-3"></i>
-                    {month}
+                    {monthKey}
                   </h2>
+                  {/* Birthday cards for this month */}
+                  {monthBirthdays.length > 0 && (
+                    <div class="mb-4">
+                      {/* Group birthdays by date */}
+                      {(() => {
+                        const byDate: Record<string, any[]> = {}
+                        for (const bd of monthBirthdays) {
+                          if (!byDate[bd.displayDate]) byDate[bd.displayDate] = []
+                          byDate[bd.displayDate].push(bd)
+                        }
+                        return Object.entries(byDate).sort(([a],[b]) => a.localeCompare(b)).map(([date, members]) => (
+                          <div class="bg-gradient-to-r from-pink-50 to-amber-50 rounded-lg shadow-md border-l-4 border-pink-400 p-4 mb-3 flex items-center gap-4">
+                            {/* Date block */}
+                            <div class="flex-shrink-0 text-center bg-pink-100 rounded-lg p-3 w-20">
+                              <div class="text-2xl">🎂</div>
+                              <div class="text-lg font-bold text-pink-600">
+                                {new Date(date).getDate()}
+                              </div>
+                              <div class="text-xs text-pink-500 uppercase">
+                                {new Date(date).toLocaleDateString('nl-BE', { month: 'short' })}
+                              </div>
+                            </div>
+                            {/* Members */}
+                            <div class="flex-1">
+                              <div class="flex items-center gap-2 mb-1">
+                                <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold bg-pink-100 text-pink-700">
+                                  <i class="fas fa-birthday-cake mr-1"></i> Verjaardag
+                                </span>
+                              </div>
+                              <div class="flex flex-wrap gap-3">
+                                {members.map((m: any) => {
+                                  const age = m.geboortedatum ? new Date(date).getFullYear() - new Date(m.geboortedatum).getFullYear() : null
+                                  return (
+                                  <div class="flex items-center gap-2">
+                                    {m.foto_url
+                                      ? <img src={m.foto_url} alt="" class="w-8 h-8 rounded-full object-cover border-2 border-pink-300" />
+                                      : <div class="w-8 h-8 rounded-full bg-pink-200 flex items-center justify-center text-pink-600 text-xs font-bold border-2 border-pink-300">{(m.voornaam || '?')[0]}</div>
+                                    }
+                                    <span class="text-gray-800 font-semibold text-sm">
+                                      {m.voornaam} {m.achternaam}
+                                      {age && <span class="text-pink-500 text-xs ml-1">({age} jaar)</span>}
+                                    </span>
+                                  </div>
+                                )})}
+                              </div>
+                            </div>
+                            <div class="flex-shrink-0 text-3xl" title="Proficiat!">
+                              🎉
+                            </div>
+                          </div>
+                        ))
+                      })()}
+                    </div>
+                  )}
                   <div class="space-y-4">
                     {monthEvents.map((event: any) => {
                       const eventHref = event.type === 'concert' && event.slug
@@ -325,7 +508,9 @@ app.get('/agenda', async (c) => {
                     )})}
                   </div>
                 </div>
-              ))}
+                  )
+                })
+              })()}
             </div>
           ) : view === 'list' ? (
             <div class="text-center py-16">
@@ -364,7 +549,7 @@ app.get('/agenda', async (c) => {
 
               {/* Calendar Grid */}
               <div class="bg-white rounded-lg shadow-md overflow-hidden">
-                {renderCalendarGrid(events, year, month)}
+                {renderCalendarGrid(events, year, month, birthdaysByDate)}
               </div>
             </div>
           )}
@@ -1152,7 +1337,7 @@ app.get('/agenda/:slug', async (c) => {
 // HELPER: RENDER CALENDAR GRID
 // =====================================================
 
-function renderCalendarGrid(events: any[], year: number, month: number) {
+function renderCalendarGrid(events: any[], year: number, month: number, birthdaysByDate: Record<string, any[]> = {}) {
   const firstDay = new Date(year, month, 1)
   const lastDay = new Date(year, month + 1, 0)
   const daysInMonth = lastDay.getDate()
@@ -1171,8 +1356,9 @@ function renderCalendarGrid(events: any[], year: number, month: number) {
   for (let day = 1; day <= daysInMonth; day++) {
     const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
     const dayEvents = events.filter((e: any) => e.start_at.startsWith(dateStr))
+    const dayBirthdays = birthdaysByDate[dateStr] || []
     
-    currentWeek.push({ day, date: dateStr, events: dayEvents })
+    currentWeek.push({ day, date: dateStr, events: dayEvents, birthdays: dayBirthdays })
 
     if (currentWeek.length === 7) {
       weeks.push(currentWeek)
@@ -1207,25 +1393,41 @@ function renderCalendarGrid(events: any[], year: number, month: number) {
           {week.map((cell: any) => (
             <div class={`min-h-[120px] p-2 rounded-lg border-2 ${
               cell 
-                ? (cell.events.length > 0 
-                    ? 'bg-white border-animato-primary/30 shadow-sm' 
+                ? ((cell.events.length > 0 || (cell.birthdays || []).length > 0)
+                    ? ((cell.birthdays || []).length > 0
+                        ? 'bg-pink-50/50 border-pink-300/40 shadow-sm'
+                        : 'bg-white border-animato-primary/30 shadow-sm')
                     : 'bg-white border-gray-100 hover:bg-gray-50') 
                 : 'bg-gray-50 border-transparent'
             }`}>
               {cell && (
                 <div>
                   <div class={`text-right text-sm font-semibold mb-1 ${
-                    cell.events.length > 0 ? 'text-animato-primary' : 'text-gray-500'
+                    (cell.events.length > 0 || (cell.birthdays || []).length > 0) ? 'text-animato-primary' : 'text-gray-500'
                   }`}>
+                    {(cell.birthdays || []).length > 0 && (
+                      <span class="mr-1 text-pink-500" title="Verjaardag!">🎂</span>
+                    )}
                     {cell.day}
-                    {cell.events.length > 0 && (
-                      <span class="ml-1 inline-flex items-center justify-center w-5 h-5 text-xs rounded-full bg-animato-primary text-white">
-                        {cell.events.length}
+                    {(cell.events.length + (cell.birthdays || []).length) > 0 && (
+                      <span class={`ml-1 inline-flex items-center justify-center w-5 h-5 text-xs rounded-full text-white ${
+                        (cell.birthdays || []).length > 0 ? 'bg-pink-500' : 'bg-animato-primary'
+                      }`}>
+                        {cell.events.length + (cell.birthdays || []).length}
                       </span>
                     )}
                   </div>
                   <div class="space-y-1">
-                    {cell.events.slice(0, 3).map((event: any) => {
+                    {/* Birthday entries */}
+                    {(cell.birthdays || []).map((bm: any) => (
+                      <span
+                        class="block text-xs px-2 py-1.5 rounded-md truncate font-medium shadow-sm bg-pink-100 text-pink-800 border-l-4 border-pink-400"
+                        title={`🎂 ${bm.voornaam} ${bm.achternaam} - Verjaardag!`}
+                      >
+                        🎂 {bm.voornaam} {bm.achternaam}
+                      </span>
+                    ))}
+                    {cell.events.slice(0, 3 - (cell.birthdays || []).length).map((event: any) => {
                       const eventHref = event.type === 'concert' && event.slug
                         ? `/concerten/${event.slug}`
                         : event.slug
@@ -1255,9 +1457,9 @@ function renderCalendarGrid(events: any[], year: number, month: number) {
                       </span>
                       )
                     })}
-                    {cell.events.length > 3 && (
+                    {(cell.events.length + (cell.birthdays || []).length) > 3 && (
                       <div class="text-xs text-animato-primary font-semibold text-center mt-1">
-                        +{cell.events.length - 3} meer
+                        +{(cell.events.length + (cell.birthdays || []).length) - 3} meer
                       </div>
                     )}
                   </div>

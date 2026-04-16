@@ -1698,11 +1698,12 @@ app.get('/leden/profiel', async (c) => {
                 </label>
                 <div class="flex items-start gap-4">
                   <div class="flex-1 space-y-3">
-                    {/* File Upload - Simple approach with file reader */}
+                    {/* File Upload with client-side compression */}
                     <div>
                       <label 
                         for="foto-upload" 
                         class="cursor-pointer inline-flex items-center px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition"
+                        id="foto-upload-label"
                       >
                         <i class="fas fa-upload mr-2"></i>
                         Upload foto
@@ -1713,46 +1714,14 @@ app.get('/leden/profiel', async (c) => {
                         accept="image/jpeg,image/png,image/gif,image/webp"
                         class="hidden"
                       />
-                      <span class="ml-3 text-xs text-gray-500">
-                        of
-                      </span>
+                      <span id="foto-upload-status" class="ml-3 text-xs text-gray-500"></span>
                     </div>
                     
-                    {/* URL Input */}
-                    <div>
-                      <input
-                        type="url"
-                        id="profielfoto_url"
-                        name="profielfoto_url"
-                        value={profile.profielfoto_url || ''}
-                        placeholder="https://example.com/mijn-foto.jpg"
-                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                      />
-                      <p class="mt-1 text-xs text-gray-500">
-                        Plak een foto URL of upload een bestand (max 5MB). Ondersteunt JPG, PNG, GIF, WEBP.
-                      </p>
-                      <script dangerouslySetInnerHTML={{
-                        __html: `
-                          (function() {
-                            const urlInput = document.getElementById('profielfoto_url');
-                            if (!urlInput) return;
-                            
-                            urlInput.addEventListener('input', function(e) {
-                              const preview = document.getElementById('foto-preview');
-                              const placeholder = document.getElementById('foto-placeholder');
-                              if (e.target.value) {
-                                preview.src = e.target.value;
-                                preview.classList.remove('hidden');
-                                if (placeholder) placeholder.classList.add('hidden');
-                              } else {
-                                preview.classList.add('hidden');
-                                if (placeholder) placeholder.classList.remove('hidden');
-                              }
-                            });
-                          })();
-                        `
-                      }}></script>
-                    </div>
+                    {/* Hidden input for the photo URL (set by upload script) */}
+                    <input type="hidden" id="profielfoto_url" name="profielfoto_url" value={profile.profielfoto_url || ''} />
+                    <p class="text-xs text-gray-500">
+                      Upload een foto (max 5MB). Wordt automatisch verkleind naar 400×400px.
+                    </p>
                   </div>
                   
                   {/* Preview */}
@@ -2043,25 +2012,50 @@ app.get('/leden/profiel', async (c) => {
             </form>
             
 
-            {/* Photo Upload Script */}
+            {/* Photo Upload Script — client-side compress + upload to /api/photos/upload */}
             <script dangerouslySetInnerHTML={{
               __html: `
                 (function() {
                   const fileInput = document.getElementById('foto-upload');
                   if (!fileInput) return;
                   
-                  fileInput.addEventListener('change', function(e) {
+                  function compressImage(file, maxWidth, maxHeight, quality) {
+                    return new Promise(function(resolve, reject) {
+                      const reader = new FileReader();
+                      reader.onload = function(e) {
+                        const img = new Image();
+                        img.onload = function() {
+                          const canvas = document.createElement('canvas');
+                          let w = img.width, h = img.height;
+                          if (w > maxWidth || h > maxHeight) {
+                            const ratio = Math.min(maxWidth / w, maxHeight / h);
+                            w = Math.round(w * ratio);
+                            h = Math.round(h * ratio);
+                          }
+                          canvas.width = w;
+                          canvas.height = h;
+                          const ctx = canvas.getContext('2d');
+                          ctx.drawImage(img, 0, 0, w, h);
+                          resolve(canvas.toDataURL('image/jpeg', quality));
+                        };
+                        img.onerror = reject;
+                        img.src = e.target.result;
+                      };
+                      reader.onerror = reject;
+                      reader.readAsDataURL(file);
+                    });
+                  }
+                  
+                  fileInput.addEventListener('change', async function(e) {
                     const file = e.target.files?.[0];
                     if (!file) return;
                     
-                    // Check file size (max 5MB)
                     if (file.size > 5 * 1024 * 1024) {
                       alert('Bestand is te groot. Maximum 5MB toegestaan.');
                       e.target.value = '';
                       return;
                     }
                     
-                    // Check file type
                     const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
                     if (!allowedTypes.includes(file.type)) {
                       alert('Ongeldig bestandstype. Alleen JPG, PNG, GIF en WEBP zijn toegestaan.');
@@ -2069,50 +2063,59 @@ app.get('/leden/profiel', async (c) => {
                       return;
                     }
                     
-                    // Show uploading state
-                    const uploadBtn = document.querySelector('label[for="foto-upload"]');
-                    const originalText = uploadBtn?.innerHTML;
-                    if (uploadBtn) {
-                      uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Bezig...';
-                    }
+                    const btn = document.getElementById('foto-upload-label');
+                    const status = document.getElementById('foto-upload-status');
+                    const origHtml = btn?.innerHTML;
+                    if (btn) btn.innerHTML = '<i class="fas fa-compress mr-2"></i>Verkleinen...';
+                    if (status) status.textContent = '';
                     
-                    // Use FileReader to convert to data URL
-                    const reader = new FileReader();
-                    reader.onload = function(event) {
-                      const dataUrl = event.target.result;
+                    try {
+                      // Compress to max 400x400, JPEG quality 0.75
+                      const compressed = await compressImage(file, 400, 400, 0.75);
                       
-                      // Update URL input with data URL
-                      const urlInput = document.getElementById('profielfoto_url');
-                      if (urlInput && dataUrl) {
-                        urlInput.value = dataUrl;
+                      if (btn) btn.innerHTML = '<i class="fas fa-cloud-upload-alt mr-2"></i>Uploaden...';
+                      
+                      // Upload to server
+                      const res = await fetch('/api/photos/upload', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ data: compressed, content_type: 'image/jpeg' })
+                      });
+                      
+                      const result = await res.json();
+                      
+                      if (result.success) {
+                        // Update hidden input with new URL
+                        const urlInput = document.getElementById('profielfoto_url');
+                        if (urlInput) urlInput.value = result.url;
                         
                         // Update preview
                         const preview = document.getElementById('foto-preview');
                         const placeholder = document.getElementById('foto-placeholder');
                         if (preview) {
-                          preview.src = dataUrl;
+                          preview.src = compressed;
                           preview.classList.remove('hidden');
                           if (placeholder) placeholder.classList.add('hidden');
                         }
-                      }
-                      
-                      // Show success
-                      if (uploadBtn && originalText) {
-                        uploadBtn.innerHTML = '<i class="fas fa-check mr-2"></i>Geladen!';
+                        
+                        // Update profile photo thumb if visible
+                        const thumb = document.getElementById('profile-photo-thumb');
+                        if (thumb) thumb.src = compressed;
+                        
+                        if (btn) btn.innerHTML = '<i class="fas fa-check mr-2"></i>Opgeslagen!';
+                        if (status) status.textContent = Math.round(result.size / 1024) + ' KB';
+                        status?.classList.add('text-green-600');
                         setTimeout(function() {
-                          uploadBtn.innerHTML = originalText;
-                        }, 2000);
+                          if (btn) btn.innerHTML = origHtml;
+                          status?.classList.remove('text-green-600');
+                        }, 3000);
+                      } else {
+                        throw new Error(result.error || 'Upload mislukt');
                       }
-                    };
-                    
-                    reader.onerror = function() {
-                      alert('Fout bij het laden van de foto. Probeer het opnieuw.');
-                      if (uploadBtn && originalText) {
-                        uploadBtn.innerHTML = originalText;
-                      }
-                    };
-                    
-                    reader.readAsDataURL(file);
+                    } catch (err) {
+                      alert('Fout bij uploaden: ' + err.message);
+                      if (btn) btn.innerHTML = origHtml;
+                    }
                   });
                 })();
               `

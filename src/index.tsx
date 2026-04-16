@@ -24,6 +24,7 @@ import adminTicketsRoutes from './routes/admin-tickets'
 import ticketsRoutes from './routes/tickets'
 import webhooksRoutes from './routes/webhooks'
 import apiRoutes from './routes/api'
+import photosRoutes from './routes/photos'
 import pollsRoutes from './routes/polls'
 import voorstellenRoutes from './routes/voorstellen'
 import adminPollsRoutes from './routes/admin-polls'
@@ -96,6 +97,9 @@ app.route('/', voiceAnalyzerRoutes)
 
 // Feedback routes (MUST be before auth-protected routes - beta-status is public)
 app.route('/', feedbackRoutes)
+
+// Photos API (upload, serve, migrate — MUST be before leden auth middleware)
+app.route('/', photosRoutes)
 
 // Check-in routes (QR scan page is public, streaks require auth)
 app.route('/', checkinRoutes)

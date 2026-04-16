@@ -2085,7 +2085,7 @@ app.get('/admin/leden/:id', async (c) => {
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <div class="flex items-center mb-6 pb-6 border-b border-gray-200">
               {/* Profielfoto met upload */}
-              <div id="foto-upload-zone" class="w-20 h-20 bg-gradient-to-br from-animato-primary to-animato-secondary rounded-full flex items-center justify-center text-white text-2xl font-bold overflow-hidden cursor-pointer relative group border-2 border-transparent hover:border-blue-400 transition" title="Klik of sleep een foto om te uploaden">
+              <div id="foto-upload-zone" data-user-id={member.id} class="w-20 h-20 bg-gradient-to-br from-animato-primary to-animato-secondary rounded-full flex items-center justify-center text-white text-2xl font-bold overflow-hidden cursor-pointer relative group border-2 border-transparent hover:border-blue-400 transition" title="Klik of sleep een foto om te uploaden">
                 {member.foto_url ? (
                   <>
                     <img 

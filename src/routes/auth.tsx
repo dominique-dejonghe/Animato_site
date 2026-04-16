@@ -526,8 +526,8 @@ app.post('/api/auth/register', async (c) => {
     // Create profile
     await execute(
       c.env.DB,
-      `INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, muzikale_ervaring) 
-       VALUES (?, ?, ?, ?, ?)`,
+      `INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, muzikale_ervaring, lid_sinds) 
+       VALUES (?, ?, ?, ?, ?, DATE('now'))`,
       [userId, voornaam, achternaam, telefoon || null, muzikale_ervaring || null]
     )
 

@@ -1131,7 +1131,7 @@ app.get('/leden/profiel', async (c) => {
             p.foto_url as profielfoto_url, p.favoriete_genre, p.favoriete_componist, 
             p.favoriete_werk, p.instrument, p.jaren_in_koor, p.geboortedatum,
             p.straat, p.huisnummer, p.bus, p.postcode, p.stad as gemeente,
-            p.smoelenboek_zichtbaar, p.toon_email, p.toon_telefoon
+            p.smoelenboek_zichtbaar, p.toon_email, p.toon_telefoon, p.lid_sinds
      FROM users u
      LEFT JOIN profiles p ON p.user_id = u.id
      WHERE u.id = ?`,
@@ -1142,8 +1142,8 @@ app.get('/leden/profiel', async (c) => {
   if (!profile || !profile.voornaam) {
     try {
       await c.env.DB.prepare(
-        `INSERT INTO profiles (user_id, voornaam, achternaam, smoelenboek_zichtbaar, toon_email, toon_telefoon)
-         VALUES (?, ?, ?, 1, 1, 0)`
+        `INSERT INTO profiles (user_id, voornaam, achternaam, smoelenboek_zichtbaar, toon_email, toon_telefoon, lid_sinds)
+         VALUES (?, ?, ?, 1, 1, 0, DATE('now'))`
       ).bind(user.id, user.voornaam || 'Nieuwe', user.achternaam || 'Gebruiker').run()
       
       // Retry fetching the profile
@@ -1153,7 +1153,7 @@ app.get('/leden/profiel', async (c) => {
                 p.voornaam, p.achternaam, p.telefoon, p.adres, p.bio, p.muzikale_ervaring, 
                 p.foto_url as profielfoto_url, p.favoriete_genre, p.favoriete_componist, 
                 p.favoriete_werk, p.instrument, p.jaren_in_koor, p.geboortedatum,
-                p.smoelenboek_zichtbaar, p.toon_email, p.toon_telefoon
+                p.smoelenboek_zichtbaar, p.toon_email, p.toon_telefoon, p.lid_sinds
          FROM users u
          LEFT JOIN profiles p ON p.user_id = u.id
          WHERE u.id = ?`,
@@ -1641,7 +1641,7 @@ app.get('/leden/profiel', async (c) => {
                   </span>
                   <span>
                     <i class="fas fa-calendar mr-1 text-gray-400"></i>
-                    Lid sinds {new Date(profile.created_at).toLocaleDateString('nl-NL', { month: 'short', year: 'numeric' })}
+                    Lid sinds {(profile.lid_sinds ? new Date(profile.lid_sinds + 'T00:00:00') : new Date(profile.created_at)).toLocaleDateString('nl-NL', { month: 'short', year: 'numeric' })}
                   </span>
                 </div>
               </div>
@@ -1965,10 +1965,10 @@ app.get('/leden/profiel', async (c) => {
                     {/* Auto-calculated from account creation date */}
                     <div class="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700 flex items-center gap-2">
                       <i class="fas fa-calculator text-animato-primary text-sm"></i>
-                      <span>{Math.max(0, new Date().getFullYear() - new Date(profile.created_at).getFullYear())} jaar</span>
-                      <span class="text-xs text-gray-400 ml-1">(automatisch berekend op basis van registratiedatum)</span>
+                      <span>{Math.max(0, new Date().getFullYear() - new Date(profile.lid_sinds || profile.created_at).getFullYear())} jaar</span>
+                      <span class="text-xs text-gray-400 ml-1">(automatisch berekend op basis van aansluitingsdatum)</span>
                     </div>
-                    <input type="hidden" name="jaren_in_koor" value={Math.max(0, new Date().getFullYear() - new Date(profile.created_at).getFullYear())} />
+                    <input type="hidden" name="jaren_in_koor" value={Math.max(0, new Date().getFullYear() - new Date(profile.lid_sinds || profile.created_at).getFullYear())} />
                   </div>
 
                   <div>
@@ -3174,7 +3174,7 @@ app.get('/leden/smoelenboek/:id', async (c) => {
     c.env.DB,
     `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio, 
             p.favoriete_werk, p.favoriete_genre, p.favoriete_componist, p.instrument, p.jaren_in_koor, p.zanger_type,
-            p.toon_email, p.toon_telefoon, u.email, p.telefoon, p.adres, u.created_at, p.geboortedatum,
+            p.toon_email, p.toon_telefoon, u.email, p.telefoon, p.adres, u.created_at, p.geboortedatum, p.lid_sinds,
             CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite
      FROM users u
      JOIN profiles p ON u.id = p.user_id
@@ -3221,8 +3221,8 @@ app.get('/leden/smoelenboek/:id', async (c) => {
     memberCurrentStreak >= 10 ? { name: 'Bronzen Noot', icon: 'fas fa-award', bg: 'bg-amber-100 text-amber-700' } :
     memberCurrentStreak >= 5 ? { name: 'Trouw Lid', icon: 'fas fa-star', bg: 'bg-blue-100 text-blue-700' } : null
 
-  // Auto-calculate jaren in koor from created_at (account registration date)
-  const lidSindsDate = new Date(member.created_at)
+  // Calculate jaren bij Animato from lid_sinds (or fallback to created_at)
+  const lidSindsDate = member.lid_sinds ? new Date(member.lid_sinds + 'T00:00:00') : new Date(member.created_at)
   const now = new Date()
   const jarenBerekend = now.getFullYear() - lidSindsDate.getFullYear()
 

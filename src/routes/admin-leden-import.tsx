@@ -259,8 +259,8 @@ app.post('/api/admin/leden/import', async (c) => {
 
         // Insert profile — eenvoudig, alleen basiskkolommen die zeker bestaan
         await execute(c.env.DB, `
-          INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, adres)
-          VALUES (?, ?, ?, ?, ?)
+          INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, adres, lid_sinds)
+          VALUES (?, ?, ?, ?, ?, DATE('now'))
         `, [
           newUserId,
           voornaam,

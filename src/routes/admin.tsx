@@ -1057,8 +1057,8 @@ app.post('/api/admin/aanmeldingen/:id/convert', async (c) => {
 
     // Create profile
     await c.env.DB.prepare(
-      `INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, smoelenboek_zichtbaar, toon_email, toon_telefoon)
-       VALUES (?, ?, ?, ?, 1, 1, 1)`
+      `INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, smoelenboek_zichtbaar, toon_email, toon_telefoon, lid_sinds)
+       VALUES (?, ?, ?, ?, 1, 1, 1, DATE('now'))`
     ).bind(newUserId, voornaam, achternaam, telefoon || null).run()
 
     // Update form submission status
@@ -1944,7 +1944,7 @@ app.get('/admin/leden/:id', async (c) => {
     // Get member details
   const member = await queryOne<any>(
     c.env.DB,
-    `SELECT u.*, p.voornaam, p.achternaam, p.telefoon, p.adres, p.straat, p.huisnummer, p.bus, p.postcode, COALESCE(p.gemeente, p.stad) as gemeente, p.bio, p.muzikale_ervaring, p.geboortedatum, p.foto_url
+    `SELECT u.*, p.voornaam, p.achternaam, p.telefoon, p.adres, p.straat, p.huisnummer, p.bus, p.postcode, COALESCE(p.gemeente, p.stad) as gemeente, p.bio, p.muzikale_ervaring, p.geboortedatum, p.foto_url, p.lid_sinds
      FROM users u
      LEFT JOIN profiles p ON p.user_id = u.id
      WHERE u.id = ?`,
@@ -2130,7 +2130,7 @@ app.get('/admin/leden/:id', async (c) => {
                     {member.status === 'actief' ? 'Actief' : 'Inactief'}
                   </span>
                   <span class="text-gray-600">
-                    Lid sinds {new Date(member.created_at).toLocaleDateString('nl-NL', { month: 'long', year: 'numeric' })}
+                    Lid sinds {member.lid_sinds ? new Date(member.lid_sinds + 'T00:00:00').toLocaleDateString('nl-NL', { month: 'long', year: 'numeric' }) : new Date(member.created_at).toLocaleDateString('nl-NL', { month: 'long', year: 'numeric' })}
                   </span>
                 </div>
                 <div class="flex items-center gap-2 mt-1">
@@ -2242,16 +2242,34 @@ app.get('/admin/leden/:id', async (c) => {
                   </div>
                 </div>
 
-                <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">
-                    Geboortedatum
-                  </label>
-                  <input
-                    type="date"
-                    name="geboortedatum"
-                    value={member.geboortedatum || ''}
-                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                  />
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                      Geboortedatum
+                    </label>
+                    <input
+                      type="date"
+                      name="geboortedatum"
+                      value={member.geboortedatum || ''}
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                      <i class="fas fa-calendar-check text-animato-primary mr-1"></i>
+                      Lid sinds
+                    </label>
+                    <input
+                      type="date"
+                      name="lid_sinds"
+                      value={member.lid_sinds || ''}
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    />
+                    <p class="text-xs text-gray-400 mt-1">
+                      <i class="fas fa-info-circle mr-1"></i>
+                      Datum waarop het lid bij Animato is aangesloten. Pas aan indien nodig.
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -2555,8 +2573,8 @@ app.post('/api/admin/leden/create', async (c) => {
 
     // Insert profile
     await c.env.DB.prepare(
-      `INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, adres, straat, huisnummer, bus, postcode, gemeente, stad, bio, muzikale_ervaring, geboortedatum)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, adres, straat, huisnummer, bus, postcode, gemeente, stad, bio, muzikale_ervaring, geboortedatum, lid_sinds)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE('now'))`
     ).bind(newUserId, voornaam, achternaam, telefoon || null, adres || null, straat || null, huisnummer || null, bus || null, postcode || null, gemeente || null, gemeente || null, bio || null, muzikale_ervaring || null, geboortedatum || null).run()
 
     // Audit log
@@ -2608,6 +2626,7 @@ app.post('/api/admin/leden/update', async (c) => {
       postcode,
       gemeente,
       foto_url,
+      lid_sinds,
       is_bestuurslid
     } = body
 
@@ -2625,12 +2644,12 @@ app.post('/api/admin/leden/update', async (c) => {
        WHERE id = ?`
     ).bind(email, role, stemgroep || null, status, bestuurValue, user_id).run()
 
-    // Update profile table (inclusief foto_url)
+    // Update profile table (inclusief foto_url en lid_sinds)
     await c.env.DB.prepare(
       `UPDATE profiles 
-       SET voornaam = ?, achternaam = ?, telefoon = ?, straat = ?, huisnummer = ?, bus = ?, postcode = ?, gemeente = ?, stad = ?, bio = ?, muzikale_ervaring = ?, geboortedatum = ?, foto_url = ?
+       SET voornaam = ?, achternaam = ?, telefoon = ?, straat = ?, huisnummer = ?, bus = ?, postcode = ?, gemeente = ?, stad = ?, bio = ?, muzikale_ervaring = ?, geboortedatum = ?, foto_url = ?, lid_sinds = ?
        WHERE user_id = ?`
-    ).bind(voornaam, achternaam, telefoon || null, straat || null, huisnummer || null, bus || null, postcode || null, gemeente || null, gemeente || null, bio || null, muzikale_ervaring || null, geboortedatum || null, foto_url || null, user_id).run()
+    ).bind(voornaam, achternaam, telefoon || null, straat || null, huisnummer || null, bus || null, postcode || null, gemeente || null, gemeente || null, bio || null, muzikale_ervaring || null, geboortedatum || null, foto_url || null, lid_sinds || null, user_id).run()
 
     // Audit log
     await c.env.DB.prepare(

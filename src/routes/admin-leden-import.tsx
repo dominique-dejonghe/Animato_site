@@ -8,8 +8,8 @@ import { hashPassword } from '../utils/auth'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-app.use('*', requireAuth)
-app.use('*', requireRole('admin', 'moderator'))
+app.use('/admin/*', requireAuth)
+app.use('/admin/*', requireRole('admin', 'moderator'))
 
 // =====================================================
 // VOORBEELD CSV DOWNLOADEN

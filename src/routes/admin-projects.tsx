@@ -8,7 +8,7 @@ import { queryOne, queryAll } from '../utils/db'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Middleware: Require board member (admin, moderator, or bestuurslid)
-app.use('*', requireBestuurslid)
+app.use('/admin/*', requireBestuurslid)
 
 // =====================================================
 // PROJECT DASHBOARD

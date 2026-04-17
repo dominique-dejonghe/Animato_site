@@ -1,9 +1,13 @@
 import { Hono } from 'hono'
-import type { SessionUser } from '../types'
+import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { queryAll, queryOne } from '../utils/db'
+import { requireAuth } from '../middleware/auth'
 
-const app = new Hono()
+const app = new Hono<{ Bindings: Bindings }>()
+
+// Auth middleware - all members can access polls
+app.use('/leden/*', requireAuth)
 
 // =====================================================
 // LEDEN POLLS OVERZICHT

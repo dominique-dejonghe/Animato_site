@@ -8,8 +8,8 @@ import { queryOne, queryAll } from '../utils/db'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Apply authentication middleware
-app.use('*', requireAuth)
-app.use('*', requireRole('admin', 'moderator'))
+app.use('/admin/*', requireAuth)
+app.use('/admin/*', requireRole('admin', 'moderator'))
 
 // =====================================================
 // FOTOBOEK MANAGEMENT - Albums Overview

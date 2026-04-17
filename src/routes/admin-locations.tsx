@@ -10,8 +10,8 @@ import { queryOne, queryAll, execute } from '../utils/db'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Apply auth middleware
-app.use('*', requireAuth)
-app.use('*', requireRole('admin', 'moderator'))
+app.use('/admin/*', requireAuth)
+app.use('/admin/*', requireRole('admin', 'moderator'))
 
 // =====================================================
 // HELPER: BUILD MAP EMBED URL (no API key needed)

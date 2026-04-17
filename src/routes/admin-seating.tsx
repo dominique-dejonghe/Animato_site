@@ -8,7 +8,7 @@ import { queryAll, queryOne, execute } from '../utils/db'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Middleware
-app.use('*', requireRole('admin', 'moderator'))
+app.use('/admin/*', requireRole('admin', 'moderator'))
 
 // =====================================================
 // OVERVIEW

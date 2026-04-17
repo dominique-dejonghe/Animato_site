@@ -11,8 +11,8 @@ import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Auth required
-app.use('*', requireAuth)
-app.use('*', requireRole('admin'))
+app.use('/admin/*', requireAuth)
+app.use('/admin/*', requireRole('admin'))
 
 // =====================================================
 // TOURS OVERVIEW

@@ -6,7 +6,7 @@ import { queryAll, queryOne, execute } from '../utils/db'
 const app = new Hono()
 
 // Apply admin authentication to all routes
-app.use('*', requireRole('admin', 'moderator'))
+app.use('/admin/*', requireRole('admin', 'moderator'))
 
 // ==========================================
 // CONCERTS OVERVIEW - List all concerts with ticketing

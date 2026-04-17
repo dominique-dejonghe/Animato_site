@@ -8,7 +8,7 @@ import { AdminSidebar } from '../components/AdminSidebar'
 import { requireAuth, requireRole } from '../middleware/auth'
 import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 import { setCookie } from 'hono/cookie'
-import { generateToken } from '../utils/auth'
+import { generateToken, hashPassword } from '../utils/auth'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1641,6 +1641,7 @@ app.get('/admin/leden', async (c) => {
 app.get('/admin/leden/nieuw', async (c) => {
   const user = c.get('user') as SessionUser
   const error = c.req.query('error')
+  const details = c.req.query('details')
   
   return c.html(
     <Layout 
@@ -1688,7 +1689,7 @@ app.get('/admin/leden/nieuw', async (c) => {
               {error === 'passwords_dont_match' && 'Wachtwoorden komen niet overeen.'}
               {error === 'password_too_short' && 'Wachtwoord moet minimaal 8 karakters lang zijn.'}
               {error === 'email_exists' && 'Dit e-mailadres bestaat al in het systeem.'}
-              {error === 'create_failed' && 'Er is een fout opgetreden bij het aanmaken van het lid. Probeer opnieuw.'}
+              {error === 'create_failed' && `Er is een fout opgetreden bij het aanmaken van het lid. ${details ? `(${decodeURIComponent(details)})` : 'Probeer opnieuw.'}`}
             </div>
           )}
 

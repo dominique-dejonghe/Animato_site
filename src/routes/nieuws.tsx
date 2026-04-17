@@ -33,6 +33,7 @@ app.get('/nieuws', async (c) => {
     WHERE p.type = 'nieuws' 
       AND p.is_published = 1 
       AND p.zichtbaarheid = 'publiek'
+      AND (p.verloopt_op IS NULL OR p.verloopt_op >= DATE('now'))
   `
 
   const filters: any[] = []
@@ -62,6 +63,7 @@ app.get('/nieuws', async (c) => {
     WHERE p.type = 'nieuws' 
       AND p.is_published = 1 
       AND p.zichtbaarheid = 'publiek'
+      AND (p.verloopt_op IS NULL OR p.verloopt_op >= DATE('now'))
     ${archiveCondition}
     ${search ? ` AND (p.titel LIKE ? OR p.body LIKE ?)` : ''}
   `
@@ -280,6 +282,7 @@ app.get('/nieuws/:slug', async (c) => {
      WHERE type = 'nieuws' 
        AND is_published = 1 
        AND zichtbaarheid = 'publiek'
+       AND (verloopt_op IS NULL OR verloopt_op >= DATE('now'))
        AND id != ?
      ORDER BY published_at DESC 
      LIMIT 3`,

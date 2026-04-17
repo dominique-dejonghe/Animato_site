@@ -301,14 +301,40 @@ app.get('/agenda', async (c) => {
                     }
                   </a>
                 )}
-                <a
-                  href="/api/agenda/ics/all"
-                  class="inline-flex items-center px-4 py-2 bg-animato-primary hover:bg-animato-secondary text-white rounded-lg font-semibold transition"
-                  download="animato-agenda.ics"
-                >
-                  <i class="fas fa-calendar-alt mr-2"></i>
-                  Exporteer naar kalender
-                </a>
+                <div class="relative inline-block" id="export-dropdown-wrapper">
+                  <button
+                    type="button"
+                    onclick="document.getElementById('export-dropdown').classList.toggle('hidden')"
+                    class="inline-flex items-center px-4 py-2 bg-animato-primary hover:bg-animato-secondary text-white rounded-lg font-semibold transition"
+                  >
+                    <i class="fas fa-calendar-alt mr-2"></i>
+                    Exporteer
+                    <i class="fas fa-chevron-down ml-2 text-xs"></i>
+                  </button>
+                  <div id="export-dropdown" class="hidden absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl border border-gray-200 z-50 py-1">
+                    <a href="/api/agenda/ics/all" download="animato-agenda.ics" class="flex items-center px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition">
+                      <i class="fas fa-download w-6 text-gray-400"></i>
+                      <div>
+                        <div class="font-medium">Download ICS</div>
+                        <div class="text-xs text-gray-400">Apple / Android / Outlook</div>
+                      </div>
+                    </a>
+                    <a href="#" id="export-google-all" target="_blank" rel="noopener" class="flex items-center px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition">
+                      <i class="fab fa-google w-6 text-red-500"></i>
+                      <div>
+                        <div class="font-medium">Google Calendar</div>
+                        <div class="text-xs text-gray-400">Abonneren via webcal</div>
+                      </div>
+                    </a>
+                    <a href="#" id="export-outlook-all" target="_blank" rel="noopener" class="flex items-center px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 transition">
+                      <i class="fab fa-microsoft w-6 text-blue-500"></i>
+                      <div>
+                        <div class="font-medium">Outlook.com</div>
+                        <div class="text-xs text-gray-400">Abonneren via webcal</div>
+                      </div>
+                    </a>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -588,10 +614,18 @@ app.get('/agenda', async (c) => {
                 <span id="event-modal-description" class="text-sm leading-relaxed"></span>
               </div>
             </div>
-            <div class="flex gap-3">
-              <a id="event-modal-ics" href="#" class="flex-1 text-center px-4 py-2 border border-animato-primary text-animato-primary rounded-lg text-sm font-semibold hover:bg-animato-primary hover:text-white transition" download>
-                <i class="fas fa-calendar-plus mr-2"></i>Toevoegen aan kalender
+            <div class="grid grid-cols-3 gap-2 mb-2">
+              <a id="event-modal-google" href="#" target="_blank" rel="noopener" class="text-center px-3 py-2 border border-red-300 text-red-600 rounded-lg text-xs font-semibold hover:bg-red-50 transition">
+                <i class="fab fa-google mr-1"></i>Google
               </a>
+              <a id="event-modal-outlook" href="#" target="_blank" rel="noopener" class="text-center px-3 py-2 border border-blue-300 text-blue-600 rounded-lg text-xs font-semibold hover:bg-blue-50 transition">
+                <i class="fab fa-microsoft mr-1"></i>Outlook
+              </a>
+              <a id="event-modal-ics" href="#" class="text-center px-3 py-2 border border-gray-300 text-gray-600 rounded-lg text-xs font-semibold hover:bg-gray-50 transition" download>
+                <i class="fas fa-download mr-1"></i>ICS
+              </a>
+            </div>
+            <div class="flex gap-3">
               <a id="event-modal-link" href="#" class="flex-1 text-center px-4 py-2 bg-animato-primary text-white rounded-lg text-sm font-semibold hover:bg-animato-secondary transition hidden">
                 <i class="fas fa-external-link-alt mr-2"></i>Bekijk details
               </a>
@@ -601,6 +635,21 @@ app.get('/agenda', async (c) => {
       </div>
 
       <script dangerouslySetInnerHTML={{__html: `
+        // Export dropdown: webcal links + close on outside click
+        (function() {
+          var base = location.origin + '/api/agenda/ics/all';
+          var webcal = base.replace('https://', 'webcal://').replace('http://', 'webcal://');
+          var gSub = document.getElementById('export-google-all');
+          var oSub = document.getElementById('export-outlook-all');
+          if (gSub) gSub.href = 'https://calendar.google.com/calendar/r?cid=' + encodeURIComponent(webcal);
+          if (oSub) oSub.href = 'https://outlook.live.com/calendar/0/addfromweb?url=' + encodeURIComponent(webcal) + '&name=Animato';
+          document.addEventListener('click', function(e) {
+            var dd = document.getElementById('export-dropdown');
+            var wr = document.getElementById('export-dropdown-wrapper');
+            if (dd && wr && !wr.contains(e.target)) dd.classList.add('hidden');
+          });
+        })();
+
         function showEventDetailFromEl(el) {
           var evt = {
             id: el.dataset.eventId,
@@ -651,6 +700,25 @@ app.get('/agenda', async (c) => {
           }
 
           document.getElementById('event-modal-ics').href = '/api/agenda/ics?event=' + evt.id;
+
+          // Google Calendar link
+          var gStart = evt.start_at ? evt.start_at.replace(/[-:]/g, '').replace('.000', '').replace('T', 'T') : '';
+          var gEnd = evt.end_at ? evt.end_at.replace(/[-:]/g, '').replace('.000', '').replace('T', 'T') : gStart;
+          var gUrl = 'https://calendar.google.com/calendar/render?action=TEMPLATE'
+            + '&text=' + encodeURIComponent(evt.titel)
+            + '&dates=' + gStart + '/' + gEnd
+            + '&location=' + encodeURIComponent(evt.locatie || '')
+            + '&details=' + encodeURIComponent((evt.beschrijving || '').replace(/<[^>]*>/g, '').substring(0, 500));
+          document.getElementById('event-modal-google').href = gUrl;
+
+          // Outlook.com link
+          var oUrl = 'https://outlook.live.com/calendar/0/action/compose?rru=addevent'
+            + '&subject=' + encodeURIComponent(evt.titel)
+            + '&startdt=' + (evt.start_at || '')
+            + '&enddt=' + (evt.end_at || evt.start_at || '')
+            + '&location=' + encodeURIComponent(evt.locatie || '')
+            + '&body=' + encodeURIComponent((evt.beschrijving || '').replace(/<[^>]*>/g, '').substring(0, 500));
+          document.getElementById('event-modal-outlook').href = oUrl;
 
           const linkBtn = document.getElementById('event-modal-link');
           if (evt.type === 'concert' && evt.slug) {
@@ -1175,13 +1243,30 @@ app.get('/concerten/:slug', async (c) => {
 
                 {/* Add to calendar */}
                 <div class="mt-6 pt-6 border-t border-gray-200">
-                  <a
-                    href={`/api/agenda/ics?event=${concert.id}`}
-                    class="block text-center text-animato-primary hover:text-animato-secondary font-semibold transition"
-                  >
-                    <i class="far fa-calendar-plus mr-2"></i>
-                    Toevoegen aan kalender
-                  </a>
+                  <p class="text-xs text-gray-500 text-center mb-3">Toevoegen aan kalender</p>
+                  <div class="grid grid-cols-3 gap-2">
+                    <a
+                      href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(concert.titel)}&dates=${(concert.start_at || '').replace(/[-:]/g, '').replace('.000', '')}/${(concert.end_at || concert.start_at || '').replace(/[-:]/g, '').replace('.000', '')}&location=${encodeURIComponent(concert.locatie || '')}&details=${encodeURIComponent((concert.beschrijving || '').replace(/<[^>]*>/g, '').substring(0, 500))}`}
+                      target="_blank" rel="noopener"
+                      class="text-center px-2 py-2 border border-red-200 text-red-600 rounded-lg text-xs font-medium hover:bg-red-50 transition"
+                    >
+                      <i class="fab fa-google mr-1"></i>Google
+                    </a>
+                    <a
+                      href={`https://outlook.live.com/calendar/0/action/compose?rru=addevent&subject=${encodeURIComponent(concert.titel)}&startdt=${concert.start_at || ''}&enddt=${concert.end_at || concert.start_at || ''}&location=${encodeURIComponent(concert.locatie || '')}&body=${encodeURIComponent((concert.beschrijving || '').replace(/<[^>]*>/g, '').substring(0, 500))}`}
+                      target="_blank" rel="noopener"
+                      class="text-center px-2 py-2 border border-blue-200 text-blue-600 rounded-lg text-xs font-medium hover:bg-blue-50 transition"
+                    >
+                      <i class="fab fa-microsoft mr-1"></i>Outlook
+                    </a>
+                    <a
+                      href={`/api/agenda/ics?event=${concert.id}`}
+                      download
+                      class="text-center px-2 py-2 border border-gray-200 text-gray-600 rounded-lg text-xs font-medium hover:bg-gray-50 transition"
+                    >
+                      <i class="fas fa-download mr-1"></i>ICS
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>

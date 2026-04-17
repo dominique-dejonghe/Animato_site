@@ -145,27 +145,29 @@ app.get('/admin/attendance', async (c) => {
     `SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND role != 'bezoeker'`
   )
 
-  // Top streaks leaderboard
+  // Top streaks leaderboard — show ALL active members
   const activeUsers = await queryAll<any>(c.env.DB,
     `SELECT u.id, p.voornaam, p.achternaam, u.stemgroep, p.foto_url,
             COUNT(qc.id) as total_checkins
      FROM users u
      LEFT JOIN profiles p ON p.user_id = u.id
      LEFT JOIN qr_checkins qc ON qc.user_id = u.id
-     WHERE u.status = 'actief' AND u.role != 'bezoeker'
+     WHERE u.status = 'actief' AND u.role NOT IN ('bezoeker', 'dirigent', 'pianist')
      GROUP BY u.id
-     HAVING total_checkins > 0
-     ORDER BY total_checkins DESC
-     LIMIT 10`
+     ORDER BY total_checkins DESC`
   )
 
-  // Calculate streaks for top users
+  // Calculate streaks for all active users
   const topUsers = []
   for (const au of activeUsers) {
-    const streak = await calculateStreak(c.env.DB, au.id)
-    topUsers.push({ ...au, streak })
+    if (au.total_checkins > 0) {
+      const streak = await calculateStreak(c.env.DB, au.id)
+      topUsers.push({ ...au, streak })
+    } else {
+      topUsers.push({ ...au, streak: { current: 0, longest: 0, total: 0 } })
+    }
   }
-  topUsers.sort((a, b) => b.streak.current - a.streak.current)
+  topUsers.sort((a, b) => b.streak.current - a.streak.current || b.streak.total - a.streak.total)
 
   const siteUrl = c.env.SITE_URL || 'https://animato-live.pages.dev'
 

@@ -1847,13 +1847,19 @@ app.get('/admin/leden/nieuw', async (c) => {
                     <label class="block text-sm font-medium text-gray-700 mb-1">
                       Wachtwoord *
                     </label>
-                    <input
-                      type="password"
-                      name="password"
-                      required
-                      minlength="8"
-                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    />
+                    <div class="relative">
+                      <input
+                        type="password"
+                        name="password"
+                        id="pwd-new"
+                        required
+                        minlength="8"
+                        class="w-full px-4 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                      />
+                      <button type="button" onclick="togglePwdVisibility('pwd-new')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition" tabindex="-1" title="Toon/verberg wachtwoord">
+                        <i class="far fa-eye" id="pwd-new-icon"></i>
+                      </button>
+                    </div>
                     <p class="text-xs text-gray-500 mt-1">Minimaal 8 karakters</p>
                   </div>
 
@@ -1861,13 +1867,19 @@ app.get('/admin/leden/nieuw', async (c) => {
                     <label class="block text-sm font-medium text-gray-700 mb-1">
                       Wachtwoord Bevestigen *
                     </label>
-                    <input
-                      type="password"
-                      name="password_confirm"
-                      required
-                      minlength="8"
-                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    />
+                    <div class="relative">
+                      <input
+                        type="password"
+                        name="password_confirm"
+                        id="pwd-confirm"
+                        required
+                        minlength="8"
+                        class="w-full px-4 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                      />
+                      <button type="button" onclick="togglePwdVisibility('pwd-confirm')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition" tabindex="-1" title="Toon/verberg wachtwoord">
+                        <i class="far fa-eye" id="pwd-confirm-icon"></i>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1927,6 +1939,20 @@ app.get('/admin/leden/nieuw', async (c) => {
           </div>
         </div>
       </div>
+      <script dangerouslySetInnerHTML={{ __html: `
+        function togglePwdVisibility(inputId) {
+          const input = document.getElementById(inputId);
+          const icon = document.getElementById(inputId + '-icon');
+          if (!input || !icon) return;
+          if (input.type === 'password') {
+            input.type = 'text';
+            icon.className = 'far fa-eye-slash';
+          } else {
+            input.type = 'password';
+            icon.className = 'far fa-eye';
+          }
+        }
+      `}} />
     </Layout>
   )
 })
@@ -3556,6 +3582,23 @@ app.get('/admin/content/:id', async (c) => {
                   Pin dit bericht bovenaan (voor belangrijke berichten)
                 </label>
               </div>
+
+              <div class="mt-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">
+                  <i class="fas fa-clock text-orange-500 mr-1"></i>
+                  Automatisch offline halen op
+                </label>
+                <input
+                  type="date"
+                  name="verloopt_op"
+                  value={post?.verloopt_op || ''}
+                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                />
+                <p class="mt-1 text-xs text-gray-500">
+                  <i class="fas fa-info-circle mr-1"></i>
+                  Na deze datum wordt het bericht automatisch niet meer getoond. Laat leeg voor onbeperkt zichtbaar.
+                </p>
+              </div>
             </div>
 
             {/* Afbeelding (#76) */}
@@ -3877,7 +3920,8 @@ app.post('/api/admin/content/save', async (c) => {
       is_published,
       is_pinned,
       cover_image,
-      published_at: customPublishedAt
+      published_at: customPublishedAt,
+      verloopt_op
     } = body
 
     // Debug logging
@@ -3919,8 +3963,8 @@ app.post('/api/admin/content/save', async (c) => {
       const result = await c.env.DB.prepare(
         `INSERT INTO posts (
           type, categorie, titel, slug, excerpt, body, zichtbaarheid, 
-          is_published, is_pinned, auteur_id, created_at, published_at, cover_image
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          is_published, is_pinned, auteur_id, created_at, published_at, cover_image, verloopt_op
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         type,
         categorie || null,
@@ -3934,7 +3978,8 @@ app.post('/api/admin/content/save', async (c) => {
         user.id,
         now,
         resolvedPublishedAt,
-        cover_image || null
+        cover_image || null,
+        verloopt_op || null
       ).run()
 
       // Audit log
@@ -3952,6 +3997,7 @@ app.post('/api/admin/content/save', async (c) => {
              zichtbaarheid = ?, is_published = ?, is_pinned = ?,
              published_at = CASE WHEN ? IS NOT NULL THEN ? WHEN is_published = 0 AND ? = 1 THEN ? ELSE published_at END,
              cover_image = ?,
+             verloopt_op = ?,
              updated_at = ?
          WHERE id = ?`
       ).bind(
@@ -3969,6 +4015,7 @@ app.post('/api/admin/content/save', async (c) => {
         publishedValue,
         now,
         cover_image || null,
+        verloopt_op || null,
         now,
         post_id
       ).run()

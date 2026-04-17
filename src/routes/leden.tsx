@@ -2134,27 +2134,37 @@ app.get('/leden/profiel', async (c) => {
                 <label for="current_password" class="block text-sm font-medium text-gray-700 mb-1">
                   Huidig wachtwoord *
                 </label>
-                <input
-                  type="password"
-                  id="current_password"
-                  name="current_password"
-                  required
-                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                />
+                <div class="relative">
+                  <input
+                    type="password"
+                    id="current_password"
+                    name="current_password"
+                    required
+                    class="w-full px-4 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  />
+                  <button type="button" onclick="togglePwdVis('current_password')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition" tabindex="-1" title="Toon/verberg wachtwoord">
+                    <i class="far fa-eye" id="current_password-eye"></i>
+                  </button>
+                </div>
               </div>
 
               <div>
                 <label for="new_password" class="block text-sm font-medium text-gray-700 mb-1">
                   Nieuw wachtwoord *
                 </label>
-                <input
-                  type="password"
-                  id="new_password"
-                  name="new_password"
-                  required
-                  minlength={8}
-                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                />
+                <div class="relative">
+                  <input
+                    type="password"
+                    id="new_password"
+                    name="new_password"
+                    required
+                    minlength={8}
+                    class="w-full px-4 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  />
+                  <button type="button" onclick="togglePwdVis('new_password')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition" tabindex="-1" title="Toon/verberg wachtwoord">
+                    <i class="far fa-eye" id="new_password-eye"></i>
+                  </button>
+                </div>
                 <p class="mt-1 text-xs text-gray-500">
                   Minimaal 8 tekens
                 </p>
@@ -2164,14 +2174,19 @@ app.get('/leden/profiel', async (c) => {
                 <label for="confirm_password" class="block text-sm font-medium text-gray-700 mb-1">
                   Bevestig nieuw wachtwoord *
                 </label>
-                <input
-                  type="password"
-                  id="confirm_password"
-                  name="confirm_password"
-                  required
-                  minlength={8}
-                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                />
+                <div class="relative">
+                  <input
+                    type="password"
+                    id="confirm_password"
+                    name="confirm_password"
+                    required
+                    minlength={8}
+                    class="w-full px-4 py-2 pr-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  />
+                  <button type="button" onclick="togglePwdVis('confirm_password')" class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition" tabindex="-1" title="Toon/verberg wachtwoord">
+                    <i class="far fa-eye" id="confirm_password-eye"></i>
+                  </button>
+                </div>
               </div>
 
               <div class="flex justify-end pt-4">
@@ -2185,6 +2200,22 @@ app.get('/leden/profiel', async (c) => {
               </div>
             </form>
           </div>
+
+          {/* Password visibility toggle script */}
+          <script dangerouslySetInnerHTML={{ __html: `
+            function togglePwdVis(inputId) {
+              var inp = document.getElementById(inputId);
+              var eye = document.getElementById(inputId + '-eye');
+              if (!inp || !eye) return;
+              if (inp.type === 'password') {
+                inp.type = 'text';
+                eye.className = 'far fa-eye-slash';
+              } else {
+                inp.type = 'password';
+                eye.className = 'far fa-eye';
+              }
+            }
+          `}} />
 
           {/* Voice Analysis Playback Script */}
           {voiceAnalysis && (

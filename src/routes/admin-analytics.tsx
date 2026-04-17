@@ -12,15 +12,17 @@ import { sendEmail } from '../utils/email'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-// Auth middleware
-app.use('*', async (c, next) => {
+// Auth middleware – scoped to /admin/* only
+const adminAuthMiddleware = async (c: any, next: any) => {
   const token = getCookie(c, 'auth_token')
   if (!token) return c.redirect('/login?redirect=' + c.req.path)
   const payload = await verifyToken(token, c.env.JWT_SECRET)
   if (!payload || payload.role !== 'admin') return c.redirect('/login?error=unauthorized')
   c.set('user', payload)
   await next()
-})
+}
+app.use('/admin/*', adminAuthMiddleware)
+app.use('/api/admin/*', adminAuthMiddleware)
 
 // ─────────────────────────────────────────────────────────────────────────────
 // HELPER: fetch all analytics data

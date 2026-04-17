@@ -8,16 +8,14 @@ import { verifyToken } from '../utils/auth'
 
 const app = new Hono()
 
-// Apply admin authentication to all routes
-app.use('*', async (c, next) => {
-  // Get token from cookie
+// Apply admin authentication – scoped to /admin/* and /api/admin/* only
+const adminAuthMiddleware = async (c: any, next: any) => {
   const token = getCookie(c, 'auth_token')
   
   if (!token) {
     return c.redirect('/inloggen?redirect=' + encodeURIComponent(c.req.url))
   }
 
-  // Verify token
   const jwtSecret = c.env.JWT_SECRET
   const user = await verifyToken(token, jwtSecret)
 
@@ -25,7 +23,6 @@ app.use('*', async (c, next) => {
     return c.redirect('/inloggen?redirect=' + encodeURIComponent(c.req.url))
   }
 
-  // Check if user has admin or moderator role
   if (user.role !== 'admin' && user.role !== 'moderator') {
     return c.html(`
       <!DOCTYPE html>
@@ -49,10 +46,11 @@ app.use('*', async (c, next) => {
     `, 403)
   }
 
-  // Attach user to context
   c.set('user', user)
   await next()
-})
+}
+app.use('/admin/*', adminAuthMiddleware)
+app.use('/api/admin/*', adminAuthMiddleware)
 
 // ==========================================
 // OVERVIEW PAGE - List all materials

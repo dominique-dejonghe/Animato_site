@@ -13,7 +13,7 @@ import { generateToken, hashPassword } from '../utils/auth'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // If user is impersonating (has admin_impersonate_token), auto-restore admin session
-app.use('*', async (c, next) => {
+app.use('/admin/*', async (c, next) => {
   const { getCookie: gc, setCookie: sc } = await import('hono/cookie')
   const impersonateToken = gc(c, 'admin_impersonate_token')
   if (impersonateToken) {
@@ -24,10 +24,22 @@ app.use('*', async (c, next) => {
   }
   await next()
 })
+app.use('/api/admin/*', async (c, next) => {
+  const { getCookie: gc, setCookie: sc } = await import('hono/cookie')
+  const impersonateToken = gc(c, 'admin_impersonate_token')
+  if (impersonateToken) {
+    sc(c, 'auth_token', impersonateToken, { maxAge: 7 * 24 * 60 * 60, httpOnly: true, secure: true, sameSite: 'Lax', path: '/' })
+    sc(c, 'admin_impersonate_token', '', { maxAge: 0, httpOnly: true, secure: true, sameSite: 'Lax', path: '/' })
+    return c.redirect(c.req.url)
+  }
+  await next()
+})
 
 // Apply auth middleware - admin and moderator for ALL /admin/* routes
-app.use('*', requireAuth)
-app.use('*', requireRole('admin', 'moderator'))
+app.use('/admin/*', requireAuth)
+app.use('/admin/*', requireRole('admin', 'moderator'))
+app.use('/api/admin/*', requireAuth)
+app.use('/api/admin/*', requireRole('admin', 'moderator'))
 
 // =====================================================
 // ADMIN DASHBOARD

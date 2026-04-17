@@ -7,15 +7,17 @@ import { verifyToken } from '../utils/auth'
 
 const app = new Hono()
 
-// Middleware voor admin check (hergebruik van admin-bestanden logica)
-app.use('*', async (c, next) => {
+// Middleware – scoped to /admin/* and /api/admin/* only
+const adminAuthMiddleware = async (c: any, next: any) => {
   const token = getCookie(c, 'auth_token')
   if (!token) return c.redirect('/login')
   const user = await verifyToken(token, c.env.JWT_SECRET)
-  if (!user || user.role !== 'admin') return c.redirect('/leden') // Alleen admins!
+  if (!user || user.role !== 'admin') return c.redirect('/leden')
   c.set('user', user)
   await next()
-})
+}
+app.use('/admin/*', adminAuthMiddleware)
+app.use('/api/admin/*', adminAuthMiddleware)
 
 app.get('/admin/settings', async (c) => {
   const user = c.get('user')

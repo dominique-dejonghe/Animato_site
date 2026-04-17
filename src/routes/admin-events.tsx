@@ -315,7 +315,7 @@ app.get('/admin/events', async (c) => {
                             <div>
                               <div class="text-sm font-medium text-gray-900">{event.titel}</div>
                               {event.beschrijving && (
-                                <div class="text-sm text-gray-500 line-clamp-1 whitespace-pre-line">{event.beschrijving}</div>
+                                <div class="text-sm text-gray-500 line-clamp-1">{event.beschrijving.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 120)}</div>
                               )}
                             </div>
                           </div>
@@ -856,6 +856,13 @@ app.post('/admin/events/save', async (c) => {
   } = body
 
   try {
+    // Sanitize HTML beschrijving (remove script tags, event handlers)
+    let cleanBeschrijving = beschrijving ? String(beschrijving)
+      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+      .replace(/\s*on\w+\s*=\s*"[^"]*"/gi, '')
+      .replace(/\s*on\w+\s*=\s*'[^']*'/gi, '')
+      : null
+
     // Generate slug from title if not provided
     let baseSlug = slug || String(titel).toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
@@ -923,7 +930,7 @@ app.post('/admin/events/save', async (c) => {
              is_recurring = ?, recurrence_rule = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [
-          type, titel, finalSlug, beschrijving || null, image_url || null, finalLocatie, finalLocationId,
+          type, titel, finalSlug, cleanBeschrijving, image_url || null, finalLocatie, finalLocationId,
           start_at, end_at, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0, doelgroep || 'all',
           zichtbaar_publiek === 'on' ? 1 : 0, toon_op_homepage === 'on' ? 1 : 0,
           is_recurring === 'on' ? 1 : 0, recurrenceRule ? JSON.stringify(recurrenceRule) : null,
@@ -961,7 +968,7 @@ app.post('/admin/events/save', async (c) => {
           is_recurring, recurrence_rule, created_by)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          type, titel, finalSlug, beschrijving || null, image_url || null, finalLocatie, finalLocationId,
+          type, titel, finalSlug, cleanBeschrijving, image_url || null, finalLocatie, finalLocationId,
           start_at, end_at, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0, doelgroep || 'all',
           isPubliekValue, isPubliekValue, toon_op_homepage === 'on' ? 1 : 0,
           is_recurring === 'on' ? 1 : 0, recurrenceRule ? JSON.stringify(recurrenceRule) : null,
@@ -1269,17 +1276,18 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
                 />
               </div>
 
-              {/* Beschrijving */}
+              {/* Beschrijving — Rich Text Editor */}
               <div class="mb-4">
                 <label class="block text-sm font-medium text-gray-700 mb-2">
+                  <i class="fas fa-align-left text-blue-500 mr-1"></i>
                   Beschrijving
                 </label>
-                <textarea
-                  name="beschrijving"
-                  rows={4}
-                  class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary"
-                  placeholder="Optionele beschrijving van het event..."
-                >{event?.beschrijving || ''}</textarea>
+                <input type="hidden" name="beschrijving" id="beschrijving-hidden" value={event?.beschrijving || ''} />
+                <div id="beschrijving-editor" class="bg-white rounded-b-lg" style="min-height: 180px;" />
+                <p class="text-xs text-gray-400 mt-1">
+                  <i class="fas fa-info-circle mr-1"></i>
+                  Gebruik de werkbalk voor opmaak: vet, cursief, lijsten, links, enz.
+                </p>
               </div>
 
               {/* Afbeelding */}
@@ -1792,6 +1800,67 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
 
         </div>
       </div>
+
+      {/* Quill Rich Text Editor */}
+      <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet" />
+      <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+      <style dangerouslySetInnerHTML={{ __html: `
+        .ql-toolbar.ql-snow { border-top-left-radius: 0.5rem; border-top-right-radius: 0.5rem; border-color: #d1d5db; background: #f9fafb; }
+        .ql-container.ql-snow { border-bottom-left-radius: 0.5rem; border-bottom-right-radius: 0.5rem; border-color: #d1d5db; font-size: 0.95rem; }
+        .ql-editor { min-height: 160px; }
+        .ql-editor p { margin-bottom: 0.5em; }
+        .ql-editor h1, .ql-editor h2, .ql-editor h3 { margin-top: 0.8em; margin-bottom: 0.4em; }
+        .ql-snow .ql-picker.ql-header .ql-picker-label::before, .ql-snow .ql-picker.ql-header .ql-picker-item::before { content: 'Normaal'; }
+        .ql-snow .ql-picker.ql-header .ql-picker-label[data-value="1"]::before, .ql-snow .ql-picker.ql-header .ql-picker-item[data-value="1"]::before { content: 'Kop 1'; }
+        .ql-snow .ql-picker.ql-header .ql-picker-label[data-value="2"]::before, .ql-snow .ql-picker.ql-header .ql-picker-item[data-value="2"]::before { content: 'Kop 2'; }
+        .ql-snow .ql-picker.ql-header .ql-picker-label[data-value="3"]::before, .ql-snow .ql-picker.ql-header .ql-picker-item[data-value="3"]::before { content: 'Kop 3'; }
+      ` }} />
+      <script dangerouslySetInnerHTML={{ __html: `
+        (function() {
+          var hiddenInput = document.getElementById('beschrijving-hidden');
+          var editorEl = document.getElementById('beschrijving-editor');
+          if (!editorEl) return;
+
+          var quill = new Quill('#beschrijving-editor', {
+            theme: 'snow',
+            placeholder: 'Beschrijf het event... (gebruik de werkbalk voor opmaak)',
+            modules: {
+              toolbar: [
+                [{ 'header': [1, 2, 3, false] }],
+                ['bold', 'italic', 'underline', 'strike'],
+                [{ 'color': [] }, { 'background': [] }],
+                [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+                ['blockquote'],
+                ['link'],
+                ['clean']
+              ]
+            }
+          });
+
+          // Load existing HTML content
+          if (hiddenInput.value) {
+            quill.root.innerHTML = hiddenInput.value;
+          }
+
+          // Sync to hidden input on every change
+          quill.on('text-change', function() {
+            var html = quill.root.innerHTML;
+            // If only empty paragraph, set to empty
+            if (html === '<p><br></p>' || html === '<p></p>') html = '';
+            hiddenInput.value = html;
+          });
+
+          // Also sync before form submit
+          var form = document.getElementById('eventForm');
+          if (form) {
+            form.addEventListener('submit', function() {
+              var html = quill.root.innerHTML;
+              if (html === '<p><br></p>' || html === '<p></p>') html = '';
+              hiddenInput.value = html;
+            });
+          }
+        })();
+      ` }} />
 
       {/* JavaScript for form interactions */}
       <script dangerouslySetInnerHTML={{

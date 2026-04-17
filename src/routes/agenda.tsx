@@ -644,7 +644,7 @@ app.get('/agenda', async (c) => {
 
           const descRow = document.getElementById('event-modal-desc-row');
           if (evt.beschrijving) {
-            document.getElementById('event-modal-description').textContent = evt.beschrijving;
+            document.getElementById('event-modal-description').innerHTML = evt.beschrijving;
             descRow.classList.remove('hidden');
           } else {
             descRow.classList.add('hidden');

@@ -1803,8 +1803,6 @@ app.get('/leden/profiel', async (c) => {
                   <option value="A" selected={profile.stemgroep === 'A'}>Alt</option>
                   <option value="T" selected={profile.stemgroep === 'T'}>Tenor</option>
                   <option value="B" selected={profile.stemgroep === 'B'}>Bas</option>
-                  <option value="Dirigent" selected={profile.stemgroep === 'Dirigent'}>Dirigent</option>
-                  <option value="Pianist" selected={profile.stemgroep === 'Pianist'}>Pianist</option>
                 </select>
                 <p class="mt-1 text-xs text-gray-500">
                   <i class="fas fa-music mr-1 text-animato-primary"></i>
@@ -2842,7 +2840,7 @@ app.get('/leden/smoelenboek', async (c) => {
      JOIN profiles p ON u.id = p.user_id
      LEFT JOIN member_favorites f ON f.favorite_member_id = u.id AND f.user_id = ?
      LEFT JOIN qr_checkins qc ON qc.user_id = u.id
-     WHERE u.status = 'actief' AND p.smoelenboek_zichtbaar = 1`
+     WHERE u.status = 'actief' AND p.smoelenboek_zichtbaar = 1 AND u.is_test_account = 0`
   
   const params: any[] = [user.id]
 
@@ -3004,8 +3002,6 @@ app.get('/leden/smoelenboek', async (c) => {
                   <option value="A" selected={stemgroepFilter === 'A'}>Alt</option>
                   <option value="T" selected={stemgroepFilter === 'T'}>Tenor</option>
                   <option value="B" selected={stemgroepFilter === 'B'}>Bas</option>
-                  <option value="Dirigent" selected={stemgroepFilter === 'Dirigent'}>Dirigent</option>
-                  <option value="Pianist" selected={stemgroepFilter === 'Pianist'}>Pianist</option>
                 </select>
                 <div class="absolute inset-y-0 right-2 flex items-center pointer-events-none">
                   <i class="fas fa-chevron-down text-gray-400 text-xs"></i>

@@ -42,7 +42,7 @@ app.get('/admin', async (c) => {
   // Get statistics
   const stats = {
     total_leden: await queryOne<any>(c.env.DB, 
-      `SELECT COUNT(*) as count FROM users WHERE role IN ('lid', 'stemleider')`
+      `SELECT COUNT(*) as count FROM users WHERE role IN ('lid', 'stemleider') AND is_test_account = 0`
     ),
     total_posts: await queryOne<any>(c.env.DB,
       `SELECT COUNT(*) as count FROM posts WHERE is_published = 1`
@@ -1095,7 +1095,7 @@ app.get('/admin/leden', async (c) => {
            (SELECT COUNT(*) FROM user_sessions WHERE user_id = u.id AND is_active = 1) as is_online
     FROM users u
     LEFT JOIN profiles p ON p.user_id = u.id
-    WHERE 1=1
+    WHERE u.is_test_account = 0
   `
   const params: any[] = []
 
@@ -1145,13 +1145,13 @@ app.get('/admin/leden', async (c) => {
 
   // Get counts for filters (only active members by default)
   const counts = {
-    all: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
-    admin: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'admin' AND status = 'actief'`),
-    moderator: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'moderator' AND status = 'actief'`),
-    stemleider: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'stemleider' AND status = 'actief'`),
-    lid: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'lid' AND status = 'actief'`),
-    actief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
-    inactief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'inactief'`),
+    all: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND is_test_account = 0`),
+    admin: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'admin' AND status = 'actief' AND is_test_account = 0`),
+    moderator: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'moderator' AND status = 'actief' AND is_test_account = 0`),
+    stemleider: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'stemleider' AND status = 'actief' AND is_test_account = 0`),
+    lid: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'lid' AND status = 'actief' AND is_test_account = 0`),
+    actief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND is_test_account = 0`),
+    inactief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'inactief' AND is_test_account = 0`),
     online: await queryOne<any>(c.env.DB, `SELECT COUNT(DISTINCT user_id) as count FROM user_sessions WHERE is_active = 1`),
   }
 
@@ -1816,8 +1816,6 @@ app.get('/admin/leden/nieuw', async (c) => {
                       <option value="A">Alt (A)</option>
                       <option value="T">Tenor (T)</option>
                       <option value="B">Bas (B)</option>
-                      <option value="Dirigent">Dirigent</option>
-                      <option value="Pianist">Pianist</option>
                     </select>
                   </div>
 
@@ -2339,8 +2337,6 @@ app.get('/admin/leden/:id', async (c) => {
                       <option value="A" selected={member.stemgroep === 'A'}>Alt (A)</option>
                       <option value="T" selected={member.stemgroep === 'T'}>Tenor (T)</option>
                       <option value="B" selected={member.stemgroep === 'B'}>Bas (B)</option>
-                      <option value="Dirigent" selected={member.stemgroep === 'Dirigent'}>Dirigent</option>
-                      <option value="Pianist" selected={member.stemgroep === 'Pianist'}>Pianist</option>
                     </select>
                   </div>
 

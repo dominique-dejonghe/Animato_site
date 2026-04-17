@@ -2573,68 +2573,114 @@ app.post('/api/leden/betaling/online', async (c) => {
 
 app.get('/leden/materiaal', async (c) => {
   const user = c.get('user') as SessionUser
-  
-  // Get all materials for user's stemgroep
+
+  // Query params for filtering
+  const search = (c.req.query('search') || '').trim()
+  const typeFilter = c.req.query('type') || 'all'
+  const werkFilter = c.req.query('werk') || 'all'
+
+  // Get all materials for user's stemgroep WITH view counts
   const materials = await queryAll(
     c.env.DB,
     `SELECT m.id, m.type, m.titel, m.url, m.beschrijving, m.stem, m.created_at,
             pi.titel as stuk_titel, pi.nummer as stuk_nummer,
-            w.titel as werk_titel, w.componist, w.id as werk_id
+            w.titel as werk_titel, w.componist, w.id as werk_id,
+            COALESCE(vc.view_count, 0) as view_count,
+            CASE WHEN uv.id IS NOT NULL THEN 1 ELSE 0 END as user_viewed
      FROM materials m
      JOIN pieces pi ON pi.id = m.piece_id
      JOIN works w ON w.id = pi.work_id
+     LEFT JOIN (SELECT material_id, COUNT(*) as view_count FROM material_views GROUP BY material_id) vc ON vc.material_id = m.id
+     LEFT JOIN (SELECT DISTINCT material_id, id FROM material_views WHERE user_id = ?) uv ON uv.material_id = m.id
      WHERE m.is_actief = 1
        AND (m.stem = ? OR m.stem = 'SATB' OR m.stem = 'algemeen')
-       AND (m.zichtbaar_voor = 'alle_leden' OR 
+       AND (m.zichtbaar_voor = 'alle_leden' OR
             (m.zichtbaar_voor = 'stem_specifiek' OR m.zichtbaar_voor = 'eigen_stem'))
      ORDER BY w.titel ASC, pi.nummer ASC, m.type ASC`,
-    [user.stemgroep || 'SATB']
+    [user.id, user.stemgroep || 'SATB']
   )
 
-  // Group materials by werk_titel + stuk_titel
-  const grouped: Record<string, { werk_titel: string; stuk_titel: string; componist: string; items: any[] }> = {}
-  for (const mat of materials as any[]) {
-    const key = `${mat.werk_titel}||${mat.stuk_titel}`
-    if (!grouped[key]) {
-      grouped[key] = { werk_titel: mat.werk_titel, stuk_titel: mat.stuk_titel, componist: mat.componist, items: [] }
-    }
-    grouped[key].items.push(mat)
-  }
-
   // Helper: determine icon + label + style per material type/url
-  function getTypeInfo(mat: any): { icon: string; label: string; colorClass: string; badgeClass: string } {
+  function getTypeInfo(mat: any): { icon: string; label: string; colorClass: string; badgeClass: string; filterKey: string } {
     const url: string = (mat.url || '').toLowerCase()
     const type: string = (mat.type || '').toLowerCase()
-    // YouTube
     if (url.includes('youtube.com') || url.includes('youtu.be')) {
-      return { icon: 'fab fa-youtube', label: 'YouTube', colorClass: 'text-red-600', badgeClass: 'bg-red-100 text-red-700 border-red-200' }
+      return { icon: 'fab fa-youtube', label: 'YouTube', colorClass: 'text-red-600', badgeClass: 'bg-red-100 text-red-700 border-red-200', filterKey: 'youtube' }
     }
-    // Google Drive
     if (url.includes('drive.google.com')) {
-      return { icon: 'fab fa-google-drive', label: 'Google Drive', colorClass: 'text-blue-600', badgeClass: 'bg-blue-100 text-blue-700 border-blue-200' }
+      return { icon: 'fab fa-google-drive', label: 'Google Drive', colorClass: 'text-blue-600', badgeClass: 'bg-blue-100 text-blue-700 border-blue-200', filterKey: 'gdrive' }
     }
-    // Audio
     if (type === 'audio' || url.match(/\.(mp3|wav|ogg|flac|aac)($|\?)/)) {
-      return { icon: 'fas fa-headphones', label: 'Audio', colorClass: 'text-purple-600', badgeClass: 'bg-purple-100 text-purple-700 border-purple-200' }
+      return { icon: 'fas fa-headphones', label: 'Audio', colorClass: 'text-purple-600', badgeClass: 'bg-purple-100 text-purple-700 border-purple-200', filterKey: 'audio' }
     }
-    // PDF
     if (type === 'pdf' || url.match(/\.pdf($|\?)/)) {
-      return { icon: 'fas fa-file-pdf', label: 'PDF', colorClass: 'text-orange-600', badgeClass: 'bg-orange-100 text-orange-700 border-orange-200' }
+      return { icon: 'fas fa-file-pdf', label: 'PDF', colorClass: 'text-orange-600', badgeClass: 'bg-orange-100 text-orange-700 border-orange-200', filterKey: 'pdf' }
     }
-    // Video
     if (type === 'video' || url.match(/\.(mp4|mov|avi|mkv)($|\?)/)) {
-      return { icon: 'fas fa-video', label: 'Video', colorClass: 'text-pink-600', badgeClass: 'bg-pink-100 text-pink-700 border-pink-200' }
+      return { icon: 'fas fa-video', label: 'Video', colorClass: 'text-pink-600', badgeClass: 'bg-pink-100 text-pink-700 border-pink-200', filterKey: 'video' }
     }
-    // Zip/archive
     if (url.match(/\.(zip|rar|tar|gz)($|\?)/)) {
-      return { icon: 'fas fa-file-archive', label: 'Archief', colorClass: 'text-gray-600', badgeClass: 'bg-gray-100 text-gray-700 border-gray-200' }
+      return { icon: 'fas fa-file-archive', label: 'Archief', colorClass: 'text-gray-600', badgeClass: 'bg-gray-100 text-gray-700 border-gray-200', filterKey: 'archief' }
     }
-    // Generic link
     if (type === 'link') {
-      return { icon: 'fas fa-link', label: 'Link', colorClass: 'text-teal-600', badgeClass: 'bg-teal-100 text-teal-700 border-teal-200' }
+      return { icon: 'fas fa-link', label: 'Link', colorClass: 'text-teal-600', badgeClass: 'bg-teal-100 text-teal-700 border-teal-200', filterKey: 'link' }
     }
-    // Default
-    return { icon: 'fas fa-file', label: type.toUpperCase() || 'Bestand', colorClass: 'text-gray-500', badgeClass: 'bg-gray-100 text-gray-600 border-gray-200' }
+    return { icon: 'fas fa-file', label: type.toUpperCase() || 'Bestand', colorClass: 'text-gray-500', badgeClass: 'bg-gray-100 text-gray-600 border-gray-200', filterKey: 'other' }
+  }
+
+  // Determine "new" threshold: 14 days
+  const now = new Date()
+  const newThresholdMs = 14 * 24 * 60 * 60 * 1000
+  function isNew(createdAt: string): boolean {
+    return (now.getTime() - new Date(createdAt + 'Z').getTime()) < newThresholdMs
+  }
+
+  // Enrich materials and apply filters
+  const allMats = (materials as any[]).map(mat => ({
+    ...mat,
+    _info: getTypeInfo(mat),
+    _isNew: isNew(mat.created_at)
+  }))
+
+  // Collect unique werk titles for the werk dropdown
+  const werkTitles = [...new Set(allMats.map(m => m.werk_titel))].sort()
+
+  // Count types for filter badges
+  const typeCounts: Record<string, number> = {}
+  for (const mat of allMats) {
+    typeCounts[mat._info.filterKey] = (typeCounts[mat._info.filterKey] || 0) + 1
+  }
+  const newCount = allMats.filter(m => m._isNew).length
+
+  // Apply filters
+  let filtered = allMats
+  if (typeFilter === 'new') {
+    filtered = filtered.filter(m => m._isNew)
+  } else if (typeFilter !== 'all') {
+    filtered = filtered.filter(m => m._info.filterKey === typeFilter)
+  }
+  if (werkFilter !== 'all') {
+    filtered = filtered.filter(m => m.werk_titel === werkFilter)
+  }
+  if (search) {
+    const q = search.toLowerCase()
+    filtered = filtered.filter(m =>
+      m.titel.toLowerCase().includes(q) ||
+      m.werk_titel.toLowerCase().includes(q) ||
+      m.componist.toLowerCase().includes(q) ||
+      (m.beschrijving || '').toLowerCase().includes(q)
+    )
+  }
+
+  // Group filtered materials by werk_titel + stuk_titel
+  const grouped: Record<string, { werk_titel: string; stuk_titel: string; componist: string; items: any[]; hasNew: boolean }> = {}
+  for (const mat of filtered) {
+    const key = `${mat.werk_titel}||${mat.stuk_titel}`
+    if (!grouped[key]) {
+      grouped[key] = { werk_titel: mat.werk_titel, stuk_titel: mat.stuk_titel, componist: mat.componist, items: [], hasNew: false }
+    }
+    grouped[key].items.push(mat)
+    if (mat._isNew) grouped[key].hasNew = true
   }
 
   const groupEntries = Object.values(grouped)
@@ -2643,9 +2689,34 @@ app.get('/leden/materiaal', async (c) => {
   const errorMsg = c.req.query('error')
   const infoMsg = c.req.query('info')
 
+  // Build current filter URL helper
+  function filterUrl(params: Record<string, string>): string {
+    const p = new URLSearchParams()
+    const finalSearch = params.search !== undefined ? params.search : search
+    const finalType = params.type !== undefined ? params.type : typeFilter
+    const finalWerk = params.werk !== undefined ? params.werk : werkFilter
+    if (finalSearch) p.set('search', finalSearch)
+    if (finalType !== 'all') p.set('type', finalType)
+    if (finalWerk !== 'all') p.set('werk', finalWerk)
+    const qs = p.toString()
+    return `/leden/materiaal${qs ? '?' + qs : ''}`
+  }
+
+  // Filter pill config
+  const filterPills = [
+    { key: 'all', label: 'Alles', icon: 'fas fa-layer-group', cls: 'bg-gray-100 text-gray-700 border-gray-300', count: allMats.length },
+    { key: 'new', label: 'Nieuw', icon: 'fas fa-sparkles', cls: 'bg-gradient-to-r from-amber-100 to-yellow-100 text-amber-800 border-amber-300', count: newCount },
+    { key: 'youtube', label: 'YouTube', icon: 'fab fa-youtube', cls: 'bg-red-50 text-red-700 border-red-200', count: typeCounts['youtube'] || 0 },
+    { key: 'gdrive', label: 'Drive', icon: 'fab fa-google-drive', cls: 'bg-blue-50 text-blue-700 border-blue-200', count: typeCounts['gdrive'] || 0 },
+    { key: 'pdf', label: 'PDF', icon: 'fas fa-file-pdf', cls: 'bg-orange-50 text-orange-700 border-orange-200', count: typeCounts['pdf'] || 0 },
+    { key: 'audio', label: 'Audio', icon: 'fas fa-headphones', cls: 'bg-purple-50 text-purple-700 border-purple-200', count: typeCounts['audio'] || 0 },
+    { key: 'video', label: 'Video', icon: 'fas fa-video', cls: 'bg-pink-50 text-pink-700 border-pink-200', count: typeCounts['video'] || 0 },
+    { key: 'link', label: 'Link', icon: 'fas fa-link', cls: 'bg-teal-50 text-teal-700 border-teal-200', count: typeCounts['link'] || 0 },
+  ].filter(p => p.count > 0 || p.key === 'all')
+
   return c.html(
     <Layout title="Materiaal" user={user} impersonating={!!(c.get('impersonating' as any))} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Materiaal', href: '/leden/materiaal'}]}>
-      <div class="py-12 bg-gray-50 min-h-screen">
+      <div class="py-8 sm:py-12 bg-gray-50 min-h-screen">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Success/Error/Info messages */}
           {successMsg === 'print_requested' && (
@@ -2667,51 +2738,132 @@ app.get('/leden/materiaal', async (c) => {
             </div>
           )}
 
-          <div class="mb-8 flex items-center gap-4">
-            <div>
-              <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
-                <i class="fas fa-music text-animato-primary mr-3"></i>
-                Oefenmateriaal
-              </h1>
-              <p class="text-gray-600 mt-1">
-                Downloads en oefenbestanden voor jouw stemgroep ({user.stemgroep || 'Algemeen'}) · {groupEntries.length} werken
-              </p>
+          {/* Header */}
+          <div class="mb-6">
+            <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+              <i class="fas fa-music text-animato-primary mr-3"></i>
+              Oefenmateriaal
+            </h1>
+            <p class="text-gray-600 mt-1">
+              Downloads en oefenbestanden voor jouw stemgroep ({user.stemgroep || 'Algemeen'}) · {allMats.length} bestanden in {werkTitles.length} werken
+            </p>
+          </div>
+
+          {/* ── Filter bar ── */}
+          <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6">
+            <div class="flex flex-col lg:flex-row gap-4">
+              {/* Search */}
+              <form method="GET" action="/leden/materiaal" class="flex-1 flex gap-2">
+                <div class="relative flex-1">
+                  <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                  <input
+                    type="text"
+                    name="search"
+                    value={search}
+                    placeholder="Zoek op titel, componist, werk..."
+                    class="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-animato-primary/50 focus:border-animato-primary"
+                  />
+                </div>
+                {typeFilter !== 'all' && <input type="hidden" name="type" value={typeFilter} />}
+                {werkFilter !== 'all' && <input type="hidden" name="werk" value={werkFilter} />}
+                <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg text-sm font-medium hover:bg-animato-secondary transition">
+                  <i class="fas fa-search"></i>
+                </button>
+                {(search || typeFilter !== 'all' || werkFilter !== 'all') && (
+                  <a href="/leden/materiaal" class="px-3 py-2 text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg text-sm flex items-center gap-1 transition hover:bg-gray-50">
+                    <i class="fas fa-times"></i> Reset
+                  </a>
+                )}
+              </form>
+
+              {/* Werk dropdown */}
+              <div class="flex-shrink-0">
+                <select
+                  onchange={`window.location='${filterUrl({werk:''}).replace(werkFilter !== 'all' ? 'werk='+encodeURIComponent(werkFilter) : '___NOOP___', '')}' + (this.value !== 'all' ? (window.location.search ? '&' : '?') + 'werk=' + encodeURIComponent(this.value) : '')`}
+                  class="w-full lg:w-56 px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-animato-primary/50"
+                >
+                  <option value="all" selected={werkFilter === 'all'}>Alle werken</option>
+                  {werkTitles.map(w => (
+                    <option value={w} selected={werkFilter === w}>{w}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Type filter pills */}
+            <div class="flex flex-wrap gap-2 mt-4">
+              {filterPills.map(pill => {
+                const isActive = typeFilter === pill.key
+                return (
+                  <a
+                    href={filterUrl({ type: pill.key === 'all' ? 'all' : pill.key })}
+                    class={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all
+                      ${isActive
+                        ? (pill.key === 'new'
+                          ? 'bg-gradient-to-r from-amber-400 to-yellow-400 text-white border-amber-500 shadow-md shadow-amber-200/50 scale-105'
+                          : 'bg-animato-primary text-white border-animato-primary shadow-md scale-105')
+                        : pill.cls + ' hover:shadow-sm hover:scale-[1.02]'
+                      }`}
+                  >
+                    <i class={pill.icon}></i>
+                    {pill.label}
+                    <span class={`ml-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${isActive ? 'bg-white/30' : 'bg-black/5'}`}>
+                      {pill.count}
+                    </span>
+                    {pill.key === 'new' && !isActive && pill.count > 0 && (
+                      <span class="relative flex h-2 w-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                      </span>
+                    )}
+                  </a>
+                )
+              })}
             </div>
           </div>
 
-          {/* Legend */}
-          <div class="flex flex-wrap gap-2 mb-6">
-            {[
-              { icon: 'fab fa-youtube', label: 'YouTube', cls: 'bg-red-100 text-red-700 border-red-200' },
-              { icon: 'fab fa-google-drive', label: 'Google Drive', cls: 'bg-blue-100 text-blue-700 border-blue-200' },
-              { icon: 'fas fa-file-pdf', label: 'PDF', cls: 'bg-orange-100 text-orange-700 border-orange-200' },
-              { icon: 'fas fa-headphones', label: 'Audio', cls: 'bg-purple-100 text-purple-700 border-purple-200' },
-              { icon: 'fas fa-video', label: 'Video', cls: 'bg-pink-100 text-pink-700 border-pink-200' },
-              { icon: 'fas fa-link', label: 'Link', cls: 'bg-teal-100 text-teal-700 border-teal-200' },
-            ].map(leg => (
-              <span class={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium border ${leg.cls}`}>
-                <i class={leg.icon}></i> {leg.label}
-              </span>
-            ))}
-          </div>
+          {/* Active filter feedback */}
+          {(search || typeFilter !== 'all' || werkFilter !== 'all') && (
+            <div class="flex items-center gap-2 mb-4 text-sm text-gray-600">
+              <i class="fas fa-filter text-gray-400"></i>
+              <span>{filtered.length} van {allMats.length} bestanden</span>
+              {search && <span class="bg-gray-100 px-2 py-0.5 rounded-full text-xs">"{search}"</span>}
+              {typeFilter !== 'all' && (
+                <span class="bg-gray-100 px-2 py-0.5 rounded-full text-xs capitalize">
+                  {typeFilter === 'new' ? 'Nieuw' : typeFilter}
+                </span>
+              )}
+              {werkFilter !== 'all' && (
+                <span class="bg-gray-100 px-2 py-0.5 rounded-full text-xs">{werkFilter}</span>
+              )}
+            </div>
+          )}
 
+          {/* ── Material cards ── */}
           {groupEntries.length > 0 ? (
             <div class="space-y-5">
               {groupEntries.map((group: any) => (
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class={`bg-white rounded-xl shadow-sm border overflow-hidden transition-all ${group.hasNew ? 'border-amber-300 ring-1 ring-amber-200' : 'border-gray-200'}`}>
                   {/* Group header */}
-                  <div class="bg-gradient-to-r from-animato-primary/10 to-transparent px-6 py-4 border-b border-gray-100">
+                  <div class={`px-6 py-4 border-b ${group.hasNew ? 'bg-gradient-to-r from-amber-50 via-yellow-50/50 to-transparent border-amber-100' : 'bg-gradient-to-r from-animato-primary/10 to-transparent border-gray-100'}`}>
                     <div class="flex items-start justify-between">
-                      <div>
-                        <h2 class="text-lg font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
-                          {group.werk_titel}
-                        </h2>
-                        {group.stuk_titel && group.stuk_titel !== group.werk_titel && (
-                          <p class="text-sm text-gray-600 mt-0.5">{group.stuk_titel}</p>
+                      <div class="flex items-start gap-3">
+                        {group.hasNew && (
+                          <span class="mt-1 inline-flex items-center gap-1 px-2 py-1 bg-gradient-to-r from-amber-400 to-yellow-400 text-white text-[10px] font-bold uppercase tracking-wider rounded-full shadow-sm animate-pulse">
+                            <i class="fas fa-star text-[8px]"></i> Nieuw
+                          </span>
                         )}
-                        <p class="text-xs text-gray-400 mt-1">
-                          <i class="fas fa-user-edit mr-1"></i>{group.componist}
-                        </p>
+                        <div>
+                          <h2 class="text-lg font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+                            {group.werk_titel}
+                          </h2>
+                          {group.stuk_titel && group.stuk_titel !== group.werk_titel && (
+                            <p class="text-sm text-gray-600 mt-0.5">{group.stuk_titel}</p>
+                          )}
+                          <p class="text-xs text-gray-400 mt-1">
+                            <i class="fas fa-user-edit mr-1"></i>{group.componist}
+                          </p>
+                        </div>
                       </div>
                       <span class="text-xs text-gray-400 bg-gray-100 rounded-full px-2 py-1 ml-3 whitespace-nowrap">
                         {group.items.length} {group.items.length === 1 ? 'bestand' : 'bestanden'}
@@ -2722,12 +2874,21 @@ app.get('/leden/materiaal', async (c) => {
                   {/* Individual material items */}
                   <div class="divide-y divide-gray-100">
                     {group.items.map((mat: any) => {
-                      const info = getTypeInfo(mat)
+                      const info = mat._info
+                      const matIsNew = mat._isNew
                       return (
-                        <div class="flex items-center gap-4 px-6 py-3 hover:bg-gray-50 transition group">
+                        <div class={`flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-3 hover:bg-gray-50 transition group ${matIsNew ? 'bg-amber-50/30' : ''}`}>
                           {/* Type icon */}
-                          <div class="flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center bg-gray-50 border border-gray-200">
+                          <div class={`relative flex-shrink-0 w-10 h-10 rounded-lg flex items-center justify-center border ${matIsNew ? 'bg-amber-50 border-amber-200' : 'bg-gray-50 border-gray-200'}`}>
                             <i class={`${info.icon} ${info.colorClass} text-lg`}></i>
+                            {matIsNew && (
+                              <span class="absolute -top-1.5 -right-1.5 flex h-3.5 w-3.5 items-center justify-center">
+                                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                <span class="relative inline-flex rounded-full h-3 w-3 bg-amber-500 text-white text-[6px] font-bold items-center justify-center">
+                                  <i class="fas fa-star text-[5px]"></i>
+                                </span>
+                              </span>
+                            )}
                           </div>
 
                           {/* Content */}
@@ -2741,28 +2902,43 @@ app.get('/leden/materiaal', async (c) => {
                               {mat.stem && mat.stem !== 'algemeen' && mat.stem !== 'SATB' && (
                                 <span class="text-xs bg-indigo-50 text-indigo-600 border border-indigo-200 px-1.5 py-0.5 rounded-full">{mat.stem}</span>
                               )}
+                              {matIsNew && (
+                                <span class="text-[10px] font-bold uppercase tracking-wider text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full border border-amber-200">
+                                  Nieuw!
+                                </span>
+                              )}
                             </div>
-                            {mat.beschrijving && mat.beschrijving !== 'null' && (
-                              <p class="text-xs text-gray-500 mt-0.5 truncate">{mat.beschrijving}</p>
-                            )}
+                            <div class="flex items-center gap-3 mt-0.5">
+                              {mat.beschrijving && mat.beschrijving !== 'null' && (
+                                <p class="text-xs text-gray-500 truncate">{mat.beschrijving}</p>
+                              )}
+                              <span class="text-[10px] text-gray-400 flex items-center gap-1 whitespace-nowrap" title={`${mat.view_count}x geopend`}>
+                                <i class="fas fa-eye"></i> {mat.view_count}
+                              </span>
+                              {mat.user_viewed === 1 && (
+                                <span class="text-[10px] text-green-500 flex items-center gap-0.5 whitespace-nowrap" title="Je hebt dit al bekeken">
+                                  <i class="fas fa-check-circle"></i>
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           {/* Action buttons */}
                           <div class="flex-shrink-0 flex gap-2">
-                            <a 
-                              href={mat.url} 
-                              target="_blank" 
+                            <a
+                              href={mat.url}
+                              target="_blank"
+                              onclick={`fetch('/api/leden/materiaal/track',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({material_id:${mat.id}})})`}
                               class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-animato-primary hover:bg-animato-secondary transition shadow-sm"
                               title={mat.beschrijving || mat.titel}
                             >
                               <i class={`${info.icon} text-xs`}></i>
                               <span class="hidden sm:inline">Openen</span>
                             </a>
-                            {/* Print request button for PDF materials */}
                             {(info.label === 'PDF' || info.label === 'Google Drive') && (
                               <form action="/api/leden/materiaal/print-aanvraag" method="POST" class="inline">
                                 <input type="hidden" name="material_id" value={mat.id} />
-                                <button 
+                                <button
                                   type="submit"
                                   class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-600 bg-gray-100 hover:bg-amber-100 hover:text-amber-700 transition border border-gray-200"
                                   title="Papieren versie aanvragen"
@@ -2783,11 +2959,40 @@ app.get('/leden/materiaal', async (c) => {
           ) : (
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center text-gray-500">
               <i class="fas fa-folder-open text-4xl mb-4 text-gray-300"></i>
-              <p>Geen materiaal beschikbaar voor jouw stemgroep.</p>
+              {search || typeFilter !== 'all' || werkFilter !== 'all' ? (
+                <div>
+                  <p class="mb-2">Geen materiaal gevonden voor deze filters.</p>
+                  <a href="/leden/materiaal" class="text-animato-primary hover:underline text-sm font-semibold">
+                    <i class="fas fa-undo mr-1"></i> Toon alle materialen
+                  </a>
+                </div>
+              ) : (
+                <p>Geen materiaal beschikbaar voor jouw stemgroep.</p>
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {/* Werk filter JS - proper select onchange */}
+      <script dangerouslySetInnerHTML={{__html: `
+        document.addEventListener('DOMContentLoaded', function() {
+          var werkSelect = document.querySelector('select[onchange]');
+          if (werkSelect) {
+            werkSelect.removeAttribute('onchange');
+            werkSelect.addEventListener('change', function() {
+              var params = new URLSearchParams(window.location.search);
+              if (this.value === 'all') {
+                params.delete('werk');
+              } else {
+                params.set('werk', this.value);
+              }
+              var qs = params.toString();
+              window.location.href = '/leden/materiaal' + (qs ? '?' + qs : '');
+            });
+          }
+        });
+      `}} />
     </Layout>
   )
 })
@@ -3867,6 +4072,26 @@ app.post('/api/leden/profiel/wachtwoord', async (c) => {
 })
 
 // =====================================================
+// MATERIAL VIEW TRACKING
+// =====================================================
+
+app.post('/api/leden/materiaal/track', async (c) => {
+  try {
+    const user = c.get('user') as SessionUser
+    const body = await c.req.json()
+    const materialId = body.material_id
+    if (!materialId) return c.json({ error: 'missing material_id' }, 400)
+
+    await c.env.DB.prepare(
+      'INSERT INTO material_views (material_id, user_id) VALUES (?, ?)'
+    ).bind(materialId, user.id).run()
+
+    return c.json({ ok: true })
+  } catch (e) {
+    return c.json({ ok: true }) // silently succeed on error (tracking is non-critical)
+  }
+})
+
 // MATERIAL PRINT REQUEST (#1)
 // =====================================================
 

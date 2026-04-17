@@ -42,7 +42,7 @@ app.get('/admin', async (c) => {
   // Get statistics
   const stats = {
     total_leden: await queryOne<any>(c.env.DB, 
-      `SELECT COUNT(*) as count FROM users WHERE role IN ('lid', 'stemleider') AND is_test_account = 0`
+      `SELECT COUNT(*) as count FROM users WHERE role IN ('lid', 'stemleider')`
     ),
     total_posts: await queryOne<any>(c.env.DB,
       `SELECT COUNT(*) as count FROM posts WHERE is_published = 1`
@@ -1091,11 +1091,11 @@ app.get('/admin/leden', async (c) => {
   // Build query with online status
   let query = `
     SELECT u.id, u.email, u.role, u.stemgroep, u.status, u.created_at, u.last_login_at,
-           p.voornaam, p.achternaam, p.telefoon,
+           p.voornaam, p.achternaam, p.telefoon, u.is_test_account,
            (SELECT COUNT(*) FROM user_sessions WHERE user_id = u.id AND is_active = 1) as is_online
     FROM users u
     LEFT JOIN profiles p ON p.user_id = u.id
-    WHERE u.is_test_account = 0
+    WHERE 1=1
   `
   const params: any[] = []
 
@@ -1145,13 +1145,13 @@ app.get('/admin/leden', async (c) => {
 
   // Get counts for filters (only active members by default)
   const counts = {
-    all: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND is_test_account = 0`),
-    admin: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'admin' AND status = 'actief' AND is_test_account = 0`),
-    moderator: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'moderator' AND status = 'actief' AND is_test_account = 0`),
-    stemleider: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'stemleider' AND status = 'actief' AND is_test_account = 0`),
-    lid: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'lid' AND status = 'actief' AND is_test_account = 0`),
-    actief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND is_test_account = 0`),
-    inactief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'inactief' AND is_test_account = 0`),
+    all: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
+    admin: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'admin' AND status = 'actief'`),
+    moderator: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'moderator' AND status = 'actief'`),
+    stemleider: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'stemleider' AND status = 'actief'`),
+    lid: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'lid' AND status = 'actief'`),
+    actief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
+    inactief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'inactief'`),
     online: await queryOne<any>(c.env.DB, `SELECT COUNT(DISTINCT user_id) as count FROM user_sessions WHERE is_active = 1`),
   }
 
@@ -1477,6 +1477,11 @@ app.get('/admin/leden', async (c) => {
                               <div>
                                 <div class="text-sm font-medium text-gray-900 flex items-center">
                                   {lid.voornaam} {lid.achternaam}
+                                  {lid.is_test_account === 1 && (
+                                    <span class="ml-2 px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded font-semibold" title="Testaccount — niet zichtbaar voor leden">
+                                      <i class="fas fa-flask mr-0.5"></i>TEST
+                                    </span>
+                                  )}
                                   {lid.is_online > 0 && (
                                     <span class="ml-2 text-xs text-green-600 font-semibold">
                                       <i class="fas fa-circle text-xs"></i> Online
@@ -2006,6 +2011,11 @@ app.get('/admin/leden/:id', async (c) => {
                 </h1>
                 <p class="mt-2 text-gray-600">
                   {member.voornaam} {member.achternaam} ({member.email})
+                  {member.is_test_account === 1 && (
+                    <span class="ml-2 px-2 py-0.5 text-xs bg-purple-100 text-purple-700 rounded-full font-semibold">
+                      <i class="fas fa-flask mr-1"></i>Testaccount — niet zichtbaar voor leden
+                    </span>
+                  )}
                 </p>
               </div>
               <div class="flex items-center gap-3">

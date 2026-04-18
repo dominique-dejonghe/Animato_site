@@ -310,6 +310,50 @@ export const Layout: FC<LayoutProps> = ({
           </div>
         </footer>
 
+        {/* Automatic external-link handler: opens external URLs in new tab */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function() {
+            function processLinks() {
+              var currentHost = window.location.hostname;
+              var links = document.querySelectorAll('a[href]');
+              for (var i = 0; i < links.length; i++) {
+                var a = links[i];
+                var href = a.getAttribute('href');
+                if (!href) continue;
+                // Skip anchors, mailto, tel, javascript, and data URLs
+                if (href.charAt(0) === '#' || href.indexOf('mailto:') === 0 || href.indexOf('tel:') === 0 || href.indexOf('javascript:') === 0 || href.indexOf('data:') === 0) continue;
+                // Relative links are always internal
+                if (href.charAt(0) === '/' || href.indexOf('./') === 0 || href.indexOf('../') === 0) {
+                  // If someone accidentally set target=_blank on an internal link, leave it (explicit override)
+                  continue;
+                }
+                // Absolute URL: check host
+                var isExternal = false;
+                try {
+                  var url = new URL(href, window.location.href);
+                  if (url.hostname && url.hostname !== currentHost) {
+                    isExternal = true;
+                  }
+                } catch(e) { /* invalid URL, skip */ continue; }
+                if (isExternal && !a.hasAttribute('target')) {
+                  a.setAttribute('target', '_blank');
+                  var rel = (a.getAttribute('rel') || '').split(/\\s+/);
+                  if (rel.indexOf('noopener') === -1) rel.push('noopener');
+                  if (rel.indexOf('noreferrer') === -1) rel.push('noreferrer');
+                  a.setAttribute('rel', rel.filter(Boolean).join(' '));
+                }
+              }
+            }
+            if (document.readyState === 'loading') {
+              document.addEventListener('DOMContentLoaded', processLinks);
+            } else {
+              processLinks();
+            }
+            // Re-run after Quill editors render or dynamic content is injected
+            document.addEventListener('animato:content-loaded', processLinks);
+          })();
+        `}} />
+
         {/* Custom JS - includes mobile menu handler */}
         <script src="/static/js/app.js"></script>
         

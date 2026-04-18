@@ -207,7 +207,6 @@ app.get('/admin/fotoboek', async (c) => {
                       </a>
                       <a
                         href={`/fotoboek/${album.slug}`}
-                        target="_blank"
                         class="px-3 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg transition text-sm"
                       >
                         <i class="fas fa-external-link-alt"></i>
@@ -760,12 +759,15 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
 
           {/* Add Photo Form (Hidden by default) */}
           <div id="add-photo-form" class="bg-white rounded-lg shadow-md p-6 mb-6" style="display: none;">
-            <h2 class="text-xl font-bold mb-4">Foto Toevoegen</h2>
+            <h2 class="text-xl font-bold mb-4">Media Toevoegen</h2>
             <form method="POST" action={`/admin/fotoboek/album/${albumId}/foto/add`}>
+              
+              {/* Hidden field for media_type */}
+              <input type="hidden" name="media_type" id="media_type_input" value="photo" />
               
               {/* Foto Upload/URL Section */}
               <div class="mb-4">
-                <label class="block text-sm font-medium text-gray-700 mb-2">Foto *</label>
+                <label class="block text-sm font-medium text-gray-700 mb-2">Type *</label>
                 
                 {/* Tab Toggle */}
                 <div class="flex gap-2 mb-3">
@@ -775,7 +777,7 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
                     onclick="switchPhotoMode('upload')"
                     class="flex-1 px-4 py-2 border-2 border-animato-primary bg-animato-primary text-white rounded-lg transition font-medium"
                   >
-                    <i class="fas fa-upload mr-2"></i>Upload Bestand
+                    <i class="fas fa-upload mr-2"></i>Upload Foto
                   </button>
                   <button 
                     type="button" 
@@ -783,7 +785,15 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
                     onclick="switchPhotoMode('url')"
                     class="flex-1 px-4 py-2 border-2 border-gray-300 text-gray-700 rounded-lg transition font-medium hover:bg-gray-50"
                   >
-                    <i class="fas fa-link mr-2"></i>URL Invoeren
+                    <i class="fas fa-link mr-2"></i>Foto URL
+                  </button>
+                  <button 
+                    type="button" 
+                    id="photo-youtube-tab-btn"
+                    onclick="switchPhotoMode('youtube')"
+                    class="flex-1 px-4 py-2 border-2 border-gray-300 text-gray-700 rounded-lg transition font-medium hover:bg-gray-50"
+                  >
+                    <i class="fab fa-youtube mr-2 text-red-600"></i>YouTube Video
                   </button>
                 </div>
 
@@ -825,6 +835,31 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                   />
                   <p class="text-xs text-gray-500 mt-1">Gebruik Unsplash, Imgur of een andere afbeeldingsdienst</p>
+                </div>
+
+                {/* YouTube Section */}
+                <div id="photo-youtube-section" style="display: none;">
+                  <input
+                    type="url"
+                    id="photo_youtube_input"
+                    name="youtube_url"
+                    placeholder="https://www.youtube.com/watch?v=... of https://youtu.be/..."
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    oninput="previewYoutube(this.value)"
+                  />
+                  <p class="text-xs text-gray-500 mt-1">Plak een YouTube-link. Werkt met youtube.com/watch?v=..., youtu.be/... of youtube.com/shorts/...</p>
+                  <div id="youtube_preview" class="hidden mt-3">
+                    <label class="block text-sm text-gray-600 mb-2">Preview:</label>
+                    <div class="relative inline-block">
+                      <img id="youtube_thumbnail" src="" alt="YouTube preview" class="max-h-48 rounded-lg border border-gray-300" />
+                      <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                        <div class="bg-red-600 bg-opacity-90 rounded-full w-14 h-14 flex items-center justify-center">
+                          <i class="fas fa-play text-white text-xl ml-1"></i>
+                        </div>
+                      </div>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">Video-ID: <span id="youtube_id_display" class="font-mono"></span></p>
+                  </div>
                 </div>
 
                 {/* Hidden field for base64 data */}
@@ -897,50 +932,120 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
                 </button>
               </div>
             ) : (
-              <div class="grid md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {photos.map((photo: any) => (
-                  <div class="relative group bg-gray-100 rounded-lg overflow-hidden">
-                    <img 
-                      src={photo.url} 
-                      alt={photo.caption || 'Foto'}
-                      class="w-full h-48 object-cover"
-                    />
-                    
-                    {/* Overlay with info */}
-                    <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-70 transition flex items-end">
-                      <div class="p-3 text-white opacity-0 group-hover:opacity-100 transition">
-                        {photo.caption && (
-                          <p class="text-sm font-medium mb-1">{photo.caption}</p>
-                        )}
-                        {photo.fotograaf && (
-                          <p class="text-xs">📷 {photo.fotograaf}</p>
+              <div>
+                {/* Drag-and-drop hint */}
+                <div class="mb-3 flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-4 py-2 text-sm text-blue-800">
+                  <span><i class="fas fa-arrows-alt mr-2"></i>Sleep items om de volgorde te wijzigen. Wijzigingen worden automatisch opgeslagen.</span>
+                  <span id="reorder-status" class="text-xs text-blue-600"></span>
+                </div>
+                <div id="photos-sortable-grid" class="grid md:grid-cols-3 lg:grid-cols-4 gap-4">
+                  {photos.map((photo: any) => (
+                    <div class="relative group bg-gray-100 rounded-lg overflow-hidden cursor-move sortable-photo-item" data-photo-id={photo.id}>
+                      <img 
+                        src={photo.url} 
+                        alt={photo.caption || 'Foto'}
+                        class="w-full h-48 object-cover"
+                      />
+                      
+                      {/* YouTube overlay */}
+                      {photo.media_type === 'youtube' && (
+                        <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <div class="bg-red-600 bg-opacity-90 rounded-full w-12 h-12 flex items-center justify-center shadow-lg">
+                            <i class="fas fa-play text-white text-lg ml-1"></i>
+                          </div>
+                        </div>
+                      )}
+                      
+                      {/* Overlay with info */}
+                      <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-70 transition flex items-end pointer-events-none">
+                        <div class="p-3 text-white opacity-0 group-hover:opacity-100 transition">
+                          {photo.caption && (
+                            <p class="text-sm font-medium mb-1">{photo.caption}</p>
+                          )}
+                          {photo.fotograaf && (
+                            <p class="text-xs">📷 {photo.fotograaf}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition z-10">
+                        <button
+                          onclick={`event.stopPropagation(); openDeleteModal('/admin/fotoboek/foto/${photo.id}/delete')`}
+                          class="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-xs"
+                        >
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </div>
+
+                      {/* Order badge & type indicator */}
+                      <div class="absolute top-2 left-2 flex gap-1">
+                        <span class="sortable-order-badge px-2 py-1 bg-gray-900 bg-opacity-75 text-white rounded text-xs">
+                          #{photo.sorteer_volgorde}
+                        </span>
+                        {photo.media_type === 'youtube' && (
+                          <span class="px-2 py-1 bg-red-600 text-white rounded text-xs font-semibold">
+                            <i class="fab fa-youtube"></i>
+                          </span>
                         )}
                       </div>
                     </div>
-
-                    {/* Action buttons */}
-                    <div class="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition">
-                      <button
-                        onclick={`openDeleteModal('/admin/fotoboek/foto/${photo.id}/delete')`}
-                        class="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-xs"
-                      >
-                        <i class="fas fa-trash"></i>
-                      </button>
-                    </div>
-
-                    {/* Order badge */}
-                    <div class="absolute top-2 left-2">
-                      <span class="px-2 py-1 bg-gray-900 bg-opacity-75 text-white rounded text-xs">
-                        #{photo.sorteer_volgorde}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* SortableJS for drag-and-drop photo reordering */}
+      <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+      <script dangerouslySetInnerHTML={{ __html: `
+        (function() {
+          function initSortable() {
+            var grid = document.getElementById('photos-sortable-grid');
+            if (!grid || typeof Sortable === 'undefined') return;
+            var status = document.getElementById('reorder-status');
+            var albumId = ${albumId};
+            Sortable.create(grid, {
+              animation: 180,
+              ghostClass: 'opacity-40',
+              chosenClass: 'ring-2',
+              dragClass: 'shadow-xl',
+              filter: 'button, a',
+              preventOnFilter: true,
+              onEnd: function() {
+                var ids = Array.from(grid.querySelectorAll('.sortable-photo-item')).map(function(el) { return el.getAttribute('data-photo-id'); });
+                if (status) { status.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Opslaan...'; }
+                fetch('/admin/fotoboek/album/' + albumId + '/reorder', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ order: ids })
+                }).then(function(r) { return r.json(); }).then(function(data) {
+                  if (data && data.success) {
+                    // Update order badges to reflect new positions
+                    var items = grid.querySelectorAll('.sortable-photo-item');
+                    items.forEach(function(el, idx) {
+                      var badge = el.querySelector('.sortable-order-badge');
+                      if (badge) badge.textContent = '#' + (idx + 1);
+                    });
+                    if (status) { status.innerHTML = '<i class="fas fa-check text-green-600 mr-1"></i>Volgorde opgeslagen'; setTimeout(function() { status.innerHTML = ''; }, 2500); }
+                  } else {
+                    if (status) { status.innerHTML = '<i class="fas fa-exclamation-triangle text-red-600 mr-1"></i>Opslaan mislukt'; }
+                  }
+                }).catch(function() {
+                  if (status) { status.innerHTML = '<i class="fas fa-exclamation-triangle text-red-600 mr-1"></i>Netwerkfout'; }
+                });
+              }
+            });
+          }
+          if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initSortable);
+          } else {
+            initSortable();
+          }
+        })();
+      ` }}></script>
 
       {/* JavaScript for edit form file upload handling */}
       <script dangerouslySetInnerHTML={{
@@ -1039,37 +1144,76 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
             if (info) info.classList.add('hidden');
           }
 
-          // ===== Photo Upload/URL Toggle =====
+          // ===== Media Mode Toggle (upload / url / youtube) =====
           function switchPhotoMode(mode) {
-            const uploadTab = document.getElementById('photo-upload-tab-btn');
-            const urlTab = document.getElementById('photo-url-tab-btn');
-            const uploadSection = document.getElementById('photo-upload-section');
-            const urlSection = document.getElementById('photo-url-section');
+            var tabs = {
+              upload:  document.getElementById('photo-upload-tab-btn'),
+              url:     document.getElementById('photo-url-tab-btn'),
+              youtube: document.getElementById('photo-youtube-tab-btn')
+            };
+            var sections = {
+              upload:  document.getElementById('photo-upload-section'),
+              url:     document.getElementById('photo-url-section'),
+              youtube: document.getElementById('photo-youtube-section')
+            };
+            var mediaTypeInput = document.getElementById('media_type_input');
             
-            if (mode === 'upload') {
-              // Switch to upload mode
-              uploadTab.classList.add('bg-animato-primary', 'text-white', 'border-animato-primary');
-              uploadTab.classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
-              urlTab.classList.remove('bg-animato-primary', 'text-white', 'border-animato-primary');
-              urlTab.classList.add('bg-white', 'text-gray-700', 'border-gray-300');
-              
-              uploadSection.style.display = 'block';
-              urlSection.style.display = 'none';
-              
-              // Clear URL input
-              document.getElementById('photo_url_input').value = '';
+            // Reset all tabs to inactive state
+            Object.keys(tabs).forEach(function(key) {
+              if (!tabs[key]) return;
+              tabs[key].classList.remove('bg-animato-primary', 'text-white', 'border-animato-primary');
+              tabs[key].classList.add('bg-white', 'text-gray-700', 'border-gray-300');
+              if (sections[key]) sections[key].style.display = 'none';
+            });
+            
+            // Activate selected tab
+            if (tabs[mode]) {
+              tabs[mode].classList.add('bg-animato-primary', 'text-white', 'border-animato-primary');
+              tabs[mode].classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
+            }
+            if (sections[mode]) sections[mode].style.display = 'block';
+            
+            // Update media_type hidden field
+            if (mediaTypeInput) {
+              mediaTypeInput.value = (mode === 'youtube') ? 'youtube' : 'photo';
+            }
+            
+            // Clean up other fields
+            if (mode !== 'upload') clearPhotoFile();
+            if (mode !== 'url') { var ui = document.getElementById('photo_url_input'); if (ui) ui.value = ''; }
+            if (mode !== 'youtube') {
+              var yi = document.getElementById('photo_youtube_input'); if (yi) yi.value = '';
+              var yp = document.getElementById('youtube_preview'); if (yp) yp.classList.add('hidden');
+            }
+          }
+          
+          // ===== YouTube URL helpers =====
+          function extractYoutubeId(url) {
+            if (!url) return null;
+            url = String(url).trim();
+            // Match youtube.com/watch?v=ID, youtu.be/ID, youtube.com/shorts/ID, youtube.com/embed/ID
+            var patterns = [
+              /(?:youtube\\.com\\/watch\\?v=|youtu\\.be\\/|youtube\\.com\\/shorts\\/|youtube\\.com\\/embed\\/)([A-Za-z0-9_-]{11})/,
+              /^([A-Za-z0-9_-]{11})$/
+            ];
+            for (var i = 0; i < patterns.length; i++) {
+              var m = url.match(patterns[i]);
+              if (m) return m[1];
+            }
+            return null;
+          }
+          
+          function previewYoutube(url) {
+            var id = extractYoutubeId(url);
+            var preview = document.getElementById('youtube_preview');
+            var thumb = document.getElementById('youtube_thumbnail');
+            var idDisplay = document.getElementById('youtube_id_display');
+            if (id) {
+              thumb.src = 'https://img.youtube.com/vi/' + id + '/hqdefault.jpg';
+              idDisplay.textContent = id;
+              preview.classList.remove('hidden');
             } else {
-              // Switch to URL mode
-              urlTab.classList.add('bg-animato-primary', 'text-white', 'border-animato-primary');
-              urlTab.classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
-              uploadTab.classList.remove('bg-animato-primary', 'text-white', 'border-animato-primary');
-              uploadTab.classList.add('bg-white', 'text-gray-700', 'border-gray-300');
-              
-              urlSection.style.display = 'block';
-              uploadSection.style.display = 'none';
-              
-              // Clear file upload
-              clearPhotoFile();
+              preview.classList.add('hidden');
             }
           }
 
@@ -1124,8 +1268,10 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
             switchPhotoMode('upload');
             clearPhotoFile();
             
-            // Clear URL input
-            document.getElementById('photo_url_input').value = '';
+            // Clear URL and YouTube inputs
+            var ui = document.getElementById('photo_url_input'); if (ui) ui.value = '';
+            var yi = document.getElementById('photo_youtube_input'); if (yi) yi.value = '';
+            var yp = document.getElementById('youtube_preview'); if (yp) yp.classList.add('hidden');
           }
         `
       }}></script>
@@ -1328,43 +1474,71 @@ app.post('/admin/fotoboek/album/:id/delete', async (c) => {
   }
 })
 
-// Add photo to album
+// Extract YouTube video ID from various URL formats
+function extractYoutubeIdServer(input: string): string | null {
+  if (!input) return null
+  const url = String(input).trim()
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/shorts\/|youtube\.com\/embed\/)([A-Za-z0-9_-]{11})/,
+    /^([A-Za-z0-9_-]{11})$/
+  ]
+  for (const p of patterns) {
+    const m = url.match(p)
+    if (m) return m[1]
+  }
+  return null
+}
+
+// Add photo OR YouTube video to album
 app.post('/admin/fotoboek/album/:id/foto/add', async (c) => {
   const user = c.get('user') as SessionUser
   const albumId = c.req.param('id')
   const body = await c.req.parseBody()
   
-  const { url, photo_data, caption, fotograaf, sorteer_volgorde } = body
+  const { url, photo_data, caption, fotograaf, sorteer_volgorde, media_type, youtube_url } = body as any
 
-  // Determine final photo URL
-  // Priority: uploaded file (base64) > URL input
-  let finalPhotoUrl = null
-  if (photo_data && String(photo_data).startsWith('data:image/')) {
-    const dataStr = String(photo_data)
-    if (dataStr.length > 900000) {
-      return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Foto is te groot (' + Math.round(dataStr.length / 1024) + ' KB). Gebruik een kleinere foto of een URL.'))
+  let finalPhotoUrl: string | null = null
+  let finalMediaType: string = 'photo'
+  let finalYoutubeId: string | null = null
+
+  if (media_type === 'youtube') {
+    // YouTube video mode
+    finalYoutubeId = extractYoutubeIdServer(String(youtube_url || ''))
+    if (!finalYoutubeId) {
+      return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Ongeldige YouTube-link. Gebruik een URL zoals https://www.youtube.com/watch?v=... of https://youtu.be/...'))
     }
-    finalPhotoUrl = dataStr
-  } else if (url) {
-    finalPhotoUrl = url as string
-  }
-
-  // Validation: must have either uploaded file or URL
-  if (!finalPhotoUrl) {
-    return c.json({ error: 'Geen foto opgegeven. Upload een bestand of geef een URL op.' }, 400)
+    finalMediaType = 'youtube'
+    // Store the thumbnail URL as the main url so existing cover-image logic keeps working
+    finalPhotoUrl = `https://img.youtube.com/vi/${finalYoutubeId}/hqdefault.jpg`
+  } else {
+    // Photo mode: uploaded file or URL
+    if (photo_data && String(photo_data).startsWith('data:image/')) {
+      const dataStr = String(photo_data)
+      if (dataStr.length > 900000) {
+        return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Foto is te groot (' + Math.round(dataStr.length / 1024) + ' KB). Gebruik een kleinere foto of een URL.'))
+      }
+      finalPhotoUrl = dataStr
+    } else if (url) {
+      finalPhotoUrl = url as string
+    }
+    if (!finalPhotoUrl) {
+      return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Geen foto opgegeven. Upload een bestand, geef een URL op of plak een YouTube-link.'))
+    }
   }
 
   try {
     await c.env.DB.prepare(
-      `INSERT INTO photos (album_id, url, caption, fotograaf, upload_door, sorteer_volgorde)
-       VALUES (?, ?, ?, ?, ?, ?)`
+      `INSERT INTO photos (album_id, url, caption, fotograaf, upload_door, sorteer_volgorde, media_type, youtube_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       albumId,
       finalPhotoUrl,
       caption || null,
       fotograaf || null,
       user.id,
-      sorteer_volgorde || 999
+      sorteer_volgorde || 999,
+      finalMediaType,
+      finalYoutubeId
     ).run()
 
     return c.redirect(`/admin/fotoboek/album/${albumId}`)
@@ -1385,6 +1559,33 @@ app.post('/admin/fotoboek/foto/:id/delete', async (c) => {
     return c.json({ success: true })
   } catch (error: any) {
     return c.json({ error: 'Foto verwijderen mislukt', message: error.message }, 500)
+  }
+})
+
+// Reorder photos in an album (drag-and-drop)
+app.post('/admin/fotoboek/album/:id/reorder', async (c) => {
+  const albumId = c.req.param('id')
+  try {
+    const body = await c.req.json() as { order?: (string | number)[] }
+    const order = Array.isArray(body.order) ? body.order : []
+    if (order.length === 0) {
+      return c.json({ error: 'Geen volgorde opgegeven' }, 400)
+    }
+    // Validate all IDs are numeric
+    const ids = order.map(x => Number(x)).filter(n => Number.isFinite(n) && n > 0)
+    if (ids.length !== order.length) {
+      return c.json({ error: 'Ongeldige foto-IDs' }, 400)
+    }
+    // Batch update: one UPDATE per photo with its new position
+    // Using D1 batch for efficiency
+    const statements = ids.map((id, idx) =>
+      c.env.DB.prepare(`UPDATE photos SET sorteer_volgorde = ? WHERE id = ? AND album_id = ?`)
+        .bind(idx + 1, id, albumId)
+    )
+    await c.env.DB.batch(statements)
+    return c.json({ success: true, count: ids.length })
+  } catch (error: any) {
+    return c.json({ error: 'Volgorde opslaan mislukt', message: error.message }, 500)
   }
 })
 

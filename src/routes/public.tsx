@@ -1301,7 +1301,13 @@ app.get('/fotoboek/:slug', async (c) => {
             </span>
             <span>
               <i class="fas fa-camera mr-2"></i>
-              {photos.length} foto's
+              {(() => {
+                const videoCount = (photos as any[]).filter(p => p.media_type === 'youtube').length
+                const photoCount = photos.length - videoCount
+                if (videoCount === 0) return `${photos.length} foto's`
+                if (photoCount === 0) return `${videoCount} video's`
+                return `${photoCount} foto's · ${videoCount} video's`
+              })()}
             </span>
             {!albumData.is_publiek && (
               <span class="px-3 py-1 bg-yellow-500 rounded-full">
@@ -1330,11 +1336,20 @@ app.get('/fotoboek/:slug', async (c) => {
                   class="relative block w-full overflow-hidden rounded-lg shadow-md hover:shadow-xl transition-shadow cursor-pointer group"
                 >
                   <img
-                    src={photo.thumbnail_url || photo.url}
-                    alt={photo.caption || `Foto ${index + 1}`}
+                    src={photo.media_type === 'youtube' && photo.youtube_id 
+                      ? `https://img.youtube.com/vi/${photo.youtube_id}/hqdefault.jpg` 
+                      : (photo.thumbnail_url || photo.url)}
+                    alt={photo.caption || (photo.media_type === 'youtube' ? `Video ${index + 1}` : `Foto ${index + 1}`)}
                     class="w-full h-auto group-hover:scale-105 transition-transform duration-300"
                     loading="lazy"
                   />
+                  {photo.media_type === 'youtube' && (
+                    <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div class="bg-red-600 bg-opacity-90 rounded-full w-16 h-16 flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform">
+                        <i class="fas fa-play text-white text-2xl ml-1"></i>
+                      </div>
+                    </div>
+                  )}
                   {photo.caption && (
                     <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent p-3 opacity-0 group-hover:opacity-100 transition-opacity">
                       <p class="text-white text-sm">{photo.caption}</p>
@@ -1372,12 +1387,24 @@ app.get('/fotoboek/:slug', async (c) => {
 
         <div class="absolute inset-0 flex items-center justify-center p-4">
           <div class="max-w-6xl w-full">
+            {/* Image container (shown for photos) */}
             <img
               id="lightboxImage"
               src=""
               alt=""
               class="max-w-full max-h-[85vh] mx-auto rounded-lg"
             />
+            {/* YouTube iframe container (shown for videos) */}
+            <div id="lightboxVideo" class="hidden w-full" style="aspect-ratio: 16/9; max-height: 85vh;">
+              <iframe
+                id="lightboxIframe"
+                src=""
+                frameborder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowfullscreen
+                class="w-full h-full rounded-lg"
+              ></iframe>
+            </div>
             <div id="lightboxCaption" class="text-white text-center mt-4 text-lg"></div>
             <div id="lightboxCounter" class="text-white/70 text-center mt-2 text-sm"></div>
           </div>
@@ -1400,6 +1427,9 @@ app.get('/fotoboek/:slug', async (c) => {
           function closeLightbox() {
             document.getElementById('lightbox').classList.add('hidden');
             document.body.style.overflow = '';
+            // Stop video playback by clearing the iframe src
+            var iframe = document.getElementById('lightboxIframe');
+            if (iframe) iframe.src = '';
           }
 
           function nextPhoto() {
@@ -1413,9 +1443,22 @@ app.get('/fotoboek/:slug', async (c) => {
           }
 
           function updateLightbox() {
-            const photo = photos[currentPhotoIndex];
-            document.getElementById('lightboxImage').src = photo.url;
-            document.getElementById('lightboxImage').alt = photo.caption || '';
+            var photo = photos[currentPhotoIndex];
+            var img = document.getElementById('lightboxImage');
+            var vid = document.getElementById('lightboxVideo');
+            var iframe = document.getElementById('lightboxIframe');
+            
+            if (photo.media_type === 'youtube' && photo.youtube_id) {
+              img.classList.add('hidden');
+              vid.classList.remove('hidden');
+              iframe.src = 'https://www.youtube.com/embed/' + photo.youtube_id + '?autoplay=1&rel=0';
+            } else {
+              vid.classList.add('hidden');
+              img.classList.remove('hidden');
+              img.src = photo.url;
+              img.alt = photo.caption || '';
+              iframe.src = '';
+            }
             document.getElementById('lightboxCaption').textContent = photo.caption || '';
             document.getElementById('lightboxCounter').textContent = 
               (currentPhotoIndex + 1) + ' / ' + photos.length;

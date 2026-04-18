@@ -266,7 +266,6 @@ app.get('/admin/tickets', async (c) => {
                       )}
                       <a
                         href={`/concerten/${concert.slug}`}
-                        target="_blank"
                         class="w-full bg-white text-gray-700 border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50 transition text-center"
                       >
                         <i class="fas fa-external-link-alt mr-2"></i>

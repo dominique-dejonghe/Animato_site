@@ -301,7 +301,6 @@ app.get('/admin/voorstellen', async (c) => {
                     <div class="ml-6 flex flex-col gap-2 min-w-[180px]">
                       <a 
                         href={`/leden/voorstellen/${proposal.id}`}
-                        target="_blank"
                         class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition text-sm text-center"
                       >
                         <i class="fas fa-external-link-alt mr-2"></i>

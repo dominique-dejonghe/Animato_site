@@ -524,7 +524,6 @@ app.get('/agenda', async (c) => {
                               href={event.type === 'concert' && event.slug ? `/concerten/${event.slug}` : `#`}
                               title="Bekijk publieke pagina"
                               class={`${event.type === 'concert' && event.slug ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-400 cursor-not-allowed'} text-white text-xs font-bold px-3 py-1.5 rounded-full shadow-lg flex items-center gap-1.5 transition`}
-                              target="_blank"
                             >
                               <i class="fas fa-external-link-alt"></i> Publiek
                             </a>

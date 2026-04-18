@@ -1171,7 +1171,6 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
             </a>
             <a
               href={`/concerten/${event.slug}`}
-              target="_blank"
               class="inline-flex items-center gap-2 text-sm bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition"
             >
               <i class="fas fa-external-link-alt"></i>

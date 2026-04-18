@@ -292,7 +292,6 @@ app.get('/admin/polls', async (c) => {
                         <div class="flex items-center gap-2">
                           <a 
                             href={`/leden/polls/${poll.id}`}
-                            target="_blank"
                             class="px-3 py-1 text-blue-600 hover:bg-blue-50 rounded transition text-sm"
                           >
                             <i class="fas fa-external-link-alt mr-1"></i>

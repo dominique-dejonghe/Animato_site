@@ -25,9 +25,9 @@ app.get('/login', async (c) => {
       <div class="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
         <div class="max-w-md w-full space-y-8">
           <div class="text-center">
-            <div class="text-animato-primary text-5xl mb-4">
-              <i class="fas fa-music"></i>
-            </div>
+            <a href="/" class="inline-block mb-4" aria-label="Animato Home">
+              <img src="/static/images/animato-logo-full.png" alt="Animato - Koor met passie" class="h-20 w-auto mx-auto" />
+            </a>
             <h2 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
               Inloggen
             </h2>

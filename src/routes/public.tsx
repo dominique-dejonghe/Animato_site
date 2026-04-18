@@ -117,7 +117,13 @@ app.get('/', async (c) => {
         {/* Content overlay */}
         <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-full flex items-center justify-center">
           <div class="text-center">
-            <h1 class="text-5xl md:text-6xl font-bold mb-6 drop-shadow-lg" style="font-family: 'Playfair Display', serif;">
+            <img
+              src="/static/images/animato-note.png"
+              alt=""
+              class="h-24 md:h-32 w-auto mx-auto mb-6 brightness-0 invert drop-shadow-2xl animate-pulse"
+              style="animation-duration: 3s;"
+            />
+            <h1 class="text-5xl md:text-6xl font-bold mb-4 drop-shadow-lg" style="font-family: 'Playfair Display', serif;">
               Gemengd Koor Animato
             </h1>
             <p class="text-xl md:text-2xl mb-8 text-gray-100 drop-shadow-lg">
@@ -219,7 +225,7 @@ app.get('/', async (c) => {
                         <img src={concert.display_image || concert.poster_url} alt={concert.titel} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
                       ) : (
                         <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-animato-primary to-animato-secondary">
-                          <i class="fas fa-music text-white text-4xl"></i>
+                          <img src="/static/images/animato-note.png" alt="" class="h-20 w-auto brightness-0 invert opacity-80" />
                         </div>
                       )}
                     </div>
@@ -590,7 +596,7 @@ app.get('/word-lid', async (c) => {
               <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-animato-primary">
                 <div class="flex items-center mb-3">
                   <div class="w-10 h-10 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mr-3">
-                    <i class="fas fa-music text-animato-primary"></i>
+                    <img src="/static/images/animato-note.png" alt="" class="h-6 w-auto" />
                   </div>
                   <h3 class="text-xl font-semibold">🎵 Sopraan</h3>
                 </div>
@@ -600,7 +606,7 @@ app.get('/word-lid', async (c) => {
               <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-animato-primary">
                 <div class="flex items-center mb-3">
                   <div class="w-10 h-10 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mr-3">
-                    <i class="fas fa-music text-animato-primary"></i>
+                    <img src="/static/images/animato-note.png" alt="" class="h-6 w-auto" />
                   </div>
                   <h3 class="text-xl font-semibold">🎵 Alt</h3>
                 </div>
@@ -610,7 +616,7 @@ app.get('/word-lid', async (c) => {
               <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-animato-primary">
                 <div class="flex items-center mb-3">
                   <div class="w-10 h-10 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mr-3">
-                    <i class="fas fa-music text-animato-primary"></i>
+                    <img src="/static/images/animato-note.png" alt="" class="h-6 w-auto" />
                   </div>
                   <h3 class="text-xl font-semibold">🎵 Tenor</h3>
                 </div>
@@ -620,7 +626,7 @@ app.get('/word-lid', async (c) => {
               <div class="bg-white p-6 rounded-lg shadow-md border-l-4 border-animato-primary">
                 <div class="flex items-center mb-3">
                   <div class="w-10 h-10 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mr-3">
-                    <i class="fas fa-music text-animato-primary"></i>
+                    <img src="/static/images/animato-note.png" alt="" class="h-6 w-auto" />
                   </div>
                   <h3 class="text-xl font-semibold">🎵 Bas</h3>
                 </div>

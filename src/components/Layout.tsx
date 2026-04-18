@@ -33,8 +33,8 @@ export const Layout: FC<LayoutProps> = ({
         {/* Animato branding colors */}
         <meta name="theme-color" content="#00A9CE" />
         
-        {/* Tailwind CSS */}
-        <script src="https://cdn.tailwindcss.com"></script>
+        {/* Tailwind CSS (with typography plugin for .prose rich-text styling) */}
+        <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
         <script dangerouslySetInnerHTML={{
           __html: `
             tailwind.config = {
@@ -90,7 +90,8 @@ export const Layout: FC<LayoutProps> = ({
         <script src="https://cdn.jsdelivr.net/npm/shepherd.js@11/dist/js/shepherd.min.js"></script>
         
         {/* Favicon - placeholder */}
-        <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg" />
+        <link rel="icon" type="image/png" href="/static/images/animato-note.png" />
+        <link rel="apple-touch-icon" href="/static/images/animato-note.png" />
       </head>
       
       <body class="font-sans bg-gray-50 text-gray-900" style="font-family: 'Inter', sans-serif;">
@@ -110,18 +111,14 @@ export const Layout: FC<LayoutProps> = ({
             <div class="flex justify-between items-center h-16">
               {/* Logo */}
               <div class="flex items-center">
-                <a href="/" class="flex items-center space-x-3">
-                  <div class="text-animato-primary text-3xl">
-                    <i class="fas fa-music"></i>
-                  </div>
-                  <div>
-                    <div class="text-xl font-bold text-animato-primary" style="font-family: 'Playfair Display', serif;">
-                      Animato
-                    </div>
-                    <div class="text-xs text-animato-secondary -mt-1">
-                      koor met passie
-                    </div>
-                  </div>
+                <a href="/" class="flex items-center" aria-label="Animato - Koor met passie - Home">
+                  <img
+                    src="/static/images/animato-logo-full.png"
+                    alt="Animato - Koor met passie"
+                    class="h-12 md:h-14 w-auto"
+                    width="256"
+                    height="145"
+                  />
                 </a>
               </div>
 
@@ -255,9 +252,13 @@ export const Layout: FC<LayoutProps> = ({
             <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
               {/* Over Animato */}
               <div>
-                <h3 class="text-lg font-bold mb-4" style="font-family: 'Playfair Display', serif;">
-                  Gemengd Koor Animato
-                </h3>
+                <img
+                  src="/static/images/animato-logo-full.png"
+                  alt="Animato - Koor met passie"
+                  class="h-16 w-auto mb-4 brightness-0 invert opacity-90"
+                  width="256"
+                  height="145"
+                />
                 <p class="text-gray-300 text-sm">
                   Koor met passie. Samen musiceren, samen groeien, samen genieten van prachtige muziek.
                 </p>

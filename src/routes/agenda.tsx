@@ -862,7 +862,7 @@ app.get('/concerten', async (c) => {
                         />
                       ) : (
                         <div class="w-full h-full flex items-center justify-center bg-gradient-to-br from-animato-primary to-animato-secondary">
-                          <i class="fas fa-music text-white text-5xl opacity-50"></i>
+                          <img src="/static/images/animato-note.png" alt="" class="h-24 w-auto brightness-0 invert opacity-70" />
                         </div>
                       )}
                       {concert.uitverkocht == 1 && (
@@ -1027,7 +1027,8 @@ app.get('/concerten/:slug', async (c) => {
 
   const concert = await queryOne<any>(
     c.env.DB,
-    `SELECT e.*, c.poster_url, c.programma, c.prijsstructuur, c.capaciteit, c.verkocht, c.uitverkocht, c.ticketing_enabled, c.voorverkoop_start_at
+    `SELECT e.*, c.poster_url, c.programma, c.prijsstructuur, c.capaciteit, c.verkocht, c.uitverkocht, c.ticketing_enabled, c.voorverkoop_start_at,
+            c.parking, c.toegankelijkheid, c.duur_info, c.sfeer_dresscode, c.extra_info
      FROM events e
      LEFT JOIN concerts c ON c.event_id = e.id
      WHERE e.slug = ? AND e.type = 'concert'`,
@@ -1099,7 +1100,7 @@ app.get('/concerten/:slug', async (c) => {
             />
           ) : (
             <div class="flex items-center justify-center h-full">
-              <i class="fas fa-music text-white text-8xl opacity-30"></i>
+              <img src="/static/images/animato-note.png" alt="" class="h-40 w-auto brightness-0 invert opacity-40" />
             </div>
           )}
           <div class="absolute inset-0 bg-black bg-opacity-40"></div>
@@ -1170,17 +1171,67 @@ app.get('/concerten/:slug', async (c) => {
                   <h2 class="text-2xl font-bold text-gray-900 mb-4">
                     Over dit concert
                   </h2>
-                  <div class="prose prose-lg" dangerouslySetInnerHTML={{ __html: concert.beschrijving }} />
+                  <div class="prose prose-lg max-w-none" dangerouslySetInnerHTML={{ __html: concert.beschrijving }} />
                 </div>
               )}
 
               {/* Program */}
               {concert.programma && (
-                <div class="bg-white rounded-lg shadow-md p-8">
-                  <h2 class="text-2xl font-bold text-gray-900 mb-4">
+                <div class="bg-white rounded-lg shadow-md p-8 mb-8">
+                  <h2 class="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-3">
+                    <img src="/static/images/animato-note.png" alt="" class="h-7 w-auto" />
                     Programma
                   </h2>
-                  <div class="prose prose-lg" dangerouslySetInnerHTML={{ __html: concert.programma }} />
+                  <div class="prose prose-lg max-w-none" dangerouslySetInnerHTML={{ __html: concert.programma }} />
+                </div>
+              )}
+
+              {/* Practical info blocks */}
+              {(concert.duur_info || concert.sfeer_dresscode || concert.parking || concert.toegankelijkheid || concert.extra_info) && (
+                <div class="bg-white rounded-lg shadow-md p-8">
+                  <h2 class="text-2xl font-bold text-gray-900 mb-6">Praktische informatie</h2>
+                  <div class="space-y-6">
+                    {concert.duur_info && (
+                      <div>
+                        <h3 class="text-lg font-semibold text-animato-primary mb-2 flex items-center gap-2">
+                          <i class="far fa-clock"></i> Duur
+                        </h3>
+                        <div class="prose max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: concert.duur_info }} />
+                      </div>
+                    )}
+                    {concert.sfeer_dresscode && (
+                      <div>
+                        <h3 class="text-lg font-semibold text-animato-primary mb-2 flex items-center gap-2">
+                          <i class="fas fa-tshirt"></i> Sfeer &amp; dresscode
+                        </h3>
+                        <div class="prose max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: concert.sfeer_dresscode }} />
+                      </div>
+                    )}
+                    {concert.parking && (
+                      <div>
+                        <h3 class="text-lg font-semibold text-animato-primary mb-2 flex items-center gap-2">
+                          <i class="fas fa-parking"></i> Parking
+                        </h3>
+                        <div class="prose max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: concert.parking }} />
+                      </div>
+                    )}
+                    {concert.toegankelijkheid && (
+                      <div>
+                        <h3 class="text-lg font-semibold text-animato-primary mb-2 flex items-center gap-2">
+                          <i class="fas fa-wheelchair"></i> Toegankelijkheid
+                        </h3>
+                        <div class="prose max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: concert.toegankelijkheid }} />
+                      </div>
+                    )}
+                    {concert.extra_info && (
+                      <div>
+                        <h3 class="text-lg font-semibold text-animato-primary mb-2 flex items-center gap-2">
+                          <i class="fas fa-info-circle"></i> Extra informatie
+                        </h3>
+                        <div class="prose max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: concert.extra_info }} />
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

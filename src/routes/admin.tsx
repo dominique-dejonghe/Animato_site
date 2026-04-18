@@ -1099,10 +1099,12 @@ app.get('/admin/leden', async (c) => {
   const role = c.req.query('role') || 'all'
   const stemgroep = c.req.query('stemgroep') || 'all'
   const status = c.req.query('status') || 'actief'  // Default to only active members
+  const bestuur = c.req.query('bestuur') || 'all'   // 'all' | 'yes' | 'no'
 
   // Build query with online status
   let query = `
     SELECT u.id, u.email, u.role, u.stemgroep, u.status, u.created_at, u.last_login_at,
+           u.is_bestuurslid,
            p.voornaam, p.achternaam, p.telefoon, u.is_test_account,
            (SELECT COUNT(*) FROM user_sessions WHERE user_id = u.id AND is_active = 1) as is_online
     FROM users u
@@ -1135,6 +1137,13 @@ app.get('/admin/leden', async (c) => {
     params.push(status)
   }
 
+  // Bestuur filter
+  if (bestuur === 'yes') {
+    query += ` AND u.is_bestuurslid = 1`
+  } else if (bestuur === 'no') {
+    query += ` AND (u.is_bestuurslid IS NULL OR u.is_bestuurslid = 0)`
+  }
+
   // Default sort: stemgroep first, then alphabetically (#54)
   const sortBy = c.req.query('sort') || 'stemgroep'
   if (sortBy === 'stemgroep') {
@@ -1165,6 +1174,7 @@ app.get('/admin/leden', async (c) => {
     actief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
     inactief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'inactief'`),
     online: await queryOne<any>(c.env.DB, `SELECT COUNT(DISTINCT user_id) as count FROM user_sessions WHERE is_active = 1`),
+    bestuur: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE is_bestuurslid = 1 AND status = 'actief'`),
   }
 
   return c.html(
@@ -1214,7 +1224,7 @@ app.get('/admin/leden', async (c) => {
           
           {/* Stats Bar */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
               <div class="text-center">
                 <p class="text-2xl font-bold text-gray-900">{counts.all?.count || 0}</p>
                 <p class="text-sm text-gray-600">Totaal</p>
@@ -1227,6 +1237,13 @@ app.get('/admin/leden', async (c) => {
                 <p class="text-2xl font-bold text-purple-600">{counts.stemleider?.count || 0}</p>
                 <p class="text-sm text-gray-600">Stemleiders</p>
               </div>
+              <a href="/admin/leden?bestuur=yes&status=actief" class="text-center hover:bg-yellow-50 rounded-lg py-1 transition cursor-pointer" title="Toon alleen bestuursleden">
+                <p class="text-2xl font-bold text-yellow-600 flex items-center justify-center">
+                  <i class="fas fa-shield-alt text-sm mr-1"></i>
+                  {counts.bestuur?.count || 0}
+                </p>
+                <p class="text-sm text-gray-600">Bestuur</p>
+              </a>
               <div class="text-center">
                 <p class="text-2xl font-bold text-amber-600">{counts.moderator?.count || 0}</p>
                 <p class="text-sm text-gray-600">Moderators</p>
@@ -1238,10 +1255,6 @@ app.get('/admin/leden', async (c) => {
               <div class="text-center">
                 <p class="text-2xl font-bold text-green-600">{counts.actief?.count || 0}</p>
                 <p class="text-sm text-gray-600">Actief</p>
-              </div>
-              <div class="text-center">
-                <p class="text-2xl font-bold text-gray-400">{counts.inactief?.count || 0}</p>
-                <p class="text-sm text-gray-600">Inactief</p>
               </div>
               <div class="text-center border-l-2 border-animato-accent pl-4">
                 <p class="text-2xl font-bold text-animato-accent flex items-center justify-center">
@@ -1322,7 +1335,7 @@ app.get('/admin/leden', async (c) => {
           {/* Filters & Search */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <form method="GET" action="/admin/leden" class="space-y-4">
-              <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-2">Zoeken</label>
                   <input
@@ -1376,6 +1389,21 @@ app.get('/admin/leden', async (c) => {
                     <option value="inactief" selected={status === 'inactief'}>Inactief</option>
                   </select>
                 </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-shield-alt text-yellow-500 mr-1"></i>
+                    Bestuur
+                  </label>
+                  <select
+                    name="bestuur"
+                    onchange="this.form.submit()"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  >
+                    <option value="all" selected={bestuur === 'all'}>Iedereen</option>
+                    <option value="yes" selected={bestuur === 'yes'}>👔 Enkel bestuursleden ({counts.bestuur?.count || 0})</option>
+                    <option value="no" selected={bestuur === 'no'}>Enkel gewone leden</option>
+                  </select>
+                </div>
               </div>
               <div class="flex justify-between items-center">
                 <p class="text-sm text-gray-600">
@@ -1401,11 +1429,11 @@ app.get('/admin/leden', async (c) => {
           {/* Sort options */}
           <div class="flex items-center gap-2 mb-4">
             <span class="text-sm text-gray-600 font-medium">Sorteren:</span>
-            <a href={`/admin/leden?search=${search}&role=${role}&stemgroep=${stemgroep}&status=${status}&sort=naam`}
+            <a href={`/admin/leden?search=${search}&role=${role}&stemgroep=${stemgroep}&status=${status}&bestuur=${bestuur}&sort=naam`}
                class={`text-sm px-3 py-1 rounded-full transition ${sortBy === 'naam' ? 'bg-animato-primary text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
               <i class="fas fa-sort-alpha-down mr-1"></i> Op naam
             </a>
-            <a href={`/admin/leden?search=${search}&role=${role}&stemgroep=${stemgroep}&status=${status}&sort=stemgroep`}
+            <a href={`/admin/leden?search=${search}&role=${role}&stemgroep=${stemgroep}&status=${status}&bestuur=${bestuur}&sort=stemgroep`}
                class={`text-sm px-3 py-1 rounded-full transition ${sortBy === 'stemgroep' ? 'bg-animato-primary text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
               <i class="fas fa-music mr-1"></i> Op stemgroep
             </a>
@@ -1487,15 +1515,20 @@ app.get('/admin/leden', async (c) => {
                                 )}
                               </div>
                               <div>
-                                <div class="text-sm font-medium text-gray-900 flex items-center">
-                                  {lid.voornaam} {lid.achternaam}
+                                <div class="text-sm font-medium text-gray-900 flex items-center flex-wrap gap-1">
+                                  <span>{lid.voornaam} {lid.achternaam}</span>
+                                  {lid.is_bestuurslid === 1 && (
+                                    <span class="px-1.5 py-0.5 text-xs bg-yellow-100 text-yellow-800 rounded font-semibold border border-yellow-300" title="Bestuurslid — toegang tot vergaderingen & projecten">
+                                      <i class="fas fa-shield-alt mr-0.5"></i>BESTUUR
+                                    </span>
+                                  )}
                                   {lid.is_test_account === 1 && (
-                                    <span class="ml-2 px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded font-semibold" title="Testaccount — niet zichtbaar voor leden">
+                                    <span class="px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded font-semibold" title="Testaccount — niet zichtbaar voor leden">
                                       <i class="fas fa-flask mr-0.5"></i>TEST
                                     </span>
                                   )}
                                   {lid.is_online > 0 && (
-                                    <span class="ml-2 text-xs text-green-600 font-semibold">
+                                    <span class="text-xs text-green-600 font-semibold">
                                       <i class="fas fa-circle text-xs"></i> Online
                                     </span>
                                   )}

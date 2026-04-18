@@ -1283,7 +1283,7 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
                   Beschrijving
                 </label>
                 <input type="hidden" name="beschrijving" id="beschrijving-hidden" value={event?.beschrijving || ''} />
-                <div id="beschrijving-editor" class="bg-white rounded-b-lg" style="min-height: 180px;" />
+                <div id="beschrijving-editor" class="bg-white rounded-b-lg" />
                 <p class="text-xs text-gray-400 mt-1">
                   <i class="fas fa-info-circle mr-1"></i>
                   Gebruik de werkbalk voor opmaak: vet, cursief, lijsten, links, enz.
@@ -1807,7 +1807,10 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
       <style dangerouslySetInnerHTML={{ __html: `
         .ql-toolbar.ql-snow { border-top-left-radius: 0.5rem; border-top-right-radius: 0.5rem; border-color: #d1d5db; background: #f9fafb; }
         .ql-container.ql-snow { border-bottom-left-radius: 0.5rem; border-bottom-right-radius: 0.5rem; border-color: #d1d5db; font-size: 0.95rem; }
-        .ql-editor { min-height: 160px; }
+        /* Editor groeit mee met content tot een redelijk maximum, daarna scrollt het.
+           min-height zorgt voor een comfortabel kader bij lege content,
+           max-height voorkomt dat een lange tekst de rest van het formulier wegduwt. */
+        .ql-editor { min-height: 160px; max-height: 320px; overflow-y: auto; }
         .ql-editor p { margin-bottom: 0.5em; }
         .ql-editor h1, .ql-editor h2, .ql-editor h3 { margin-top: 0.8em; margin-bottom: 0.4em; }
         .ql-snow .ql-picker.ql-header .ql-picker-label::before, .ql-snow .ql-picker.ql-header .ql-picker-item::before { content: 'Normaal'; }

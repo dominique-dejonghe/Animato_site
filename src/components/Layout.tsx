@@ -61,6 +61,29 @@ export const Layout: FC<LayoutProps> = ({
         
         {/* Custom CSS */}
         <link href="/static/css/styles.css" rel="stylesheet" />
+
+        {/* Global rich-text editor & textarea scroll behaviour
+            Zorgt dat Quill-editors en grote textareas in admin-formulieren
+            niet onbeperkt uitdijen. Lange tekst → interne scrollbar. */}
+        <style dangerouslySetInnerHTML={{ __html: `
+          /* Quill rich-text editors: compact wanneer leeg, scrollbaar wanneer lang */
+          .ql-editor {
+            min-height: 160px;
+            max-height: 320px;
+            overflow-y: auto;
+          }
+          /* Voor notulen-achtige velden mag het iets groter */
+          .ql-editor.ql-editor-large,
+          textarea.admin-textarea-large {
+            max-height: 480px;
+          }
+          /* Standaard: alle textareas in admin-formulieren scrollen als ze groeien */
+          .admin-form textarea,
+          form[action^="/api/admin"] textarea {
+            max-height: 320px;
+            overflow-y: auto;
+          }
+        ` }} />
         
         {/* Shepherd.js - Walkthrough Tours */}
         <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11/dist/css/shepherd.css" />

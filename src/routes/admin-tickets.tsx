@@ -17,7 +17,8 @@ app.get('/admin/tickets', async (c) => {
   // Get all concert events with optional concerts table data
   const concerts = await queryAll(c.env.DB, `
     SELECT e.id as event_id, e.titel, e.slug, e.start_at, e.locatie, e.type,
-           c.id as concert_id, c.programma, c.ticketing_enabled, c.uitverkocht,
+           c.id as concert_id, c.programma, c.ticketing_enabled, c.uitverkocht, c.voorverkoop_start_at,
+           c.capaciteit, c.verkocht,
            COUNT(t.id) as ticket_count,
            SUM(CASE WHEN t.status = 'paid' THEN 1 ELSE 0 END) as paid_count,
            SUM(CASE WHEN t.status = 'paid' THEN t.prijs_totaal ELSE 0 END) as revenue
@@ -148,6 +149,11 @@ app.get('/admin/tickets', async (c) => {
                             {concert.uitverkocht && (
                               <span class="px-3 py-1 bg-red-100 text-red-800 rounded-full text-xs font-semibold">
                                 UITVERKOCHT
+                              </span>
+                            )}
+                            {!concert.uitverkocht && concert.voorverkoop_start_at && new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')).getTime() > Date.now() && (
+                              <span class="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold" title={`Voorverkoop start ${concert.voorverkoop_start_at}`}>
+                                <i class="fas fa-clock mr-1"></i>VOORVERKOOP OP {new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })}
                               </span>
                             )}
                             {isPast && (
@@ -723,6 +729,26 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
                 <label for="uitverkocht" class="text-gray-900 font-medium">
                   Markeer als uitverkocht (verbergt bestelformulier)
                 </label>
+              </div>
+
+              {/* Voorverkoop start-datum */}
+              <div class="border-l-4 border-amber-400 bg-amber-50 rounded-r-lg p-4">
+                <label class="block text-sm font-semibold text-amber-900 mb-2">
+                  <i class="fas fa-clock mr-2"></i>
+                  Voorverkoop start op (optioneel)
+                </label>
+                <input
+                  type="datetime-local"
+                  name="voorverkoop_start_at"
+                  value={concert.voorverkoop_start_at ? String(concert.voorverkoop_start_at).replace(' ', 'T').substring(0, 16) : ''}
+                  class="w-full border border-amber-300 rounded-lg px-4 py-2 bg-white"
+                />
+                <p class="text-xs text-amber-800 mt-2 leading-relaxed">
+                  <i class="fas fa-info-circle mr-1"></i>
+                  Vul een datum in de <strong>toekomst</strong> in om aan te kondigen dat de voorverkoop later start.
+                  Bezoekers zien dan "Voorverkoop start op [datum]" in plaats van de bestelknop.
+                  Laat leeg voor directe verkoop (mits ticketverkoop is ingeschakeld).
+                </p>
               </div>
 
               <div>
@@ -1302,11 +1328,20 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
       return c.json({ error: 'Concert niet gevonden' }, 404)
     }
 
+    // Normaliseer voorverkoop_start_at: leeg → NULL, 'YYYY-MM-DDTHH:MM' → 'YYYY-MM-DD HH:MM:00'
+    let voorverkoopStart: string | null = null
+    const voorverkoopRaw = String(body.voorverkoop_start_at || '').trim()
+    if (voorverkoopRaw) {
+      // datetime-local levert 'YYYY-MM-DDTHH:MM' op — omzetten naar SQLite-vriendelijk formaat
+      voorverkoopStart = voorverkoopRaw.replace('T', ' ') + (voorverkoopRaw.length === 16 ? ':00' : '')
+    }
+
     // Update concert settings
     await execute(c.env.DB, `
       UPDATE concerts SET
         ticketing_enabled = ?,
         uitverkocht = ?,
+        voorverkoop_start_at = ?,
         capaciteit = ?,
         prijsstructuur = ?,
         programma = ?,
@@ -1319,6 +1354,7 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
     `, [
       body.ticketing_enabled ? 1 : 0,
       body.uitverkocht ? 1 : 0,
+      voorverkoopStart,
       parseInt(String(body.capaciteit)) || 0,
       JSON.stringify(prijzen),
       String(body.programma || ''),

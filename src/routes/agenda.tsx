@@ -756,7 +756,7 @@ app.get('/concerten', async (c) => {
 
   // Query based on view parameter — admins also see non-public concerts
   let query = `
-    SELECT e.*, c.poster_url, c.programma, c.uitverkocht,
+    SELECT e.*, c.poster_url, c.programma, c.uitverkocht, c.voorverkoop_start_at, c.ticketing_enabled,
            COALESCE(c.poster_url, e.image_url) as display_image
     FROM events e
     LEFT JOIN concerts c ON c.event_id = e.id
@@ -869,6 +869,13 @@ app.get('/concerten', async (c) => {
                       {concert.uitverkocht == 1 && (
                         <div class="absolute top-4 right-4 bg-red-500 text-white px-3 py-1 rounded-full text-sm font-semibold">
                           Uitverkocht
+                        </div>
+                      )}
+                      {/* Voorverkoop-nog-niet-open badge */}
+                      {concert.uitverkocht != 1 && concert.voorverkoop_start_at && new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')).getTime() > Date.now() && (
+                        <div class="absolute top-4 right-4 bg-amber-500 text-white px-3 py-1 rounded-full text-sm font-semibold shadow">
+                          <i class="fas fa-clock mr-1"></i>
+                          Voorverkoop binnenkort
                         </div>
                       )}
                     </div>
@@ -1021,7 +1028,7 @@ app.get('/concerten/:slug', async (c) => {
 
   const concert = await queryOne<any>(
     c.env.DB,
-    `SELECT e.*, c.poster_url, c.programma, c.prijsstructuur, c.capaciteit, c.verkocht, c.uitverkocht, c.ticketing_enabled
+    `SELECT e.*, c.poster_url, c.programma, c.prijsstructuur, c.capaciteit, c.verkocht, c.uitverkocht, c.ticketing_enabled, c.voorverkoop_start_at
      FROM events e
      LEFT JOIN concerts c ON c.event_id = e.id
      WHERE e.slug = ? AND e.type = 'concert'`,
@@ -1033,6 +1040,13 @@ app.get('/concerten/:slug', async (c) => {
   }
 
   const prijzen = concert.prijsstructuur ? JSON.parse(concert.prijsstructuur) : []
+
+  // Voorverkoop-logica: als voorverkoop_start_at in de toekomst ligt, is verkoop nog niet open
+  const voorverkoopStart = concert.voorverkoop_start_at ? new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')) : null
+  const voorverkoopNogNietOpen = !!(voorverkoopStart && voorverkoopStart.getTime() > Date.now())
+  const voorverkoopStartFormatted = voorverkoopStart
+    ? voorverkoopStart.toLocaleString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : ''
 
   const isAdmin = (user as any)?.role === 'admin'
 
@@ -1188,6 +1202,40 @@ app.get('/concerten/:slug', async (c) => {
                     <p class="text-sm text-red-600 mt-2">
                       Dit concert is helaas volledig uitverkocht.
                     </p>
+                  </div>
+                ) : voorverkoopNogNietOpen ? (
+                  <div class="bg-amber-50 border border-amber-300 rounded-lg p-6 text-center">
+                    <i class="fas fa-clock text-amber-500 text-3xl mb-3"></i>
+                    <p class="text-lg font-semibold text-amber-900 mb-1">
+                      Nog geen tickets beschikbaar
+                    </p>
+                    <p class="text-sm text-amber-800 leading-relaxed">
+                      De voorverkoop start op<br />
+                      <strong class="text-base">{voorverkoopStartFormatted}</strong>
+                    </p>
+                    {/* Voorbeeld prijzen tonen zodat bezoekers alvast het budget kennen */}
+                    {prijzen.length > 0 && (
+                      <div class="mt-5 pt-4 border-t border-amber-200 text-left">
+                        <p class="text-xs font-semibold text-amber-900 mb-2 uppercase tracking-wide">
+                          <i class="fas fa-tag mr-1"></i>Prijzen
+                        </p>
+                        {prijzen.map((prijs: any) => (
+                          <div class="flex justify-between items-center py-1 text-sm">
+                            <span class="text-amber-900">{prijs.categorie}</span>
+                            <span class="font-semibold text-amber-900">€{prijs.prijs}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Agenda-herinnering knop */}
+                    <a
+                      href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent('Voorverkoop start: ' + concert.titel)}&dates=${(String(concert.voorverkoop_start_at) || '').replace(/[-: ]/g, '').substring(0, 15)}/${(String(concert.voorverkoop_start_at) || '').replace(/[-: ]/g, '').substring(0, 15)}&details=${encodeURIComponent('Herinner mij om tickets te bestellen voor ' + concert.titel)}`}
+                      target="_blank" rel="noopener"
+                      class="mt-5 inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+                    >
+                      <i class="fas fa-bell"></i>
+                      Zet in mijn agenda
+                    </a>
                   </div>
                 ) : concert.ticketing_enabled == 1 ? (
                   <>

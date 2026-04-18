@@ -13,55 +13,77 @@ const app = new Hono<{ Bindings: Bindings }>()
 // HELPERS
 // =====================================================
 
-/** Call AI - uses Cloudflare Workers AI (free, no API key needed) with fallback to external LLM */
+/** Call AI - uses Cloudflare Workers AI (free, no API key needed) with fallback to external LLM.
+ *  Probeert achtereenvolgens:
+ *   1. Cloudflare Workers AI (gratis, via AI binding)
+ *   2. Externe OpenAI-compatible API (als OPENAI_API_KEY gezet is)
+ *  Gooit een duidelijke error met details van beide pogingen als alles faalt.
+ */
 async function callAI(
   env: any,
   messages: Array<{ role: string; content: string }>,
   opts: { temperature?: number; max_tokens?: number } = {}
 ): Promise<string> {
+  const attempts: string[] = []
+
   // Strategy 1: Cloudflare Workers AI (free, no key needed)
   if (env.AI) {
     try {
-      const result = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+      const result: any = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
         messages,
         temperature: opts.temperature ?? 0.7,
-        max_tokens: opts.max_tokens || 4000
+        max_tokens: opts.max_tokens || 4000,
       })
       if (result?.response) return result.response
+      attempts.push('Workers AI: leeg antwoord')
     } catch (e: any) {
-      console.error('Workers AI error, trying fallback:', e.message)
+      const msg = e?.message || String(e)
+      console.error('Workers AI error, trying fallback:', msg)
+      attempts.push(`Workers AI: ${msg}`)
     }
+  } else {
+    attempts.push('Workers AI: binding niet beschikbaar (env.AI ontbreekt)')
   }
 
   // Strategy 2: External OpenAI-compatible API (if configured)
   const apiKey = env.OPENAI_API_KEY
   const baseUrl = env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1'
-  
+
   if (apiKey) {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-5-mini',
-        messages,
-        temperature: opts.temperature ?? 0.7,
-        max_tokens: opts.max_tokens || 4000
+    try {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-5-mini',
+          messages,
+          temperature: opts.temperature ?? 0.7,
+          max_tokens: opts.max_tokens || 4000,
+        }),
       })
-    })
 
-    if (!response.ok) {
-      const errText = await response.text()
-      throw new Error(`LLM API error ${response.status}: ${errText}`)
+      if (!response.ok) {
+        const errText = (await response.text()).substring(0, 300)
+        attempts.push(`OpenAI-proxy: HTTP ${response.status} — ${errText}`)
+      } else {
+        const data = await response.json() as any
+        const content = data.choices?.[0]?.message?.content
+        if (content) return content
+        attempts.push('OpenAI-proxy: leeg antwoord')
+      }
+    } catch (e: any) {
+      attempts.push(`OpenAI-proxy: ${e?.message || String(e)}`)
     }
-
-    const data = await response.json() as any
-    return data.choices?.[0]?.message?.content || ''
+  } else {
+    attempts.push('OpenAI-proxy: OPENAI_API_KEY niet geconfigureerd')
   }
 
-  throw new Error('Geen AI beschikbaar. Controleer de Workers AI binding in wrangler.json.')
+  throw new Error(
+    `Geen AI strategie werkte. Probeer de "Diagnose" knop bovenaan. Details:\n- ${attempts.join('\n- ')}`
+  )
 }
 
 /** Parse JSON from LLM response, handling markdown code blocks */
@@ -255,9 +277,35 @@ app.get('/admin/ai-nieuws', async (c) => {
                     Zoek op het internet naar nieuws over amateurkoren en genereer publiceerbare artikels met AI
                   </p>
                 </div>
-                <a href="/admin/content" class="text-sm text-animato-primary hover:underline flex items-center gap-1">
-                  <i class="fas fa-arrow-left"></i> Terug naar Nieuws
-                </a>
+                <div class="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onclick="runAIDiagnostic()"
+                    class="text-sm bg-purple-100 hover:bg-purple-200 text-purple-800 px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition"
+                    title="Test of AI & websearch werken"
+                  >
+                    <i class="fas fa-stethoscope"></i> Diagnose
+                  </button>
+                  <a href="/admin/content" class="text-sm text-animato-primary hover:underline flex items-center gap-1">
+                    <i class="fas fa-arrow-left"></i> Terug naar Nieuws
+                  </a>
+                </div>
+              </div>
+            </div>
+
+            {/* Diagnostic result panel (verborgen tot gebruiker op knop klikt) */}
+            <div id="ai-diagnostic-panel" class="hidden mb-6 bg-white border-2 border-purple-200 rounded-xl p-5">
+              <div class="flex items-center justify-between mb-3">
+                <h3 class="font-bold text-purple-900 flex items-center gap-2">
+                  <i class="fas fa-stethoscope text-purple-600"></i>
+                  AI Diagnostiek
+                </h3>
+                <button type="button" onclick="document.getElementById('ai-diagnostic-panel').classList.add('hidden')" class="text-gray-400 hover:text-gray-700">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+              <div id="ai-diagnostic-content" class="text-sm text-gray-700">
+                <div class="animate-pulse">Diagnose wordt uitgevoerd...</div>
               </div>
             </div>
 
@@ -894,6 +942,47 @@ app.get('/admin/ai-nieuws', async (c) => {
         document.getElementById('searchQuery').addEventListener('keypress', function(e) {
           if (e.key === 'Enter') searchNews();
         });
+
+        // AI Diagnostic
+        async function runAIDiagnostic() {
+          const panel = document.getElementById('ai-diagnostic-panel');
+          const content = document.getElementById('ai-diagnostic-content');
+          panel.classList.remove('hidden');
+          content.innerHTML = '<div class="animate-pulse text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>Diagnose wordt uitgevoerd (5-10 sec)...</div>';
+          try {
+            const r = await fetch('/api/admin/ai-news/diagnostic', { credentials: 'include' });
+            const d = await r.json();
+            const checkIcon = (ok) => ok
+              ? '<i class="fas fa-check-circle text-green-600"></i>'
+              : '<i class="fas fa-times-circle text-red-500"></i>';
+            const warnIcon = '<i class="fas fa-exclamation-triangle text-amber-500"></i>';
+            let html = '';
+            // Summary
+            html += '<div class="mb-4 p-3 rounded-lg ' + (d.verdict.canGenerate ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200') + '">';
+            html += '<strong>' + d.verdict.summary + '</strong>';
+            html += '</div>';
+            // Details
+            html += '<table class="w-full text-sm"><tbody>';
+            html += '<tr class="border-b"><td class="py-2 font-semibold">Cloudflare Workers AI (gratis)</td><td class="py-2">' + checkIcon(d.workersAI.ok);
+            if (d.workersAI.ok) html += ' werkt — antwoord: "' + (d.workersAI.response||'').replace(/</g,'&lt;') + '"';
+            else if (d.workersAI.error) html += ' <span class="text-red-600 text-xs">' + d.workersAI.error.replace(/</g,'&lt;') + '</span>';
+            else if (!d.workersAI.available) html += ' <span class="text-amber-600 text-xs">AI binding niet beschikbaar</span>';
+            html += '</td></tr>';
+            html += '<tr class="border-b"><td class="py-2 font-semibold">OpenAI fallback</td><td class="py-2">';
+            if (!d.openai.configured) html += warnIcon + ' <span class="text-amber-700">OPENAI_API_KEY niet geconfigureerd (niet verplicht als Workers AI werkt)</span>';
+            else html += checkIcon(d.openai.ok) + (d.openai.ok ? ' werkt' : (' <span class="text-red-600 text-xs">' + (d.openai.error||'status ' + d.openai.status) + '</span>'));
+            html += '</td></tr>';
+            html += '<tr class="border-b"><td class="py-2 font-semibold">Websearch — Google News RSS</td><td class="py-2">' + (d.webSearch.googleNews > 0 ? checkIcon(true) + ' ' + d.webSearch.googleNews + ' resultaten' : '<span class="text-amber-600">' + warnIcon + ' 0 resultaten</span>') + '</td></tr>';
+            html += '<tr><td class="py-2 font-semibold">Websearch — DuckDuckGo</td><td class="py-2">' + (d.webSearch.duckDuckGo > 0 ? checkIcon(true) + ' ' + d.webSearch.duckDuckGo + ' resultaten' : '<span class="text-amber-600">' + warnIcon + ' 0 resultaten</span>') + '</td></tr>';
+            html += '</tbody></table>';
+            // Show raw JSON (collapsible)
+            html += '<details class="mt-4 text-xs text-gray-500"><summary class="cursor-pointer">Toon ruwe diagnostische data</summary><pre class="mt-2 bg-gray-50 p-3 rounded overflow-x-auto">' + JSON.stringify(d, null, 2) + '</pre></details>';
+            content.innerHTML = html;
+          } catch (e) {
+            content.innerHTML = '<div class="text-red-600"><i class="fas fa-exclamation-circle mr-2"></i>Diagnose mislukt: ' + e.message + '</div>';
+          }
+        }
+        window.runAIDiagnostic = runAIDiagnostic;
       `}} />
     </Layout>
   )
@@ -1145,6 +1234,110 @@ app.post('/api/admin/ai-news/save', async (c) => {
     console.error('Save error:', e)
     return c.json({ error: e.message || 'Opslaan mislukt' }, 500)
   }
+})
+
+// =====================================================
+// DIAGNOSTIC: test welke AI strategieën werken
+// Handig om te zien waarom de generator faalt.
+// Resultaat:
+//  - workersAI.ok = true → Cloudflare Workers AI werkt (gratis)
+//  - openai.configured = true → OPENAI_API_KEY is gezet
+//  - openai.ok = true → externe LLM proxy antwoordt
+//  - webSearch.totalResults > 0 → zoekmachine levert bronnen
+// =====================================================
+app.get('/api/admin/ai-news/diagnostic', async (c) => {
+  const user = c.get('user') as SessionUser
+  // Alleen admins mogen de diagnostic uitvoeren
+  if (user.role !== 'admin') {
+    return c.json({ error: 'Alleen admins' }, 403)
+  }
+
+  const diag: any = {
+    timestamp: new Date().toISOString(),
+    workersAI: { available: !!c.env.AI, ok: false, error: null as any, response: null as any },
+    openai: {
+      configured: !!c.env.OPENAI_API_KEY,
+      baseUrl: c.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1',
+      ok: false,
+      error: null as any,
+    },
+    webSearch: { googleNews: 0, duckDuckGo: 0, totalResults: 0, error: null as any },
+  }
+
+  // Test 1: Cloudflare Workers AI
+  if (c.env.AI) {
+    try {
+      const result: any = await c.env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+        messages: [
+          { role: 'system', content: 'Antwoord uitsluitend met het woord: OK' },
+          { role: 'user', content: 'Test' }
+        ],
+        max_tokens: 10,
+      })
+      diag.workersAI.ok = !!result?.response
+      diag.workersAI.response = result?.response?.substring(0, 100) || '(leeg)'
+    } catch (e: any) {
+      diag.workersAI.error = e.message || String(e)
+    }
+  }
+
+  // Test 2: OpenAI fallback
+  if (c.env.OPENAI_API_KEY) {
+    try {
+      const baseUrl = c.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1'
+      const r = await fetch(`${baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${c.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-5-mini',
+          messages: [
+            { role: 'system', content: 'Antwoord uitsluitend met: OK' },
+            { role: 'user', content: 'Test' },
+          ],
+          max_tokens: 10,
+        }),
+      })
+      diag.openai.status = r.status
+      diag.openai.ok = r.ok
+      if (!r.ok) {
+        diag.openai.error = (await r.text()).substring(0, 300)
+      }
+    } catch (e: any) {
+      diag.openai.error = e.message || String(e)
+    }
+  }
+
+  // Test 3: web search
+  try {
+    const [gn, ddg] = await Promise.allSettled([
+      searchGoogleNewsRSS('koor', 5),
+      searchDuckDuckGo('koor', 5),
+    ])
+    diag.webSearch.googleNews = gn.status === 'fulfilled' ? gn.value.length : 0
+    diag.webSearch.duckDuckGo = ddg.status === 'fulfilled' ? ddg.value.length : 0
+    diag.webSearch.totalResults = diag.webSearch.googleNews + diag.webSearch.duckDuckGo
+    if (gn.status === 'rejected') diag.webSearch.googleError = String(gn.reason).substring(0, 200)
+    if (ddg.status === 'rejected') diag.webSearch.ddgError = String(ddg.reason).substring(0, 200)
+  } catch (e: any) {
+    diag.webSearch.error = e.message || String(e)
+  }
+
+  // Verdict
+  diag.verdict = {
+    canGenerate: diag.workersAI.ok || diag.openai.ok,
+    canSearch: diag.webSearch.totalResults > 0,
+    summary:
+      (diag.workersAI.ok || diag.openai.ok)
+        ? (diag.webSearch.totalResults > 0
+            ? 'Alles werkt: AI én websearch beschikbaar.'
+            : '⚠️ AI werkt, maar websearch levert geen resultaten. Probeer handmatig bronnen toe te voegen.')
+        : '❌ Geen enkele AI-strategie werkt. Controleer de AI binding (wrangler.json) of voeg OPENAI_API_KEY toe als secret.',
+  }
+
+  return c.json(diag)
 })
 
 export default app

@@ -3743,6 +3743,14 @@ app.get('/admin/content/:id', async (c) => {
           {/* Quill Rich Text Editor */}
           <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet" />
           <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
+          {/* News-artikel editor heeft grotere ademruimte nodig dan de globale instelling */}
+          <style dangerouslySetInnerHTML={{ __html: `
+            #quill-editor .ql-editor {
+              min-height: 320px;
+              max-height: 600px;
+              overflow-y: auto;
+            }
+          ` }} />
           
           <script dangerouslySetInnerHTML={{
             __html: `
@@ -3754,10 +3762,11 @@ app.get('/admin/content/:id', async (c) => {
                 
                 textarea.style.display = 'none';
                 
-                // Create editor container
+                // Create editor container. Height wordt bepaald door .ql-editor
+                // (globaal in Layout: min 160px, max 320px voor admin-formulieren).
+                // Voor het volledig artikel hebben we meer ademruimte nodig:
                 const editorContainer = document.createElement('div');
                 editorContainer.id = 'quill-editor';
-                editorContainer.style.height = '400px';
                 editorContainer.style.backgroundColor = 'white';
                 textarea.parentNode.insertBefore(editorContainer, textarea);
                 

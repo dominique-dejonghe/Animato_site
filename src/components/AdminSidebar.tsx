@@ -24,6 +24,7 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({
     { id: 'content', label: 'Nieuws & Berichten', href: '/admin/content', icon: 'fas fa-newspaper' },
     { id: 'ai-news', label: 'AI Nieuwsgenerator', href: '/admin/ai-nieuws', icon: 'fas fa-robot' },
     { id: 'events', label: 'Agenda & Activiteiten', href: '/admin/events', icon: 'fas fa-calendar-alt' },
+    { id: 'tickets', label: 'Ticketbeheer', href: '/admin/tickets', icon: 'fas fa-ticket-alt' },
     { id: 'attendance', label: 'Aanwezigheid & Streaks', href: '/admin/attendance', icon: 'fas fa-qrcode' },
     { id: 'seating', label: 'Zaalplannen', href: '/admin/seating', icon: 'fas fa-chair' },
     { id: 'finance', label: 'Financiën & Lidgeld', href: '/admin/lidgelden', icon: 'fas fa-euro-sign' },

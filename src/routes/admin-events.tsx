@@ -31,10 +31,12 @@ app.get('/admin/events', async (c) => {
   // Build query based on filters
   let query = `
     SELECT e.*, l.naam as locatie_naam, l.stad as locatie_stad,
-           COUNT(DISTINCT ea.id) as aanmeldingen
+           COUNT(DISTINCT ea.id) as aanmeldingen,
+           c.id as concert_id
     FROM events e
     LEFT JOIN locations l ON l.id = e.location_id
     LEFT JOIN event_attendance ea ON ea.event_id = e.id AND ea.status = 'aanwezig'
+    LEFT JOIN concerts c ON c.event_id = e.id
     WHERE 1=1
   `
   const params: any[] = []
@@ -364,7 +366,18 @@ app.get('/admin/events', async (c) => {
                             >
                               <i class="fas fa-edit"></i>
                             </a>
-                            
+
+                            {/* Ticket Management (for concerts only) */}
+                            {event.type === 'concert' && event.concert_id && (
+                              <a
+                                href={`/admin/tickets/concert/${event.concert_id}/settings`}
+                                class="text-purple-600 hover:text-purple-900"
+                                title="Ticketbeheer (prijzen, capaciteit, bestellingen)"
+                              >
+                                <i class="fas fa-ticket-alt"></i>
+                              </a>
+                            )}
+
                             {/* Export Dropdown */}
                             <div class="relative inline-block">
                               <button

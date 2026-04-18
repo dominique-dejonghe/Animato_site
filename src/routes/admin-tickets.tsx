@@ -17,7 +17,7 @@ app.get('/admin/tickets', async (c) => {
   // Get all concert events with optional concerts table data
   const concerts = await queryAll(c.env.DB, `
     SELECT e.id as event_id, e.titel, e.slug, e.start_at, e.locatie, e.type,
-           c.id as concert_id, c.programma, c.ticketing_enabled, c.uitverkocht, c.voorverkoop_start_at,
+           c.id as concert_id, c.programma, c.ticketing_enabled, c.uitverkocht, c.tickets_aangekondigd, c.voorverkoop_start_at,
            c.capaciteit, c.verkocht,
            COUNT(t.id) as ticket_count,
            SUM(CASE WHEN t.status = 'paid' THEN 1 ELSE 0 END) as paid_count,
@@ -320,11 +320,19 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
   return c.html(
     <Layout title={`Bestellingen - ${concert.titel}`} user={user}>
       <div class="max-w-7xl mx-auto px-4 py-8">
+        {/* Breadcrumbs */}
+        <nav class="text-sm text-gray-600 mb-4" aria-label="Breadcrumb">
+          <ol class="flex items-center flex-wrap gap-1">
+            <li><a href="/admin" class="hover:text-animato-primary"><i class="fas fa-home mr-1"></i>Admin</a></li>
+            <li class="text-gray-400">/</li>
+            <li><a href="/admin/tickets" class="hover:text-animato-primary">Ticketbeheer</a></li>
+            <li class="text-gray-400">/</li>
+            <li><a href={`/admin/tickets/concert/${concertId}/settings`} class="hover:text-animato-primary">{concert.titel}</a></li>
+            <li class="text-gray-400">/</li>
+            <li class="text-gray-900 font-medium">Bestellingen</li>
+          </ol>
+        </nav>
         <div class="mb-8">
-          <a href="/admin/tickets" class="text-animato-primary hover:text-animato-secondary inline-flex items-center mb-4">
-            <i class="fas fa-arrow-left mr-2"></i>
-            Terug naar overzicht
-          </a>
           <h1 class="text-3xl font-bold text-animato-secondary mb-2" style="font-family: 'Playfair Display', serif;">
             Bestellingen: {concert.titel}
           </h1>
@@ -663,7 +671,7 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
   const concertId = parseInt(c.req.param('concertId'))
   
   const concert = await queryOne(c.env.DB, `
-    SELECT c.*, e.id as event_id, e.titel, e.start_at, e.locatie, e.afbeelding
+    SELECT c.*, e.id as event_id, e.slug, e.titel, e.start_at, e.locatie, e.afbeelding
     FROM concerts c
     JOIN events e ON e.id = c.event_id
     WHERE c.id = ?
@@ -684,17 +692,37 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
   return c.html(
     <Layout title={`Instellingen - ${concert.titel}`} user={user}>
       <div class="max-w-4xl mx-auto px-4 py-8">
+        {/* Breadcrumbs */}
+        <nav class="text-sm text-gray-600 mb-4" aria-label="Breadcrumb">
+          <ol class="flex items-center flex-wrap gap-1">
+            <li><a href="/admin" class="hover:text-animato-primary"><i class="fas fa-home mr-1"></i>Admin</a></li>
+            <li class="text-gray-400">/</li>
+            <li><a href="/admin/tickets" class="hover:text-animato-primary">Ticketbeheer</a></li>
+            <li class="text-gray-400">/</li>
+            <li><a href={`/admin/events/${concert.event_id}`} class="hover:text-animato-primary">{concert.titel}</a></li>
+            <li class="text-gray-400">/</li>
+            <li class="text-gray-900 font-medium">Instellingen</li>
+          </ol>
+        </nav>
+
         {/* Header */}
         <div class="mb-8">
-          <a href="/admin/tickets" class="text-animato-primary hover:underline mb-4 inline-block">
-            <i class="fas fa-arrow-left mr-2"></i>
-            Terug naar overzicht
-          </a>
           <h1 class="text-3xl font-bold text-animato-secondary mb-2" style="font-family: 'Playfair Display', serif;">
             <i class="fas fa-cog mr-3"></i>
             Ticketing Instellingen
           </h1>
           <p class="text-gray-600">{concert.titel}</p>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <a href={`/admin/tickets/concert/${concertId}/orders`} class="inline-flex items-center gap-2 text-sm bg-animato-primary hover:bg-animato-secondary text-white px-3 py-1.5 rounded-lg">
+              <i class="fas fa-receipt"></i>Bestellingen
+            </a>
+            <a href={`/admin/tickets/concert/${concertId}/scan`} class="inline-flex items-center gap-2 text-sm bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg">
+              <i class="fas fa-qrcode"></i>QR-scanner
+            </a>
+            <a href={`/concerten/${concert.slug}`} target="_blank" class="inline-flex items-center gap-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1.5 rounded-lg">
+              <i class="fas fa-external-link-alt"></i>Publieke pagina
+            </a>
+          </div>
         </div>
 
         <form method="POST" action={`/api/admin/tickets/concert/${concertId}/settings`} class="space-y-8">
@@ -704,30 +732,78 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
             <h2 class="text-xl font-bold text-gray-900 mb-6">Basis Instellingen</h2>
             
             <div class="space-y-4">
-              <div class="flex items-center">
-                <input
-                  type="checkbox"
-                  name="ticketing_enabled"
-                  id="ticketing_enabled"
-                  checked={concert.ticketing_enabled === 1}
-                  class="mr-3 w-5 h-5"
-                />
-                <label for="ticketing_enabled" class="text-gray-900 font-medium">
-                  Online ticketverkoop inschakelen
-                </label>
-              </div>
+              {/* Ticket-status: één keuze uit vier mogelijkheden */}
+              <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <h3 class="text-sm font-semibold text-gray-900 mb-3">
+                  <i class="fas fa-toggle-on mr-2 text-animato-primary"></i>
+                  Ticketstatus voor dit concert
+                </h3>
+                <p class="text-xs text-gray-600 mb-4">
+                  Kies wat bezoekers op de publieke concert-pagina te zien krijgen. Deze keuzes stapelen:
+                  "uitverkocht" heeft voorrang op "aangekondigd", dat heeft voorrang op de verkoop.
+                </p>
 
-              <div class="flex items-center">
-                <input
-                  type="checkbox"
-                  name="uitverkocht"
-                  id="uitverkocht"
-                  checked={concert.uitverkocht === 1}
-                  class="mr-3 w-5 h-5"
-                />
-                <label for="uitverkocht" class="text-gray-900 font-medium">
-                  Markeer als uitverkocht (verbergt bestelformulier)
-                </label>
+                <div class="space-y-3">
+                  <label class="flex items-start gap-3 p-3 border border-gray-200 bg-white rounded-lg cursor-pointer hover:border-animato-primary transition">
+                    <input
+                      type="checkbox"
+                      name="ticketing_enabled"
+                      id="ticketing_enabled"
+                      checked={concert.ticketing_enabled === 1}
+                      class="mt-0.5 w-5 h-5"
+                    />
+                    <div class="flex-1">
+                      <div class="font-medium text-gray-900">
+                        <i class="fas fa-shopping-cart text-green-600 mr-1.5"></i>
+                        Online ticketverkoop inschakelen
+                      </div>
+                      <div class="text-xs text-gray-600 mt-1">
+                        Toont het bestelformulier met prijzen op de publieke pagina.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label class="flex items-start gap-3 p-3 border border-amber-200 bg-amber-50 rounded-lg cursor-pointer hover:border-amber-400 transition">
+                    <input
+                      type="checkbox"
+                      name="tickets_aangekondigd"
+                      id="tickets_aangekondigd"
+                      checked={concert.tickets_aangekondigd === 1}
+                      class="mt-0.5 w-5 h-5"
+                    />
+                    <div class="flex-1">
+                      <div class="font-medium text-amber-900">
+                        <i class="fas fa-hourglass-half text-amber-600 mr-1.5"></i>
+                        Nog geen tickets beschikbaar (aankondiging)
+                      </div>
+                      <div class="text-xs text-amber-800 mt-1">
+                        Toont "Tickets volgen binnenkort" op de publieke pagina. Combineer met een
+                        startdatum hieronder voor een automatische aftelteller.
+                        <strong class="block mt-1">Tip:</strong> als de datum verstrijkt én ticketverkoop aan staat, schakelt de
+                        pagina automatisch om naar het bestelformulier.
+                      </div>
+                    </div>
+                  </label>
+
+                  <label class="flex items-start gap-3 p-3 border border-red-200 bg-red-50 rounded-lg cursor-pointer hover:border-red-400 transition">
+                    <input
+                      type="checkbox"
+                      name="uitverkocht"
+                      id="uitverkocht"
+                      checked={concert.uitverkocht === 1}
+                      class="mt-0.5 w-5 h-5"
+                    />
+                    <div class="flex-1">
+                      <div class="font-medium text-red-900">
+                        <i class="fas fa-ban text-red-600 mr-1.5"></i>
+                        Markeer als uitverkocht
+                      </div>
+                      <div class="text-xs text-red-800 mt-1">
+                        Verbergt bestelformulier en toont "Uitverkocht" in plaats daarvan.
+                      </div>
+                    </div>
+                  </label>
+                </div>
               </div>
 
               {/* Voorverkoop start-datum */}
@@ -744,9 +820,9 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
                 />
                 <p class="text-xs text-amber-800 mt-2 leading-relaxed">
                   <i class="fas fa-info-circle mr-1"></i>
-                  Vul een datum in de <strong>toekomst</strong> in om aan te kondigen dat de voorverkoop later start.
-                  Bezoekers zien dan "Voorverkoop start op [datum]" in plaats van de bestelknop.
-                  Laat leeg voor directe verkoop (mits ticketverkoop is ingeschakeld).
+                  Datum in de toekomst? Dan toont de publieke pagina een <strong>live aftelteller</strong> tot
+                  die datum. Laat leeg als je enkel "Tickets volgen binnenkort" wil tonen zonder specifieke datum,
+                  of voor directe verkoop (datum in verleden = verkoop is open).
                 </p>
               </div>
 
@@ -1340,6 +1416,7 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
       UPDATE concerts SET
         ticketing_enabled = ?,
         uitverkocht = ?,
+        tickets_aangekondigd = ?,
         voorverkoop_start_at = ?,
         capaciteit = ?,
         prijsstructuur = ?,
@@ -1353,6 +1430,7 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
     `, [
       body.ticketing_enabled ? 1 : 0,
       body.uitverkocht ? 1 : 0,
+      body.tickets_aangekondigd ? 1 : 0,
       voorverkoopStart,
       parseInt(String(body.capaciteit)) || 0,
       JSON.stringify(prijzen),
@@ -1404,12 +1482,20 @@ app.get('/admin/tickets/concert/:concertId/scan', async (c) => {
   return c.html(
     <Layout title={`QR Scanner - ${concert.titel}`} user={user}>
       <div class="max-w-4xl mx-auto px-4 py-8">
+        {/* Breadcrumbs */}
+        <nav class="text-sm text-gray-600 mb-4" aria-label="Breadcrumb">
+          <ol class="flex items-center flex-wrap gap-1">
+            <li><a href="/admin" class="hover:text-animato-primary"><i class="fas fa-home mr-1"></i>Admin</a></li>
+            <li class="text-gray-400">/</li>
+            <li><a href="/admin/tickets" class="hover:text-animato-primary">Ticketbeheer</a></li>
+            <li class="text-gray-400">/</li>
+            <li><a href={`/admin/tickets/concert/${concertId}/settings`} class="hover:text-animato-primary">{concert.titel}</a></li>
+            <li class="text-gray-400">/</li>
+            <li class="text-gray-900 font-medium">QR-scanner</li>
+          </ol>
+        </nav>
         {/* Header */}
         <div class="mb-8">
-          <a href="/admin/tickets" class="text-animato-primary hover:underline mb-4 inline-block">
-            <i class="fas fa-arrow-left mr-2"></i>
-            Terug naar overzicht
-          </a>
           <h1 class="text-3xl font-bold text-animato-secondary mb-2" style="font-family: 'Playfair Display', serif;">
             <i class="fas fa-qrcode mr-3"></i>
             QR Code Scanner

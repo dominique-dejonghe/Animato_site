@@ -1027,7 +1027,7 @@ app.get('/concerten/:slug', async (c) => {
 
   const concert = await queryOne<any>(
     c.env.DB,
-    `SELECT e.*, c.poster_url, c.programma, c.prijsstructuur, c.capaciteit, c.verkocht, c.uitverkocht, c.ticketing_enabled, c.voorverkoop_start_at,
+    `SELECT e.*, c.poster_url, c.programma, c.prijsstructuur, c.capaciteit, c.verkocht, c.uitverkocht, c.ticketing_enabled, c.tickets_aangekondigd, c.voorverkoop_start_at,
             c.parking, c.toegankelijkheid, c.duur_info, c.sfeer_dresscode, c.extra_info
      FROM events e
      LEFT JOIN concerts c ON c.event_id = e.id
@@ -1041,11 +1041,19 @@ app.get('/concerten/:slug', async (c) => {
 
   const prijzen = concert.prijsstructuur ? JSON.parse(concert.prijsstructuur) : []
 
-  // Voorverkoop-logica: als voorverkoop_start_at in de toekomst ligt, is verkoop nog niet open
+  // Ticket-status logica
+  // Prioriteit: uitverkocht > (aangekondigd OR datum in toekomst) > verkoop open > gratis
   const voorverkoopStart = concert.voorverkoop_start_at ? new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')) : null
-  const voorverkoopNogNietOpen = !!(voorverkoopStart && voorverkoopStart.getTime() > Date.now())
+  const voorverkoopDatumInToekomst = !!(voorverkoopStart && voorverkoopStart.getTime() > Date.now())
+  const ticketsAangekondigd = concert.tickets_aangekondigd == 1
+  // "Nog niet beschikbaar"-modus is actief als: admin heeft expliciet aangevinkt OF er is een toekomstige datum
+  const voorverkoopNogNietOpen = ticketsAangekondigd || voorverkoopDatumInToekomst
   const voorverkoopStartFormatted = voorverkoopStart
     ? voorverkoopStart.toLocaleString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : ''
+  // ISO string voor client-side countdown (alleen als er een toekomstige datum is)
+  const voorverkoopStartIso = voorverkoopDatumInToekomst && voorverkoopStart
+    ? voorverkoopStart.toISOString()
     : ''
 
   const isAdmin = (user as any)?.role === 'admin'
@@ -1255,19 +1263,52 @@ app.get('/concerten/:slug', async (c) => {
                   </div>
                 ) : voorverkoopNogNietOpen ? (
                   <div class="bg-amber-50 border border-amber-300 rounded-lg p-6 text-center">
-                    <i class="fas fa-clock text-amber-500 text-3xl mb-3"></i>
+                    <i class="fas fa-hourglass-half text-amber-500 text-3xl mb-3"></i>
                     <p class="text-lg font-semibold text-amber-900 mb-1">
                       Nog geen tickets beschikbaar
                     </p>
-                    <p class="text-sm text-amber-800 leading-relaxed">
-                      De voorverkoop start op<br />
-                      <strong class="text-base">{voorverkoopStartFormatted}</strong>
-                    </p>
+                    {voorverkoopDatumInToekomst ? (
+                      <>
+                        <p class="text-sm text-amber-800 leading-relaxed">
+                          De voorverkoop start op<br />
+                          <strong class="text-base">{voorverkoopStartFormatted}</strong>
+                        </p>
+                        {/* Live aftelteller */}
+                        <div
+                          id="voorverkoop-countdown"
+                          data-target={voorverkoopStartIso}
+                          class="mt-4 grid grid-cols-4 gap-2"
+                          aria-live="polite"
+                        >
+                          <div class="bg-white border border-amber-200 rounded-lg py-3">
+                            <div class="text-2xl font-bold text-amber-900" data-unit="days">–</div>
+                            <div class="text-[10px] uppercase tracking-wide text-amber-700">Dagen</div>
+                          </div>
+                          <div class="bg-white border border-amber-200 rounded-lg py-3">
+                            <div class="text-2xl font-bold text-amber-900" data-unit="hours">–</div>
+                            <div class="text-[10px] uppercase tracking-wide text-amber-700">Uren</div>
+                          </div>
+                          <div class="bg-white border border-amber-200 rounded-lg py-3">
+                            <div class="text-2xl font-bold text-amber-900" data-unit="minutes">–</div>
+                            <div class="text-[10px] uppercase tracking-wide text-amber-700">Min</div>
+                          </div>
+                          <div class="bg-white border border-amber-200 rounded-lg py-3">
+                            <div class="text-2xl font-bold text-amber-900" data-unit="seconds">–</div>
+                            <div class="text-[10px] uppercase tracking-wide text-amber-700">Sec</div>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <p class="text-sm text-amber-800 leading-relaxed">
+                        Tickets volgen binnenkort.<br />
+                        <span class="text-xs">Houd deze pagina in de gaten of zet het concert in je agenda.</span>
+                      </p>
+                    )}
                     {/* Voorbeeld prijzen tonen zodat bezoekers alvast het budget kennen */}
                     {prijzen.length > 0 && (
                       <div class="mt-5 pt-4 border-t border-amber-200 text-left">
                         <p class="text-xs font-semibold text-amber-900 mb-2 uppercase tracking-wide">
-                          <i class="fas fa-tag mr-1"></i>Prijzen
+                          <i class="fas fa-tag mr-1"></i>Prijzen (ter info)
                         </p>
                         {prijzen.map((prijs: any) => (
                           <div class="flex justify-between items-center py-1 text-sm">
@@ -1277,15 +1318,17 @@ app.get('/concerten/:slug', async (c) => {
                         ))}
                       </div>
                     )}
-                    {/* Agenda-herinnering knop */}
-                    <a
-                      href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent('Voorverkoop start: ' + concert.titel)}&dates=${(String(concert.voorverkoop_start_at) || '').replace(/[-: ]/g, '').substring(0, 15)}/${(String(concert.voorverkoop_start_at) || '').replace(/[-: ]/g, '').substring(0, 15)}&details=${encodeURIComponent('Herinner mij om tickets te bestellen voor ' + concert.titel)}`}
-                      target="_blank" rel="noopener"
-                      class="mt-5 inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
-                    >
-                      <i class="fas fa-bell"></i>
-                      Zet in mijn agenda
-                    </a>
+                    {/* Agenda-herinnering knop - alleen als er een concrete datum is */}
+                    {voorverkoopDatumInToekomst && (
+                      <a
+                        href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent('Voorverkoop start: ' + concert.titel)}&dates=${(String(concert.voorverkoop_start_at) || '').replace(/[-: ]/g, '').substring(0, 15)}/${(String(concert.voorverkoop_start_at) || '').replace(/[-: ]/g, '').substring(0, 15)}&details=${encodeURIComponent('Herinner mij om tickets te bestellen voor ' + concert.titel)}`}
+                        target="_blank" rel="noopener"
+                        class="mt-5 inline-flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
+                      >
+                        <i class="fas fa-bell"></i>
+                        Zet herinnering in agenda
+                      </a>
+                    )}
                   </div>
                 ) : concert.ticketing_enabled == 1 ? (
                   <>
@@ -1382,6 +1425,44 @@ app.get('/concerten/:slug', async (c) => {
           </div>
         </div>
       </article>
+
+      {/* Live countdown voor voorverkoop start */}
+      {voorverkoopStartIso && (
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function() {
+            var el = document.getElementById('voorverkoop-countdown');
+            if (!el) return;
+            var target = new Date(el.getAttribute('data-target')).getTime();
+            if (isNaN(target)) return;
+            var unitEls = {
+              days:    el.querySelector('[data-unit="days"]'),
+              hours:   el.querySelector('[data-unit="hours"]'),
+              minutes: el.querySelector('[data-unit="minutes"]'),
+              seconds: el.querySelector('[data-unit="seconds"]')
+            };
+            function pad(n) { return n < 10 ? '0' + n : String(n); }
+            function tick() {
+              var now = Date.now();
+              var diff = target - now;
+              if (diff <= 0) {
+                // Tijd zit erop — herlaad de pagina zodat de server de nieuwe status rendert
+                window.location.reload();
+                return;
+              }
+              var days = Math.floor(diff / 86400000);
+              var hours = Math.floor((diff % 86400000) / 3600000);
+              var minutes = Math.floor((diff % 3600000) / 60000);
+              var seconds = Math.floor((diff % 60000) / 1000);
+              if (unitEls.days)    unitEls.days.textContent = days;
+              if (unitEls.hours)   unitEls.hours.textContent = pad(hours);
+              if (unitEls.minutes) unitEls.minutes.textContent = pad(minutes);
+              if (unitEls.seconds) unitEls.seconds.textContent = pad(seconds);
+            }
+            tick();
+            setInterval(tick, 1000);
+          })();
+        ` }} />
+      )}
     </Layout>
   )
 })

@@ -68,19 +68,31 @@ export const Layout: FC<LayoutProps> = ({
         <style dangerouslySetInnerHTML={{ __html: `
           /* Quill rich-text editors: compact wanneer leeg, scrollbaar wanneer lang */
           .ql-editor {
-            min-height: 160px;
-            max-height: 320px;
-            overflow-y: auto;
+            min-height: 140px;
+            max-height: 260px !important;
+            overflow-y: auto !important;
+          }
+          /* Container van de editor mag niet meer groeien dan de editor zelf */
+          .ql-container {
+            max-height: 260px !important;
           }
           /* Voor notulen-achtige velden mag het iets groter */
-          .ql-editor.ql-editor-large,
+          .ql-editor.ql-editor-large {
+            max-height: 420px !important;
+          }
+          .ql-editor.ql-editor-large ~ .ql-container,
+          .ql-container.ql-container-large {
+            max-height: 420px !important;
+          }
           textarea.admin-textarea-large {
-            max-height: 480px;
+            max-height: 420px;
+            overflow-y: auto;
           }
           /* Standaard: alle textareas in admin-formulieren scrollen als ze groeien */
           .admin-form textarea,
-          form[action^="/api/admin"] textarea {
-            max-height: 320px;
+          form[action^="/api/admin"] textarea,
+          form[action^="/admin/"] textarea {
+            max-height: 260px;
             overflow-y: auto;
           }
         ` }} />

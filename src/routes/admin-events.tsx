@@ -748,6 +748,11 @@ app.get('/admin/events/:id', async (c) => {
     ? await queryOne<any>(c.env.DB, `SELECT * FROM activities WHERE event_id = ?`, [id])
     : null
 
+  // Load concert details for ticket status banner if type = concert
+  const concert = event.type === 'concert'
+    ? await queryOne<any>(c.env.DB, `SELECT id, ticketing_enabled, uitverkocht, tickets_aangekondigd, voorverkoop_start_at, capaciteit, verkocht FROM concerts WHERE event_id = ?`, [id])
+    : null
+
   // Disable caching for admin pages
   noCacheHeaders(c)
 
@@ -764,7 +769,7 @@ app.get('/admin/events/:id', async (c) => {
       <div class="flex min-h-screen bg-gray-50">
         <AdminSidebar activeSection="events" />
         <div class="flex-1 min-w-0">
-          {renderEventForm(event, locations, activity)}
+          {renderEventForm(event, locations, activity, null, null, concert)}
         </div>
       </div>
       {/* Delete Confirmation Modal */}
@@ -1159,7 +1164,7 @@ app.post('/admin/events/:id/delete', async (c) => {
 // HELPER: RENDER EVENT FORM
 // =====================================================
 
-function renderEventForm(event: any | null, locations: any[], activity: any | null = null, preselectedType: string | null = null, redirectTo: string | null = null) {
+function renderEventForm(event: any | null, locations: any[], activity: any | null = null, preselectedType: string | null = null, redirectTo: string | null = null, concert: any | null = null) {
   const isEdit = !!event
   const recurrenceRule: RecurrenceRule | null = event?.recurrence_rule ? 
     JSON.parse(event.recurrence_rule) : null
@@ -1202,6 +1207,77 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
             </a>
           </div>
         )}
+
+        {/* Ticketstatus banner (alleen voor concerten met concert-record) */}
+        {isEdit && isConcert && concert && (() => {
+          const voorverkoopStart = concert.voorverkoop_start_at ? new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')) : null
+          const voorverkoopInToekomst = !!(voorverkoopStart && voorverkoopStart.getTime() > Date.now())
+          const fmtDate = voorverkoopStart
+            ? voorverkoopStart.toLocaleString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+            : ''
+
+          // Status bepalen — zelfde logica als publieke pagina
+          let statusLabel = 'Gratis toegang'
+          let statusColor = 'bg-gray-100 text-gray-700 border-gray-300'
+          let statusIcon = 'fa-ticket-alt'
+          let statusDetail = 'Geen ticketverkoop actief — publieke pagina toont "Gratis toegang".'
+          let urgent = false
+
+          if (concert.uitverkocht == 1) {
+            statusLabel = 'Uitverkocht'
+            statusColor = 'bg-red-50 text-red-800 border-red-300'
+            statusIcon = 'fa-ban'
+            statusDetail = 'Alle tickets zijn verkocht. Publieke pagina toont een rode "Uitverkocht"-banner.'
+          } else if (concert.tickets_aangekondigd == 1 || voorverkoopInToekomst) {
+            statusLabel = 'Nog geen tickets beschikbaar'
+            statusColor = 'bg-amber-50 text-amber-900 border-amber-300'
+            statusIcon = 'fa-hourglass-half'
+            statusDetail = voorverkoopInToekomst
+              ? `Voorverkoop opent op ${fmtDate}. Publieke pagina toont een live aftelteller.`
+              : 'Publieke pagina toont "Tickets volgen binnenkort".'
+            urgent = true
+          } else if (concert.ticketing_enabled == 1) {
+            statusLabel = 'Ticketverkoop open'
+            statusColor = 'bg-green-50 text-green-800 border-green-300'
+            statusIcon = 'fa-shopping-cart'
+            const verkocht = concert.verkocht || 0
+            const capaciteit = concert.capaciteit || 0
+            statusDetail = capaciteit > 0
+              ? `Bestelformulier is actief. ${verkocht} van ${capaciteit} tickets verkocht (${Math.round((verkocht / capaciteit) * 100)}%).`
+              : 'Bestelformulier is actief.'
+          }
+
+          return (
+            <div class={`mb-4 border-2 ${statusColor} rounded-lg p-4 flex items-start gap-4`}>
+              <div class={`flex-shrink-0 w-11 h-11 rounded-full bg-white/60 flex items-center justify-center ${urgent ? 'animate-pulse' : ''}`}>
+                <i class={`fas ${statusIcon} text-xl`}></i>
+              </div>
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center flex-wrap gap-2 mb-1">
+                  <span class="text-xs uppercase tracking-wide font-semibold opacity-70">Ticketstatus</span>
+                  <span class="text-base font-bold">{statusLabel}</span>
+                </div>
+                <p class="text-sm leading-snug">{statusDetail}</p>
+              </div>
+              <div class="flex-shrink-0 flex flex-col gap-2">
+                <a
+                  href={`/admin/tickets/concert/${concert.id}/settings`}
+                  class="inline-flex items-center gap-2 text-sm bg-white/80 hover:bg-white text-gray-900 font-semibold px-3 py-2 rounded-lg shadow-sm transition"
+                >
+                  <i class="fas fa-cog"></i>
+                  Ticketinstellingen
+                </a>
+                <a
+                  href={`/admin/tickets/concert/${concert.id}/orders`}
+                  class="inline-flex items-center gap-2 text-xs text-gray-700 hover:text-gray-900 px-3 py-1 transition"
+                >
+                  <i class="fas fa-receipt"></i>
+                  Bestellingen bekijken
+                </a>
+              </div>
+            </div>
+          )
+        })()}
 
         <div class="bg-white rounded-lg shadow-md p-8">
           

@@ -96,7 +96,7 @@ app.get('/admin', async (c) => {
        AND e.start_at = (SELECT MAX(e2.start_at) FROM events e2 JOIN qr_checkins qc2 ON qc2.event_id = e2.id WHERE e2.type = 'repetitie')`
     ).catch(() => ({ count: 0 })),
     total_form_submissions: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM form_submissions WHERE status = 'nieuw'`
+      `SELECT COUNT(*) as count FROM form_submissions WHERE status = 'nieuw' AND type IN ('word_lid','contact')`
     ).catch(() => ({ count: 0 })),
   }
 
@@ -341,17 +341,17 @@ app.get('/admin', async (c) => {
               </span>
             </a>
 
-            {/* Lid-aanvragen (#74) */}
+            {/* Lid-aanvragen + Contact-berichten (#74) */}
             <a href="/admin/aanmeldingen" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden border-2 border-green-300 hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
-                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Lid-aanvragen</p>
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Aanvragen &amp; Berichten</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center">
-                  <i class="fas fa-user-plus text-green-600 text-base"></i>
+                  <i class="fas fa-inbox text-green-600 text-base"></i>
                 </div>
               </div>
               <p class="text-3xl font-bold text-green-700 leading-none">{stats.total_form_submissions?.count || 0}</p>
               <span class="text-xs text-green-700 group-hover:underline inline-flex items-center gap-1 font-semibold">
-                Beheer aanvragen <i class="fas fa-arrow-right text-xs"></i>
+                Beheer inbox <i class="fas fa-arrow-right text-xs"></i>
               </span>
             </a>
           </div>
@@ -520,10 +520,12 @@ app.get('/admin/aanmeldingen', async (c) => {
   noCacheHeaders(c)
 
   const filter = c.req.query('filter') || 'alle'
+  // Type-tab: 'word_lid' (standaard) of 'contact'
+  const submissionType = c.req.query('type') === 'contact' ? 'contact' : 'word_lid'
   const success = c.req.query('success')
   const error = c.req.query('error')
 
-  let whereClause = "WHERE type = 'word_lid'"
+  let whereClause = `WHERE type = '${submissionType}'`
   if (filter === 'nieuw') whereClause += " AND status = 'nieuw'"
   else if (filter === 'verwerkt') whereClause += " AND status = 'verwerkt'"
   else if (filter === 'gearchiveerd') whereClause += " AND status = 'gearchiveerd'"
@@ -537,12 +539,19 @@ app.get('/admin/aanmeldingen', async (c) => {
      ORDER BY CASE status WHEN 'nieuw' THEN 0 WHEN 'verwerkt' THEN 1 ELSE 2 END, created_at DESC`
   )
 
-  // Counts per status
+  // Counts per status (voor actieve type-tab)
   const counts = await queryAll<any>(c.env.DB,
-    `SELECT status, COUNT(*) as cnt FROM form_submissions WHERE type = 'word_lid' GROUP BY status`)
+    `SELECT status, COUNT(*) as cnt FROM form_submissions WHERE type = ? GROUP BY status`,
+    [submissionType])
   const statusCounts: Record<string, number> = {}
   let totalCount = 0
   for (const r of counts) { statusCounts[r.status] = r.cnt; totalCount += r.cnt }
+
+  // Counts per type (voor type-tabs bovenaan)
+  const typeCounts = await queryAll<any>(c.env.DB,
+    `SELECT type, COUNT(*) as cnt FROM form_submissions WHERE status = 'nieuw' GROUP BY type`)
+  const newByType: Record<string, number> = {}
+  for (const r of typeCounts) { newByType[r.type] = r.cnt }
 
   const stemgroepLabel = (s: string) => {
     if (!s || s === 'weet_niet') return 'Weet niet'
@@ -566,11 +575,13 @@ app.get('/admin/aanmeldingen', async (c) => {
               <div class="flex items-center justify-between">
                 <div>
                   <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
-                    <i class="fas fa-user-plus text-green-600 mr-3"></i>
-                    Lid-aanvragen
+                    <i class={`fas ${submissionType === 'contact' ? 'fa-envelope text-animato-primary' : 'fa-user-plus text-green-600'} mr-3`}></i>
+                    {submissionType === 'contact' ? 'Contact-berichten' : 'Lid-aanvragen'}
                   </h1>
                   <p class="mt-2 text-gray-600">
-                    Beheer aanvragen van mensen die lid willen worden via het 'Word Lid' formulier
+                    {submissionType === 'contact'
+                      ? 'Berichten die binnenkwamen via het contactformulier op de publieke website'
+                      : "Beheer aanvragen van mensen die lid willen worden via het 'Word Lid' formulier"}
                   </p>
                 </div>
                 <a href="/admin" class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition">
@@ -614,17 +625,41 @@ app.get('/admin/aanmeldingen', async (c) => {
               </div>
             )}
 
+            {/* Type tabs (Lid-aanvragen / Contact-berichten) */}
+            <div class="flex flex-wrap gap-2 mb-4 border-b border-gray-200 pb-2">
+              <a
+                href={`/admin/aanmeldingen?type=word_lid&filter=${filter}`}
+                class={`px-4 py-2 rounded-t-lg text-sm font-semibold transition inline-flex items-center gap-2 ${submissionType === 'word_lid' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+              >
+                <i class="fas fa-user-plus"></i>
+                Lid-aanvragen
+                {(newByType['word_lid'] || 0) > 0 && (
+                  <span class="ml-1 bg-white/20 text-xs px-2 py-0.5 rounded-full font-bold">{newByType['word_lid']}</span>
+                )}
+              </a>
+              <a
+                href={`/admin/aanmeldingen?type=contact&filter=${filter}`}
+                class={`px-4 py-2 rounded-t-lg text-sm font-semibold transition inline-flex items-center gap-2 ${submissionType === 'contact' ? 'bg-animato-primary text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+              >
+                <i class="fas fa-envelope"></i>
+                Contact-berichten
+                {(newByType['contact'] || 0) > 0 && (
+                  <span class="ml-1 bg-white/20 text-xs px-2 py-0.5 rounded-full font-bold">{newByType['contact']}</span>
+                )}
+              </a>
+            </div>
+
             {/* Status filter tabs */}
             <div class="flex flex-wrap gap-2 mb-6">
               {[
                 { key: 'alle', label: 'Alles', count: totalCount, color: 'bg-gray-100 text-gray-700', active: 'bg-gray-800 text-white' },
                 { key: 'nieuw', label: 'Nieuw', count: statusCounts['nieuw'] || 0, color: 'bg-green-50 text-green-700', active: 'bg-green-600 text-white' },
                 { key: 'verwerkt', label: 'Verwerkt', count: statusCounts['verwerkt'] || 0, color: 'bg-blue-50 text-blue-700', active: 'bg-blue-600 text-white' },
-                { key: 'omgezet', label: 'Omgezet naar lid', count: statusCounts['omgezet_naar_lid'] || 0, color: 'bg-purple-50 text-purple-700', active: 'bg-purple-600 text-white' },
+                ...(submissionType === 'word_lid' ? [{ key: 'omgezet', label: 'Omgezet naar lid', count: statusCounts['omgezet_naar_lid'] || 0, color: 'bg-purple-50 text-purple-700', active: 'bg-purple-600 text-white' }] : []),
                 { key: 'gearchiveerd', label: 'Gearchiveerd', count: statusCounts['gearchiveerd'] || 0, color: 'bg-gray-50 text-gray-500', active: 'bg-gray-500 text-white' },
               ].filter(f => f.count > 0 || f.key === 'alle' || f.key === filter).map(f => (
                 <a
-                  href={`/admin/aanmeldingen?filter=${f.key}`}
+                  href={`/admin/aanmeldingen?type=${submissionType}&filter=${f.key}`}
                   class={`px-4 py-2 rounded-full text-sm font-medium transition ${filter === f.key ? f.active : f.color + ' hover:opacity-80'}`}
                 >
                   {f.label} {f.count > 0 && <span class="ml-1 opacity-75">({f.count})</span>}
@@ -635,8 +670,8 @@ app.get('/admin/aanmeldingen', async (c) => {
             {submissions.length === 0 ? (
               <div class="text-center py-16 text-gray-500">
                 <i class="fas fa-inbox text-6xl text-gray-300 mb-4"></i>
-                <h3 class="text-xl font-semibold mb-2">Geen aanvragen</h3>
-                <p>Er zijn momenteel geen lid-aanvragen{filter !== 'alle' ? ` met status "${filter}"` : ''}.</p>
+                <h3 class="text-xl font-semibold mb-2">{submissionType === 'contact' ? 'Geen contact-berichten' : 'Geen aanvragen'}</h3>
+                <p>Er zijn momenteel geen {submissionType === 'contact' ? 'contact-berichten' : 'lid-aanvragen'}{filter !== 'alle' ? ` met status "${filter}"` : ''}.</p>
               </div>
             ) : (
               <div class="space-y-4">
@@ -669,8 +704,8 @@ app.get('/admin/aanmeldingen', async (c) => {
 
                         {/* Action buttons - always visible */}
                         <div class="flex items-center gap-2">
-                          {/* Convert to member (not if already converted) */}
-                          {!isConverted && (
+                          {/* Convert to member (only for word_lid submissions) */}
+                          {!isConverted && sub.type === 'word_lid' && (
                             <a
                               href={`/admin/aanmeldingen/${sub.id}/omzetten`}
                               class="px-3 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition font-medium"
@@ -712,17 +747,34 @@ app.get('/admin/aanmeldingen', async (c) => {
 
                       {/* Contact info */}
                       <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-gray-600 mb-3">
-                        <div><i class="fas fa-envelope mr-2 text-gray-400"></i>{sub.email}</div>
+                        <div><i class="fas fa-envelope mr-2 text-gray-400"></i><a href={`mailto:${sub.email}`} class="hover:text-animato-primary">{sub.email}</a></div>
                         {data.telefoon && <div><i class="fas fa-phone mr-2 text-gray-400"></i>{data.telefoon}</div>}
-                        <div><i class="fas fa-music mr-2 text-gray-400"></i>Stemgroep: {stemgroepLabel(data.stemgroep)}</div>
+                        {sub.type === 'word_lid' && (
+                          <div><i class="fas fa-music mr-2 text-gray-400"></i>Stemgroep: {stemgroepLabel(data.stemgroep)}</div>
+                        )}
                       </div>
 
                       {/* Extra details */}
-                      {data.muzikale_ervaring && (
-                        <p class="text-sm text-gray-700 mb-1"><strong>Ervaring:</strong> {data.muzikale_ervaring}</p>
-                      )}
-                      {data.motivatie && (
-                        <p class="text-sm text-gray-700 mb-1"><strong>Motivatie:</strong> {data.motivatie}</p>
+                      {sub.type === 'contact' ? (
+                        <>
+                          {data.onderwerp && (
+                            <p class="text-sm text-gray-700 mb-2"><strong>Onderwerp:</strong> {data.onderwerp}</p>
+                          )}
+                          {data.bericht && (
+                            <div class="text-sm text-gray-700 bg-gray-50 border-l-4 border-animato-primary p-3 rounded whitespace-pre-wrap">
+                              {data.bericht}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          {data.muzikale_ervaring && (
+                            <p class="text-sm text-gray-700 mb-1"><strong>Ervaring:</strong> {data.muzikale_ervaring}</p>
+                          )}
+                          {data.motivatie && (
+                            <p class="text-sm text-gray-700 mb-1"><strong>Motivatie:</strong> {data.motivatie}</p>
+                          )}
+                        </>
                       )}
                       {sub.notities && (
                         <p class="text-sm text-amber-700 bg-amber-50 px-3 py-2 rounded mt-2">

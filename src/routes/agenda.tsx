@@ -1360,17 +1360,18 @@ app.get('/concerten/:slug', async (c) => {
                       </div>
                     )}
 
-                    {/* Book button */}
-                    <button
-                      onclick="alert('Ticketing functie komt binnenkort beschikbaar!')"
-                      class="w-full bg-animato-accent hover:bg-yellow-600 text-white py-4 rounded-lg font-bold text-lg transition shadow-lg"
+                    {/* Book button → echte bestelpagina */}
+                    <a
+                      href={`/concerten/${concert.id}/tickets`}
+                      class="block w-full bg-animato-accent hover:bg-yellow-600 text-white py-4 rounded-lg font-bold text-lg transition shadow-lg text-center"
                     >
                       <i class="fas fa-ticket-alt mr-2"></i>
                       Bestel Tickets
-                    </button>
+                    </a>
 
                     <p class="text-xs text-gray-500 text-center mt-4">
-                      Veilige betaling via Stripe
+                      <i class="fas fa-lock mr-1"></i>
+                      Veilige betaling via Mollie (Bancontact, iDEAL, creditcard, overschrijving)
                     </p>
                   </>
                 ) : (

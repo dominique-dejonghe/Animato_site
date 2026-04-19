@@ -6,6 +6,7 @@ import { optionalAuth } from '../middleware/auth'
 import { formatLineBreaks } from '../utils/text'
 import { sendEmail, orderConfirmationEmail } from '../utils/email'
 import { createMolliePayment } from '../utils/mollie'
+import { getMollieApiKey } from '../utils/mollie-config'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -527,18 +528,20 @@ app.post('/api/tickets/order', async (c) => {
 
     // Create Mollie payment
     const siteUrl = c.env.SITE_URL || 'https://animato.be'
-    const isDevelopment = !c.env.MOLLIE_API_KEY || c.env.MOLLIE_API_KEY.includes('test_dHar4XY7LxsDOtmnkVtjNVWXLSlXsM')
+    const mollieKey = await getMollieApiKey(c.env)
+    // Mock-modus: geen echte key OF expliciet de sample-key
+    const isDevelopment = !mollieKey || mollieKey === 'mock' || mollieKey.includes('test_dHar4XY7LxsDOtmnkVtjNVWXLSlXsM')
     let molliePayment: any
-    
+
     if (isDevelopment) {
-      console.log('🧪 Development mode: Using mock payment')
+      console.log('[Tickets] Mock-modus: simuleer betaling')
       molliePayment = {
         id: 'mock_' + crypto.randomUUID(),
         status: 'open',
         _links: { checkout: { href: `${siteUrl}/tickets/bevestiging/${orderRef}?mock=true` } }
       }
     } else {
-      molliePayment = await createMolliePayment(c.env.MOLLIE_API_KEY, {
+      molliePayment = await createMolliePayment(mollieKey, {
         amount: totalAmount,
         description: `Tickets ${event.titel} - ${orderRef}`,
         redirectUrl: `${siteUrl}/tickets/bevestiging/${orderRef}`,

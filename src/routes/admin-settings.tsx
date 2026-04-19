@@ -4,6 +4,8 @@ import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
 import { queryAll, queryOne, execute } from '../utils/db'
 import { verifyToken } from '../utils/auth'
+import { getMollieMode, validateMollieApiKey } from '../utils/mollie'
+import { getMollieApiKey, invalidateMollieApiKeyCache } from '../utils/mollie-config'
 
 const app = new Hono()
 
@@ -21,12 +23,22 @@ app.use('/api/admin/*', adminAuthMiddleware)
 
 app.get('/admin/settings', async (c) => {
   const user = c.get('user')
-  
+
   const settings = await queryAll(c.env.DB, "SELECT * FROM system_settings")
   const settingsMap = settings.reduce((acc: any, curr: any) => {
     acc[curr.key] = curr.value
     return acc
   }, {})
+
+  // Bepaal actieve Mollie-status (zonder échte API-call, puur modus-check)
+  const activeMollieKey = await getMollieApiKey(c.env)
+  const mollieMode = getMollieMode(activeMollieKey)
+  const mollieStatusBadge = {
+    live:    { label: 'LIVE',    color: 'bg-green-100 text-green-800 border-green-300',  icon: 'fa-circle-check' },
+    test:    { label: 'TEST',    color: 'bg-amber-100 text-amber-800 border-amber-300',  icon: 'fa-vial' },
+    mock:    { label: 'MOCK',    color: 'bg-gray-100 text-gray-700 border-gray-300',      icon: 'fa-flask' },
+    invalid: { label: 'ONGELDIG', color: 'bg-red-100 text-red-800 border-red-300',        icon: 'fa-triangle-exclamation' },
+  }[mollieMode]
 
   return c.html(
     <Layout title="Instellingen" user={user}>
@@ -73,9 +85,54 @@ app.get('/admin/settings', async (c) => {
                   </div>
 
                   <div class="border-t pt-4 mt-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Mollie API Key</label>
-                    <input type="password" name="mollie_api_key" placeholder="live_..." value={settingsMap.mollie_api_key || ''} class="w-full border rounded px-3 py-2" />
-                    <p class="text-xs text-gray-500">Vereist voor betaallinks. Laat leeg om te behouden.</p>
+                    <div class="flex items-center justify-between mb-2">
+                      <label class="block text-sm font-medium text-gray-700">
+                        <i class="fab fa-cc-amazon-pay text-blue-600 mr-1"></i> Mollie API-key
+                      </label>
+                      <span class={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full border ${mollieStatusBadge.color}`}>
+                        <i class={`fas ${mollieStatusBadge.icon}`}></i>
+                        {mollieStatusBadge.label}
+                      </span>
+                    </div>
+                    <input
+                      type="password"
+                      name="mollie_api_key"
+                      placeholder="test_... of live_..."
+                      value={settingsMap.mollie_api_key || ''}
+                      autocomplete="off"
+                      class="w-full border rounded px-3 py-2 font-mono text-sm"
+                    />
+                    <p class="text-xs text-gray-500 mt-1">
+                      Verkrijg je key via <a href="https://my.mollie.com/dashboard/developers/api-keys" target="_blank" class="text-animato-primary hover:underline">Mollie Dashboard → Developers → API keys</a>.
+                      {mollieMode === 'mock' && (
+                        <span class="block mt-1 text-amber-700"><i class="fas fa-info-circle mr-1"></i>Geen echte key actief — betalingen worden gesimuleerd (mock-modus).</span>
+                      )}
+                      {mollieMode === 'test' && (
+                        <span class="block mt-1 text-amber-700"><i class="fas fa-vial mr-1"></i>Test-modus actief. Geen echt geld. Gebruik testkaarten (zie Mollie-docs).</span>
+                      )}
+                      {mollieMode === 'live' && (
+                        <span class="block mt-1 text-green-700"><i class="fas fa-check-circle mr-1"></i>Live-modus. Echte betalingen worden verwerkt.</span>
+                      )}
+                    </p>
+                    <div class="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        onclick="testMollieKey()"
+                        class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded border border-gray-300"
+                      >
+                        <i class="fas fa-plug mr-1"></i>Test connectie
+                      </button>
+                      <span id="mollie-test-result" class="text-xs"></span>
+                    </div>
+                  </div>
+
+                  {/* Webhook-URL info */}
+                  <div class="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-900">
+                    <div class="font-semibold mb-1"><i class="fas fa-link mr-1"></i>Webhook URL (info voor Mollie-configuratie)</div>
+                    <code class="block bg-white border border-blue-100 px-2 py-1 rounded font-mono text-[11px] break-all">
+                      {c.env.SITE_URL || 'https://animato-live.pages.dev'}/api/webhooks/mollie
+                    </code>
+                    <p class="mt-1 opacity-80">Mollie gebruikt deze URL automatisch per betaling — geen aparte configuratie nodig in het Mollie-dashboard, tenzij je expliciet een vast adres wenst.</p>
                   </div>
 
                   <button type="submit" class="bg-animato-primary text-white px-4 py-2 rounded hover:bg-opacity-90 w-full">
@@ -143,6 +200,31 @@ app.get('/admin/settings', async (c) => {
           </div>
         </div>
       </div>
+
+      {/* Mollie connectie-test script */}
+      <script dangerouslySetInnerHTML={{ __html: `
+        async function testMollieKey() {
+          const input = document.querySelector('input[name="mollie_api_key"]');
+          const result = document.getElementById('mollie-test-result');
+          const key = (input?.value || '').trim();
+          result.innerHTML = '<i class="fas fa-spinner fa-spin text-gray-500"></i> Testen...';
+          try {
+            const fd = new FormData();
+            if (key) fd.append('api_key', key);
+            const res = await fetch('/api/admin/settings/test-mollie', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (data.valid) {
+              const modeColors = { live: 'text-green-700', test: 'text-amber-700', mock: 'text-gray-700' };
+              const color = modeColors[data.mode] || 'text-green-700';
+              result.innerHTML = '<span class="' + color + '"><i class="fas fa-check-circle"></i> OK — modus: <strong>' + data.mode.toUpperCase() + '</strong></span>';
+            } else {
+              result.innerHTML = '<span class="text-red-700"><i class="fas fa-times-circle"></i> ' + (data.error || 'Ongeldig') + '</span>';
+            }
+          } catch (e) {
+            result.innerHTML = '<span class="text-red-700"><i class="fas fa-times-circle"></i> Netwerkfout</span>';
+          }
+        }
+      ` }} />
     </Layout>
   )
 })
@@ -182,7 +264,26 @@ app.post('/api/admin/settings/update', async (c) => {
      await execute(db, `INSERT INTO system_settings (key, value) VALUES ('beta_features', '0') ON CONFLICT(key) DO UPDATE SET value = '0', updated_at = CURRENT_TIMESTAMP`, [])
   }
 
+  // Invalidate cache zodat de volgende request direct de nieuwe key gebruikt
+  invalidateMollieApiKeyCache()
+
   return c.redirect('/admin/settings?success=1')
+})
+
+// Mollie connectie-test endpoint
+app.post('/api/admin/settings/test-mollie', async (c) => {
+  try {
+    const body = await c.req.parseBody().catch(() => ({}))
+    // Als er een key in de body zit, test die; anders gebruik de actieve
+    let keyToTest = String((body as any).api_key || '').trim()
+    if (!keyToTest) {
+      keyToTest = await getMollieApiKey(c.env)
+    }
+    const result = await validateMollieApiKey(keyToTest)
+    return c.json(result)
+  } catch (err: any) {
+    return c.json({ valid: false, error: err?.message || 'Onbekende fout' }, 500)
+  }
 })
 
 export default app

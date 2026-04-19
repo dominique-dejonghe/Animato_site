@@ -8,6 +8,7 @@ import { Layout } from '../components/Layout'
 import { requireAuth } from '../middleware/auth'
 import { queryOne, queryAll, execute } from '../utils/db'
 import { createMolliePayment } from '../utils/mollie'
+import { getMollieApiKey } from '../utils/mollie-config'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -638,7 +639,7 @@ app.post('/api/leden/donatie', async (c) => {
     const donationRef = 'DON-' + Date.now().toString(36).toUpperCase()
 
     // Create Payment
-    const payment = await createMolliePayment(c.env.MOLLIE_API_KEY, {
+    const payment = await createMolliePayment(await getMollieApiKey(c.env), {
         amount: amount,
         description: `Vrije Gift Animato - ${user.voornaam} ${user.achternaam}`,
         redirectUrl: `${siteUrl}/leden/donaties?success=true`,
@@ -682,7 +683,7 @@ app.post('/api/leden/donatie', async (c) => {
     const donationId = insertRes.meta.last_row_id
 
     // 2. Payment
-    const payment2 = await createMolliePayment(c.env.MOLLIE_API_KEY, {
+    const payment2 = await createMolliePayment(await getMollieApiKey(c.env), {
         amount: amount,
         description: `Vrije Gift Animato - ${user.voornaam} ${user.achternaam}`,
         redirectUrl: `${siteUrl}/leden/donaties?success=true`,
@@ -2527,7 +2528,7 @@ app.post('/api/leden/betaling/online', async (c) => {
       const donationId = insertRes.meta.last_row_id
       
       // 2. Create Payment
-      const payment = await createMolliePayment(c.env.MOLLIE_API_KEY, {
+      const payment = await createMolliePayment(await getMollieApiKey(c.env), {
         amount: totalAmount,
         description: `Lidgeld ${membership.season} + Vrije Gift - ${user.voornaam}`,
         redirectUrl: `${siteUrl}/leden/profiel?payment=success`,
@@ -2547,7 +2548,7 @@ app.post('/api/leden/betaling/online', async (c) => {
       return c.redirect(payment.checkoutUrl)
   } else {
       // Standard membership payment
-      const payment = await createMolliePayment(c.env.MOLLIE_API_KEY, {
+      const payment = await createMolliePayment(await getMollieApiKey(c.env), {
         amount: membership.amount,
         description: `Lidgeld Animato ${membership.season} - ${membership.type}`,
         redirectUrl: `${siteUrl}/leden/profiel?payment=success`,

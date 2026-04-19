@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { queryOne, execute } from '../utils/db'
 import { getMolliePayment } from '../utils/mollie'
+import { getMollieApiKey } from '../utils/mollie-config'
 import { sendEmail, ticketEmail } from '../utils/email'
 import type { Bindings } from '../types'
 
@@ -11,16 +12,31 @@ const app = new Hono<{ Bindings: Bindings }>()
 // ==========================================
 app.post('/api/webhooks/mollie', async (c) => {
   try {
-    const body = await c.req.parseBody()
-    const paymentId = String(body.id)
+    // Mollie stuurt application/x-www-form-urlencoded met één veld: id
+    // We ondersteunen ook JSON voor eigen/test-calls
+    let paymentId = ''
+    const contentType = c.req.header('content-type') || ''
+    if (contentType.includes('application/json')) {
+      const json = await c.req.json().catch(() => ({} as any))
+      paymentId = String((json as any).id || '')
+    } else {
+      const body = await c.req.parseBody().catch(() => ({} as any))
+      paymentId = String((body as any).id || '')
+    }
 
     if (!paymentId) {
+      console.warn('[Mollie webhook] Geen payment ID in request')
       return c.json({ error: 'No payment ID' }, 400)
     }
 
-    // 1. Get payment status from Mollie
-    const molliePayment = await getMolliePayment(c.env.MOLLIE_API_KEY, paymentId)
-    if (!molliePayment) return c.json({ error: 'Payment not found' }, 404)
+    console.log('[Mollie webhook] Ontvangen voor payment', paymentId)
+
+    // 1. Get payment status from Mollie (revalidatie — nooit vertrouwen op de request body)
+    const molliePayment = await getMolliePayment(await getMollieApiKey(c.env), paymentId)
+    if (!molliePayment) {
+      console.warn('[Mollie webhook] Payment niet gevonden bij Mollie:', paymentId)
+      return c.json({ error: 'Payment not found' }, 404)
+    }
 
     // 2. Check metadata to route properly
     const type = molliePayment.metadata?.type
@@ -243,7 +259,7 @@ app.get('/api/tickets/:orderRef/payment-status', async (c) => {
 
     // If pending, check Mollie for latest status
     if (ticket.status === 'pending' && ticket.betaling_id) {
-      const molliePayment = await getMolliePayment(c.env.MOLLIE_API_KEY, ticket.betaling_id)
+      const molliePayment = await getMolliePayment(await getMollieApiKey(c.env), ticket.betaling_id)
       
       if (molliePayment) {
         const status = molliePayment.status

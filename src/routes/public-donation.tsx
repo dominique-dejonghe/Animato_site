@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { Layout } from '../components/Layout'
 import { createMolliePayment } from '../utils/mollie'
+import { getMollieApiKey } from '../utils/mollie-config'
 import { execute } from '../utils/db'
 import type { Bindings } from '../types'
 
@@ -126,7 +127,7 @@ app.post('/api/public/donatie', async (c) => {
     const donationId = insertRes.meta.last_row_id
 
     // 2. Create Payment
-    const payment = await createMolliePayment(c.env.MOLLIE_API_KEY, {
+    const payment = await createMolliePayment(await getMollieApiKey(c.env), {
         amount: amount,
         description: `Gift Animato - ${name}`,
         redirectUrl: `${siteUrl}/steun-ons?success=true`,

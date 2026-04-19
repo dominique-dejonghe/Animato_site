@@ -6,6 +6,7 @@ import { queryAll, queryOne, execute } from '../utils/db'
 import { verifyToken } from '../utils/auth'
 
 import { createMolliePayment } from '../utils/mollie'
+import { getMollieApiKey } from '../utils/mollie-config'
 import { sendEmail } from '../utils/email'
 
 const app = new Hono()
@@ -530,7 +531,7 @@ app.post('/api/admin/lidgelden/send-link', async (c) => {
   let paymentUrl = membership.mollie_payment_url
 
   if (!paymentUrl) {
-    const payment = await createMolliePayment(c.env.MOLLIE_API_KEY, {
+    const payment = await createMolliePayment(await getMollieApiKey(c.env), {
       amount: membership.amount,
       description: `Lidgeld Animato ${membership.season} - ${membership.type}`,
       redirectUrl: `${siteUrl}/leden/profiel?payment=success`,

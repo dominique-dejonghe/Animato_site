@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import { Layout } from '../components/Layout'
 import { requireRole, type SessionUser } from '../middleware/auth'
 import { queryAll, queryOne, execute } from '../utils/db'
+import { getMollieMode } from '../utils/mollie'
+import { getMollieApiKey } from '../utils/mollie-config'
 
 const app = new Hono()
 
@@ -804,6 +806,9 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
     prijzen = []
   }
 
+  // Bepaal actieve Mollie-modus (voor status-banner)
+  const mollieMode = getMollieMode(await getMollieApiKey(c.env))
+
   return c.html(
     <Layout title={`Instellingen - ${concert.titel}`} user={user}>
       <div class="max-w-4xl mx-auto px-4 py-8">
@@ -839,6 +844,36 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
             </a>
           </div>
         </div>
+
+        {/* Mollie status banner */}
+        {mollieMode !== 'live' && (
+          <div class={`mb-6 border-2 rounded-lg p-4 flex items-start gap-3 ${
+            mollieMode === 'test' ? 'bg-amber-50 border-amber-300 text-amber-900' :
+            mollieMode === 'mock' ? 'bg-gray-50 border-gray-300 text-gray-800' :
+            'bg-red-50 border-red-300 text-red-900'
+          }`}>
+            <i class={`fas text-xl mt-0.5 ${
+              mollieMode === 'test' ? 'fa-vial text-amber-600' :
+              mollieMode === 'mock' ? 'fa-flask text-gray-500' :
+              'fa-triangle-exclamation text-red-600'
+            }`}></i>
+            <div class="flex-1 text-sm">
+              <strong class="block mb-0.5">
+                {mollieMode === 'test' ? 'Mollie in TEST-modus' :
+                 mollieMode === 'mock' ? 'Geen Mollie-betalingen actief (MOCK-modus)' :
+                 'Mollie-configuratie ongeldig'}
+              </strong>
+              <p class="opacity-90">
+                {mollieMode === 'test' && 'Er worden geen echte betalingen verwerkt. Gebruik Mollie-testkaarten om de flow te testen.'}
+                {mollieMode === 'mock' && 'Ticketbestellingen worden opgeslagen maar er gaat géén geld doorheen. Stel een Mollie API-key in om live te gaan.'}
+                {mollieMode === 'invalid' && 'De Mollie API-key is niet herkend. Controleer de instellingen.'}
+              </p>
+            </div>
+            <a href="/admin/settings#mollie_api_key" class="flex-shrink-0 text-xs font-semibold bg-white/70 hover:bg-white px-3 py-1.5 rounded border border-current/20 transition">
+              <i class="fas fa-cog mr-1"></i>Mollie instellen
+            </a>
+          </div>
+        )}
 
         <form method="POST" action={`/api/admin/tickets/concert/${concertId}/settings`} class="space-y-8">
           

@@ -106,53 +106,46 @@ app.get('/agenda', async (c) => {
       `
       birthdayFilters = [monthStr]
     } else {
-      // Get birthdays for the next 3 months from today
+      // Get ALL birthdays for the full calendar year, starting from today.
+      // Verjaardagen die al voorbij zijn in het huidige jaar worden aan het
+      // einde getoond (volgend jaar).
       const today = new Date()
       const mmddStart = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-      const future = new Date(today)
-      future.setMonth(future.getMonth() + 3)
-      const mmddEnd = `${String(future.getMonth() + 1).padStart(2, '0')}-${String(future.getDate()).padStart(2, '0')}`
-      
-      // Handle year wrap (e.g. Nov -> Feb)
-      if (mmddEnd < mmddStart) {
-        birthdayQuery = `
-          SELECT p.voornaam, p.achternaam, p.foto_url, p.geboortedatum, u.id as user_id, u.stemgroep
-          FROM profiles p
-          JOIN users u ON u.id = p.user_id
-          WHERE u.status = 'actief'
-            AND p.geboortedatum IS NOT NULL
-            AND (strftime('%m-%d', p.geboortedatum) >= ? OR strftime('%m-%d', p.geboortedatum) <= ?)
-          ORDER BY CASE
-            WHEN strftime('%m-%d', p.geboortedatum) >= ? THEN 0 ELSE 1
-          END, strftime('%m-%d', p.geboortedatum) ASC
-        `
-        birthdayFilters = [mmddStart, mmddEnd, mmddStart]
-      } else {
-        birthdayQuery = `
-          SELECT p.voornaam, p.achternaam, p.foto_url, p.geboortedatum, u.id as user_id, u.stemgroep
-          FROM profiles p
-          JOIN users u ON u.id = p.user_id
-          WHERE u.status = 'actief'
-            AND p.geboortedatum IS NOT NULL
-            AND strftime('%m-%d', p.geboortedatum) BETWEEN ? AND ?
-          ORDER BY strftime('%m-%d', p.geboortedatum) ASC
-        `
-        birthdayFilters = [mmddStart, mmddEnd]
-      }
+
+      birthdayQuery = `
+        SELECT p.voornaam, p.achternaam, p.foto_url, p.geboortedatum, u.id as user_id, u.stemgroep
+        FROM profiles p
+        JOIN users u ON u.id = p.user_id
+        WHERE u.status = 'actief'
+          AND p.geboortedatum IS NOT NULL
+        ORDER BY
+          CASE WHEN strftime('%m-%d', p.geboortedatum) >= ? THEN 0 ELSE 1 END,
+          strftime('%m-%d', p.geboortedatum) ASC
+      `
+      birthdayFilters = [mmddStart]
     }
     
     const birthdayMembers = await queryAll<any>(c.env.DB, birthdayQuery, birthdayFilters)
-    
-    // Group by date (using current year for display)
-    const currentYear = new Date().getFullYear()
+
+    // Group by date
+    // - In calendar view: altijd huidige jaar (view toont één specifieke maand)
+    // - In list view: verjaardagen die al voorbij zijn rollen over naar volgend jaar,
+    //   zodat de lijst 12 maanden vooruit loopt in chronologische volgorde.
+    const today = new Date()
+    const currentYear = today.getFullYear()
+    const todayMmdd = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
     for (const bm of birthdayMembers as any[]) {
       if (!bm.geboortedatum) continue
       const mmdd = bm.geboortedatum.substring(5) // "MM-DD"
-      const displayDate = `${currentYear}-${mmdd}`
-      
+      const yearForDisplay = (view !== 'calendar' && mmdd < todayMmdd)
+        ? currentYear + 1
+        : currentYear
+      const displayDate = `${yearForDisplay}-${mmdd}`
+
       if (!birthdaysByDate[displayDate]) birthdaysByDate[displayDate] = []
       birthdaysByDate[displayDate].push(bm)
-      
+
       // Also group by month label for list view
       const bdDate = new Date(displayDate)
       const monthLabel = bdDate.toLocaleDateString('nl-BE', { year: 'numeric', month: 'long' })

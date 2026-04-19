@@ -53,8 +53,9 @@ app.get('/admin', async (c) => {
 
   // Get statistics
   const stats = {
-    total_leden: await queryOne<any>(c.env.DB, 
-      `SELECT COUNT(*) as count FROM users WHERE role IN ('lid', 'stemleider')`
+    total_leden: await queryOne<any>(c.env.DB,
+      // Alle actieve users tellen mee — lid, stemleider, pianist, dirigent, admin, moderator
+      `SELECT COUNT(*) as count FROM users WHERE status = 'actief'`
     ),
     total_posts: await queryOne<any>(c.env.DB,
       `SELECT COUNT(*) as count FROM posts WHERE is_published = 1`
@@ -1223,6 +1224,8 @@ app.get('/admin/leden', async (c) => {
     moderator: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'moderator' AND status = 'actief'`),
     stemleider: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'stemleider' AND status = 'actief'`),
     lid: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'lid' AND status = 'actief'`),
+    pianist: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'pianist' AND status = 'actief'`),
+    dirigent: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'dirigent' AND status = 'actief'`),
     actief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
     inactief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'inactief'`),
     online: await queryOne<any>(c.env.DB, `SELECT COUNT(DISTINCT user_id) as count FROM user_sessions WHERE is_active = 1`),
@@ -1276,18 +1279,10 @@ app.get('/admin/leden', async (c) => {
           
           {/* Stats Bar */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
               <div class="text-center">
                 <p class="text-2xl font-bold text-gray-900">{counts.all?.count || 0}</p>
-                <p class="text-sm text-gray-600">Totaal</p>
-              </div>
-              <div class="text-center">
-                <p class="text-2xl font-bold text-animato-primary">{counts.lid?.count || 0}</p>
                 <p class="text-sm text-gray-600">Leden</p>
-              </div>
-              <div class="text-center">
-                <p class="text-2xl font-bold text-purple-600">{counts.stemleider?.count || 0}</p>
-                <p class="text-sm text-gray-600">Stemleiders</p>
               </div>
               <a href="/admin/leden?bestuur=yes&status=actief" class="text-center hover:bg-yellow-50 rounded-lg py-1 transition cursor-pointer" title="Toon alleen bestuursleden">
                 <p class="text-2xl font-bold text-yellow-600 flex items-center justify-center">
@@ -1296,10 +1291,20 @@ app.get('/admin/leden', async (c) => {
                 </p>
                 <p class="text-sm text-gray-600">Bestuur</p>
               </a>
-              <div class="text-center">
-                <p class="text-2xl font-bold text-amber-600">{counts.moderator?.count || 0}</p>
-                <p class="text-sm text-gray-600">Moderators</p>
-              </div>
+              <a href="/admin/leden?role=dirigent&status=actief" class="text-center hover:bg-indigo-50 rounded-lg py-1 transition cursor-pointer" title="Toon dirigenten">
+                <p class="text-2xl font-bold text-indigo-600 flex items-center justify-center">
+                  <i class="fas fa-user-tie text-sm mr-1"></i>
+                  {counts.dirigent?.count || 0}
+                </p>
+                <p class="text-sm text-gray-600">Dirigent</p>
+              </a>
+              <a href="/admin/leden?role=pianist&status=actief" class="text-center hover:bg-pink-50 rounded-lg py-1 transition cursor-pointer" title="Toon pianisten">
+                <p class="text-2xl font-bold text-pink-600 flex items-center justify-center">
+                  <i class="fas fa-music text-sm mr-1"></i>
+                  {counts.pianist?.count || 0}
+                </p>
+                <p class="text-sm text-gray-600">Pianist</p>
+              </a>
               <div class="text-center">
                 <p class="text-2xl font-bold text-red-600">{counts.admin?.count || 0}</p>
                 <p class="text-sm text-gray-600">Admins</p>
@@ -1386,17 +1391,21 @@ app.get('/admin/leden', async (c) => {
 
           {/* Filters & Search */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <form method="GET" action="/admin/leden" class="space-y-4">
+            <form method="GET" action="/admin/leden" class="space-y-4" id="ledenFilterForm">
               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-2">Zoeken</label>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Zoeken
+                    <span class="text-xs font-normal text-gray-400 ml-1">(live)</span>
+                  </label>
                   <input
                     type="text"
                     name="search"
+                    id="ledenSearchInput"
                     value={search}
-                    placeholder="Naam of email..."
+                    placeholder="Naam of email, druk Enter om volledig te zoeken"
+                    autocomplete="off"
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    oninput="clearTimeout(window._searchTimer); window._searchTimer = setTimeout(() => this.form.submit(), 500)"
                   />
                 </div>
                 <div>
@@ -1554,8 +1563,18 @@ app.get('/admin/leden', async (c) => {
                         ? new Date(lid.last_login_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })
                         : 'Nooit'
                       
+                      const searchHaystack = [
+                        lid.voornaam, lid.achternaam, lid.email,
+                        lid.telefoon, lid.stemgroep,
+                        roleLabels[lid.role] || lid.role,
+                        stemgroepLabels[lid.stemgroep] || ''
+                      ].filter(Boolean).join(' ').toLowerCase()
                       return (
-                        <tr class="hover:bg-gray-50 transition cursor-pointer" onclick={`window.location='/admin/leden/${lid.id}'`}>
+                        <tr
+                          class="leden-row hover:bg-gray-50 transition cursor-pointer"
+                          data-search={searchHaystack}
+                          onclick={`window.location='/admin/leden/${lid.id}'`}
+                        >
                           <td class="px-6 py-4 whitespace-nowrap">
                             <div class="flex items-center">
                               <div class="relative">
@@ -1731,6 +1750,39 @@ app.get('/admin/leden', async (c) => {
           }
           closeDeleteModal();
         });
+
+        // ------------------------------------------------------------
+        // Live client-side search filter (no reload, no focus-loss)
+        // - Typen = filtert direct de zichtbare rijen in de tabel
+        // - Enter = volledige server-side zoek (URL ?search=...) zodat
+        //   de term ook na reload bewaard blijft
+        // ------------------------------------------------------------
+        (function() {
+          const input = document.getElementById('ledenSearchInput');
+          if (!input) return;
+          const form = document.getElementById('ledenFilterForm');
+
+          function applyFilter() {
+            const q = input.value.trim().toLowerCase();
+            const rows = document.querySelectorAll('tr.leden-row');
+            rows.forEach(function(tr) {
+              const hay = tr.getAttribute('data-search') || '';
+              tr.style.display = (!q || hay.indexOf(q) !== -1) ? '' : 'none';
+            });
+          }
+
+          input.addEventListener('input', applyFilter);
+          input.addEventListener('keydown', function(ev) {
+            if (ev.key === 'Enter') {
+              ev.preventDefault();
+              if (form) form.submit();
+            }
+          });
+
+          // Als er een search-term via de URL staat (server-side), pas ook
+          // de live-filter toe zodat de count rechts zichtbaar klopt.
+          if (input.value) applyFilter();
+        })();
       ` }} />
     </Layout>
   )

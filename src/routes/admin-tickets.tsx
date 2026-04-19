@@ -671,7 +671,7 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
   const concertId = parseInt(c.req.param('concertId'))
   
   const concert = await queryOne(c.env.DB, `
-    SELECT c.*, e.id as event_id, e.slug, e.titel, e.start_at, e.locatie, e.afbeelding
+    SELECT c.*, e.id as event_id, e.slug, e.titel, e.start_at, e.locatie, e.image_url as afbeelding
     FROM concerts c
     JOIN events e ON e.id = c.event_id
     WHERE c.id = ?
@@ -1443,11 +1443,11 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
       concertId
     ])
 
-    // Update event image
+    // Update event image (stored in events.image_url)
     if (body.afbeelding !== undefined) {
       await execute(c.env.DB, `
         UPDATE events SET
-          afbeelding = ?
+          image_url = ?
         WHERE id = ?
       `, [
         String(body.afbeelding || ''),

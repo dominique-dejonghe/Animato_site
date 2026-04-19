@@ -13,9 +13,13 @@ app.use('/admin/*', requireRole('admin', 'moderator'))
 // ==========================================
 app.get('/admin/tickets', async (c) => {
   const user = c.get('user') as SessionUser
-  
-  // Get all concert events with optional concerts table data
-  const concerts = await queryAll(c.env.DB, `
+
+  // Filter: 'upcoming' (default), 'open', 'announced', 'soldout', 'past', 'all'
+  const filter = (c.req.query('filter') || 'upcoming').toLowerCase()
+  const search = (c.req.query('q') || '').trim()
+
+  // Haal eerst alles op — filteren daarna in JS op basis van de samengestelde status
+  let baseQuery = `
     SELECT e.id as event_id, e.titel, e.slug, e.start_at, e.locatie, e.type,
            c.id as concert_id, c.programma, c.ticketing_enabled, c.uitverkocht, c.tickets_aangekondigd, c.voorverkoop_start_at,
            c.capaciteit, c.verkocht,
@@ -26,9 +30,53 @@ app.get('/admin/tickets', async (c) => {
     LEFT JOIN concerts c ON c.event_id = e.id
     LEFT JOIN tickets t ON t.concert_id = c.id
     WHERE e.type = 'concert'
-    GROUP BY e.id
-    ORDER BY e.start_at ASC
-  `)
+  `
+  const params: any[] = []
+  if (search) {
+    baseQuery += ` AND (e.titel LIKE ? OR e.locatie LIKE ?)`
+    params.push(`%${search}%`, `%${search}%`)
+  }
+  baseQuery += ` GROUP BY e.id ORDER BY e.start_at ASC`
+
+  const allConcerts = await queryAll<any>(c.env.DB, baseQuery, params)
+
+  // Bereken status per concert
+  const now = Date.now()
+  const withStatus = allConcerts.map((row: any) => {
+    const startTs = row.start_at ? new Date(String(row.start_at).replace(' ', 'T')).getTime() : 0
+    const voorverkoopTs = row.voorverkoop_start_at ? new Date(String(row.voorverkoop_start_at).replace(' ', 'T')).getTime() : 0
+    const isPast = startTs > 0 && startTs < now
+    const isSoldOut = row.uitverkocht == 1
+    const isAnnounced = !isSoldOut && !isPast && (row.tickets_aangekondigd == 1 || (voorverkoopTs > 0 && voorverkoopTs > now))
+    const isOpen = !isSoldOut && !isPast && !isAnnounced && row.ticketing_enabled == 1
+    let status: 'past' | 'soldout' | 'announced' | 'open' | 'free' = 'free'
+    if (isPast) status = 'past'
+    else if (isSoldOut) status = 'soldout'
+    else if (isAnnounced) status = 'announced'
+    else if (isOpen) status = 'open'
+    return { ...row, _status: status, _isPast: isPast }
+  })
+
+  // Tel per status voor de filterknoppen
+  const statusCounts: Record<string, number> = {
+    all: withStatus.length,
+    upcoming: withStatus.filter(r => !r._isPast).length,
+    open: withStatus.filter(r => r._status === 'open').length,
+    announced: withStatus.filter(r => r._status === 'announced').length,
+    soldout: withStatus.filter(r => r._status === 'soldout').length,
+    past: withStatus.filter(r => r._status === 'past').length,
+    free: withStatus.filter(r => r._status === 'free' && !r._isPast).length,
+  }
+
+  // Pas filter toe
+  let concerts = withStatus
+  if (filter === 'upcoming') concerts = withStatus.filter(r => !r._isPast)
+  else if (filter === 'open') concerts = withStatus.filter(r => r._status === 'open')
+  else if (filter === 'announced') concerts = withStatus.filter(r => r._status === 'announced')
+  else if (filter === 'soldout') concerts = withStatus.filter(r => r._status === 'soldout')
+  else if (filter === 'past') concerts = withStatus.filter(r => r._status === 'past').reverse() // recentste eerst
+  else if (filter === 'free') concerts = withStatus.filter(r => r._status === 'free' && !r._isPast)
+  // 'all' → alles ongewijzigd
 
   return c.html(
     <Layout title="Ticketing Beheer" user={user}>
@@ -42,6 +90,11 @@ app.get('/admin/tickets', async (c) => {
             </h1>
             <p class="text-gray-600">
               Beheer concerten, prijzen en bekijk bestellingen
+              {filter !== 'upcoming' && (
+                <span class="ml-2 text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
+                  Filter: {filter === 'open' ? 'Verkoop open' : filter === 'announced' ? 'Aangekondigd' : filter === 'soldout' ? 'Uitverkocht' : filter === 'past' ? 'Afgelopen' : filter === 'free' ? 'Gratis toegang' : 'Alle'}
+                </span>
+              )}
             </p>
           </div>
           <a
@@ -110,13 +163,66 @@ app.get('/admin/tickets', async (c) => {
           </div>
         </div>
 
+        {/* Filter Tabs + Search */}
+        <div class="bg-white rounded-lg shadow-sm p-4 mb-6">
+          <div class="flex flex-wrap items-center gap-2 mb-4">
+            {[
+              { key: 'upcoming', label: 'Aankomend', icon: 'fa-calendar-day', count: statusCounts.upcoming, color: 'bg-animato-primary text-white', inactive: 'bg-gray-100 text-gray-700 hover:bg-gray-200' },
+              { key: 'open', label: 'Verkoop open', icon: 'fa-shopping-cart', count: statusCounts.open, color: 'bg-green-600 text-white', inactive: 'bg-green-50 text-green-700 hover:bg-green-100' },
+              { key: 'announced', label: 'Aangekondigd', icon: 'fa-hourglass-half', count: statusCounts.announced, color: 'bg-amber-600 text-white', inactive: 'bg-amber-50 text-amber-800 hover:bg-amber-100' },
+              { key: 'soldout', label: 'Uitverkocht', icon: 'fa-ban', count: statusCounts.soldout, color: 'bg-red-600 text-white', inactive: 'bg-red-50 text-red-700 hover:bg-red-100' },
+              { key: 'free', label: 'Gratis toegang', icon: 'fa-gift', count: statusCounts.free, color: 'bg-gray-700 text-white', inactive: 'bg-gray-50 text-gray-600 hover:bg-gray-100' },
+              { key: 'past', label: 'Afgelopen', icon: 'fa-history', count: statusCounts.past, color: 'bg-gray-600 text-white', inactive: 'bg-gray-50 text-gray-600 hover:bg-gray-100' },
+              { key: 'all', label: 'Alle', icon: 'fa-list', count: statusCounts.all, color: 'bg-gray-800 text-white', inactive: 'bg-gray-100 text-gray-700 hover:bg-gray-200' },
+            ].map(tab => (
+              <a
+                href={`/admin/tickets?filter=${tab.key}${search ? `&q=${encodeURIComponent(search)}` : ''}`}
+                class={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium transition ${filter === tab.key ? tab.color : tab.inactive}`}
+              >
+                <i class={`fas ${tab.icon} text-xs`}></i>
+                {tab.label}
+                <span class={`text-xs font-bold ${filter === tab.key ? 'bg-white/25' : 'bg-white'} px-2 py-0.5 rounded-full`}>
+                  {tab.count}
+                </span>
+              </a>
+            ))}
+          </div>
+          <form method="GET" action="/admin/tickets" class="flex gap-2">
+            <input type="hidden" name="filter" value={filter} />
+            <input
+              type="search"
+              name="q"
+              value={search}
+              placeholder="Zoek op titel of locatie..."
+              class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-animato-primary focus:ring-1 focus:ring-animato-primary"
+            />
+            <button type="submit" class="px-4 py-2 bg-gray-800 text-white rounded-lg text-sm hover:bg-gray-900 transition">
+              <i class="fas fa-search mr-1"></i>Zoek
+            </button>
+            {search && (
+              <a href={`/admin/tickets?filter=${filter}`} class="px-3 py-2 text-sm text-gray-500 hover:text-gray-700 inline-flex items-center">
+                <i class="fas fa-times mr-1"></i>Wis
+              </a>
+            )}
+          </form>
+        </div>
+
         {/* Concerts List */}
         {concerts.length === 0 ? (
           <div class="bg-white rounded-lg shadow-md p-12 text-center">
             <i class="fas fa-calendar-times text-6xl text-gray-300 mb-4"></i>
-            <h3 class="text-xl font-semibold text-gray-700 mb-2">Geen concerten gepland</h3>
+            <h3 class="text-xl font-semibold text-gray-700 mb-2">
+              {filter === 'past' ? 'Geen afgelopen concerten' :
+               filter === 'open' ? 'Geen concerten met open verkoop' :
+               filter === 'announced' ? 'Geen aangekondigde concerten' :
+               filter === 'soldout' ? 'Geen uitverkochte concerten' :
+               search ? `Geen resultaten voor "${search}"` :
+               'Geen concerten gevonden'}
+            </h3>
             <p class="text-gray-500 mb-6">
-              Maak een nieuw concert aan om tickets te kunnen verkopen
+              {filter === 'upcoming' || filter === 'all'
+                ? 'Maak een nieuw concert aan om tickets te kunnen verkopen'
+                : 'Probeer een ander filter of pas de ticketinstellingen per concert aan'}
             </p>
             <a
               href="/admin/events/nieuw?type=concert"
@@ -146,19 +252,28 @@ app.get('/admin/tickets', async (c) => {
                             <h3 class="text-xl font-bold text-gray-900">
                               {concert.titel}
                             </h3>
-                            {concert.uitverkocht && (
-                              <span class="px-3 py-1 bg-red-100 text-red-800 rounded-full text-xs font-semibold">
-                                UITVERKOCHT
-                              </span>
-                            )}
-                            {!concert.uitverkocht && concert.voorverkoop_start_at && new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')).getTime() > Date.now() && (
-                              <span class="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold" title={`Voorverkoop start ${concert.voorverkoop_start_at}`}>
-                                <i class="fas fa-clock mr-1"></i>VOORVERKOOP OP {new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })}
-                              </span>
-                            )}
-                            {isPast && (
+                            {isPast ? (
                               <span class="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-semibold">
-                                AFGELOPEN
+                                <i class="fas fa-history mr-1"></i>AFGELOPEN
+                              </span>
+                            ) : concert._status === 'soldout' ? (
+                              <span class="px-3 py-1 bg-red-100 text-red-800 rounded-full text-xs font-semibold">
+                                <i class="fas fa-ban mr-1"></i>UITVERKOCHT
+                              </span>
+                            ) : concert._status === 'announced' ? (
+                              <span class="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold" title={concert.voorverkoop_start_at ? `Voorverkoop start ${concert.voorverkoop_start_at}` : 'Tickets volgen binnenkort'}>
+                                <i class="fas fa-hourglass-half mr-1"></i>
+                                {concert.voorverkoop_start_at && new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')).getTime() > Date.now()
+                                  ? `VOORVERKOOP OP ${new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })}`
+                                  : 'AANGEKONDIGD'}
+                              </span>
+                            ) : concert._status === 'open' ? (
+                              <span class="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
+                                <i class="fas fa-shopping-cart mr-1"></i>VERKOOP OPEN
+                              </span>
+                            ) : (
+                              <span class="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-semibold">
+                                <i class="fas fa-gift mr-1"></i>GRATIS TOEGANG
                               </span>
                             )}
                           </div>

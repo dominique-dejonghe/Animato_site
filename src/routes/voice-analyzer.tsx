@@ -23,7 +23,14 @@ app.get('/stem-test', async (c) => {
     >
       <div class="bg-gradient-to-b from-gray-50 to-white min-h-screen py-12">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          
+          {user && (
+            <div class="mb-4">
+              <a href="/leden" class="inline-flex items-center text-sm text-animato-primary hover:underline font-semibold">
+                <i class="fas fa-arrow-left mr-2"></i> Terug naar dashboard
+              </a>
+            </div>
+          )}
+
           {/* Header */}
           <div class="text-center mb-12">
             <div class="inline-block p-4 bg-animato-primary/10 rounded-full mb-4">

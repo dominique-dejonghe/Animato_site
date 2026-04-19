@@ -2719,6 +2719,11 @@ app.get('/leden/materiaal', async (c) => {
     <Layout title="Materiaal" user={user} impersonating={!!(c.get('impersonating' as any))} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Materiaal', href: '/leden/materiaal'}]}>
       <div class="py-8 sm:py-12 bg-gray-50 min-h-screen">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="mb-4">
+            <a href="/leden" class="inline-flex items-center text-sm text-animato-primary hover:underline font-semibold">
+              <i class="fas fa-arrow-left mr-2"></i> Terug naar dashboard
+            </a>
+          </div>
           {/* Success/Error/Info messages */}
           {successMsg === 'print_requested' && (
             <div class="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg mb-6 flex items-center">

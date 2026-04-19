@@ -218,6 +218,13 @@ app.get('/agenda', async (c) => {
 
       <div class="py-12 bg-gray-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {user && (
+            <div class="mb-4">
+              <a href="/leden" class="inline-flex items-center text-sm text-animato-primary hover:underline font-semibold">
+                <i class="fas fa-arrow-left mr-2"></i> Terug naar dashboard
+              </a>
+            </div>
+          )}
           {/* Header */}
           <div class="text-center mb-8">
             <h1 class="text-5xl font-bold text-animato-secondary mb-4" style="font-family: 'Playfair Display', serif;">

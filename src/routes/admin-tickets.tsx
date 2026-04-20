@@ -83,6 +83,11 @@ app.get('/admin/tickets', async (c) => {
   return c.html(
     <Layout title="Ticketing Beheer" user={user}>
       <div class="max-w-7xl mx-auto px-4 py-8">
+        <div class="mb-4">
+          <a href="/admin" class="inline-flex items-center text-sm text-animato-primary hover:underline font-semibold">
+            <i class="fas fa-arrow-left mr-2"></i> Terug naar Admin Dashboard
+          </a>
+        </div>
         {/* Header */}
         <div class="flex justify-between items-center mb-8">
           <div>

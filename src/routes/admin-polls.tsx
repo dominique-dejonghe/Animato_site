@@ -67,7 +67,12 @@ app.get('/admin/polls', async (c) => {
     >
       <div class="bg-gray-50 min-h-screen py-8">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          
+          <div class="mb-4">
+            <a href="/admin" class="inline-flex items-center text-sm text-animato-primary hover:underline font-semibold">
+              <i class="fas fa-arrow-left mr-2"></i> Terug naar Admin Dashboard
+            </a>
+          </div>
+
           {/* Header */}
           <div class="mb-8">
             <div class="flex items-center justify-between">

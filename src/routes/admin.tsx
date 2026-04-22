@@ -483,7 +483,7 @@ app.get('/admin', async (c) => {
                       minute: '2-digit'
                     })
                     
-                    return (
+                    const row = (
                       <div class="flex items-start gap-3 pb-3 border-b border-gray-100 last:border-0">
                         <div class="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0">
                           <i class="fas fa-user text-gray-500 text-sm"></i>
@@ -496,6 +496,11 @@ app.get('/admin', async (c) => {
                         </div>
                       </div>
                     )
+                    return activity.user_id ? (
+                      <a href={`/admin/leden/${activity.user_id}`} class="block hover:bg-gray-50 rounded -mx-2 px-2 transition" title="Open fiche van dit lid">
+                        {row}
+                      </a>
+                    ) : row
                   })
                 ) : (
                   <p class="text-sm text-gray-500 text-center py-4">Geen recente activiteit</p>
@@ -4429,9 +4434,27 @@ app.get('/admin/audit', async (c) => {
                                 hour: '2-digit', minute: '2-digit'
                               })}
                             </td>
-                            <td class="px-4 py-3 whitespace-nowrap text-sm">
-                              <div class="font-medium text-gray-900">{log.voornaam} {log.achternaam}</div>
-                              <div class="text-xs text-gray-400">{log.email}</div>
+                            <td
+                              class="px-4 py-3 whitespace-nowrap text-sm"
+                              onclick="event.stopPropagation()"
+                            >
+                              {log.user_id ? (
+                                <a
+                                  href={`/admin/leden/${log.user_id}`}
+                                  class="block hover:bg-blue-50 -mx-2 -my-1 px-2 py-1 rounded transition"
+                                  title="Open fiche van dit lid"
+                                >
+                                  <div class="font-medium text-animato-primary hover:underline">
+                                    {log.voornaam} {log.achternaam}
+                                  </div>
+                                  <div class="text-xs text-gray-400">{log.email}</div>
+                                </a>
+                              ) : (
+                                <div>
+                                  <div class="font-medium text-gray-500 italic">Systeem / verwijderd</div>
+                                  <div class="text-xs text-gray-400">{log.email || '-'}</div>
+                                </div>
+                              )}
                             </td>
                             <td class="px-4 py-3 whitespace-nowrap">
                               <span class={`px-2 py-1 rounded-full text-xs font-semibold ${actieKleur[log.actie] || 'bg-gray-100 text-gray-800'}`}>

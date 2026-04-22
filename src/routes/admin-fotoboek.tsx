@@ -20,8 +20,10 @@ app.get('/admin/fotoboek', async (c) => {
   const search = c.req.query('search') || ''
 
   // Get albums with photo counts
+  // Volgorde: manuele override (sorteer_volgorde > 0) eerst, daarna op evenement-datum (datum) DESC
   let query = `
     SELECT a.id, a.titel, a.slug, a.beschrijving, a.datum, a.cover_url, a.is_publiek, a.created_at,
+           a.sorteer_volgorde,
            COUNT(p.id) as foto_count,
            u.email as auteur_email,
            pr.voornaam as auteur_voornaam,
@@ -39,7 +41,11 @@ app.get('/admin/fotoboek', async (c) => {
     params.push(`%${search}%`, `%${search}%`)
   }
 
-  query += ` GROUP BY a.id ORDER BY a.datum DESC, a.created_at DESC LIMIT 50`
+  // Sorteer:  1) sorteer_volgorde ASC (0 achteraan),  2) datum DESC,  3) created_at DESC
+  query += ` GROUP BY a.id
+             ORDER BY CASE WHEN a.sorteer_volgorde > 0 THEN a.sorteer_volgorde ELSE 999999 END ASC,
+                      a.datum DESC, a.created_at DESC
+             LIMIT 50`
 
   const albums = await queryAll(c.env.DB, query, params)
 
@@ -149,7 +155,7 @@ app.get('/admin/fotoboek', async (c) => {
                 </a>
               </div>
             ) : (
-              albums.map((album: any) => (
+              albums.map((album: any, idx: number) => (
                 <div class="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition group">
                   {/* Cover Image */}
                   <div class="relative h-48 bg-gray-200 overflow-hidden">
@@ -164,14 +170,45 @@ app.get('/admin/fotoboek', async (c) => {
                         <i class="fas fa-image text-gray-400 text-6xl"></i>
                       </div>
                     )}
-                    
+
                     {/* Status Badge */}
-                    <div class="absolute top-2 right-2">
+                    <div class="absolute top-2 right-2 flex flex-col gap-1 items-end">
                       <span class={`px-2 py-1 rounded text-xs font-medium ${
                         album.is_publiek ? 'bg-green-500 text-white' : 'bg-gray-500 text-white'
                       }`}>
                         {album.is_publiek ? 'Publiek' : 'Privé'}
                       </span>
+                      {album.sorteer_volgorde > 0 && (
+                        <span class="px-2 py-1 rounded text-xs font-medium bg-purple-600 text-white" title="Handmatig vastgepind">
+                          <i class="fas fa-thumbtack mr-1"></i>#{album.sorteer_volgorde}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Up / Down reorder buttons */}
+                    <div class="absolute top-2 left-2 flex flex-col gap-1">
+                      <form method="POST" action={`/admin/fotoboek/album/${album.id}/move`} style="display:inline">
+                        <input type="hidden" name="direction" value="up" />
+                        <button
+                          type="submit"
+                          disabled={idx === 0}
+                          title="Hoger"
+                          class={`w-8 h-8 rounded-full shadow text-white flex items-center justify-center ${idx === 0 ? 'bg-gray-300 cursor-not-allowed' : 'bg-animato-primary hover:bg-animato-secondary'}`}
+                        >
+                          <i class="fas fa-arrow-up text-xs"></i>
+                        </button>
+                      </form>
+                      <form method="POST" action={`/admin/fotoboek/album/${album.id}/move`} style="display:inline">
+                        <input type="hidden" name="direction" value="down" />
+                        <button
+                          type="submit"
+                          disabled={idx === albums.length - 1}
+                          title="Lager"
+                          class={`w-8 h-8 rounded-full shadow text-white flex items-center justify-center ${idx === albums.length - 1 ? 'bg-gray-300 cursor-not-allowed' : 'bg-animato-primary hover:bg-animato-secondary'}`}
+                        >
+                          <i class="fas fa-arrow-down text-xs"></i>
+                        </button>
+                      </form>
                     </div>
                   </div>
 
@@ -218,6 +255,18 @@ app.get('/admin/fotoboek', async (c) => {
                         <i class="fas fa-trash"></i>
                       </button>
                     </div>
+                    {album.sorteer_volgorde > 0 && (
+                      <form method="POST" action={`/admin/fotoboek/album/${album.id}/move`} class="mt-2">
+                        <input type="hidden" name="direction" value="unpin" />
+                        <button
+                          type="submit"
+                          class="w-full text-xs text-gray-500 hover:text-red-600 italic"
+                          title="Volgorde lossen: album valt weer op evenementdatum"
+                        >
+                          <i class="fas fa-unlink mr-1"></i>Handmatige volgorde lossen
+                        </button>
+                      </form>
+                    )}
                   </div>
                 </div>
               ))
@@ -1587,6 +1636,62 @@ app.post('/admin/fotoboek/album/:id/reorder', async (c) => {
   } catch (error: any) {
     return c.json({ error: 'Volgorde opslaan mislukt', message: error.message }, 500)
   }
+})
+
+// =====================================================
+// Move album up/down/unpin in the manual sort order
+// =====================================================
+// Strategie:
+// Om van "sorteer op datum" naar "handmatige volgorde" te gaan zonder alles
+// te moeten hernummeren, kennen we aan elk album een sequentieel
+// sorteer_volgorde-nummer toe zodra de admin voor 't eerst de pijltjes
+// gebruikt. Albums zonder handmatige volgorde (sorteer_volgorde = 0) staan
+// onderaan, gesorteerd op datum.
+// "Up" = album wisselt met het album direct erboven in de huidige weergave.
+// "Down" = omgekeerd. "Unpin" = sorteer_volgorde terug op 0.
+app.post('/admin/fotoboek/album/:id/move', async (c) => {
+  const albumId = parseInt(c.req.param('id'))
+  const body = await c.req.parseBody()
+  const direction = String(body.direction || '')
+
+  if (!albumId || !['up', 'down', 'unpin'].includes(direction)) {
+    return c.redirect('/admin/fotoboek?error=invalid')
+  }
+
+  if (direction === 'unpin') {
+    await c.env.DB.prepare(`UPDATE albums SET sorteer_volgorde = 0 WHERE id = ?`).bind(albumId).run()
+    return c.redirect('/admin/fotoboek?success=unpinned')
+  }
+
+  // Zorg dat élk album een unieke positie heeft (lazy normalisatie)
+  const all = await queryAll<any>(c.env.DB,
+    `SELECT id, sorteer_volgorde, datum, created_at FROM albums
+     ORDER BY CASE WHEN sorteer_volgorde > 0 THEN sorteer_volgorde ELSE 999999 END ASC,
+              datum DESC, created_at DESC`
+  )
+
+  // Wijs elk album een 1-based positie toe (in geheugen)
+  const ids = all.map((a: any) => a.id)
+  const currentIdx = ids.indexOf(albumId)
+  if (currentIdx === -1) return c.redirect('/admin/fotoboek?error=not_found')
+
+  let targetIdx = currentIdx
+  if (direction === 'up' && currentIdx > 0) targetIdx = currentIdx - 1
+  else if (direction === 'down' && currentIdx < ids.length - 1) targetIdx = currentIdx + 1
+  else return c.redirect('/admin/fotoboek') // al op randpositie
+
+  // Swap
+  const newOrder = [...ids]
+  ;[newOrder[currentIdx], newOrder[targetIdx]] = [newOrder[targetIdx], newOrder[currentIdx]]
+
+  // Schrijf alle posities weg (1-based, zodat 0 blijft staan voor "geen override"
+  // -- maar hier zetten we iedereen in expliciete volgorde)
+  const statements = newOrder.map((id, idx) =>
+    c.env.DB.prepare(`UPDATE albums SET sorteer_volgorde = ? WHERE id = ?`).bind(idx + 1, id)
+  )
+  await c.env.DB.batch(statements)
+
+  return c.redirect('/admin/fotoboek?success=moved')
 })
 
 export default app

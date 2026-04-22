@@ -1046,10 +1046,15 @@ app.get('/fotoboek', async (c) => {
   const visibility = c.req.query('visibility') || 'all'
 
   // Build query with filters
+  // year wordt afgeleid van `datum` (evenementdatum), NIET van created_at (publicatiedatum)
+  // Albums worden gesorteerd op:
+  //   1) sorteer_volgorde ASC (handmatige override — kleinere waarde = eerst; 0 = geen voorkeur)
+  //   2) datum DESC (recentste evenement eerst)
+  //   3) created_at DESC (als fallback voor albums zonder datum)
   let query = `
     SELECT a.*, 
            COUNT(p.id) as photo_count,
-           strftime('%Y', a.created_at) as year
+           strftime('%Y', COALESCE(a.datum, a.created_at)) as year
     FROM albums a
     LEFT JOIN photos p ON p.album_id = a.id
     WHERE 1=1
@@ -1077,8 +1082,16 @@ app.get('/fotoboek', async (c) => {
     albums = allAlbums.filter((a: any) => a.year === year)
   }
 
-  // Sort by date descending
-  albums.sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+  // Sort: sorteer_volgorde (0 = no preference, wordt achteraan gezet) → datum DESC → created_at DESC
+  albums.sort((a: any, b: any) => {
+    const aSort = a.sorteer_volgorde && a.sorteer_volgorde > 0 ? a.sorteer_volgorde : 999999
+    const bSort = b.sorteer_volgorde && b.sorteer_volgorde > 0 ? b.sorteer_volgorde : 999999
+    if (aSort !== bSort) return aSort - bSort
+    const aDate = a.datum ? new Date(a.datum).getTime() : 0
+    const bDate = b.datum ? new Date(b.datum).getTime() : 0
+    if (aDate !== bDate) return bDate - aDate
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  })
 
   // Get unique years for filter
   const years = [...new Set(allAlbums.map((a: any) => a.year))].sort().reverse()

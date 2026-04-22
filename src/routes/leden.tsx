@@ -226,6 +226,16 @@ app.get('/leden', async (c) => {
               <div class="flex flex-wrap gap-6 justify-center sm:justify-start">
                 {birthdayMembers.map((bm: any) => {
                   const isMe = bm.id === user.id
+                  // BELANGRIJK: gebruik het huidige jaar voor de weekdag-weergave.
+                  // `new Date(bm.geboortedatum)` zou de weekdag uit het geboortejaar geven.
+                  const [, mm, dd] = (bm.geboortedatum || '').split('-')
+                  const now = new Date()
+                  const thisYearBd = new Date(now.getFullYear(), Number(mm) - 1, Number(dd))
+                  // Als de verjaardag al voorbij is vóór vandaag (bv. edge-case),
+                  // neem volgend jaar. Banner toont 'deze week' dus normaal in huidige week.
+                  const displayDate = thisYearBd < new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7)
+                    ? new Date(now.getFullYear() + 1, Number(mm) - 1, Number(dd))
+                    : thisYearBd
                   return (
                     <a href={`/leden/smoelenboek/${bm.id}`} class="flex flex-col items-center group transition hover:scale-105">
                       <div class="relative mb-2">
@@ -239,7 +249,7 @@ app.get('/leden', async (c) => {
                       </span>
                       {isMe && <span class="text-[10px] font-bold text-amber-500 bg-amber-100 px-2 py-0.5 rounded-full mt-0.5">Dat ben jij! 🥳</span>}
                       <span class="text-xs text-amber-600 font-semibold mt-0.5">
-                        {new Date(bm.geboortedatum).toLocaleDateString('nl-BE', { weekday: 'short', day: 'numeric', month: 'long' })}
+                        {displayDate.toLocaleDateString('nl-BE', { weekday: 'short', day: 'numeric', month: 'long' })}
                       </span>
                     </a>
                   )
@@ -3156,6 +3166,13 @@ app.get('/leden/smoelenboek', async (c) => {
               <div class="flex flex-wrap gap-6 justify-center sm:justify-start">
                 {birthdayMembers.map((bm: any) => {
                   const isMe = bm.id === user.id
+                  // Gebruik huidig jaar voor de weekdag-berekening
+                  const [, mm2, dd2] = (bm.geboortedatum || '').split('-')
+                  const now2 = new Date()
+                  const thisYearBd2 = new Date(now2.getFullYear(), Number(mm2) - 1, Number(dd2))
+                  const displayDate2 = thisYearBd2 < new Date(now2.getFullYear(), now2.getMonth(), now2.getDate() - 7)
+                    ? new Date(now2.getFullYear() + 1, Number(mm2) - 1, Number(dd2))
+                    : thisYearBd2
                   return (
                     <a href={`/leden/smoelenboek/${bm.id}`} class="flex flex-col items-center group transition hover:scale-105">
                       {/* Photo with crown */}
@@ -3170,9 +3187,9 @@ app.get('/leden/smoelenboek', async (c) => {
                         {bm.voornaam} {bm.achternaam}
                       </span>
                       {isMe && <span class="text-[10px] font-bold text-amber-500 bg-amber-100 px-2 py-0.5 rounded-full mt-0.5">Dat ben jij! 🥳</span>}
-                      {/* Day of week + date */}
+                      {/* Day of week + date — in het huidige jaar */}
                       <span class="text-xs text-amber-600 font-semibold mt-0.5">
-                        {new Date(bm.geboortedatum).toLocaleDateString('nl-BE', { weekday: 'short', day: 'numeric', month: 'long' })}
+                        {displayDate2.toLocaleDateString('nl-BE', { weekday: 'short', day: 'numeric', month: 'long' })}
                       </span>
                     </a>
                   )
@@ -3918,6 +3935,9 @@ app.get('/leden/verjaardagen', async (c) => {
                     // Als de maand voorbij is (wrapped → volgend jaar), tel extra jaar.
                     const refYear = isWrapped ? today.getFullYear() + 1 : today.getFullYear()
                     const age = refYear - bd.getFullYear()
+                    // Weekdag in het referentiejaar (huidig of volgend), niet in het geboortejaar
+                    const bdInRefYear = new Date(refYear, bd.getMonth(), bd.getDate())
+                    const weekdayStr = bdInRefYear.toLocaleDateString('nl-BE', { weekday: 'long' })
                     return (
                       <div class={`flex items-center gap-4 px-6 py-3 ${isThisWeek ? 'bg-yellow-50' : 'hover:bg-gray-50'}`}>
                         <div class="w-10 h-10 rounded-full overflow-hidden border-2 border-gray-200 bg-gray-100 flex items-center justify-center flex-shrink-0">
@@ -3928,8 +3948,8 @@ app.get('/leden/verjaardagen', async (c) => {
                             <span class="font-semibold text-gray-900">{m.voornaam} {m.achternaam}</span>
                             {isThisWeek && <span class="text-lg" title="Jarig deze week!">👑</span>}
                           </div>
-                          <div class="text-sm text-gray-500 flex items-center gap-3">
-                            <span><i class="fas fa-calendar mr-1"></i>{bd.toLocaleDateString('nl-BE', {day:'numeric', month:'long'})}</span>
+                          <div class="text-sm text-gray-500 flex items-center gap-3 flex-wrap">
+                            <span><i class="fas fa-calendar mr-1"></i>{bdInRefYear.toLocaleDateString('nl-BE', {weekday:'long', day:'numeric', month:'long'})}</span>
                             <span class="text-gray-400">•</span>
                             <span>{age} jaar</span>
                           </div>

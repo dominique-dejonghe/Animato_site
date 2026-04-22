@@ -34,11 +34,15 @@ function generateQRToken(): string {
 // =====================================================
 async function calculateStreak(db: D1Database, userId: number): Promise<{ current: number; longest: number; total: number }> {
   // Get all checkins for this user, joined with events, ordered by event date DESC
+  // BELANGRIJK: enkel 'qr'-source check-ins tellen mee voor de streak.
+  // Admin-manuele check-ins worden wel als 'aanwezig' getoond in overzichten
+  // maar geven geen streak-punten.
   const checkins = await queryAll<any>(db,
     `SELECT qc.event_id, e.start_at 
      FROM qr_checkins qc
      JOIN events e ON e.id = qc.event_id
      WHERE qc.user_id = ? AND e.type = 'repetitie'
+       AND COALESCE(qc.source, 'qr') = 'qr'
      ORDER BY e.start_at DESC`,
     [userId]
   )
@@ -787,9 +791,10 @@ app.get('/admin/attendance/event/:id', async (c) => {
 
   if (!event) return c.redirect('/admin/attendance?error=not_found')
 
-  // All checkins for this event
+  // All checkins for this event, incl. source (qr = self-scan, admin = handmatig)
   const checkins = await queryAll<any>(c.env.DB,
-    `SELECT qc.checked_in_at, u.id as user_id, u.stemgroep, u.email,
+    `SELECT qc.checked_in_at, COALESCE(qc.source, 'qr') as source,
+            u.id as user_id, u.stemgroep, u.email,
             p.voornaam, p.achternaam, p.foto_url
      FROM qr_checkins qc
      JOIN users u ON u.id = qc.user_id
@@ -826,11 +831,18 @@ app.get('/admin/attendance/event/:id', async (c) => {
   // Build a combined member list with present/absent state for the toggle UI
   const checkinMap = new Map<number, any>()
   for (const ci of checkins) checkinMap.set(ci.user_id, ci)
-  const allMembersWithState = allMembers.map((m: any) => ({
-    ...m,
-    is_present: checkinMap.has(m.id),
-    checked_in_at: checkinMap.get(m.id)?.checked_in_at || null
-  }))
+  const allMembersWithState = allMembers.map((m: any) => {
+    const ci = checkinMap.get(m.id)
+    return {
+      ...m,
+      is_present: !!ci,
+      checked_in_at: ci?.checked_in_at || null,
+      source: ci?.source || null,  // 'qr' | 'admin' | null
+    }
+  })
+  // Counts van QR-scans vs admin-registraties
+  const qrCount = checkins.filter((ci: any) => ci.source === 'qr').length
+  const adminCount = checkins.filter((ci: any) => ci.source === 'admin').length
   // Sort: stemgroep (S, A, T, B, rest), then first name
   const stemOrder: Record<string, number> = { S: 1, A: 2, T: 3, B: 4 }
   allMembersWithState.sort((a: any, b: any) => {
@@ -905,6 +917,26 @@ app.get('/admin/attendance/event/:id', async (c) => {
               </div>
             </div>
 
+            {/* Source breakdown */}
+            {checkins.length > 0 && (
+              <div class="grid grid-cols-2 gap-4 mb-6">
+                <div class="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+                  <div class="text-xs text-gray-500 font-medium uppercase flex items-center gap-1">
+                    <i class="fas fa-qrcode text-blue-500"></i> Zelf ingescand (QR)
+                  </div>
+                  <div class="text-2xl font-bold text-blue-600 mt-1">{qrCount}</div>
+                  <div class="text-xs text-gray-400">telt mee voor streak 🔥</div>
+                </div>
+                <div class="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
+                  <div class="text-xs text-gray-500 font-medium uppercase flex items-center gap-1">
+                    <i class="fas fa-user-shield text-purple-500"></i> Door admin geregistreerd
+                  </div>
+                  <div class="text-2xl font-bold text-purple-600 mt-1">{adminCount}</div>
+                  <div class="text-xs text-gray-400">aanwezig, maar geen streak</div>
+                </div>
+              </div>
+            )}
+
             {/* Manual attendance section */}
             <div class="bg-white rounded-xl shadow-md p-6 mb-6">
               <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -948,29 +980,39 @@ app.get('/admin/attendance/event/:id', async (c) => {
                   const stemLabel = m.stemgroep === 'S' ? 'Sopraan' : m.stemgroep === 'A' ? 'Alt' : m.stemgroep === 'T' ? 'Tenor' : m.stemgroep === 'B' ? 'Bas' : (m.stemgroep || '-')
                   const fullName = `${m.voornaam || ''} ${m.achternaam || ''}`.trim()
                   const timeStr = m.checked_in_at ? new Date(m.checked_in_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' }) : ''
+                  // Source badge: qr = blauw (telt voor streak), admin = paars (handmatig)
+                  const isQr = m.source === 'qr'
+                  const isAdminReg = m.source === 'admin'
                   return (
                     <button
                       type="button"
-                      class={`attendance-toggle flex items-center justify-between p-3 rounded-lg border-2 transition text-left ${m.is_present ? 'border-green-400 bg-green-50 hover:bg-green-100' : 'border-gray-200 bg-white hover:bg-gray-50'}`}
+                      class={`attendance-toggle flex items-center justify-between p-3 rounded-lg border-2 transition text-left ${m.is_present ? (isQr ? 'border-blue-400 bg-blue-50 hover:bg-blue-100' : 'border-purple-400 bg-purple-50 hover:bg-purple-100') : 'border-gray-200 bg-white hover:bg-gray-50'}`}
                       data-event-id={String(event.id)}
                       data-user-id={String(m.id)}
                       data-stem={m.stemgroep || ''}
                       data-name={fullName.toLowerCase()}
                       data-state={m.is_present ? 'present' : 'absent'}
+                      data-source={m.source || ''}
                     >
                       <div class="flex items-center gap-3 min-w-0">
-                        <div class={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-sm ${m.is_present ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-400'}`}>
-                          <i class={m.is_present ? 'fas fa-check' : 'fas fa-user'}></i>
+                        <div class={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-sm ${m.is_present ? (isQr ? 'bg-blue-500 text-white' : 'bg-purple-500 text-white') : 'bg-gray-200 text-gray-400'}`} title={isQr ? 'Zelf ingescand via QR' : isAdminReg ? 'Door admin geregistreerd' : ''}>
+                          <i class={isQr ? 'fas fa-qrcode' : isAdminReg ? 'fas fa-user-shield' : 'fas fa-user'}></i>
                         </div>
                         <div class="min-w-0">
                           <div class="text-sm font-medium text-gray-900 truncate">{fullName || m.email}</div>
-                          <div class="text-xs text-gray-500">
-                            {stemLabel}
-                            {timeStr && <span class="ml-2 text-green-600"><i class="far fa-clock mr-0.5"></i>{timeStr}</span>}
+                          <div class="text-xs text-gray-500 flex items-center gap-2 flex-wrap">
+                            <span>{stemLabel}</span>
+                            {timeStr && (
+                              <span class={isQr ? 'text-blue-600' : isAdminReg ? 'text-purple-600' : 'text-green-600'}>
+                                <i class="far fa-clock mr-0.5"></i>{timeStr}
+                              </span>
+                            )}
+                            {isQr && <span class="text-[10px] font-semibold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded">QR 🔥</span>}
+                            {isAdminReg && <span class="text-[10px] font-semibold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded">admin</span>}
                           </div>
                         </div>
                       </div>
-                      <span class={`attendance-badge text-xs px-2 py-1 rounded-full font-medium ml-2 flex-shrink-0 ${m.is_present ? 'bg-green-200 text-green-900' : 'bg-gray-100 text-gray-500'}`}>
+                      <span class={`attendance-badge text-xs px-2 py-1 rounded-full font-medium ml-2 flex-shrink-0 ${m.is_present ? (isQr ? 'bg-blue-200 text-blue-900' : 'bg-purple-200 text-purple-900') : 'bg-gray-100 text-gray-500'}`}>
                         {m.is_present ? 'Aanwezig' : 'Afwezig'}
                       </span>
                     </button>
@@ -1016,23 +1058,41 @@ app.get('/admin/attendance/event/:id', async (c) => {
 
               if (data.success) {
                 btn.dataset.state = data.state;
+                btn.dataset.source = data.state === 'present' ? 'admin' : '';
                 const badge = btn.querySelector('.attendance-badge');
                 const avatar = btn.querySelector('.w-8.h-8');
                 const avatarIcon = avatar.querySelector('i');
 
+                // Verwijder evt. bestaande source-pil (QR/admin) uit de subtitel
+                const subtitle = btn.querySelector('.text-xs.text-gray-500');
+                if (subtitle) {
+                  const pills = subtitle.querySelectorAll('span.text-\\\\[10px\\\\]');
+                  pills.forEach(p => p.remove());
+                }
+
                 if (data.state === 'present') {
-                  btn.classList.remove('border-gray-200','bg-white','hover:bg-gray-50');
-                  btn.classList.add('border-green-400','bg-green-50','hover:bg-green-100');
-                  badge.className = 'attendance-badge text-xs px-2 py-1 rounded-full font-medium ml-2 flex-shrink-0 bg-green-200 text-green-900';
+                  // Altijd admin-kleur (paars) na handmatige toggle
+                  btn.classList.remove('border-gray-200','bg-white','hover:bg-gray-50','border-blue-400','bg-blue-50','hover:bg-blue-100');
+                  btn.classList.add('border-purple-400','bg-purple-50','hover:bg-purple-100');
+                  badge.className = 'attendance-badge text-xs px-2 py-1 rounded-full font-medium ml-2 flex-shrink-0 bg-purple-200 text-purple-900';
                   badge.textContent = 'Aanwezig';
-                  avatar.className = 'w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-sm bg-green-500 text-white';
-                  avatarIcon.className = 'fas fa-check';
+                  avatar.className = 'w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-sm bg-purple-500 text-white';
+                  avatar.title = 'Door admin geregistreerd';
+                  avatarIcon.className = 'fas fa-user-shield';
+                  // Voeg 'admin' pill toe
+                  if (subtitle) {
+                    const pill = document.createElement('span');
+                    pill.className = 'text-[10px] font-semibold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded';
+                    pill.textContent = 'admin';
+                    subtitle.appendChild(pill);
+                  }
                 } else {
                   btn.classList.add('border-gray-200','bg-white','hover:bg-gray-50');
-                  btn.classList.remove('border-green-400','bg-green-50','hover:bg-green-100');
+                  btn.classList.remove('border-blue-400','bg-blue-50','hover:bg-blue-100','border-purple-400','bg-purple-50','hover:bg-purple-100');
                   badge.className = 'attendance-badge text-xs px-2 py-1 rounded-full font-medium ml-2 flex-shrink-0 bg-gray-100 text-gray-500';
                   badge.textContent = 'Afwezig';
                   avatar.className = 'w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-sm bg-gray-200 text-gray-400';
+                  avatar.title = '';
                   avatarIcon.className = 'fas fa-user';
                 }
                 updateCounts();
@@ -1304,8 +1364,9 @@ app.post('/api/admin/attendance/toggle', async (c) => {
   let newState: 'present' | 'absent'
   if (action === 'present' || (action === 'toggle' && !existing)) {
     if (!existing) {
+      // source='admin' → handmatig door admin, telt NIET mee voor streak
       await execute(c.env.DB,
-        `INSERT INTO qr_checkins (event_id, user_id, checked_in_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
+        `INSERT INTO qr_checkins (event_id, user_id, checked_in_at, source) VALUES (?, ?, CURRENT_TIMESTAMP, 'admin')`,
         [eventId, userId]
       )
     }
@@ -1355,8 +1416,9 @@ app.post('/api/admin/attendance/bulk', async (c) => {
     )
     for (const m of members) {
       try {
+        // Bulk 'allen aanwezig' wordt altijd geregistreerd als admin-source
         await execute(c.env.DB,
-          `INSERT OR IGNORE INTO qr_checkins (event_id, user_id) VALUES (?, ?)`,
+          `INSERT OR IGNORE INTO qr_checkins (event_id, user_id, source) VALUES (?, ?, 'admin')`,
           [eventId, m.id]
         )
       } catch (e) { /* ignore */ }

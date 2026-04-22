@@ -25,11 +25,13 @@ function getDefaultAvatar(stemgroep: string): string {
 // HELPER: Calculate streaks for a user
 // =====================================================
 async function calculateStreak(db: D1Database, userId: number): Promise<{ current: number; longest: number; total: number }> {
+  // Enkel zelf-gescande check-ins tellen mee voor de streak.
   const checkins = await queryAll<any>(db,
     `SELECT qc.event_id, e.start_at 
      FROM qr_checkins qc
      JOIN events e ON e.id = qc.event_id
      WHERE qc.user_id = ? AND e.type = 'repetitie'
+       AND COALESCE(qc.source, 'qr') = 'qr'
      ORDER BY e.start_at DESC`,
     [userId]
   )
@@ -160,8 +162,9 @@ app.get('/checkin/:token', async (c) => {
   let isNewCheckin = false
   if (!existingCheckin) {
     try {
+      // source='qr' → telt mee voor de streak
       await execute(c.env.DB,
-        `INSERT INTO qr_checkins (event_id, user_id) VALUES (?, ?)`,
+        `INSERT INTO qr_checkins (event_id, user_id, source) VALUES (?, ?, 'qr')`,
         [qrToken.event_id, user.id]
       )
       isNewCheckin = true

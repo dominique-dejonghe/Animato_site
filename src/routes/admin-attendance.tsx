@@ -178,7 +178,7 @@ app.get('/admin/attendance', async (c) => {
         <main class="flex-1 p-8">
           <div class="max-w-6xl mx-auto">
             {/* Header */}
-            <div class="flex items-center justify-between mb-8">
+            <div class="flex items-center justify-between mb-8 flex-wrap gap-4">
               <div>
                 <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
                   <i class="fas fa-qrcode text-animato-primary mr-3"></i>
@@ -192,6 +192,9 @@ app.get('/admin/attendance', async (c) => {
                   </p>
                 )}
               </div>
+              <a href="/admin/attendance/repetities" class="inline-flex items-center px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary text-sm font-medium shadow">
+                <i class="fas fa-calendar-check mr-2"></i> Repetitie overzicht
+              </a>
             </div>
 
             {/* How it works - Admin side */}
@@ -292,20 +295,30 @@ app.get('/admin/attendance', async (c) => {
                               <a 
                                 href={`/admin/attendance/event/${r.id}`}
                                 class="px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition text-sm"
+                                title="Handmatig aanwezigheid registreren"
                               >
-                                <i class="fas fa-list mr-1"></i> Lijst
+                                <i class="fas fa-user-check mr-1"></i> Invullen
                               </a>
                             </>
                           ) : (
-                            <form action={`/api/admin/attendance/generate-qr`} method="POST" class="flex-1">
-                              <input type="hidden" name="event_id" value={String(r.id)} />
-                              <button 
-                                type="submit"
-                                class="w-full px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm font-medium"
+                            <>
+                              <form action={`/api/admin/attendance/generate-qr`} method="POST" class="flex-1">
+                                <input type="hidden" name="event_id" value={String(r.id)} />
+                                <button 
+                                  type="submit"
+                                  class="w-full px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm font-medium"
+                                >
+                                  <i class="fas fa-qrcode mr-1"></i> Genereer QR
+                                </button>
+                              </form>
+                              <a 
+                                href={`/admin/attendance/event/${r.id}`}
+                                class="px-4 py-2 bg-green-100 text-green-700 rounded-lg hover:bg-green-200 transition text-sm"
+                                title="Handmatig aanwezigheid registreren"
                               >
-                                <i class="fas fa-qrcode mr-1"></i> Genereer QR Code
-                              </button>
-                            </form>
+                                <i class="fas fa-user-check mr-1"></i> Invullen
+                              </a>
+                            </>
                           )}
                         </div>
                       </div>
@@ -810,87 +823,554 @@ app.get('/admin/attendance/event/:id', async (c) => {
     if (checkedInIds.has(m.id)) stemCounts[sg].present++
   }
 
+  // Build a combined member list with present/absent state for the toggle UI
+  const checkinMap = new Map<number, any>()
+  for (const ci of checkins) checkinMap.set(ci.user_id, ci)
+  const allMembersWithState = allMembers.map((m: any) => ({
+    ...m,
+    is_present: checkinMap.has(m.id),
+    checked_in_at: checkinMap.get(m.id)?.checked_in_at || null
+  }))
+  // Sort: stemgroep (S, A, T, B, rest), then first name
+  const stemOrder: Record<string, number> = { S: 1, A: 2, T: 3, B: 4 }
+  allMembersWithState.sort((a: any, b: any) => {
+    const oa = stemOrder[a.stemgroep] || 99
+    const ob = stemOrder[b.stemgroep] || 99
+    if (oa !== ob) return oa - ob
+    return (a.voornaam || '').localeCompare(b.voornaam || '')
+  })
+
+  const success = c.req.query('success')
+
   return c.html(
     <Layout title="Aanwezigheidsdetail" user={user}>
       <div class="flex min-h-screen bg-gray-50">
         <AdminSidebar activeSection="attendance" />
         <main class="flex-1 p-8">
-          <div class="max-w-5xl mx-auto">
-            <a href="/admin/attendance" class="inline-flex items-center text-animato-primary hover:text-animato-secondary mb-6">
-              <i class="fas fa-arrow-left mr-2"></i> Terug
-            </a>
+          <div class="max-w-6xl mx-auto">
+            <div class="flex items-center gap-4 mb-6 flex-wrap">
+              <a href="/admin/attendance/repetities" class="inline-flex items-center text-animato-primary hover:text-animato-secondary text-sm">
+                <i class="fas fa-arrow-left mr-1"></i> Overzicht
+              </a>
+              <span class="text-gray-300">|</span>
+              <a href="/admin/attendance" class="inline-flex items-center text-gray-500 hover:text-gray-700 text-sm">
+                <i class="fas fa-qrcode mr-1"></i> Aanwezigheid dashboard
+              </a>
+            </div>
 
-            <h1 class="text-2xl font-bold text-gray-900 mb-1">{event.titel}</h1>
-            <p class="text-gray-600 mb-6">{dateStr}</p>
+            <div class="flex items-start justify-between mb-6 flex-wrap gap-4">
+              <div>
+                <h1 class="text-2xl font-bold text-gray-900 mb-1">{event.titel}</h1>
+                <p class="text-gray-600"><i class="far fa-calendar mr-1"></i>{dateStr}</p>
+                {event.locatie && <p class="text-gray-500 text-sm"><i class="fas fa-map-marker-alt mr-1"></i>{event.locatie}</p>}
+              </div>
+              <div class="flex gap-2">
+                <a href={`/admin/attendance/qr/${event.id}`} class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">
+                  <i class="fas fa-qrcode mr-1"></i> QR code
+                </a>
+                <a href={`/admin/attendance/print/${event.id}`} target="_blank" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">
+                  <i class="fas fa-print mr-1"></i> Print poster
+                </a>
+              </div>
+            </div>
+
+            {success && (
+              <div class="bg-green-50 border border-green-200 text-green-800 rounded-lg p-3 mb-6 text-sm">
+                <i class="fas fa-check-circle mr-2"></i>
+                {success === 'bulk_all_present' ? 'Alle leden aanwezig gezet.' : success === 'bulk_clear_all' ? 'Alle aanwezigheden gewist.' : 'Wijziging opgeslagen.'}
+              </div>
+            )}
 
             {/* Stats per stemgroep */}
-            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
               {Object.entries(stemCounts).map(([sg, counts]) => {
                 const label = sg === 'S' ? 'Sopraan' : sg === 'A' ? 'Alt' : sg === 'T' ? 'Tenor' : sg === 'B' ? 'Bas' : sg
                 const pct = counts.total > 0 ? Math.round((counts.present / counts.total) * 100) : 0
                 return (
-                  <div class="bg-white rounded-lg shadow p-4 text-center">
+                  <div class="bg-white rounded-lg shadow p-4 text-center" data-stem-stat={sg}>
                     <div class="text-xs text-gray-500 font-medium uppercase">{label}</div>
-                    <div class="text-2xl font-bold text-animato-primary mt-1">{counts.present}/{counts.total}</div>
-                    <div class="text-xs text-gray-400">{pct}%</div>
+                    <div class="text-2xl font-bold text-animato-primary mt-1">
+                      <span data-stem-present={sg}>{counts.present}</span>/<span>{counts.total}</span>
+                    </div>
+                    <div class="text-xs text-gray-400"><span data-stem-pct={sg}>{pct}</span>%</div>
                   </div>
                 )
               })}
               <div class="bg-animato-primary text-white rounded-lg shadow p-4 text-center">
                 <div class="text-xs font-medium uppercase opacity-80">Totaal</div>
-                <div class="text-2xl font-bold mt-1">{checkins.length}/{allMembers.length}</div>
-                <div class="text-xs opacity-70">{allMembers.length > 0 ? Math.round((checkins.length / allMembers.length) * 100) : 0}%</div>
+                <div class="text-2xl font-bold mt-1">
+                  <span id="total-present">{checkins.length}</span>/<span>{allMembers.length}</span>
+                </div>
+                <div class="text-xs opacity-70"><span id="total-pct">{allMembers.length > 0 ? Math.round((checkins.length / allMembers.length) * 100) : 0}</span>%</div>
               </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Present */}
-              <div class="bg-white rounded-xl shadow-md p-6">
-                <h2 class="font-bold text-gray-900 mb-4">
-                  <i class="fas fa-check-circle text-green-500 mr-2"></i>
-                  Aanwezig ({checkins.length})
+            {/* Manual attendance section */}
+            <div class="bg-white rounded-xl shadow-md p-6 mb-6">
+              <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+                <h2 class="text-lg font-bold text-gray-900">
+                  <i class="fas fa-user-check text-animato-primary mr-2"></i>
+                  Handmatig aanwezigheid registreren
                 </h2>
-                <div class="space-y-2 max-h-96 overflow-y-auto">
-                  {checkins.map((ci: any) => (
-                    <div class="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                      <span class="font-medium text-gray-900 text-sm">{ci.voornaam} {ci.achternaam}</span>
-                      <div class="flex items-center gap-2">
-                        <span class="text-xs bg-gray-100 px-2 py-0.5 rounded-full text-gray-500">
-                          {ci.stemgroep || '-'}
-                        </span>
-                        <span class="text-xs text-gray-400">
-                          {new Date(ci.checked_in_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                <div class="flex gap-2 flex-wrap">
+                  <input
+                    type="text"
+                    id="member-search"
+                    placeholder="Zoek lid..."
+                    class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-animato-primary"
+                  />
+                  <form method="POST" action="/api/admin/attendance/bulk" style="display:inline"
+                        onsubmit="return confirm('Alle actieve leden als aanwezig markeren?');">
+                    <input type="hidden" name="event_id" value={String(event.id)} />
+                    <input type="hidden" name="action" value="all_present" />
+                    <button type="submit" class="px-3 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">
+                      <i class="fas fa-check-double mr-1"></i> Allen aanwezig
+                    </button>
+                  </form>
+                  <form method="POST" action="/api/admin/attendance/bulk" style="display:inline"
+                        onsubmit="return confirm('Alle aanwezigheden voor deze repetitie wissen?');">
+                    <input type="hidden" name="event_id" value={String(event.id)} />
+                    <input type="hidden" name="action" value="clear_all" />
+                    <button type="submit" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200">
+                      <i class="fas fa-eraser mr-1"></i> Wissen
+                    </button>
+                  </form>
                 </div>
               </div>
 
-              {/* Absent */}
-              <div class="bg-white rounded-xl shadow-md p-6">
-                <h2 class="font-bold text-gray-900 mb-4">
-                  <i class="fas fa-times-circle text-red-400 mr-2"></i>
-                  Afwezig ({absentMembers.length})
-                </h2>
-                <div class="space-y-2 max-h-96 overflow-y-auto">
-                  {absentMembers.map((m: any) => (
-                    <div class="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-                      <span class="text-sm text-gray-600">{m.voornaam} {m.achternaam}</span>
-                      <span class="text-xs bg-gray-100 px-2 py-0.5 rounded-full text-gray-500">
-                        {m.stemgroep || '-'}
+              <p class="text-xs text-gray-500 mb-4">
+                <i class="fas fa-info-circle mr-1"></i>
+                Klik op een lid om de aanwezigheid om te schakelen. Wijzigingen worden direct opgeslagen.
+              </p>
+
+              <div id="members-grid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {allMembersWithState.map((m: any) => {
+                  const stemLabel = m.stemgroep === 'S' ? 'Sopraan' : m.stemgroep === 'A' ? 'Alt' : m.stemgroep === 'T' ? 'Tenor' : m.stemgroep === 'B' ? 'Bas' : (m.stemgroep || '-')
+                  const fullName = `${m.voornaam || ''} ${m.achternaam || ''}`.trim()
+                  const timeStr = m.checked_in_at ? new Date(m.checked_in_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' }) : ''
+                  return (
+                    <button
+                      type="button"
+                      class={`attendance-toggle flex items-center justify-between p-3 rounded-lg border-2 transition text-left ${m.is_present ? 'border-green-400 bg-green-50 hover:bg-green-100' : 'border-gray-200 bg-white hover:bg-gray-50'}`}
+                      data-event-id={String(event.id)}
+                      data-user-id={String(m.id)}
+                      data-stem={m.stemgroep || ''}
+                      data-name={fullName.toLowerCase()}
+                      data-state={m.is_present ? 'present' : 'absent'}
+                    >
+                      <div class="flex items-center gap-3 min-w-0">
+                        <div class={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-sm ${m.is_present ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-400'}`}>
+                          <i class={m.is_present ? 'fas fa-check' : 'fas fa-user'}></i>
+                        </div>
+                        <div class="min-w-0">
+                          <div class="text-sm font-medium text-gray-900 truncate">{fullName || m.email}</div>
+                          <div class="text-xs text-gray-500">
+                            {stemLabel}
+                            {timeStr && <span class="ml-2 text-green-600"><i class="far fa-clock mr-0.5"></i>{timeStr}</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <span class={`attendance-badge text-xs px-2 py-1 rounded-full font-medium ml-2 flex-shrink-0 ${m.is_present ? 'bg-green-200 text-green-900' : 'bg-gray-100 text-gray-500'}`}>
+                        {m.is_present ? 'Aanwezig' : 'Afwezig'}
                       </span>
-                    </div>
-                  ))}
-                </div>
+                    </button>
+                  )
+                })}
               </div>
+
+              <p id="no-results" class="text-sm text-gray-400 italic text-center py-6 hidden">Geen leden gevonden.</p>
             </div>
 
           </div>
         </main>
       </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        (function() {
+          const grid = document.getElementById('members-grid');
+          const search = document.getElementById('member-search');
+          const noResults = document.getElementById('no-results');
+          const totalPresentEl = document.getElementById('total-present');
+          const totalPctEl = document.getElementById('total-pct');
+          const totalMembers = ${allMembersWithState.length};
+
+          // Toggle attendance on click
+          grid.addEventListener('click', async function(e) {
+            const btn = e.target.closest('.attendance-toggle');
+            if (!btn) return;
+            const eventId = btn.dataset.eventId;
+            const userId = btn.dataset.userId;
+            const currentState = btn.dataset.state;
+            const wantState = currentState === 'present' ? 'absent' : 'present';
+
+            btn.disabled = true;
+            btn.style.opacity = '0.6';
+
+            try {
+              const fd = new FormData();
+              fd.append('event_id', eventId);
+              fd.append('user_id', userId);
+              fd.append('action', wantState);
+              const res = await fetch('/api/admin/attendance/toggle', { method: 'POST', body: fd });
+              const data = await res.json();
+
+              if (data.success) {
+                btn.dataset.state = data.state;
+                const badge = btn.querySelector('.attendance-badge');
+                const avatar = btn.querySelector('.w-8.h-8');
+                const avatarIcon = avatar.querySelector('i');
+
+                if (data.state === 'present') {
+                  btn.classList.remove('border-gray-200','bg-white','hover:bg-gray-50');
+                  btn.classList.add('border-green-400','bg-green-50','hover:bg-green-100');
+                  badge.className = 'attendance-badge text-xs px-2 py-1 rounded-full font-medium ml-2 flex-shrink-0 bg-green-200 text-green-900';
+                  badge.textContent = 'Aanwezig';
+                  avatar.className = 'w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-sm bg-green-500 text-white';
+                  avatarIcon.className = 'fas fa-check';
+                } else {
+                  btn.classList.add('border-gray-200','bg-white','hover:bg-gray-50');
+                  btn.classList.remove('border-green-400','bg-green-50','hover:bg-green-100');
+                  badge.className = 'attendance-badge text-xs px-2 py-1 rounded-full font-medium ml-2 flex-shrink-0 bg-gray-100 text-gray-500';
+                  badge.textContent = 'Afwezig';
+                  avatar.className = 'w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-sm bg-gray-200 text-gray-400';
+                  avatarIcon.className = 'fas fa-user';
+                }
+                updateCounts();
+              } else {
+                alert('Fout: ' + (data.error || 'onbekend'));
+              }
+            } catch (err) {
+              alert('Netwerkfout: ' + err.message);
+            } finally {
+              btn.disabled = false;
+              btn.style.opacity = '1';
+            }
+          });
+
+          function updateCounts() {
+            const buttons = grid.querySelectorAll('.attendance-toggle');
+            const stemPresent = { S: 0, A: 0, T: 0, B: 0 };
+            const stemTotal = { S: 0, A: 0, T: 0, B: 0 };
+            let totalPresent = 0;
+            buttons.forEach(b => {
+              const sg = b.dataset.stem || 'Geen';
+              if (stemTotal[sg] !== undefined) stemTotal[sg]++;
+              if (b.dataset.state === 'present') {
+                totalPresent++;
+                if (stemPresent[sg] !== undefined) stemPresent[sg]++;
+              }
+            });
+            totalPresentEl.textContent = totalPresent;
+            totalPctEl.textContent = totalMembers > 0 ? Math.round((totalPresent/totalMembers)*100) : 0;
+            ['S','A','T','B'].forEach(sg => {
+              const el = document.querySelector('[data-stem-present="'+sg+'"]');
+              const pctEl = document.querySelector('[data-stem-pct="'+sg+'"]');
+              if (el) el.textContent = stemPresent[sg];
+              if (pctEl) pctEl.textContent = stemTotal[sg] > 0 ? Math.round((stemPresent[sg]/stemTotal[sg])*100) : 0;
+            });
+          }
+
+          // Live search filter (client-side)
+          search.addEventListener('input', function() {
+            const q = search.value.toLowerCase().trim();
+            const buttons = grid.querySelectorAll('.attendance-toggle');
+            let visible = 0;
+            buttons.forEach(b => {
+              const match = !q || (b.dataset.name || '').indexOf(q) !== -1;
+              b.style.display = match ? '' : 'none';
+              if (match) visible++;
+            });
+            noResults.classList.toggle('hidden', visible > 0);
+          });
+        })();
+      ` }}></script>
     </Layout>
   )
+})
+
+// =====================================================
+// ADMIN: Repetities overzicht (voorbij + komend) met snelle aanwezigheid
+// =====================================================
+app.get('/admin/attendance/repetities', async (c) => {
+  const user = c.get('user') as SessionUser
+  const filter = c.req.query('filter') || 'all' // all | past | upcoming
+  const search = (c.req.query('search') || '').trim()
+
+  // Build WHERE clause
+  let where = "e.type = 'repetitie'"
+  const params: any[] = []
+  if (filter === 'past') where += " AND e.start_at < datetime('now')"
+  else if (filter === 'upcoming') where += " AND e.start_at >= datetime('now', '-1 day')"
+  if (search) {
+    where += ` AND (e.titel LIKE ? OR e.locatie LIKE ?)`
+    params.push(`%${search}%`, `%${search}%`)
+  }
+
+  // All rehearsals matching filter, with attendance counts
+  const rehearsals = await queryAll<any>(c.env.DB,
+    `SELECT e.id, e.titel, e.start_at, e.locatie,
+            COUNT(DISTINCT qc.user_id) as checkin_count,
+            qt.token IS NOT NULL as has_qr
+     FROM events e
+     LEFT JOIN qr_checkins qc ON qc.event_id = e.id
+     LEFT JOIN qr_tokens qt ON qt.event_id = e.id
+     WHERE ${where}
+     GROUP BY e.id
+     ORDER BY e.start_at DESC`,
+    params
+  )
+
+  // Total active members for percentage
+  const memberCountRow = await queryOne<any>(c.env.DB,
+    `SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND role NOT IN ('bezoeker') AND is_test_account = 0`
+  )
+  const totalMembers = memberCountRow?.count || 0
+
+  // Stats
+  const now = new Date()
+  const past = rehearsals.filter((r: any) => new Date(r.start_at) < now)
+  const upcoming = rehearsals.filter((r: any) => new Date(r.start_at) >= now)
+  const avgAttendance = past.length > 0
+    ? Math.round(past.reduce((sum: number, r: any) => sum + (r.checkin_count || 0), 0) / past.length)
+    : 0
+
+  return c.html(
+    <Layout title="Repetitie Overzicht" user={user}>
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="attendance" />
+        <main class="flex-1 p-8">
+          <div class="max-w-6xl mx-auto">
+            {/* Header */}
+            <div class="flex items-center justify-between mb-6 flex-wrap gap-4">
+              <div>
+                <a href="/admin/attendance" class="inline-flex items-center text-animato-primary hover:text-animato-secondary text-sm mb-2">
+                  <i class="fas fa-arrow-left mr-1"></i> Terug naar aanwezigheid
+                </a>
+                <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+                  <i class="fas fa-calendar-check text-animato-primary mr-3"></i>
+                  Repetities Overzicht
+                </h1>
+                <p class="mt-1 text-gray-600">Alle voorbije en komende repetities met aanwezigheid.</p>
+              </div>
+            </div>
+
+            {/* Stats */}
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div class="bg-white rounded-lg shadow p-4">
+                <div class="text-xs text-gray-500 uppercase">Totaal</div>
+                <div class="text-2xl font-bold text-gray-900">{rehearsals.length}</div>
+              </div>
+              <div class="bg-white rounded-lg shadow p-4">
+                <div class="text-xs text-gray-500 uppercase">Voorbij</div>
+                <div class="text-2xl font-bold text-gray-700">{past.length}</div>
+              </div>
+              <div class="bg-white rounded-lg shadow p-4">
+                <div class="text-xs text-gray-500 uppercase">Komend</div>
+                <div class="text-2xl font-bold text-blue-600">{upcoming.length}</div>
+              </div>
+              <div class="bg-white rounded-lg shadow p-4">
+                <div class="text-xs text-gray-500 uppercase">Gem. aanwezig</div>
+                <div class="text-2xl font-bold text-green-600">{avgAttendance}/{totalMembers}</div>
+              </div>
+            </div>
+
+            {/* Filters */}
+            <form method="GET" action="/admin/attendance/repetities" class="bg-white rounded-lg shadow p-4 mb-6 flex flex-wrap gap-3 items-end">
+              <div class="flex-1 min-w-[200px]">
+                <label class="block text-xs font-medium text-gray-700 mb-1">Zoeken</label>
+                <input
+                  type="text"
+                  name="search"
+                  value={search}
+                  placeholder="Titel of locatie..."
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-animato-primary"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Periode</label>
+                <select name="filter" class="px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                  <option value="all" selected={filter === 'all'}>Alle</option>
+                  <option value="upcoming" selected={filter === 'upcoming'}>Komend</option>
+                  <option value="past" selected={filter === 'past'}>Voorbij</option>
+                </select>
+              </div>
+              <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg text-sm font-medium hover:bg-animato-secondary">
+                <i class="fas fa-filter mr-1"></i> Filter
+              </button>
+              <a href="/admin/attendance/repetities" class="px-4 py-2 text-gray-600 text-sm hover:underline">Reset</a>
+            </form>
+
+            {/* Table */}
+            <div class="bg-white rounded-xl shadow-md overflow-hidden">
+              {rehearsals.length === 0 ? (
+                <p class="text-gray-500 italic text-center py-12">Geen repetities gevonden.</p>
+              ) : (
+                <div class="overflow-x-auto">
+                  <table class="w-full">
+                    <thead class="bg-gray-50 border-b">
+                      <tr class="text-xs text-gray-500 uppercase">
+                        <th class="px-4 py-3 text-left">Datum</th>
+                        <th class="px-4 py-3 text-left">Titel</th>
+                        <th class="px-4 py-3 text-left">Locatie</th>
+                        <th class="px-4 py-3 text-center">Aanwezig</th>
+                        <th class="px-4 py-3 text-center">%</th>
+                        <th class="px-4 py-3 text-center">QR</th>
+                        <th class="px-4 py-3 text-right">Actie</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y">
+                      {rehearsals.map((r: any) => {
+                        const eventDate = new Date(r.start_at)
+                        const isPast = eventDate < now
+                        const isToday = eventDate.toDateString() === now.toDateString()
+                        const dayName = eventDate.toLocaleDateString('nl-BE', { weekday: 'short' })
+                        const dateStr = eventDate.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short', year: 'numeric' })
+                        const timeStr = eventDate.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })
+                        const pct = totalMembers > 0 ? Math.round(((r.checkin_count || 0) / totalMembers) * 100) : 0
+                        return (
+                          <tr class={`hover:bg-gray-50 transition ${isToday ? 'bg-yellow-50' : ''}`}>
+                            <td class="px-4 py-3 text-sm">
+                              <div class="font-medium text-gray-900 capitalize">{dayName} {dateStr}</div>
+                              <div class="text-xs text-gray-500">{timeStr}</div>
+                              {isToday && <span class="inline-block mt-1 px-2 py-0.5 bg-yellow-200 text-yellow-900 text-xs font-bold rounded">VANDAAG</span>}
+                              {!isPast && !isToday && <span class="inline-block mt-1 px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded">Komend</span>}
+                            </td>
+                            <td class="px-4 py-3 text-sm font-medium text-gray-900">{r.titel}</td>
+                            <td class="px-4 py-3 text-sm text-gray-600">{r.locatie || '-'}</td>
+                            <td class="px-4 py-3 text-center">
+                              <span class={`px-3 py-1 rounded-full text-sm font-bold ${(r.checkin_count || 0) > 0 ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}`}>
+                                {r.checkin_count || 0}/{totalMembers}
+                              </span>
+                            </td>
+                            <td class="px-4 py-3 text-center text-sm text-gray-600">{pct}%</td>
+                            <td class="px-4 py-3 text-center">
+                              {r.has_qr ? (
+                                <i class="fas fa-check-circle text-green-500" title="QR actief"></i>
+                              ) : (
+                                <i class="fas fa-times-circle text-gray-300" title="Geen QR"></i>
+                              )}
+                            </td>
+                            <td class="px-4 py-3 text-right">
+                              <a href={`/admin/attendance/event/${r.id}`} class="inline-flex items-center px-3 py-1.5 bg-animato-primary text-white rounded-lg text-xs font-medium hover:bg-animato-secondary">
+                                <i class="fas fa-user-check mr-1"></i> Aanwezigheid
+                              </a>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <p class="mt-4 text-xs text-gray-500">
+              <i class="fas fa-info-circle mr-1"></i>
+              Tip: klik op <strong>"Aanwezigheid"</strong> om handmatig leden aan- of af te vinken. Ideaal als QR-scannen niet lukt.
+            </p>
+          </div>
+        </main>
+      </div>
+    </Layout>
+  )
+})
+
+// =====================================================
+// API: Toggle attendance for a single user (manual check-in)
+// =====================================================
+app.post('/api/admin/attendance/toggle', async (c) => {
+  const user = c.get('user') as SessionUser
+  const body = await c.req.parseBody()
+  const eventId = parseInt(body.event_id as string)
+  const userId = parseInt(body.user_id as string)
+  const action = String(body.action || 'toggle') // 'present' | 'absent' | 'toggle'
+
+  if (!eventId || !userId) {
+    return c.json({ success: false, error: 'invalid_params' }, 400)
+  }
+
+  // Verify event is a repetitie
+  const event = await queryOne<any>(c.env.DB, `SELECT id, type FROM events WHERE id = ?`, [eventId])
+  if (!event || event.type !== 'repetitie') {
+    return c.json({ success: false, error: 'not_a_rehearsal' }, 400)
+  }
+
+  // Check current state
+  const existing = await queryOne<any>(c.env.DB,
+    `SELECT id FROM qr_checkins WHERE event_id = ? AND user_id = ?`,
+    [eventId, userId]
+  )
+
+  let newState: 'present' | 'absent'
+  if (action === 'present' || (action === 'toggle' && !existing)) {
+    if (!existing) {
+      await execute(c.env.DB,
+        `INSERT INTO qr_checkins (event_id, user_id, checked_in_at) VALUES (?, ?, CURRENT_TIMESTAMP)`,
+        [eventId, userId]
+      )
+    }
+    newState = 'present'
+  } else {
+    if (existing) {
+      await execute(c.env.DB,
+        `DELETE FROM qr_checkins WHERE event_id = ? AND user_id = ?`,
+        [eventId, userId]
+      )
+    }
+    newState = 'absent'
+  }
+
+  // Audit log
+  try {
+    await execute(c.env.DB,
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta) VALUES (?, ?, ?, ?, ?)`,
+      [user.id, `attendance_${newState}`, 'qr_checkins', eventId, JSON.stringify({ target_user_id: userId, by_admin: true })]
+    )
+  } catch (e) { /* audit_logs optional */ }
+
+  return c.json({ success: true, state: newState, event_id: eventId, user_id: userId })
+})
+
+// =====================================================
+// API: Bulk mark all present / absent (clear)
+// =====================================================
+app.post('/api/admin/attendance/bulk', async (c) => {
+  const user = c.get('user') as SessionUser
+  const body = await c.req.parseBody()
+  const eventId = parseInt(body.event_id as string)
+  const action = String(body.action || '') // 'all_present' | 'clear_all'
+
+  if (!eventId) return c.redirect('/admin/attendance?error=invalid_event')
+
+  const event = await queryOne<any>(c.env.DB, `SELECT id, type FROM events WHERE id = ?`, [eventId])
+  if (!event || event.type !== 'repetitie') {
+    return c.redirect(`/admin/attendance/event/${eventId}?error=not_a_rehearsal`)
+  }
+
+  if (action === 'clear_all') {
+    await execute(c.env.DB, `DELETE FROM qr_checkins WHERE event_id = ?`, [eventId])
+  } else if (action === 'all_present') {
+    const members = await queryAll<any>(c.env.DB,
+      `SELECT id FROM users WHERE status = 'actief' AND role NOT IN ('bezoeker') AND is_test_account = 0`
+    )
+    for (const m of members) {
+      try {
+        await execute(c.env.DB,
+          `INSERT OR IGNORE INTO qr_checkins (event_id, user_id) VALUES (?, ?)`,
+          [eventId, m.id]
+        )
+      } catch (e) { /* ignore */ }
+    }
+  }
+
+  try {
+    await execute(c.env.DB,
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta) VALUES (?, ?, ?, ?, ?)`,
+      [user.id, `attendance_bulk_${action}`, 'qr_checkins', eventId, JSON.stringify({ by_admin: true })]
+    )
+  } catch (e) { /* ignore */ }
+
+  return c.redirect(`/admin/attendance/event/${eventId}?success=bulk_${action}`)
 })
 
 // =====================================================

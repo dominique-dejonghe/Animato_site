@@ -3863,19 +3863,46 @@ app.get('/leden/verjaardagen', async (c) => {
           </div>
 
           <div class="space-y-8 print-area">
-            {Object.keys(byMonth).sort((a,b) => Number(a)-Number(b)).map((monthKey) => (
+            {(() => {
+              // Rotatie: start bij huidige maand en toon alle 12 maanden
+              // in chronologische volgorde. Vb: in april → apr, mei, jun, …, mrt.
+              const today = new Date()
+              const currentMonth = today.getMonth() // 0-11
+              const orderedKeys: number[] = []
+              for (let i = 0; i < 12; i++) {
+                orderedKeys.push((currentMonth + i) % 12)
+              }
+              return orderedKeys
+                .filter(m => byMonth[String(m)] && byMonth[String(m)].length > 0)
+                .map((monthIdx) => {
+                  const monthKey = String(monthIdx)
+                  // Deze maand wordt 'volgend jaar' gezien als ze al voorbij is
+                  // t.o.v. vandaag én we zijn niet de huidige maand
+                  const isWrapped = monthIdx < currentMonth
+                  return (
               <div class="bg-white rounded-xl shadow-sm overflow-hidden">
-                <div class="bg-amber-50 border-b border-amber-100 px-6 py-3">
-                  <h2 class="text-lg font-bold text-amber-800 flex items-center gap-2">
-                    <i class="fas fa-calendar-alt text-amber-400"></i>
-                    {monthNames[Number(monthKey)]}
-                    <span class="text-sm font-normal text-amber-600 ml-1">({byMonth[monthKey].length} leden)</span>
+                <div class={`border-b px-6 py-3 ${monthIdx === currentMonth ? 'bg-animato-accent/10 border-animato-accent/30' : 'bg-amber-50 border-amber-100'}`}>
+                  <h2 class={`text-lg font-bold flex items-center gap-2 ${monthIdx === currentMonth ? 'text-animato-secondary' : 'text-amber-800'}`}>
+                    <i class={`fas fa-calendar-alt ${monthIdx === currentMonth ? 'text-animato-accent' : 'text-amber-400'}`}></i>
+                    {monthNames[monthIdx]}
+                    {monthIdx === currentMonth && (
+                      <span class="text-xs font-semibold bg-animato-accent text-white px-2 py-0.5 rounded-full ml-1">
+                        Deze maand
+                      </span>
+                    )}
+                    {isWrapped && (
+                      <span class="text-xs font-normal text-gray-500 ml-1">
+                        ({today.getFullYear() + 1})
+                      </span>
+                    )}
+                    <span class={`text-sm font-normal ml-1 ${monthIdx === currentMonth ? 'text-animato-primary' : 'text-amber-600'}`}>
+                      ({byMonth[monthKey].length} leden)
+                    </span>
                   </h2>
                 </div>
                 <div class="divide-y divide-gray-100">
                   {byMonth[monthKey].map((m: any) => {
                     const bd = new Date(m.geboortedatum)
-                    const today = new Date()
                     const isThisWeek = (() => {
                       const day = today.getDay()
                       const diffToMon = (day === 0 ? -6 : 1 - day)
@@ -3887,7 +3914,10 @@ app.get('/leden/verjaardagen', async (c) => {
                       const bdFmt = fmt(bd)
                       return bdFmt >= fmt(mon) && bdFmt <= fmt(sun)
                     })()
-                    const age = today.getFullYear() - bd.getFullYear()
+                    // Leeftijd die ze bereiken op hun volgende verjaardag.
+                    // Als de maand voorbij is (wrapped → volgend jaar), tel extra jaar.
+                    const refYear = isWrapped ? today.getFullYear() + 1 : today.getFullYear()
+                    const age = refYear - bd.getFullYear()
                     return (
                       <div class={`flex items-center gap-4 px-6 py-3 ${isThisWeek ? 'bg-yellow-50' : 'hover:bg-gray-50'}`}>
                         <div class="w-10 h-10 rounded-full overflow-hidden border-2 border-gray-200 bg-gray-100 flex items-center justify-center flex-shrink-0">
@@ -3917,7 +3947,9 @@ app.get('/leden/verjaardagen', async (c) => {
                   })}
                 </div>
               </div>
-            ))}
+                  )
+                })
+            })()}
           </div>
           {members.length === 0 && (
             <div class="text-center text-gray-500 py-12">

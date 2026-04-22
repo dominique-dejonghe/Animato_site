@@ -64,7 +64,7 @@ app.get('/agenda', async (c) => {
 
   if (view === 'list') {
     // List view: only show upcoming events
-    query += ` AND e.start_at >= datetime('now')`
+    query += ` AND datetime(e.start_at) >= datetime('now')`
   } else {
     // Calendar view: show events in current month
     query += ` AND DATE(e.start_at) >= DATE(?) AND DATE(e.start_at) <= DATE(?)`
@@ -763,11 +763,11 @@ app.get('/concerten', async (c) => {
   `
 
   if (view === 'upcoming') {
-    query += ` AND e.start_at >= datetime('now') ORDER BY e.start_at ASC`
+    query += ` AND datetime(e.start_at) >= datetime('now') ORDER BY e.start_at ASC`
   } else if (view === 'past') {
-    query += ` AND e.start_at < datetime('now') ORDER BY e.start_at DESC`
+    query += ` AND datetime(e.start_at) < datetime('now') ORDER BY e.start_at DESC`
   } else {
-    query += ` AND e.start_at >= datetime('now') ORDER BY e.start_at ASC`
+    query += ` AND datetime(e.start_at) >= datetime('now') ORDER BY e.start_at ASC`
   }
 
   const concerten = await queryAll(c.env.DB, query)

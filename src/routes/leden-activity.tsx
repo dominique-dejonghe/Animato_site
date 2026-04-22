@@ -20,7 +20,7 @@ app.get('/leden/activiteiten', async (c) => {
            (SELECT COUNT(*) FROM activity_registrations ar WHERE ar.activity_id = a.id AND ar.user_id = ?) as is_registered
     FROM activities a
     JOIN events e ON a.event_id = e.id
-    WHERE e.start_at >= datetime('now')
+    WHERE datetime(e.start_at) >= datetime('now')
     ORDER BY e.start_at ASC
   `, [user.id])
 

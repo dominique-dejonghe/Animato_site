@@ -37,7 +37,7 @@ app.get('/', async (c) => {
             COALESCE(c.poster_url, e.image_url) as display_image
      FROM events e
      LEFT JOIN concerts c ON c.event_id = e.id
-     WHERE e.type = 'concert' AND e.is_publiek = 1 AND e.start_at > datetime('now')
+     WHERE e.type = 'concert' AND e.is_publiek = 1 AND datetime(e.start_at) > datetime('now')
      ORDER BY e.start_at ASC
      LIMIT 3`
   )

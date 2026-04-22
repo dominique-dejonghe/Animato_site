@@ -74,7 +74,7 @@ app.get('/api/agenda/ics/all', async (c) => {
   const events = await queryAll<any>(
     c.env.DB,
     `SELECT * FROM events 
-     WHERE is_publiek = 1 AND start_at >= datetime('now')
+     WHERE is_publiek = 1 AND datetime(start_at) >= datetime('now')
      ORDER BY start_at ASC
      LIMIT 100`
   )

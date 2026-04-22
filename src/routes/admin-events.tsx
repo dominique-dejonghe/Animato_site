@@ -43,9 +43,9 @@ app.get('/admin/events', async (c) => {
 
   // Filter by view (upcoming/past/recurring/all)
   if (view === 'upcoming') {
-    query += ` AND e.start_at >= datetime('now')`
+    query += ` AND datetime(e.start_at) >= datetime('now')`
   } else if (view === 'past') {
-    query += ` AND e.start_at < datetime('now')`
+    query += ` AND datetime(e.start_at) < datetime('now')`
   } else if (view === 'recurring') {
     // Show only parent recurring events (not individual occurrences)
     query += ` AND e.is_recurring = 1 AND e.parent_event_id IS NULL`

@@ -40,7 +40,7 @@ async function calculateStreak(db: D1Database, userId: number): Promise<{ curren
 
   const allRehearsals = await queryAll<any>(db,
     `SELECT id, start_at FROM events 
-     WHERE type = 'repetitie' AND start_at <= datetime('now')
+     WHERE type = 'repetitie' AND datetime(start_at) <= datetime('now')
      ORDER BY start_at DESC`
   )
 
@@ -328,7 +328,7 @@ app.get('/leden/streaks', async (c) => {
        ORDER BY total_checkins DESC`
     ),
     queryAll<any>(c.env.DB,
-      `SELECT id, start_at FROM events WHERE type = 'repetitie' AND start_at <= datetime('now') ORDER BY start_at DESC`
+      `SELECT id, start_at FROM events WHERE type = 'repetitie' AND datetime(start_at) <= datetime('now') ORDER BY start_at DESC`
     ),
     queryAll<any>(c.env.DB,
       `SELECT user_id, event_id FROM qr_checkins qc JOIN events e ON e.id = qc.event_id WHERE e.type = 'repetitie'`
@@ -526,7 +526,10 @@ app.get('/leden/streaks', async (c) => {
                       {/* Streak */}
                       <div class="text-right flex-shrink-0">
                         <div class="text-xl font-black text-orange-600">🔥 {m.streak.current}</div>
-                        <div class="text-xs text-gray-400">totaal: {m.streak.total}</div>
+                        <div class="text-[11px] text-gray-500 leading-tight">
+                          {m.streak.current === 1 ? 'week op rij' : 'weken op rij'}
+                        </div>
+                        <div class="text-xs text-gray-400 mt-0.5">totaal: {m.streak.total}</div>
                       </div>
                     </div>
                   )

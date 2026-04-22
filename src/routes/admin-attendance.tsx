@@ -52,7 +52,7 @@ async function calculateStreak(db: D1Database, userId: number): Promise<{ curren
   // Get all repetitie events (to know which weeks had a rehearsal)
   const allRehearsals = await queryAll<any>(db,
     `SELECT id, start_at FROM events 
-     WHERE type = 'repetitie' AND start_at <= datetime('now')
+     WHERE type = 'repetitie' AND datetime(start_at) <= datetime('now')
      ORDER BY start_at DESC`
   )
 
@@ -106,7 +106,7 @@ app.get('/admin/attendance', async (c) => {
   const futureWithoutQR = await queryAll<any>(c.env.DB,
     `SELECT e.id FROM events e
      LEFT JOIN qr_tokens qt ON qt.event_id = e.id
-     WHERE e.type = 'repetitie' AND e.start_at >= datetime('now', '-1 day') AND qt.id IS NULL
+     WHERE e.type = 'repetitie' AND datetime(e.start_at) >= datetime('now', '-1 day') AND qt.id IS NULL
      ORDER BY e.start_at ASC`
   )
   for (const evt of futureWithoutQR) {
@@ -125,7 +125,7 @@ app.get('/admin/attendance', async (c) => {
             qt.token, qt.valid_from, qt.valid_until, qt.id as qr_id
      FROM events e
      LEFT JOIN qr_tokens qt ON qt.event_id = e.id
-     WHERE e.type = 'repetitie' AND e.start_at >= datetime('now', '-1 day')
+     WHERE e.type = 'repetitie' AND datetime(e.start_at) >= datetime('now', '-1 day')
      ORDER BY e.start_at ASC
      LIMIT 8`
   )
@@ -138,7 +138,7 @@ app.get('/admin/attendance', async (c) => {
      FROM events e
      LEFT JOIN qr_checkins qc ON qc.event_id = e.id
      LEFT JOIN qr_tokens qt ON qt.event_id = e.id
-     WHERE e.type = 'repetitie' AND e.start_at < datetime('now')
+     WHERE e.type = 'repetitie' AND datetime(e.start_at) < datetime('now')
      GROUP BY e.id
      ORDER BY e.start_at DESC
      LIMIT 20`
@@ -1159,8 +1159,8 @@ app.get('/admin/attendance/repetities', async (c) => {
   // Build WHERE clause
   let where = "e.type = 'repetitie'"
   const params: any[] = []
-  if (filter === 'past') where += " AND e.start_at < datetime('now')"
-  else if (filter === 'upcoming') where += " AND e.start_at >= datetime('now', '-1 day')"
+  if (filter === 'past') where += " AND datetime(e.start_at) < datetime('now')"
+  else if (filter === 'upcoming') where += " AND datetime(e.start_at) >= datetime('now', '-1 day')"
   if (search) {
     where += ` AND (e.titel LIKE ? OR e.locatie LIKE ?)`
     params.push(`%${search}%`, `%${search}%`)

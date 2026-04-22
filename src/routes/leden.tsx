@@ -99,7 +99,7 @@ app.get('/leden', async (c) => {
     c.env.DB,
     `SELECT id, type, titel, start_at, locatie, doelgroep
      FROM events
-     WHERE start_at >= datetime('now')
+     WHERE datetime(start_at) >= datetime('now')
        AND (doelgroep = 'all' OR doelgroep LIKE ?)
      ORDER BY start_at ASC
      LIMIT 5`,
@@ -1229,7 +1229,7 @@ app.get('/leden/profiel', async (c) => {
       [user.id]
     )
     const allRehearsals = await queryAll<any>(c.env.DB,
-      `SELECT id FROM events WHERE type = 'repetitie' AND start_at <= datetime('now') ORDER BY start_at DESC`
+      `SELECT id FROM events WHERE type = 'repetitie' AND datetime(start_at) <= datetime('now') ORDER BY start_at DESC`
     )
     if (checkins.length > 0 && allRehearsals.length > 0) {
       const checkedIds = new Set(checkins.map((ci: any) => ci.event_id))
@@ -3087,7 +3087,7 @@ app.get('/leden/smoelenboek', async (c) => {
 
   // Calculate streaks for members that have checkins (batch all past rehearsals once)
   const allRehearsals = await queryAll<any>(c.env.DB,
-    `SELECT id, start_at FROM events WHERE type = 'repetitie' AND start_at <= datetime('now') ORDER BY start_at DESC`
+    `SELECT id, start_at FROM events WHERE type = 'repetitie' AND datetime(start_at) <= datetime('now') ORDER BY start_at DESC`
   )
   const allCheckins = await queryAll<any>(c.env.DB,
     `SELECT user_id, event_id FROM qr_checkins`
@@ -3455,7 +3455,7 @@ app.get('/leden/smoelenboek/:id', async (c) => {
     [memberId]
   )
   const allPastRehearsals = await queryAll<any>(c.env.DB,
-    `SELECT id FROM events WHERE type = 'repetitie' AND start_at <= datetime('now') ORDER BY start_at DESC`
+    `SELECT id FROM events WHERE type = 'repetitie' AND datetime(start_at) <= datetime('now') ORDER BY start_at DESC`
   )
   const checkedEventIds = new Set(memberCheckins.map((ci: any) => ci.event_id))
   let memberCurrentStreak = 0

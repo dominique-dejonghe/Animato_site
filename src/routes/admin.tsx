@@ -61,7 +61,7 @@ app.get('/admin', async (c) => {
       `SELECT COUNT(*) as count FROM posts WHERE is_published = 1`
     ),
     total_events: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM events WHERE start_at > datetime('now')`
+      `SELECT COUNT(*) as count FROM events WHERE datetime(start_at) > datetime('now')`
     ),
     total_albums: await queryOne<any>(c.env.DB,
       `SELECT COUNT(*) as count FROM albums WHERE is_publiek = 1`
@@ -3062,7 +3062,7 @@ app.get('/admin/content', async (c) => {
     events_all: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM events`),
     events_repetitie: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM events WHERE type = 'repetitie'`),
     events_concert: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM events WHERE type = 'concert'`),
-    events_upcoming: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM events WHERE start_at > datetime('now')`),
+    events_upcoming: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM events WHERE datetime(start_at) > datetime('now')`),
   }
 
   return c.html(

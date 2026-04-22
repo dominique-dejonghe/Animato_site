@@ -16,7 +16,7 @@ import { verifyToken, hasRole, canAccessStem, canModerate, isAdmin } from '../ut
  */
 export async function requireAuth(c: Context<{ Bindings: Bindings }>, next: Next) {
   // Check for token in cookie or Authorization header
-  const token = getCookie(c, 'auth_token') || 
+  const token = getCookie(c, 'auth_token') ||
                 c.req.header('Authorization')?.replace('Bearer ', '')
 
   if (!token) {
@@ -32,6 +32,17 @@ export async function requireAuth(c: Context<{ Bindings: Bindings }>, next: Next
 
   // Attach user to context
   c.set('user', user)
+
+  // Heartbeat: raak user_sessions.updated_at aan zodat we
+  // inactiviteit kunnen meten op /admin/audit. Niet-blokkerend.
+  try {
+    const tokenPrefix = token.substring(0, 32)
+    await c.env.DB.prepare(
+      `UPDATE user_sessions SET updated_at = CURRENT_TIMESTAMP
+       WHERE session_token = ? AND is_active = 1`
+    ).bind(tokenPrefix).run()
+  } catch (_) { /* stil falen — niet kritiek */ }
+
   await next()
 }
 
@@ -150,15 +161,23 @@ export async function requireBestuurslid(c: Context<{ Bindings: Bindings }>, nex
  * Optional auth - attach user if present but don't require
  */
 export async function optionalAuth(c: Context<{ Bindings: Bindings }>, next: Next) {
-  const token = getCookie(c, 'auth_token') || 
+  const token = getCookie(c, 'auth_token') ||
                 c.req.header('Authorization')?.replace('Bearer ', '')
 
   if (token) {
     const jwtSecret = c.env.JWT_SECRET
     const user = await verifyToken(token, jwtSecret)
-    
+
     if (user) {
       c.set('user', user)
+      // Heartbeat: zie requireAuth
+      try {
+        const tokenPrefix = token.substring(0, 32)
+        await c.env.DB.prepare(
+          `UPDATE user_sessions SET updated_at = CURRENT_TIMESTAMP
+           WHERE session_token = ? AND is_active = 1`
+        ).bind(tokenPrefix).run()
+      } catch (_) { /* stil falen */ }
     }
   }
 

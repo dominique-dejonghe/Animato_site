@@ -4251,19 +4251,93 @@ app.get('/admin/audit', async (c) => {
   const user = c.get('user') as SessionUser
   noCacheHeaders(c)
 
-  const logs = await queryAll(
+  const logs = await queryAll<any>(
     c.env.DB,
     `SELECT a.*, u.email, p.voornaam, p.achternaam
      FROM audit_logs a
      LEFT JOIN users u ON u.id = a.user_id
      LEFT JOIN profiles p ON p.user_id = u.id
      ORDER BY a.created_at DESC
-     LIMIT 100`
+     LIMIT 200`
   )
 
+  // Voor login-events: zoek de bijhorende user_sessions op zodat we duur +
+  // inactiviteit kunnen tonen. We matchen op (user_id, login_at ≈ created_at).
+  // In SQLite doen we dit via één query met vensterbenadering (±5s tolerantie).
+  const sessions = await queryAll<any>(
+    c.env.DB,
+    `SELECT user_id, login_at, logout_at, duration_seconds, updated_at, is_active
+     FROM user_sessions
+     ORDER BY login_at DESC
+     LIMIT 500`
+  )
+
+  // Helper: koppel session aan audit-login event
+  function findSession(log: any): any | null {
+    if (log.actie !== 'user_login' || !log.user_id) return null
+    const logTs = new Date(log.created_at + 'Z').getTime()
+    // Zoek de session die binnen 10s van het login-event begint
+    for (const s of sessions) {
+      if (s.user_id !== log.user_id) continue
+      const sessTs = new Date(s.login_at + 'Z').getTime()
+      if (Math.abs(sessTs - logTs) < 10_000) return s
+    }
+    return null
+  }
+
+  // Format helpers
+  function fmtDuration(seconds: number | null | undefined): string {
+    if (!seconds || seconds < 0) return '—'
+    if (seconds < 60) return `${seconds}s`
+    const m = Math.floor(seconds / 60)
+    const s = seconds % 60
+    if (m < 60) return s ? `${m}m ${s}s` : `${m}m`
+    const h = Math.floor(m / 60)
+    const mm = m % 60
+    return mm ? `${h}u ${mm}m` : `${h}u`
+  }
+
+  function fmtRelative(isoUtc: string | null | undefined): string {
+    if (!isoUtc) return '—'
+    const then = new Date(isoUtc + 'Z').getTime()
+    const diffSec = Math.floor((Date.now() - then) / 1000)
+    if (diffSec < 60) return `${diffSec}s geleden`
+    if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m geleden`
+    if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}u geleden`
+    return `${Math.floor(diffSec / 86400)}d geleden`
+  }
+
+  // Pretty-print JSON metadata with sensible fallback
+  function prettyMeta(raw: string | null | undefined): { short: string; pretty: string; isJson: boolean } {
+    if (!raw) return { short: '—', pretty: '', isJson: false }
+    try {
+      const obj = JSON.parse(raw)
+      const pretty = JSON.stringify(obj, null, 2)
+      // Korte samenvatting: eerste 2-3 veldnamen
+      const keys = Object.keys(obj)
+      const preview = keys.length
+        ? keys.slice(0, 3).join(', ') + (keys.length > 3 ? `, +${keys.length - 3}` : '')
+        : '(leeg)'
+      return { short: preview, pretty, isJson: true }
+    } catch {
+      // Geen geldige JSON — toon eerste 60 tekens
+      const short = raw.length > 60 ? raw.substring(0, 60) + '…' : raw
+      return { short, pretty: raw, isJson: false }
+    }
+  }
+
+  const actieKleur: Record<string, string> = {
+    user_login:    'bg-green-100 text-green-800',
+    user_logout:   'bg-gray-100 text-gray-700',
+    user_update:   'bg-blue-100 text-blue-800',
+    profile_update:'bg-indigo-100 text-indigo-800',
+    user_delete:   'bg-red-100 text-red-800',
+    user_create:   'bg-emerald-100 text-emerald-800',
+  }
+
   return c.html(
-    <Layout 
-      title="Audit Logs" 
+    <Layout
+      title="Audit Logs"
       user={user}
       breadcrumbs={[
         { label: 'Admin', href: '/admin' },
@@ -4282,7 +4356,7 @@ app.get('/admin/audit', async (c) => {
                     Audit Logs
                   </h1>
                   <p class="mt-2 text-gray-600">
-                    Bekijk systeem activiteit en logins
+                    Bekijk systeem activiteit, logins en sessieduur
                   </p>
                 </div>
                 <a href="/admin" class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition">
@@ -4294,40 +4368,121 @@ app.get('/admin/audit', async (c) => {
           </div>
 
           <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            {/* Legenda */}
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-xs text-blue-900">
+              <i class="fas fa-info-circle mr-1"></i>
+              <strong>Duur</strong> = tijd tussen login en logout (of nu, voor actieve sessies).
+              <strong class="ml-2">Inactief sinds</strong> = tijd sinds laatste pagina-bezoek.
+              Klik op een rij om JSON-details uit te klappen.
+            </div>
+
             <div class="bg-white rounded-lg shadow-md overflow-hidden">
               <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
                   <thead class="bg-gray-50">
                     <tr>
-                      <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Datum</th>
-                      <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gebruiker</th>
-                      <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actie</th>
-                      <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
-                      <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Datum</th>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Gebruiker</th>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actie</th>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Duur</th>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Inactief sinds</th>
+                      <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
                     </tr>
                   </thead>
                   <tbody class="bg-white divide-y divide-gray-200">
-                    {logs.map((log: any) => (
-                      <tr class="hover:bg-gray-50">
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {new Date(log.created_at).toLocaleString('nl-NL')}
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {log.voornaam} {log.achternaam} <span class="text-gray-400">({log.email})</span>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          <span class="px-2 py-1 rounded-full text-xs font-semibold bg-gray-100">
-                            {log.actie}
-                          </span>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {log.entity_type} #{log.entity_id}
-                        </td>
-                        <td class="px-6 py-4 text-sm text-gray-500 font-mono text-xs">
-                          {log.meta}
-                        </td>
-                      </tr>
-                    ))}
+                    {logs.map((log: any) => {
+                      const sess = findSession(log)
+                      // Duur berekenen
+                      let duurStr = '—'
+                      let inactiefStr = '—'
+                      if (sess) {
+                        if (sess.duration_seconds) {
+                          duurStr = fmtDuration(sess.duration_seconds)
+                        } else if (sess.is_active) {
+                          // Actieve sessie: nu - login_at
+                          const liveSec = Math.floor(
+                            (Date.now() - new Date(sess.login_at + 'Z').getTime()) / 1000
+                          )
+                          duurStr = fmtDuration(liveSec) + ' (nog actief)'
+                        }
+                        // Inactief = nu - updated_at (alleen nuttig voor actieve sessies)
+                        if (sess.is_active && sess.updated_at) {
+                          inactiefStr = fmtRelative(sess.updated_at)
+                        } else if (sess.logout_at) {
+                          inactiefStr = 'Uitgelogd'
+                        }
+                      }
+
+                      const meta = prettyMeta(log.meta)
+                      const rowId = `log-${log.id}`
+
+                      return (
+                        <>
+                          <tr
+                            class="hover:bg-gray-50 cursor-pointer"
+                            onclick={`(function(){var el=document.getElementById('${rowId}-details'); if(el) el.classList.toggle('hidden');})()`}
+                          >
+                            <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-500">
+                              {new Date(log.created_at + 'Z').toLocaleString('nl-BE', {
+                                day: '2-digit', month: '2-digit', year: 'numeric',
+                                hour: '2-digit', minute: '2-digit'
+                              })}
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap text-sm">
+                              <div class="font-medium text-gray-900">{log.voornaam} {log.achternaam}</div>
+                              <div class="text-xs text-gray-400">{log.email}</div>
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap">
+                              <span class={`px-2 py-1 rounded-full text-xs font-semibold ${actieKleur[log.actie] || 'bg-gray-100 text-gray-800'}`}>
+                                {log.actie}
+                              </span>
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-500">
+                              {log.entity_type} #{log.entity_id}
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-700">
+                              {duurStr}
+                            </td>
+                            <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-700">
+                              {inactiefStr}
+                            </td>
+                            <td class="px-4 py-3 text-xs text-gray-500">
+                              <div class="flex items-center gap-2">
+                                <i class="fas fa-chevron-down text-gray-400 text-[10px]"></i>
+                                <span class="font-mono text-xs truncate max-w-[200px] inline-block align-middle">
+                                  {meta.short}
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                          <tr id={`${rowId}-details`} class="hidden bg-gray-50">
+                            <td colspan={7} class="px-6 py-3">
+                              {meta.isJson ? (
+                                <pre class="bg-white border border-gray-200 rounded p-3 text-xs font-mono text-gray-800 overflow-x-auto max-h-64">
+                                  {meta.pretty}
+                                </pre>
+                              ) : (
+                                <div class="text-xs font-mono text-gray-600 whitespace-pre-wrap">
+                                  {meta.pretty || '(geen details)'}
+                                </div>
+                              )}
+                              {log.ip_adres && (
+                                <div class="mt-2 text-xs text-gray-500">
+                                  <strong>IP:</strong> <span class="font-mono">{log.ip_adres}</span>
+                                  {log.user_agent && (
+                                    <>
+                                      &nbsp; <strong>Browser:</strong>
+                                      <span class="font-mono ml-1">{log.user_agent.substring(0, 100)}{log.user_agent.length > 100 ? '…' : ''}</span>
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        </>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>

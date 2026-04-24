@@ -331,7 +331,8 @@ app.get('/leden/streaks', async (c) => {
       `SELECT id, start_at FROM events WHERE type = 'repetitie' AND datetime(start_at) <= datetime('now') ORDER BY start_at DESC`
     ),
     queryAll<any>(c.env.DB,
-      `SELECT user_id, event_id FROM qr_checkins qc JOIN events e ON e.id = qc.event_id WHERE e.type = 'repetitie'`
+      `SELECT qc.user_id, qc.event_id FROM qr_checkins qc JOIN events e ON e.id = qc.event_id
+       WHERE e.type = 'repetitie' AND COALESCE(qc.source, 'qr') = 'qr'`
     )
   ])
 

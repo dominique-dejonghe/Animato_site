@@ -107,6 +107,65 @@ export const Layout: FC<LayoutProps> = ({
       </head>
       
       <body class="font-sans bg-gray-50 text-gray-900" style="font-family: 'Inter', sans-serif;">
+        {/* Top loading bar (subtle progress indicator during navigation + AJAX) */}
+        <div id="topLoadingBar" class="fixed top-0 left-0 h-[3px] bg-gradient-to-r from-animato-primary via-pink-500 to-animato-secondary z-[9999] pointer-events-none" style="width: 0%; transition: width 200ms ease-out, opacity 300ms ease-out; opacity: 0; box-shadow: 0 0 8px rgba(236, 72, 153, 0.6);"></div>
+        <script dangerouslySetInnerHTML={{ __html: `
+          (function(){
+            var bar = document.getElementById('topLoadingBar');
+            if (!bar) return;
+            var progress = 0, interval = null, active = 0;
+            function start(){
+              active++;
+              if (active > 1) return; // already running
+              progress = 5;
+              bar.style.opacity = '1';
+              bar.style.width = progress + '%';
+              clearInterval(interval);
+              interval = setInterval(function(){
+                // slow increment towards 90
+                if (progress < 90) {
+                  progress += (90 - progress) * 0.08;
+                  bar.style.width = progress + '%';
+                }
+              }, 200);
+            }
+            function done(){
+              active = Math.max(0, active - 1);
+              if (active > 0) return;
+              clearInterval(interval);
+              bar.style.width = '100%';
+              setTimeout(function(){
+                bar.style.opacity = '0';
+                setTimeout(function(){ bar.style.width = '0%'; }, 300);
+              }, 150);
+            }
+            // Expose for AJAX callers
+            window.__topbar = { start: start, done: done };
+
+            // Trigger on navigation clicks (same-origin, non-blank target, not modifier-click)
+            document.addEventListener('click', function(e){
+              var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
+              if (!a) return;
+              if (a.target === '_blank' || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              var href = a.getAttribute('href');
+              if (!href || href.charAt(0) === '#' || href.indexOf('javascript:') === 0 || href.indexOf('mailto:') === 0 || href.indexOf('tel:') === 0) return;
+              if (href.indexOf('http') === 0 && href.indexOf(location.origin) !== 0) return; // external
+              start();
+            }, true);
+            // Trigger on form submits
+            document.addEventListener('submit', function(){ start(); }, true);
+            // Hide when page fully loaded (back/forward cache)
+            window.addEventListener('pageshow', function(){ active = 0; clearInterval(interval); bar.style.opacity = '0'; bar.style.width = '0%'; });
+            // Intercept fetch for AJAX
+            var origFetch = window.fetch;
+            if (origFetch) {
+              window.fetch = function(){
+                start();
+                return origFetch.apply(this, arguments).finally(function(){ done(); });
+              };
+            }
+          })();
+        ` }} />
         {/* Impersonate Banner */}
         {impersonating && (
           <div class="bg-orange-500 text-white py-2 px-4 text-center text-sm font-semibold sticky top-0 z-[100] shadow-lg">

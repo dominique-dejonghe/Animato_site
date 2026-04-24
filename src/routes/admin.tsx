@@ -4074,9 +4074,10 @@ app.get('/admin/content/:id', async (c) => {
 
 app.post('/api/admin/content/save', async (c) => {
   const user = c.get('user') as SessionUser
+  let body: any = {}
 
   try {
-    const body = await c.req.parseBody()
+    body = await c.req.parseBody()
     const {
       post_id,
       is_new,
@@ -4198,10 +4199,13 @@ app.post('/api/admin/content/save', async (c) => {
 
       return c.redirect(`/admin/content/${post_id}?success=updated&type=posts`)
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('Post save error:', error)
-    const redirectUrl = body.is_new === '1' ? '/admin/content/nieuw' : `/admin/content/${body.post_id}`
-    return c.redirect(`${redirectUrl}?error=save_failed`)
+    const isNew = body?.is_new === '1'
+    const postId = body?.post_id
+    const redirectUrl = isNew || !postId ? '/admin/content/nieuw' : `/admin/content/${postId}`
+    const errMsg = encodeURIComponent(error?.message || 'save_failed').substring(0, 100)
+    return c.redirect(`${redirectUrl}?error=save_failed&msg=${errMsg}`)
   }
 })
 

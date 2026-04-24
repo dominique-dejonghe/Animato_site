@@ -86,6 +86,55 @@ async function calculateStreak(db: D1Database, userId: number): Promise<{ curren
 }
 
 // =====================================================
+// HELPER: Bulk-calculate streaks for many users in a single pass (2 queries total)
+// =====================================================
+async function calculateStreaksBulk(db: D1Database): Promise<Map<number, { current: number; longest: number; total: number }>> {
+  const map = new Map<number, { current: number; longest: number; total: number }>()
+
+  // All past rehearsals, most recent first
+  const allRehearsals = await queryAll<any>(db,
+    `SELECT id, start_at FROM events
+     WHERE type = 'repetitie' AND datetime(start_at) <= datetime('now')
+     ORDER BY start_at DESC`
+  )
+
+  // All QR check-ins (source='qr' only) joined with events
+  const allCheckins = await queryAll<any>(db,
+    `SELECT qc.user_id, qc.event_id
+     FROM qr_checkins qc
+     JOIN events e ON e.id = qc.event_id
+     WHERE e.type = 'repetitie' AND COALESCE(qc.source, 'qr') = 'qr'`
+  )
+
+  // Build per-user set of event_ids
+  const byUser = new Map<number, Set<number>>()
+  for (const row of allCheckins) {
+    let s = byUser.get(row.user_id)
+    if (!s) { s = new Set<number>(); byUser.set(row.user_id, s) }
+    s.add(row.event_id)
+  }
+
+  for (const [userId, eventSet] of byUser.entries()) {
+    let currentStreak = 0
+    let longestStreak = 0
+    let tempStreak = 0
+    let stillCurrent = true
+    for (const r of allRehearsals) {
+      if (eventSet.has(r.id)) {
+        if (stillCurrent) currentStreak++
+        tempStreak++
+        if (tempStreak > longestStreak) longestStreak = tempStreak
+      } else {
+        stillCurrent = false
+        tempStreak = 0
+      }
+    }
+    map.set(userId, { current: currentStreak, longest: longestStreak, total: eventSet.size })
+  }
+  return map
+}
+
+// =====================================================
 // HELPER: Get badge info for streak count
 // =====================================================
 function getStreakBadge(streak: number): { name: string; icon: string; color: string } | null {
@@ -161,17 +210,13 @@ app.get('/admin/attendance', async (c) => {
      ORDER BY total_checkins DESC`
   )
 
-  // Calculate streaks for all active users
-  const topUsers = []
-  for (const au of activeUsers) {
-    if (au.total_checkins > 0) {
-      const streak = await calculateStreak(c.env.DB, au.id)
-      topUsers.push({ ...au, streak })
-    } else {
-      topUsers.push({ ...au, streak: { current: 0, longest: 0, total: 0 } })
-    }
-  }
-  topUsers.sort((a, b) => b.streak.current - a.streak.current || b.streak.total - a.streak.total)
+  // Calculate streaks for ALL active users in bulk (2 queries total, not N+2)
+  const streakMap = await calculateStreaksBulk(c.env.DB)
+  const topUsers = activeUsers.map((au: any) => ({
+    ...au,
+    streak: streakMap.get(au.id) || { current: 0, longest: 0, total: 0 }
+  }))
+  topUsers.sort((a: any, b: any) => b.streak.current - a.streak.current || b.streak.total - a.streak.total)
 
   const siteUrl = c.env.SITE_URL || 'https://animato-live.pages.dev'
 
@@ -1153,8 +1198,9 @@ app.get('/admin/attendance/event/:id', async (c) => {
 // =====================================================
 app.get('/admin/attendance/repetities', async (c) => {
   const user = c.get('user') as SessionUser
-  const filter = c.req.query('filter') || 'all' // all | past | upcoming
+  const filter = c.req.query('filter') || 'past' // all | past | upcoming (default: past)
   const search = (c.req.query('search') || '').trim()
+  const limit = Math.min(parseInt(c.req.query('limit') || '100'), 500)
 
   // Build WHERE clause
   let where = "e.type = 'repetitie'"
@@ -1166,24 +1212,32 @@ app.get('/admin/attendance/repetities', async (c) => {
     params.push(`%${search}%`, `%${search}%`)
   }
 
-  // All rehearsals matching filter, with attendance counts
-  const rehearsals = await queryAll<any>(c.env.DB,
-    `SELECT e.id, e.titel, e.start_at, e.locatie,
-            COUNT(DISTINCT qc.user_id) as checkin_count,
-            qt.token IS NOT NULL as has_qr
-     FROM events e
-     LEFT JOIN qr_checkins qc ON qc.event_id = e.id
-     LEFT JOIN qr_tokens qt ON qt.event_id = e.id
-     WHERE ${where}
-     GROUP BY e.id
-     ORDER BY e.start_at DESC`,
-    params
-  )
-
-  // Total active members for percentage
-  const memberCountRow = await queryOne<any>(c.env.DB,
-    `SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND role NOT IN ('bezoeker') AND is_test_account = 0`
-  )
+  // OPTIMIZED: parallel queries + LIMIT
+  const [rehearsals, memberCountRow, globalStats] = await Promise.all([
+    queryAll<any>(c.env.DB,
+      `SELECT e.id, e.titel, e.start_at, e.locatie,
+              COUNT(DISTINCT qc.user_id) as checkin_count,
+              MAX(CASE WHEN qt.token IS NOT NULL THEN 1 ELSE 0 END) as has_qr
+       FROM events e
+       LEFT JOIN qr_checkins qc ON qc.event_id = e.id
+       LEFT JOIN qr_tokens qt ON qt.event_id = e.id
+       WHERE ${where}
+       GROUP BY e.id
+       ORDER BY e.start_at DESC
+       LIMIT ?`,
+      [...params, limit]
+    ),
+    queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND role NOT IN ('bezoeker') AND is_test_account = 0`
+    ),
+    queryOne<any>(c.env.DB,
+      `SELECT 
+         COUNT(*) as total,
+         SUM(CASE WHEN datetime(start_at) < datetime('now') THEN 1 ELSE 0 END) as past_count,
+         SUM(CASE WHEN datetime(start_at) >= datetime('now') THEN 1 ELSE 0 END) as upcoming_count
+       FROM events WHERE type = 'repetitie'`
+    )
+  ])
   const totalMembers = memberCountRow?.count || 0
 
   // Stats
@@ -1193,6 +1247,9 @@ app.get('/admin/attendance/repetities', async (c) => {
   const avgAttendance = past.length > 0
     ? Math.round(past.reduce((sum: number, r: any) => sum + (r.checkin_count || 0), 0) / past.length)
     : 0
+  const totalCount = globalStats?.total ?? rehearsals.length
+  const pastCount = globalStats?.past_count ?? past.length
+  const upcomingCount = globalStats?.upcoming_count ?? upcoming.length
 
   return c.html(
     <Layout title="Repetitie Overzicht" user={user}>
@@ -1218,19 +1275,20 @@ app.get('/admin/attendance/repetities', async (c) => {
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               <div class="bg-white rounded-lg shadow p-4">
                 <div class="text-xs text-gray-500 uppercase">Totaal</div>
-                <div class="text-2xl font-bold text-gray-900">{rehearsals.length}</div>
+                <div class="text-2xl font-bold text-gray-900">{totalCount}</div>
               </div>
               <div class="bg-white rounded-lg shadow p-4">
                 <div class="text-xs text-gray-500 uppercase">Voorbij</div>
-                <div class="text-2xl font-bold text-gray-700">{past.length}</div>
+                <div class="text-2xl font-bold text-gray-700">{pastCount}</div>
               </div>
               <div class="bg-white rounded-lg shadow p-4">
                 <div class="text-xs text-gray-500 uppercase">Komend</div>
-                <div class="text-2xl font-bold text-blue-600">{upcoming.length}</div>
+                <div class="text-2xl font-bold text-blue-600">{upcomingCount}</div>
               </div>
               <div class="bg-white rounded-lg shadow p-4">
                 <div class="text-xs text-gray-500 uppercase">Gem. aanwezig</div>
                 <div class="text-2xl font-bold text-green-600">{avgAttendance}/{totalMembers}</div>
+                <div class="text-xs text-gray-400 mt-1">van {past.length} voorbije repetities getoond</div>
               </div>
             </div>
 
@@ -1257,7 +1315,7 @@ app.get('/admin/attendance/repetities', async (c) => {
               <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg text-sm font-medium hover:bg-animato-secondary">
                 <i class="fas fa-filter mr-1"></i> Filter
               </button>
-              <a href="/admin/attendance/repetities" class="px-4 py-2 text-gray-600 text-sm hover:underline">Reset</a>
+              <a href="/admin/attendance/repetities?filter=past" class="px-4 py-2 text-gray-600 text-sm hover:underline">Reset</a>
             </form>
 
             {/* Table */}

@@ -203,6 +203,24 @@ app.notFound((c) => {
 // Error handler
 app.onError((err, c) => {
   console.error('Application error:', err)
+  console.error('Error stack:', err.stack)
+  console.error('URL:', c.req.url)
+  console.error('Method:', c.req.method)
+  
+  // For form submissions (HTML), redirect back with error
+  const accept = c.req.header('Accept') || ''
+  const contentType = c.req.header('Content-Type') || ''
+  const isFormSubmit = c.req.method === 'POST' && (
+    contentType.includes('application/x-www-form-urlencoded') || 
+    contentType.includes('multipart/form-data')
+  )
+  
+  if (isFormSubmit && !accept.includes('application/json')) {
+    const referer = c.req.header('Referer') || '/'
+    const errMsg = encodeURIComponent((err.message || 'unknown').substring(0, 100))
+    const separator = referer.includes('?') ? '&' : '?'
+    return c.redirect(`${referer}${separator}error=server_error&msg=${errMsg}`)
+  }
   
   return c.json({
     error: 'Er is een fout opgetreden',

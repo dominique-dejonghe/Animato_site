@@ -3465,6 +3465,7 @@ app.get('/admin/content/:id', async (c) => {
   const contentType = c.req.query('type') || 'posts'
   const success = c.req.query('success')
   const error = c.req.query('error')
+  const errorMsg = c.req.query('msg')
 
   // Get post if editing (id !== 'nieuw')
   let post: any = null
@@ -3539,14 +3540,29 @@ app.get('/admin/content/:id', async (c) => {
           )}
 
           {error && (
-            <div class="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
-              <div class="flex items-center">
-                <i class="fas fa-exclamation-circle text-red-500 mr-3"></i>
-                <div class="text-sm text-red-800">
-                  {error === 'save_failed' && 'Er is iets misgegaan bij het opslaan'}
-                  {error === 'not_found' && 'Post niet gevonden'}
-                  {error === 'required_fields' && 'Vul alle verplichte velden in'}
-                  {error === 'body_missing' && 'De inhoud (body) van de post ontbreekt. Vul de hoofdtekst in.'}
+            <div class="mb-6 bg-red-50 border-l-4 border-red-400 rounded-lg p-4 shadow-sm">
+              <div class="flex items-start">
+                <i class="fas fa-exclamation-triangle text-red-500 mr-3 mt-0.5 text-lg"></i>
+                <div class="flex-1">
+                  <div class="text-sm font-semibold text-red-800 mb-1">
+                    {error === 'save_failed' && 'Opslaan mislukt'}
+                    {error === 'server_error' && 'Server fout'}
+                    {error === 'not_found' && 'Post niet gevonden'}
+                    {error === 'required_fields' && 'Verplichte velden ontbreken'}
+                    {error === 'body_missing' && 'De inhoud (body) ontbreekt'}
+                  </div>
+                  <div class="text-sm text-red-700">
+                    {error === 'save_failed' && 'Er is iets misgegaan bij het opslaan van de post.'}
+                    {error === 'server_error' && 'Een onverwachte server fout is opgetreden.'}
+                    {error === 'required_fields' && 'Vul alle verplichte velden (titel, type, zichtbaarheid) in.'}
+                    {error === 'body_missing' && 'Vul de hoofdtekst van de post in.'}
+                  </div>
+                  {errorMsg && (
+                    <details class="mt-2">
+                      <summary class="text-xs text-red-600 cursor-pointer hover:underline">Technische details</summary>
+                      <code class="block mt-1 text-xs bg-red-100 text-red-900 p-2 rounded font-mono">{decodeURIComponent(errorMsg)}</code>
+                    </details>
+                  )}
                 </div>
               </div>
             </div>

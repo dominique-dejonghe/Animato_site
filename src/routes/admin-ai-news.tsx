@@ -951,30 +951,50 @@ app.get('/admin/ai-nieuws', async (c) => {
           content.innerHTML = '<div class="animate-pulse text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>Diagnose wordt uitgevoerd (5-10 sec)...</div>';
           try {
             const r = await fetch('/api/admin/ai-news/diagnostic', { credentials: 'include' });
-            const d = await r.json();
+            let d;
+            try { d = await r.json(); } catch (_) { d = null; }
+            if (!r.ok || !d) {
+              content.innerHTML = '<div class="text-red-600"><i class="fas fa-exclamation-circle mr-2"></i>Diagnose endpoint faalde (HTTP ' + r.status + '). ' + (d && d.error ? d.error : 'Probeer opnieuw aan te melden.') + '</div>';
+              return;
+            }
             const checkIcon = (ok) => ok
               ? '<i class="fas fa-check-circle text-green-600"></i>'
               : '<i class="fas fa-times-circle text-red-500"></i>';
             const warnIcon = '<i class="fas fa-exclamation-triangle text-amber-500"></i>';
             let html = '';
             // Summary
-            html += '<div class="mb-4 p-3 rounded-lg ' + (d.verdict.canGenerate ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200') + '">';
-            html += '<strong>' + d.verdict.summary + '</strong>';
-            html += '</div>';
+            const summaryClass = d.verdict.canGenerate
+              ? 'bg-green-50 border border-green-200'
+              : 'bg-red-50 border border-red-200';
+            html += '<div class="mb-4 p-3 rounded-lg ' + summaryClass + '"><strong>' + d.verdict.summary + '</strong></div>';
             // Details
             html += '<table class="w-full text-sm"><tbody>';
-            html += '<tr class="border-b"><td class="py-2 font-semibold">Cloudflare Workers AI (gratis)</td><td class="py-2">' + checkIcon(d.workersAI.ok);
+            html += '<tr class="border-b"><td class="py-2 font-semibold align-top">Cloudflare Workers AI<br><span class="text-xs font-normal text-gray-500">(gratis, ingebakken)</span></td><td class="py-2">' + checkIcon(d.workersAI.ok);
             if (d.workersAI.ok) html += ' werkt — antwoord: "' + (d.workersAI.response||'').replace(/</g,'&lt;') + '"';
-            else if (d.workersAI.error) html += ' <span class="text-red-600 text-xs">' + d.workersAI.error.replace(/</g,'&lt;') + '</span>';
-            else if (!d.workersAI.available) html += ' <span class="text-amber-600 text-xs">AI binding niet beschikbaar</span>';
+            else if (d.workersAI.error) html += ' <span class="text-red-600 text-xs block mt-1">' + d.workersAI.error.replace(/</g,'&lt;') + '</span>';
+            else if (!d.workersAI.available) html += ' <span class="text-amber-600 text-xs">AI binding niet beschikbaar — voeg toe in Cloudflare Pages → Settings → Functions → AI bindings</span>';
             html += '</td></tr>';
-            html += '<tr class="border-b"><td class="py-2 font-semibold">OpenAI fallback</td><td class="py-2">';
-            if (!d.openai.configured) html += warnIcon + ' <span class="text-amber-700">OPENAI_API_KEY niet geconfigureerd (niet verplicht als Workers AI werkt)</span>';
+            html += '<tr class="border-b"><td class="py-2 font-semibold align-top">OpenAI fallback<br><span class="text-xs font-normal text-gray-500">(via GenSpark LLM proxy)</span></td><td class="py-2">';
+            if (!d.openai.configured) html += warnIcon + ' <span class="text-amber-700">OPENAI_API_KEY niet geconfigureerd<br><span class="text-xs text-gray-600">Voeg toe via: <code class="bg-gray-100 px-1 py-0.5 rounded">npx wrangler pages secret put OPENAI_API_KEY --project-name animato-live</code></span></span>';
             else html += checkIcon(d.openai.ok) + (d.openai.ok ? ' werkt' : (' <span class="text-red-600 text-xs">' + (d.openai.error||'status ' + d.openai.status) + '</span>'));
             html += '</td></tr>';
             html += '<tr class="border-b"><td class="py-2 font-semibold">Websearch — Google News RSS</td><td class="py-2">' + (d.webSearch.googleNews > 0 ? checkIcon(true) + ' ' + d.webSearch.googleNews + ' resultaten' : '<span class="text-amber-600">' + warnIcon + ' 0 resultaten</span>') + '</td></tr>';
-            html += '<tr><td class="py-2 font-semibold">Websearch — DuckDuckGo</td><td class="py-2">' + (d.webSearch.duckDuckGo > 0 ? checkIcon(true) + ' ' + d.webSearch.duckDuckGo + ' resultaten' : '<span class="text-amber-600">' + warnIcon + ' 0 resultaten</span>') + '</td></tr>';
+            html += '<tr><td class="py-2 font-semibold">Websearch — DuckDuckGo</td><td class="py-2">' + (d.webSearch.duckDuckGo > 0 ? checkIcon(true) + ' ' + d.webSearch.duckDuckGo + ' resultaten' : '<span class="text-amber-600">' + warnIcon + ' 0 resultaten (mogelijk geblokkeerd vanuit Cloudflare)</span>') + '</td></tr>';
             html += '</tbody></table>';
+            // Actionable next steps if broken
+            if (!d.verdict.canGenerate) {
+              html += '<div class="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm">';
+              html += '<div class="font-bold text-blue-900 mb-2"><i class="fas fa-tools mr-1"></i> Wat te doen?</div>';
+              html += '<ol class="list-decimal list-inside space-y-1 text-blue-800">';
+              if (!d.workersAI.ok) {
+                html += '<li><strong>Workers AI activeren</strong>: ga naar Cloudflare dashboard → Pages → animato-live → Settings → Functions → AI bindings. Voeg een binding toe met naam <code>AI</code>.</li>';
+              }
+              if (!d.openai.configured) {
+                html += '<li><strong>Of een OpenAI-compatible key</strong> toevoegen als Pages secret. Draai in sandbox: <code class="bg-white px-1 py-0.5 rounded">npx wrangler pages secret put OPENAI_API_KEY --project-name animato-live</code> en plak je GenSpark LLM key.</li>';
+              }
+              html += '<li>Na configuratie: redeploy de site (of wacht 1-2 min) en klik opnieuw op Diagnose.</li>';
+              html += '</ol></div>';
+            }
             // Show raw JSON (collapsible)
             html += '<details class="mt-4 text-xs text-gray-500"><summary class="cursor-pointer">Toon ruwe diagnostische data</summary><pre class="mt-2 bg-gray-50 p-3 rounded overflow-x-auto">' + JSON.stringify(d, null, 2) + '</pre></details>';
             content.innerHTML = html;

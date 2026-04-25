@@ -1317,13 +1317,18 @@ app.get('/api/admin/ai-news/diagnostic', async (c) => {
             { role: 'system', content: 'Antwoord uitsluitend met: OK' },
             { role: 'user', content: 'Test' },
           ],
-          max_tokens: 10,
+          // Note: gpt-5 models use reasoning tokens internally, need ample budget
+          max_tokens: 200,
         }),
       })
       diag.openai.status = r.status
       diag.openai.ok = r.ok
       if (!r.ok) {
         diag.openai.error = (await r.text()).substring(0, 300)
+      } else {
+        const j: any = await r.json()
+        diag.openai.response = j?.choices?.[0]?.message?.content?.substring(0, 100) || '(leeg, maar HTTP OK)'
+        diag.openai.model = j?.model
       }
     } catch (e: any) {
       diag.openai.error = e.message || String(e)

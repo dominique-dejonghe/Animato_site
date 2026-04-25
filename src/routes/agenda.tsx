@@ -106,11 +106,19 @@ app.get('/agenda', async (c) => {
       `
       birthdayFilters = [monthStr]
     } else {
-      // Get ALL birthdays for the full calendar year, starting from today.
-      // Verjaardagen die al voorbij zijn in het huidige jaar worden aan het
-      // einde getoond (volgend jaar).
+      // Get ALL birthdays for the full calendar year, starting from today —
+      // OF van een door gebruiker gekozen startmaand (?birthday_start=09 = vanaf september).
+      // Default = vandaag. Verjaardagen die al voorbij zijn rollen door naar
+      // het volgende jaar zodat de lijst chronologisch 12 maanden vooruit loopt.
       const today = new Date()
-      const mmddStart = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      const startMonthQ = (c.req.query('birthday_start') || '').trim()
+      let mmddStart: string
+      if (/^(0?[1-9]|1[0-2])$/.test(startMonthQ)) {
+        // Geldige maand 1-12 → start op de eerste van die maand
+        mmddStart = `${startMonthQ.padStart(2, '0')}-01`
+      } else {
+        mmddStart = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+      }
 
       birthdayQuery = `
         SELECT p.voornaam, p.achternaam, p.foto_url, p.geboortedatum, u.id as user_id, u.stemgroep
@@ -129,16 +137,20 @@ app.get('/agenda', async (c) => {
 
     // Group by date
     // - In calendar view: altijd huidige jaar (view toont één specifieke maand)
-    // - In list view: verjaardagen die al voorbij zijn rollen over naar volgend jaar,
-    //   zodat de lijst 12 maanden vooruit loopt in chronologische volgorde.
+    // - In list view: verjaardagen die al voorbij zijn (relatief tot startMmdd)
+    //   rollen over naar volgend jaar, zodat de lijst 12 maanden vooruit loopt
+    //   in chronologische volgorde.
     const today = new Date()
     const currentYear = today.getFullYear()
-    const todayMmdd = `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+    const startMonthQ = (c.req.query('birthday_start') || '').trim()
+    const startMmdd = (/^(0?[1-9]|1[0-2])$/.test(startMonthQ))
+      ? `${startMonthQ.padStart(2, '0')}-01`
+      : `${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
 
     for (const bm of birthdayMembers as any[]) {
       if (!bm.geboortedatum) continue
       const mmdd = bm.geboortedatum.substring(5) // "MM-DD"
-      const yearForDisplay = (view !== 'calendar' && mmdd < todayMmdd)
+      const yearForDisplay = (view !== 'calendar' && mmdd < startMmdd)
         ? currentYear + 1
         : currentYear
       const displayDate = `${yearForDisplay}-${mmdd}`
@@ -300,6 +312,25 @@ app.get('/agenda', async (c) => {
                       : <span class="ml-2 text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">UIT</span>
                     }
                   </a>
+                )}
+                {/* #98 — Startmaand voor verjaardagslijst (alleen in list view) */}
+                {user && showBirthdays && view !== 'calendar' && (
+                  <select
+                    onchange="(function(s){var u=new URL(location.href); if(s.value){u.searchParams.set('birthday_start', s.value);}else{u.searchParams.delete('birthday_start');} location.href=u.toString();})(this)"
+                    class="px-3 py-2 border-2 border-pink-200 bg-pink-50 text-pink-700 rounded-lg text-sm font-medium hover:bg-pink-100 cursor-pointer"
+                    title="Vanaf welke maand wil je verjaardagen tonen?"
+                  >
+                    <option value="">Vanaf vandaag</option>
+                    {[
+                      ['01','januari'], ['02','februari'], ['03','maart'], ['04','april'],
+                      ['05','mei'], ['06','juni'], ['07','juli'], ['08','augustus'],
+                      ['09','september'], ['10','oktober'], ['11','november'], ['12','december']
+                    ].map(([v, label]) => (
+                      <option value={v} selected={(c.req.query('birthday_start') || '').padStart(2,'0') === v}>
+                        Vanaf {label}
+                      </option>
+                    ))}
+                  </select>
                 )}
                 <div class="relative inline-block" id="export-dropdown-wrapper">
                   <button

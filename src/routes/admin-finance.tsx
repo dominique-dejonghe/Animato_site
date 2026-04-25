@@ -8,6 +8,7 @@ import { verifyToken } from '../utils/auth'
 import { createMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { sendEmail } from '../utils/email'
+import { createNotification, createNotificationForUsers } from '../utils/notifications'
 
 const app = new Hono()
 
@@ -523,6 +524,18 @@ app.post('/api/admin/lidgelden/create', async (c) => {
     VALUES (?, ?, ?, ?, 'pending', ?)
   `, [body.user_id, body.year_id, body.type, amount, mockMollieId])
 
+  // #116 — Notificeer dit ene lid
+  try {
+    await createNotification(
+      db,
+      Number(body.user_id),
+      'lidgeld',
+      `Lidgeld ${year.season} (€${amount}) staat open`,
+      `Type: ${body.type === 'full' ? 'Full (met papieren partituren)' : 'Basis (digitaal)'}`,
+      '/leden/profiel#lidgeld'
+    )
+  } catch (e) { console.error('notify on single create failed:', e) }
+
   return c.redirect('/admin/lidgelden?season_id=' + body.year_id)
 })
 
@@ -559,6 +572,19 @@ app.post('/api/admin/lidgelden/generate-bulk', async (c) => {
             VALUES (?, ?, ?, ?, 'pending', ?)
         `, [u.id, yearId, type, amount, mockMollieId])
     }
+
+    // #116 — Notificeer alle nieuwe lidgeld-leden in één batch
+    try {
+      const userIds = (users as any[]).map((u: any) => u.id)
+      await createNotificationForUsers(
+        db,
+        userIds,
+        'lidgeld',
+        `Lidgeld ${year.season} (€${amount}) staat open`,
+        'Bekijk en betaal je lidgeld via je profiel — papieren partituren? upgrade naar Full.',
+        '/leden/profiel#lidgeld'
+      )
+    } catch (e) { console.error('notify on bulk_generate failed:', e) }
 
     return c.redirect('/admin/lidgelden?season_id=' + yearId + '&success=bulk_generated&count=' + users.length)
 })

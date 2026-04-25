@@ -165,6 +165,34 @@ export const Layout: FC<LayoutProps> = ({
               };
             }
           })();
+
+          // #116 — Laad ongelezen notificatie-count en update badge in header
+          (function(){
+            var bell = document.getElementById('notif-bell-link');
+            var badge = document.getElementById('notif-badge');
+            if (!bell || !badge) return;
+            function loadCount(){
+              fetch('/api/leden/notifications/unread-count', { credentials: 'same-origin' })
+                .then(function(r){ return r.ok ? r.json() : { count: 0 }; })
+                .then(function(d){
+                  var n = (d && d.count) || 0;
+                  if (n > 0) {
+                    badge.textContent = n > 99 ? '99+' : String(n);
+                    badge.classList.remove('hidden');
+                  } else {
+                    badge.classList.add('hidden');
+                  }
+                })
+                .catch(function(){ /* stil */ });
+            }
+            loadCount();
+            // Refresh elke 2 minuten als de tab open staat
+            setInterval(loadCount, 120000);
+            // Refresh wanneer tab terug zichtbaar wordt
+            document.addEventListener('visibilitychange', function(){
+              if (!document.hidden) loadCount();
+            });
+          })();
         ` }} />
         {/* Impersonate Banner */}
         {impersonating && (
@@ -229,6 +257,14 @@ export const Layout: FC<LayoutProps> = ({
                         Admin
                       </a>
                     )}
+                    {/* #116 — Notificatie-belletje met badge (voor ingelogde leden) */}
+                    <a href="/leden/profiel#notifications-card" class="hidden md:inline-flex relative items-center text-gray-700 hover:text-animato-primary transition px-2" title="Mijn meldingen" id="notif-bell-link">
+                      <i class="fas fa-bell text-lg"></i>
+                      <span
+                        id="notif-badge"
+                        class="hidden absolute -top-1 -right-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none"
+                      ></span>
+                    </a>
                     {/* Leden portal link */}
                     <a href="/leden" class="hidden md:block text-gray-700 hover:text-animato-primary transition">
                       <i class="fas fa-user-circle mr-2"></i>

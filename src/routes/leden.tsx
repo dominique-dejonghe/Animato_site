@@ -10,6 +10,7 @@ import { queryOne, queryAll, execute } from '../utils/db'
 import { createMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { processBodyLinks } from '../utils/text'
+import { getNotificationsForUser, getUnreadCount, markAsRead, markAllAsRead, getNotificationStyle } from '../utils/notifications'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1242,6 +1243,10 @@ app.get('/leden/profiel', async (c) => {
     }
   } catch (e) { /* table may not exist yet */ }
 
+  // #116 — Notificaties voor dit lid (laatste 20)
+  const notifications = await getNotificationsForUser(c.env.DB, user.id, 20)
+  const unreadCount = notifications.filter((n: any) => !n.is_gelezen).length
+
   return c.html(
     <Layout 
       title="Mijn Profiel" 
@@ -1293,6 +1298,99 @@ app.get('/leden/profiel', async (c) => {
               </div>
             </div>
           )}
+
+          {/* #116 — Notificaties: meldingen die actie vragen of nieuwe info brengen */}
+          <div class="bg-white rounded-lg shadow-md p-6 mb-6" id="notifications-card">
+            <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <h2 class="text-xl font-bold text-gray-900">
+                <i class="fas fa-bell text-animato-primary mr-2"></i>
+                Meldingen
+                {unreadCount > 0 && (
+                  <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">
+                    {unreadCount} nieuw
+                  </span>
+                )}
+              </h2>
+              {unreadCount > 0 && (
+                <form method="POST" action="/api/leden/notifications/read-all" class="inline">
+                  <button type="submit" class="text-xs text-animato-primary hover:underline font-medium">
+                    <i class="fas fa-check-double mr-1"></i>
+                    Markeer alles als gelezen
+                  </button>
+                </form>
+              )}
+            </div>
+
+            {notifications.length === 0 ? (
+              <div class="text-center py-8 text-gray-400">
+                <i class="fas fa-inbox text-4xl mb-2"></i>
+                <p class="text-sm">Geen meldingen — je bent helemaal bij!</p>
+              </div>
+            ) : (
+              <ul class="divide-y divide-gray-100">
+                {notifications.map((n: any) => {
+                  const style = getNotificationStyle(n.type)
+                  const created = new Date(n.created_at)
+                  const isUnread = !n.is_gelezen
+                  // Relatieve tijd
+                  const diffMs = Date.now() - created.getTime()
+                  const diffMin = Math.floor(diffMs / 60000)
+                  const diffHr = Math.floor(diffMin / 60)
+                  const diffDay = Math.floor(diffHr / 24)
+                  const relTime = diffMin < 1 ? 'zojuist'
+                    : diffMin < 60 ? `${diffMin}m geleden`
+                    : diffHr < 24 ? `${diffHr}u geleden`
+                    : diffDay < 7 ? `${diffDay}d geleden`
+                    : created.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })
+
+                  // Wrap content based on whether there's a link
+                  const innerContent = (
+                    <div class={`flex items-start gap-3 py-3 px-2 -mx-2 rounded-lg transition ${isUnread ? 'bg-animato-primary bg-opacity-5 hover:bg-opacity-10' : 'hover:bg-gray-50'}`}>
+                      <div class={`flex-shrink-0 w-10 h-10 rounded-full ${style.bg} flex items-center justify-center`}>
+                        <i class={`${style.icon} ${style.color}`}></i>
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-baseline justify-between gap-2 flex-wrap">
+                          <h3 class={`text-sm ${isUnread ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
+                            {n.titel}
+                            {isUnread && <span class="ml-2 inline-block w-2 h-2 bg-animato-primary rounded-full align-middle"></span>}
+                          </h3>
+                          <span class="text-[11px] text-gray-400 whitespace-nowrap">{relTime}</span>
+                        </div>
+                        {n.body && (
+                          <p class={`text-xs mt-0.5 ${isUnread ? 'text-gray-700' : 'text-gray-500'}`}>{n.body}</p>
+                        )}
+                      </div>
+                      {isUnread && (
+                        <button
+                          type="button"
+                          onclick={`event.preventDefault(); event.stopPropagation(); fetch('/api/leden/notifications/${n.id}/read', {method:'POST'}).then(()=>location.reload());`}
+                          class="flex-shrink-0 text-xs text-gray-400 hover:text-gray-600 px-2"
+                          title="Markeer als gelezen"
+                        >
+                          <i class="fas fa-times"></i>
+                        </button>
+                      )}
+                    </div>
+                  )
+
+                  return (
+                    <li>
+                      {n.link ? (
+                        <a
+                          href={n.link}
+                          onclick={isUnread ? `fetch('/api/leden/notifications/${n.id}/read', {method:'POST'})` : undefined}
+                          class="block"
+                        >
+                          {innerContent}
+                        </a>
+                      ) : innerContent}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </div>
 
           {/* Membership Status & History */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
@@ -3805,6 +3903,36 @@ app.get('/leden/smoelenboek/:id', async (c) => {
         `}} />
     </Layout>
   )
+})
+
+// =====================================================
+// #116 — NOTIFICATIONS API: count + mark as read / mark all read
+// =====================================================
+app.get('/api/leden/notifications/unread-count', async (c) => {
+  const user = c.get('user') as SessionUser
+  const count = await getUnreadCount(c.env.DB, user.id)
+  // Cache uit zodat de badge altijd actueel is
+  c.header('Cache-Control', 'no-store, max-age=0')
+  return c.json({ count })
+})
+
+app.post('/api/leden/notifications/:id/read', async (c) => {
+  const user = c.get('user') as SessionUser
+  const id = parseInt(c.req.param('id'))
+  if (!id) return c.json({ error: 'invalid id' }, 400)
+  const ok = await markAsRead(c.env.DB, id, user.id)
+  return c.json({ success: ok })
+})
+
+app.post('/api/leden/notifications/read-all', async (c) => {
+  const user = c.get('user') as SessionUser
+  const count = await markAllAsRead(c.env.DB, user.id)
+  // Voor browser-form posts: redirect terug naar profiel
+  const accept = c.req.header('Accept') || ''
+  if (accept.includes('text/html')) {
+    return c.redirect('/leden/profiel?success=notifications_read')
+  }
+  return c.json({ success: true, count })
 })
 
 app.post('/api/leden/favorites/toggle', async (c) => {

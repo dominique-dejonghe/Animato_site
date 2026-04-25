@@ -10,6 +10,7 @@ import { requireAuth, requireRole } from '../middleware/auth'
 import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 import { setCookie } from 'hono/cookie'
 import { generateToken, hashPassword } from '../utils/auth'
+import { notifyAllActiveMembers } from '../utils/notifications'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1656,6 +1657,18 @@ app.get('/admin/leden', async (c) => {
                       const lastLogin = lid.last_login_at 
                         ? new Date(lid.last_login_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })
                         : 'Nooit'
+                      // Inactivity tracking — bereken dagen sinds laatste login
+                      let inactiveDays: number | null = null
+                      let inactiveBadge: { label: string; cls: string } | null = null
+                      if (lid.last_login_at) {
+                        const ms = Date.now() - new Date(lid.last_login_at + 'Z').getTime()
+                        inactiveDays = Math.floor(ms / 86400000)
+                        if (inactiveDays >= 90) inactiveBadge = { label: `${inactiveDays}d inactief`, cls: 'bg-red-100 text-red-700' }
+                        else if (inactiveDays >= 30) inactiveBadge = { label: `${inactiveDays}d inactief`, cls: 'bg-amber-100 text-amber-700' }
+                        else if (inactiveDays >= 14) inactiveBadge = { label: `${inactiveDays}d inactief`, cls: 'bg-yellow-50 text-yellow-700' }
+                      } else {
+                        inactiveBadge = { label: 'Nooit ingelogd', cls: 'bg-gray-100 text-gray-600' }
+                      }
                       
                       const searchHaystack = [
                         lid.voornaam, lid.achternaam, lid.email,
@@ -1754,7 +1767,12 @@ app.get('/admin/leden', async (c) => {
                             )}
                           </td>
                           <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {lastLogin}
+                            <div>{lastLogin}</div>
+                            {inactiveBadge && (
+                              <span class={`inline-block mt-1 px-2 py-0.5 text-[10px] font-semibold rounded-full ${inactiveBadge.cls}`} title="Aantal dagen sinds laatste login">
+                                <i class="fas fa-moon mr-1"></i>{inactiveBadge.label}
+                              </span>
+                            )}
                           </td>
                           <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                             <a href={`/admin/leden/${lid.id}`} class="text-animato-primary hover:text-animato-secondary mr-3" title="Bewerken">
@@ -4515,6 +4533,19 @@ app.post('/api/admin/content/save', async (c) => {
          VALUES (?, 'post_create', 'post', ?, ?)`
       ).bind(user.id, result.meta.last_row_id, JSON.stringify({ type, titel })).run()
 
+      // #116 — Notificeer alle actieve leden bij gepubliceerd nieuws
+      if (type === 'posts' && publishedValue === 1 && (zichtbaarheid === 'leden' || zichtbaarheid === 'publiek')) {
+        try {
+          await notifyAllActiveMembers(
+            c.env.DB,
+            'nieuws',
+            `Nieuw bericht: ${titel}`,
+            (excerpt && String(excerpt).slice(0, 140)) || undefined,
+            `/nieuws/${finalSlug}`
+          )
+        } catch (e) { console.error('notify on post_create failed:', e) }
+      }
+
       return c.redirect(`/admin/content/${result.meta.last_row_id}?success=created&type=posts`)
     } else {
       // Update existing post
@@ -4616,14 +4647,44 @@ app.get('/admin/audit', async (c) => {
   const user = c.get('user') as SessionUser
   noCacheHeaders(c)
 
+  // Filters
+  const actieFilter = (c.req.query('actie') || '').trim()
+  const userIdFilter = (c.req.query('user_id') || '').trim()
+  const sinceFilter = (c.req.query('since') || '').trim() // 24h, 7d, 30d, all
+  const searchFilter = (c.req.query('q') || '').trim()
+  const limitFilter = Math.min(parseInt(c.req.query('limit') || '200'), 1000)
+
+  // Build WHERE clause dynamisch
+  const where: string[] = []
+  const params: any[] = []
+  if (actieFilter) { where.push('a.actie = ?'); params.push(actieFilter) }
+  if (userIdFilter && /^\d+$/.test(userIdFilter)) { where.push('a.user_id = ?'); params.push(parseInt(userIdFilter)) }
+  if (sinceFilter === '24h') where.push("a.created_at >= datetime('now', '-1 day')")
+  else if (sinceFilter === '7d') where.push("a.created_at >= datetime('now', '-7 days')")
+  else if (sinceFilter === '30d') where.push("a.created_at >= datetime('now', '-30 days')")
+  if (searchFilter) {
+    where.push('(u.email LIKE ? OR p.voornaam LIKE ? OR p.achternaam LIKE ? OR a.meta LIKE ?)')
+    const q = `%${searchFilter}%`
+    params.push(q, q, q, q)
+  }
+  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''
+
   const logs = await queryAll<any>(
     c.env.DB,
     `SELECT a.*, u.email, p.voornaam, p.achternaam
      FROM audit_logs a
      LEFT JOIN users u ON u.id = a.user_id
      LEFT JOIN profiles p ON p.user_id = u.id
+     ${whereSql}
      ORDER BY a.created_at DESC
-     LIMIT 200`
+     LIMIT ?`,
+    [...params, limitFilter]
+  )
+
+  // Lijst van unieke acties voor het dropdown
+  const distinctActies = await queryAll<any>(
+    c.env.DB,
+    `SELECT actie, COUNT(*) as cnt FROM audit_logs GROUP BY actie ORDER BY cnt DESC`
   )
 
   // Voor login-events: zoek de bijhorende user_sessions op zodat we duur +
@@ -4739,6 +4800,64 @@ app.get('/admin/audit', async (c) => {
               <strong>Duur</strong> = tijd tussen login en logout (of nu, voor actieve sessies).
               <strong class="ml-2">Inactief sinds</strong> = tijd sinds laatste pagina-bezoek.
               Klik op een rij om JSON-details uit te klappen.
+            </div>
+
+            {/* Filters */}
+            <form method="GET" action="/admin/audit" class="bg-white rounded-lg shadow-sm p-4 mb-4 grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Zoeken</label>
+                <input
+                  type="text"
+                  name="q"
+                  value={searchFilter}
+                  placeholder="Naam, email, meta..."
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-animato-primary"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Actie</label>
+                <select name="actie" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                  <option value="" selected={!actieFilter}>Alle acties</option>
+                  {distinctActies.map((a: any) => (
+                    <option value={a.actie} selected={actieFilter === a.actie}>
+                      {a.actie} ({a.cnt})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">User ID</label>
+                <input
+                  type="number"
+                  name="user_id"
+                  value={userIdFilter}
+                  placeholder="bv. 79"
+                  class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                />
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-700 mb-1">Periode</label>
+                <select name="since" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm">
+                  <option value="" selected={!sinceFilter}>Alles</option>
+                  <option value="24h" selected={sinceFilter === '24h'}>Laatste 24u</option>
+                  <option value="7d" selected={sinceFilter === '7d'}>Laatste 7 dagen</option>
+                  <option value="30d" selected={sinceFilter === '30d'}>Laatste 30 dagen</option>
+                </select>
+              </div>
+              <div class="flex gap-2">
+                <button type="submit" class="flex-1 px-4 py-2 bg-animato-primary text-white rounded-lg text-sm font-medium hover:bg-animato-secondary">
+                  <i class="fas fa-filter mr-1"></i> Filter
+                </button>
+                <a href="/admin/audit" class="px-3 py-2 text-gray-600 hover:bg-gray-100 rounded-lg text-sm" title="Reset filters">
+                  <i class="fas fa-redo"></i>
+                </a>
+              </div>
+            </form>
+
+            {/* Resultaat-teller */}
+            <div class="text-xs text-gray-500 mb-2">
+              <i class="fas fa-database mr-1"></i>
+              {logs.length} resultaten getoond {logs.length === limitFilter && <span class="text-amber-600">(limit bereikt — verfijn filters)</span>}
             </div>
 
             <div class="bg-white rounded-lg shadow-md overflow-hidden">

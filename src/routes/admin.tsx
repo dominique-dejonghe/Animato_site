@@ -3934,11 +3934,14 @@ app.get('/admin/content/:id', async (c) => {
                 <label class="block text-sm font-medium text-gray-700 mb-1">
                   Body (hoofdtekst) *
                 </label>
+                {/* #118 fix: 'required' verwijderd van verborgen textarea — HTML5 validation
+                    blokkeerde stilletjes het submitten omdat de textarea display:none was
+                    en (initieel) leeg vóór Quill 'text-change' had gesync't. Validatie
+                    gebeurt nu via JS in form 'submit' (zie Quill init script verderop). */}
                 <textarea
                   id="body-editor"
                   name="body"
                   rows={12}
-                  required
                   placeholder="Volledige inhoud van de post..."
                   class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                 >{post?.body || ''}</textarea>
@@ -4200,11 +4203,19 @@ app.get('/admin/content/:id', async (c) => {
                   textarea.value = quill.root.innerHTML;
                 });
                 
-                // Sync on form submit
+                // Sync on form submit + #118 fix: client-side validation voor body
                 const form = textarea.closest('form');
                 if (form) {
-                  form.addEventListener('submit', function() {
+                  form.addEventListener('submit', function(e) {
                     textarea.value = quill.root.innerHTML;
+                    // Quill toont een lege editor als '<p><br></p>' — strip die check
+                    const plain = (quill.getText() || '').trim();
+                    if (!plain) {
+                      e.preventDefault();
+                      alert('De inhoud (Body) mag niet leeg zijn. Schrijf eerst je artikel.');
+                      try { quill.focus(); } catch(_) {}
+                      return false;
+                    }
                   });
                 }
                 

@@ -13,28 +13,61 @@ import { generateToken, hashPassword } from '../utils/auth'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-// If user is impersonating (has admin_impersonate_token), auto-restore admin session
-app.use('/admin/*', async (c, next) => {
+// =====================================================
+// IMPERSONATE AUTO-RESTORE
+// Wanneer een admin op de site heeft rondgekeken als lid en
+// terug navigeert naar /admin (of /api/admin/*), dan willen we
+// automatisch de admin-sessie herstellen — ook als het 1h-token
+// inmiddels is verlopen. De admin_impersonate_token is 7d geldig.
+//
+// LET OP: '/admin/*' matcht in Hono GEEN '/admin' zelf (zonder
+// trailing path). Daarom registreren we het twee keer.
+// =====================================================
+const restoreAdminSessionIfImpersonating = async (c: any, next: any) => {
   const { getCookie: gc, setCookie: sc } = await import('hono/cookie')
   const impersonateToken = gc(c, 'admin_impersonate_token')
   if (impersonateToken) {
-    // Restore admin session automatically when navigating to /admin/*
+    // Zet beide cookies in dezelfde response zodat de browser ze atomair
+    // toepast — geen race waarbij auth_token al weg is en de redirect
+    // binnenkomt zonder geldige sessie.
     sc(c, 'auth_token', impersonateToken, { maxAge: 7 * 24 * 60 * 60, httpOnly: true, secure: true, sameSite: 'Lax', path: '/' })
     sc(c, 'admin_impersonate_token', '', { maxAge: 0, httpOnly: true, secure: true, sameSite: 'Lax', path: '/' })
     return c.redirect(c.req.url)
   }
   await next()
-})
-app.use('/api/admin/*', async (c, next) => {
+}
+
+// Match zowel /admin (exact) als /admin/* (subpaths)
+app.use('/admin', restoreAdminSessionIfImpersonating)
+app.use('/admin/*', restoreAdminSessionIfImpersonating)
+app.use('/api/admin', restoreAdminSessionIfImpersonating)
+app.use('/api/admin/*', restoreAdminSessionIfImpersonating)
+
+// =====================================================
+// AUTH FALLBACK voor impersonate-edge-case:
+// Als de gewone auth_token (lid, kortlevend) niet meer geldig is
+// MAAR er is nog een admin_impersonate_token, gebruik dan dat token.
+// Dit voorkomt "Ongeldige of verlopen sessie" wanneer een admin
+// na > 1u terug naar /admin gaat.
+// =====================================================
+const impersonateAuthFallback = async (c: any, next: any) => {
   const { getCookie: gc, setCookie: sc } = await import('hono/cookie')
-  const impersonateToken = gc(c, 'admin_impersonate_token')
-  if (impersonateToken) {
-    sc(c, 'auth_token', impersonateToken, { maxAge: 7 * 24 * 60 * 60, httpOnly: true, secure: true, sameSite: 'Lax', path: '/' })
+  const adminToken = gc(c, 'admin_impersonate_token')
+  const liveToken = gc(c, 'auth_token')
+
+  if (adminToken && !liveToken) {
+    // Geen levend lid-token meer maar wel admin-token bewaard → herstel
+    sc(c, 'auth_token', adminToken, { maxAge: 7 * 24 * 60 * 60, httpOnly: true, secure: true, sameSite: 'Lax', path: '/' })
     sc(c, 'admin_impersonate_token', '', { maxAge: 0, httpOnly: true, secure: true, sameSite: 'Lax', path: '/' })
     return c.redirect(c.req.url)
   }
   await next()
-})
+}
+
+app.use('/admin', impersonateAuthFallback)
+app.use('/admin/*', impersonateAuthFallback)
+app.use('/api/admin', impersonateAuthFallback)
+app.use('/api/admin/*', impersonateAuthFallback)
 
 // Apply auth middleware - admin and moderator for ALL /admin/* routes
 app.use('/admin/*', requireAuth)
@@ -3682,12 +3715,38 @@ app.get('/admin/content/:id', async (c) => {
           {/* Success/Error Messages */}
           {success && (
             <div class="mb-6 bg-green-50 border border-green-200 rounded-lg p-4">
-              <div class="flex items-center">
-                <i class="fas fa-check-circle text-green-500 mr-3"></i>
-                <div class="text-sm text-green-800">
-                  {success === 'created' && 'Post succesvol aangemaakt'}
-                  {success === 'updated' && 'Post succesvol bijgewerkt'}
+              <div class="flex items-start justify-between flex-wrap gap-3">
+                <div class="flex items-center">
+                  <i class="fas fa-check-circle text-green-500 mr-3"></i>
+                  <div class="text-sm text-green-800">
+                    {success === 'created' && 'Post succesvol aangemaakt'}
+                    {success === 'updated' && 'Post succesvol bijgewerkt'}
+                  </div>
                 </div>
+                {/* #119 — Deel via WhatsApp wanneer post gepubliceerd is */}
+                {post && post.is_published === 1 && contentType === 'posts' && post.slug && (
+                  <div class="flex items-center gap-2">
+                    <a
+                      href={`https://wa.me/?text=${encodeURIComponent(`${post.titel} — https://animato-live.pages.dev/nieuws/${post.slug}`)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition shadow-sm"
+                      title="Open WhatsApp om dit bericht in een groep of contact te delen"
+                    >
+                      <i class="fab fa-whatsapp mr-2 text-base"></i>
+                      Deel via WhatsApp
+                    </a>
+                    <button
+                      type="button"
+                      onclick={`navigator.clipboard.writeText('${post.titel.replace(/'/g, "\\'")} — https://animato-live.pages.dev/nieuws/${post.slug}'); this.innerHTML='<i class=\\'fas fa-check mr-1\\'></i> Gekopieerd!'; setTimeout(()=>{this.innerHTML='<i class=\\'fas fa-copy mr-1\\'></i> Kopieer link'}, 2000);`}
+                      class="inline-flex items-center px-3 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm transition"
+                      title="Kopieer link + titel voor andere kanalen"
+                    >
+                      <i class="fas fa-copy mr-1"></i>
+                      Kopieer link
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -4850,18 +4909,20 @@ app.post('/admin/impersonate/:userId', async (c) => {
     is_bestuurslid: target.is_bestuurslid || 0
   }
 
-  const token = await generateToken(sessionUser, c.env.JWT_SECRET, '1h')
+  // Lid-token: 8 uur geldig — lang genoeg voor een werkdag impersonate-sessie
+  // zonder de admin halverwege uit te loggen
+  const token = await generateToken(sessionUser, c.env.JWT_SECRET, '8h')
 
-  // Set impersonate cookie (short-lived, 1 hour)
   setCookie(c, 'auth_token', token, {
-    maxAge: 60 * 60, // 1 hour
+    maxAge: 8 * 60 * 60, // 8 hours
     httpOnly: true,
     secure: true,
     sameSite: 'Lax',
     path: '/'
   })
 
-  // Store admin's original session so they can switch back
+  // Admin's originele sessie bewaren — 7 dagen geldig zodat we ALTIJD
+  // terug kunnen, ook als de admin de impersonate-tab een tijd open laat
   const adminToken = await generateToken({
     id: admin.id,
     email: admin.email,
@@ -4872,7 +4933,7 @@ app.post('/admin/impersonate/:userId', async (c) => {
     is_bestuurslid: admin.is_bestuurslid || 0
   }, c.env.JWT_SECRET, '7d')
   setCookie(c, 'admin_impersonate_token', adminToken, {
-    maxAge: 60 * 60,
+    maxAge: 7 * 24 * 60 * 60, // 7 days
     httpOnly: true,
     secure: true,
     sameSite: 'Lax',

@@ -164,13 +164,52 @@ app.get('/admin/lidgelden', async (c) => {
                   <p class="text-gray-500 text-sm">Openstaand ({memberships.filter((m: any) => m.status === 'pending').length})</p>
                   <p class="text-2xl font-bold">€ {openAmount.toFixed(2)}</p>
                 </div>
-                <div class="bg-white p-4 rounded shadow border-l-4 border-gray-500 flex flex-col justify-center items-start">
+                <div class="bg-white p-4 rounded shadow border-l-4 border-gray-500 flex flex-col justify-center items-start relative" id="bulkGenerateCard">
                    <p class="text-gray-500 text-sm mb-1">Actie</p>
-                   <form action="/api/admin/lidgelden/generate-bulk" method="POST" onsubmit="return confirm('Weet je zeker dat je lidmaatschappen wilt genereren voor ALLE actieve leden zonder lidmaatschap?');">
+                   {/* #114 — Hover preview van leden die meegenomen worden */}
+                   <form action="/api/admin/lidgelden/generate-bulk" method="POST" onsubmit="return confirm('Weet je zeker dat je lidmaatschappen wilt genereren voor ALLE actieve leden zonder lidmaatschap?');" class="w-full relative">
                       <input type="hidden" name="season_id" value={activeSeason.id} />
-                      <button type="submit" class="text-sm bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 w-full text-center" disabled={usersWithoutMembership.length === 0}>
+                      <button
+                        type="submit"
+                        class="text-sm bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 w-full text-center"
+                        disabled={usersWithoutMembership.length === 0}
+                        onmouseenter="document.getElementById('bulkPreview') && (document.getElementById('bulkPreview').style.display = 'block')"
+                        onmouseleave="document.getElementById('bulkPreview') && (document.getElementById('bulkPreview').style.display = 'none')"
+                        onfocus="document.getElementById('bulkPreview') && (document.getElementById('bulkPreview').style.display = 'block')"
+                        onblur="document.getElementById('bulkPreview') && (document.getElementById('bulkPreview').style.display = 'none')"
+                      >
                         <i class="fas fa-magic mr-1"></i> Genereer ({usersWithoutMembership.length})
                       </button>
+                      {usersWithoutMembership.length > 0 && (
+                        <div
+                          id="bulkPreview"
+                          class="absolute right-0 top-full mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-50 hidden"
+                          style="display: none; max-height: 360px; overflow-y: auto;"
+                        >
+                          <div class="px-4 py-2 bg-gray-50 border-b border-gray-200 sticky top-0">
+                            <div class="text-xs font-semibold text-gray-700">
+                              <i class="fas fa-users mr-1 text-animato-primary"></i>
+                              {usersWithoutMembership.length} lid{usersWithoutMembership.length === 1 ? '' : 'leden'} krijgen een lidmaatschap
+                            </div>
+                            <div class="text-[10px] text-gray-500 mt-0.5">
+                              Default = Basis (digitaal). Per lid achteraf aan te passen.
+                            </div>
+                          </div>
+                          <ul class="divide-y divide-gray-100 text-left">
+                            {(usersWithoutMembership as any[]).slice(0, 50).map((u: any) => (
+                              <li class="px-4 py-1.5 text-xs hover:bg-gray-50">
+                                <div class="font-medium text-gray-800">{u.voornaam || '?'} {u.achternaam || ''}</div>
+                                <div class="text-[10px] text-gray-500">{u.email}</div>
+                              </li>
+                            ))}
+                            {usersWithoutMembership.length > 50 && (
+                              <li class="px-4 py-2 text-[10px] text-gray-500 italic text-center bg-gray-50">
+                                + {usersWithoutMembership.length - 50} meer…
+                              </li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
                    </form>
                 </div>
               </div>

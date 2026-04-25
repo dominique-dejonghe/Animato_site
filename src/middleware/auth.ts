@@ -16,15 +16,47 @@ import { verifyToken, hasRole, canAccessStem, canModerate, isAdmin } from '../ut
  */
 export async function requireAuth(c: Context<{ Bindings: Bindings }>, next: Next) {
   // Check for token in cookie or Authorization header
-  const token = getCookie(c, 'auth_token') ||
-                c.req.header('Authorization')?.replace('Bearer ', '')
+  let token = getCookie(c, 'auth_token') ||
+              c.req.header('Authorization')?.replace('Bearer ', '')
+
+  const jwtSecret = c.env.JWT_SECRET
+  let user = token ? await verifyToken(token, jwtSecret) : null
+
+  // IMPERSONATE FALLBACK:
+  // Als het primaire token ontbreekt of verlopen is MAAR er is een
+  // admin_impersonate_token (admin was zichzelf als lid aan het bekijken),
+  // herstel dan de admin-sessie automatisch ipv 401 te returnen.
+  // Dit voorkomt "Ongeldige of verlopen sessie" wanneer een admin terug
+  // naar /admin navigeert nadat het lid-token is verlopen.
+  if (!user) {
+    const impersonateToken = getCookie(c, 'admin_impersonate_token')
+    if (impersonateToken) {
+      const adminUser = await verifyToken(impersonateToken, jwtSecret)
+      if (adminUser) {
+        const { setCookie } = await import('hono/cookie')
+        setCookie(c, 'auth_token', impersonateToken, {
+          maxAge: 7 * 24 * 60 * 60,
+          httpOnly: true,
+          secure: true,
+          sameSite: 'Lax',
+          path: '/'
+        })
+        setCookie(c, 'admin_impersonate_token', '', {
+          maxAge: 0,
+          httpOnly: true,
+          secure: true,
+          sameSite: 'Lax',
+          path: '/'
+        })
+        token = impersonateToken
+        user = adminUser
+      }
+    }
+  }
 
   if (!token) {
     return c.json({ error: 'Niet ingelogd' }, 401)
   }
-
-  const jwtSecret = c.env.JWT_SECRET
-  const user = await verifyToken(token, jwtSecret)
 
   if (!user) {
     return c.json({ error: 'Ongeldige of verlopen sessie' }, 401)

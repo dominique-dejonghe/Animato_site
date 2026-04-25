@@ -130,8 +130,23 @@ app.get('/admin/lidgelden', async (c) => {
                  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                     <div><span class="text-gray-500">Naam:</span> <span class="font-medium">{activeSeason.season}</span></div>
                     <div><span class="text-gray-500">Status:</span> <span class={`font-medium ${activeSeason.is_active ? 'text-green-600' : 'text-gray-500'}`}>{activeSeason.is_active ? 'Actief' : 'Gearchiveerd'}</span></div>
-                    <div><span class="text-gray-500">Basis Lidgeld:</span> <span class="font-medium">€ {activeSeason.fee_base.toFixed(2)}</span></div>
-                    <div><span class="text-gray-500">Full Lidgeld:</span> <span class="font-medium">€ {activeSeason.fee_full.toFixed(2)}</span></div>
+                    <div title="Basis = zonder papieren partituren">
+                      <span class="text-gray-500">Basis Lidgeld <i class="fas fa-info-circle text-gray-400 text-xs"></i>:</span>
+                      <span class="font-medium ml-1">€ {activeSeason.fee_base.toFixed(2)}</span>
+                      <div class="text-xs text-gray-400 italic">zonder papieren partituren</div>
+                    </div>
+                    <div title="Full = met papieren partituren">
+                      <span class="text-gray-500">Full Lidgeld <i class="fas fa-info-circle text-gray-400 text-xs"></i>:</span>
+                      <span class="font-medium ml-1">€ {activeSeason.fee_full.toFixed(2)}</span>
+                      <div class="text-xs text-gray-400 italic">met papieren partituren</div>
+                    </div>
+                 </div>
+                 {/* #110: Tarief-uitleg */}
+                 <div class="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-600 flex items-start gap-2">
+                   <i class="fas fa-circle-info text-blue-500 mt-0.5"></i>
+                   <span>
+                     <strong>Standaard formule</strong> is <em>Basis</em> (digitale partituren). Leden die papieren partituren willen, kunnen achteraf upgraden naar <em>Full lidgeld</em>.
+                   </span>
                  </div>
               </div>
 
@@ -181,11 +196,13 @@ app.get('/admin/lidgelden', async (c) => {
                         </td>
                         <td class="px-6 py-4">
                           {m.type === 'full' ? (
-                            <span class="bg-purple-100 text-purple-800 text-xs font-semibold px-2 py-1 rounded">
-                              <i class="fas fa-print mr-1"></i> +Partituren
+                            <span class="bg-purple-100 text-purple-800 text-xs font-semibold px-2 py-1 rounded" title="Full lidgeld — met papieren partituren">
+                              <i class="fas fa-print mr-1"></i> Full (+ papieren partituren)
                             </span>
                           ) : (
-                            <span class="bg-gray-100 text-gray-800 text-xs font-semibold px-2 py-1 rounded">Basis</span>
+                            <span class="bg-gray-100 text-gray-800 text-xs font-semibold px-2 py-1 rounded" title="Basis lidgeld — zonder papieren partituren (digitaal)">
+                              <i class="fas fa-tablet-alt mr-1"></i> Basis (digitaal)
+                            </span>
                           )}
                         </td>
                         <td class="px-6 py-4 font-mono">€ {m.amount.toFixed(2)}</td>
@@ -226,6 +243,21 @@ app.get('/admin/lidgelden', async (c) => {
                                 </form>
                               </>
                             )}
+                            {/* #111: switch formule basis ↔ full + delete */}
+                            <form action="/api/admin/lidgelden/update-type" method="POST" class="inline">
+                              <input type="hidden" name="membership_id" value={m.id} />
+                              <input type="hidden" name="type" value={m.type === 'full' ? 'basis' : 'full'} />
+                              <button class="text-purple-600 hover:text-purple-800 text-xs font-medium" title={m.type === 'full' ? 'Wijzig naar Basis (digitaal)' : 'Upgrade naar Full (+ papieren partituren)'}>
+                                <i class={`fas ${m.type === 'full' ? 'fa-arrow-down' : 'fa-arrow-up'} mr-1`}></i>
+                                {m.type === 'full' ? '→ Basis' : '→ Full'}
+                              </button>
+                            </form>
+                            <form action="/api/admin/lidgelden/delete" method="POST" class="inline" onsubmit={`return confirm('Lidmaatschap voor ${m.voornaam || ''} ${m.achternaam || ''} verwijderen?');`}>
+                              <input type="hidden" name="membership_id" value={m.id} />
+                              <button class="text-red-600 hover:text-red-800 text-xs font-medium" title="Verwijder dit lidmaatschap">
+                                <i class="fas fa-trash mr-1"></i> Verwijder
+                              </button>
+                            </form>
                           </div>
                         </td>
                       </tr>
@@ -474,12 +506,10 @@ app.post('/api/admin/lidgelden/generate-bulk', async (c) => {
 
     if (users.length === 0) return c.redirect('/admin/lidgelden?season_id=' + yearId + '&msg=no_users')
 
-    // Prepare batch inserts
-    // Default to 'full' membership for now, or maybe 'basis'? Let's go with 'full' as safer default or maybe add logic?
-    // User requested "bulk generation". Let's assume 'full' is the standard for choir members usually.
-    // Actually, usually members are 'full'.
-    const type = 'full' 
-    const amount = year.fee_full
+    // #112: standaard formule = basis (zonder papieren partituren).
+    // Leden kunnen later upgraden naar 'full' als ze toch papieren partituren willen.
+    const type = 'basis'
+    const amount = year.fee_base
 
     // We'll do a loop for now as D1 batching in Hono might be tricky with `execute`.
     // Loop is fine for < 100 members.
@@ -507,6 +537,48 @@ app.post('/api/admin/lidgelden/status', async (c) => {
 
   // Get referer to redirect back to correct season
   return c.redirect('/admin/lidgelden')
+})
+
+// #111: Update formule (basis ↔ full) — bedrag automatisch aanpassen aan seizoen-tarief
+app.post('/api/admin/lidgelden/update-type', async (c) => {
+  const body = await c.req.parseBody()
+  const db = c.env.DB
+  const membershipId = body.membership_id
+  const newType = body.type === 'full' ? 'full' : 'basis'
+
+  // Haal het seizoen op via membership om correct bedrag te berekenen
+  const membership = await queryOne<any>(db,
+    `SELECT m.id, m.year_id, m.status, y.fee_base, y.fee_full
+     FROM user_memberships m
+     JOIN membership_years y ON y.id = m.year_id
+     WHERE m.id = ?`,
+    [membershipId])
+
+  if (!membership) return c.redirect('/admin/lidgelden?error=membership_not_found')
+
+  const newAmount = newType === 'full' ? membership.fee_full : membership.fee_base
+
+  // Bedrag enkel aanpassen wanneer nog niet betaald — anders enkel type updaten en log toevoegen
+  if (membership.status === 'paid') {
+    await execute(db, `UPDATE user_memberships SET type = ? WHERE id = ?`, [newType, membershipId])
+  } else {
+    await execute(db, `UPDATE user_memberships SET type = ?, amount = ? WHERE id = ?`, [newType, newAmount, membershipId])
+  }
+
+  return c.redirect('/admin/lidgelden?season_id=' + membership.year_id + '&success=type_updated')
+})
+
+// #111: Verwijder een lidmaatschap (admin)
+app.post('/api/admin/lidgelden/delete', async (c) => {
+  const body = await c.req.parseBody()
+  const db = c.env.DB
+  const membershipId = body.membership_id
+
+  // Bewaar season_id zodat we terug naar dezelfde view kunnen redirecten
+  const m = await queryOne<any>(db, `SELECT year_id FROM user_memberships WHERE id = ?`, [membershipId])
+  await execute(db, `DELETE FROM user_memberships WHERE id = ?`, [membershipId])
+
+  return c.redirect('/admin/lidgelden' + (m?.year_id ? '?season_id=' + m.year_id + '&success=deleted' : '?success=deleted'))
 })
 
 // Send Payment Link

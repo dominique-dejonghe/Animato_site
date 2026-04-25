@@ -121,6 +121,18 @@ app.get('/admin', async (c) => {
      GROUP BY stemgroep`
   )
 
+  // Lijst van leden voor de "Bekijk als lid" dropdown (#115)
+  // — testaccount eerst, dan alfabetisch, met test-leden bovenaan
+  const impersonateMembers = await queryAll<any>(
+    c.env.DB,
+    `SELECT u.id, u.email, u.is_test_account, u.stemgroep,
+            COALESCE(p.voornaam, '') as voornaam, COALESCE(p.achternaam, '') as achternaam
+     FROM users u
+     LEFT JOIN profiles p ON p.user_id = u.id
+     WHERE u.status = 'actief' AND u.role != 'admin'
+     ORDER BY u.is_test_account DESC, p.achternaam ASC, p.voornaam ASC`
+  )
+
   return c.html(
     <Layout 
       title="Admin Dashboard" 
@@ -143,13 +155,44 @@ app.get('/admin', async (c) => {
                   Beheer je koorwebsite en ledenportaal
                 </p>
               </div>
-              <div class="flex items-center gap-3">
-                <form method="POST" action="/admin/impersonate/79" class="inline">
-                  <button type="submit" class="px-4 py-2 bg-orange-100 text-orange-700 hover:bg-orange-200 rounded-lg transition font-medium text-sm" title="Bekijk de site als een gewoon lid (Test Koorlid)">
+              <div class="flex items-center gap-3 flex-wrap">
+                {/* #115: Bekijk als lid — selecteer welk lid */}
+                <form method="POST" action="#" id="impersonateForm" class="inline-flex items-stretch gap-0" onsubmit="return submitImpersonate(event)">
+                  <select id="impersonateUserId" required class="px-3 py-2 border border-orange-300 bg-orange-50 text-orange-800 rounded-l-lg text-sm focus:ring-2 focus:ring-orange-300 focus:outline-none max-w-xs">
+                    <option value="">— Kies een lid —</option>
+                    {impersonateMembers.filter((m: any) => m.is_test_account).length > 0 && (
+                      <optgroup label="Test-accounts">
+                        {impersonateMembers.filter((m: any) => m.is_test_account).map((m: any) => (
+                          <option value={m.id}>
+                            {(m.voornaam + ' ' + m.achternaam).trim() || m.email} (test)
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    <optgroup label="Echte leden">
+                      {impersonateMembers.filter((m: any) => !m.is_test_account).map((m: any) => (
+                        <option value={m.id}>
+                          {(m.voornaam + ' ' + m.achternaam).trim() || m.email}{m.stemgroep ? ' (' + m.stemgroep + ')' : ''}
+                        </option>
+                      ))}
+                    </optgroup>
+                  </select>
+                  <button type="submit" class="px-4 py-2 bg-orange-100 text-orange-700 hover:bg-orange-200 border border-l-0 border-orange-300 rounded-r-lg transition font-medium text-sm whitespace-nowrap" title="Bekijk de site als het gekozen lid">
                     <i class="fas fa-user-secret mr-2"></i>
                     Bekijk als lid
                   </button>
                 </form>
+                <script dangerouslySetInnerHTML={{ __html: `
+                  function submitImpersonate(e){
+                    e.preventDefault();
+                    var sel = document.getElementById('impersonateUserId');
+                    if (!sel || !sel.value) { alert('Kies eerst een lid'); return false; }
+                    var f = document.getElementById('impersonateForm');
+                    f.action = '/admin/impersonate/' + encodeURIComponent(sel.value);
+                    f.submit();
+                    return true;
+                  }
+                `}}></script>
                 <a href="/" class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition">
                   <i class="fas fa-home mr-2"></i>
                   Naar Website
@@ -533,9 +576,10 @@ app.get('/admin/aanmeldingen', async (c) => {
 
   let whereClause = `WHERE type = '${submissionType}'`
   if (filter === 'nieuw') whereClause += " AND status = 'nieuw'"
-  else if (filter === 'verwerkt') whereClause += " AND status = 'verwerkt'"
+  else if (filter === 'verwerkt') whereClause += " AND status = 'verwerkt' AND (notities IS NULL OR notities NOT LIKE '%Omgezet naar lid%')"
   else if (filter === 'gearchiveerd') whereClause += " AND status = 'gearchiveerd'"
-  else if (filter === 'omgezet') whereClause += " AND status = 'omgezet_naar_lid'"
+  // 'omgezet' is verwerkt MET notitie 'Omgezet naar lid' (we kunnen geen aparte status gebruiken — CHECK constraint)
+  else if (filter === 'omgezet') whereClause += " AND status = 'verwerkt' AND notities LIKE '%Omgezet naar lid%'"
 
   const submissions = await queryAll(
     c.env.DB,
@@ -552,6 +596,16 @@ app.get('/admin/aanmeldingen', async (c) => {
   const statusCounts: Record<string, number> = {}
   let totalCount = 0
   for (const r of counts) { statusCounts[r.status] = r.cnt; totalCount += r.cnt }
+
+  // Aparte count voor 'omgezet naar lid' (= status verwerkt + notitie 'Omgezet naar lid')
+  if (submissionType === 'word_lid') {
+    const omgezetRow = await queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as cnt FROM form_submissions
+       WHERE type = 'word_lid' AND status = 'verwerkt' AND notities LIKE '%Omgezet naar lid%'`)
+    statusCounts['omgezet_naar_lid'] = omgezetRow?.cnt || 0
+    // Trek de omgezet-rijen af van de algemene 'verwerkt' counter, anders worden ze dubbel geteld in de tabs
+    statusCounts['verwerkt'] = Math.max(0, (statusCounts['verwerkt'] || 0) - (omgezetRow?.cnt || 0))
+  }
 
   // Counts per type (voor type-tabs bovenaan)
   const typeCounts = await queryAll<any>(c.env.DB,
@@ -684,13 +738,14 @@ app.get('/admin/aanmeldingen', async (c) => {
                 {submissions.map((sub: any) => {
                   const data = (() => { try { return JSON.parse(sub.payload) } catch { return {} } })()
                   const isNew = sub.status === 'nieuw'
-                  const isConverted = sub.status === 'omgezet_naar_lid'
+                  // CHECK constraint laat enkel nieuw/verwerkt/gearchiveerd toe — 'omgezet' herkennen via notitie
+                  const isConverted = sub.status === 'verwerkt' && typeof sub.notities === 'string' && sub.notities.includes('Omgezet naar lid')
                   const borderColor = isNew ? 'border-green-500' : isConverted ? 'border-purple-500' : sub.status === 'verwerkt' ? 'border-blue-400' : 'border-gray-200'
                   const statusBadge = isNew ? 'bg-green-100 text-green-800' 
-                    : sub.status === 'verwerkt' ? 'bg-blue-100 text-blue-800' 
                     : isConverted ? 'bg-purple-100 text-purple-800'
+                    : sub.status === 'verwerkt' ? 'bg-blue-100 text-blue-800' 
                     : 'bg-gray-100 text-gray-600'
-                  const statusLabel = isNew ? 'Nieuw' : sub.status === 'verwerkt' ? 'Verwerkt' : isConverted ? 'Omgezet naar lid' : 'Gearchiveerd'
+                  const statusLabel = isNew ? 'Nieuw' : isConverted ? 'Omgezet naar lid' : sub.status === 'verwerkt' ? 'Verwerkt' : 'Gearchiveerd'
 
                   return (
                     <div class={`bg-white rounded-lg shadow-md p-6 border-l-4 ${borderColor}`} id={`aanvraag-${sub.id}`}>
@@ -1131,10 +1186,10 @@ app.post('/api/admin/aanmeldingen/:id/convert', async (c) => {
        VALUES (?, ?, ?, ?, 1, 1, 1, DATE('now'))`
     ).bind(newUserId, voornaam, achternaam, telefoon || null).run()
 
-    // Update form submission status
+    // Update form submission status (CHECK constraint only allows nieuw/verwerkt/gearchiveerd)
     await execute(c.env.DB,
       `UPDATE form_submissions 
-       SET status = 'omgezet_naar_lid', verwerkt_door = ?, verwerkt_at = datetime('now'),
+       SET status = 'verwerkt', verwerkt_door = ?, verwerkt_at = datetime('now'),
            notities = COALESCE(notities || ' | ', '') || 'Omgezet naar lid #' || ? || ' door admin'
        WHERE id = ?`,
       [user.id, newUserId, id]
@@ -1163,7 +1218,7 @@ app.get('/admin/leden', async (c) => {
   let query = `
     SELECT u.id, u.email, u.role, u.stemgroep, u.status, u.created_at, u.last_login_at,
            u.is_bestuurslid,
-           p.voornaam, p.achternaam, p.telefoon, u.is_test_account,
+           p.voornaam, p.achternaam, p.telefoon, u.is_test_account, p.foto_url,
            (SELECT COUNT(*) FROM user_sessions WHERE user_id = u.id AND is_active = 1) as is_online
     FROM users u
     LEFT JOIN profiles p ON p.user_id = u.id
@@ -1583,7 +1638,20 @@ app.get('/admin/leden', async (c) => {
                           <td class="px-6 py-4 whitespace-nowrap">
                             <div class="flex items-center">
                               <div class="relative">
-                                <div class="w-10 h-10 bg-gradient-to-br from-animato-primary to-animato-secondary rounded-full flex items-center justify-center text-white font-bold text-sm mr-3">
+                                {/* #108/#109: foto tonen ipv initialen indien beschikbaar */}
+                                {lid.foto_url ? (
+                                  <img
+                                    src={lid.foto_url}
+                                    alt={`${lid.voornaam || ''} ${lid.achternaam || ''}`.trim() || 'Lid'}
+                                    class="w-10 h-10 rounded-full object-cover mr-3 border border-gray-200 bg-gray-100"
+                                    loading="lazy"
+                                    onerror="this.onerror=null; this.style.display='none'; this.nextElementSibling && (this.nextElementSibling.style.display='flex')"
+                                  />
+                                ) : null}
+                                <div
+                                  class="w-10 h-10 bg-gradient-to-br from-animato-primary to-animato-secondary rounded-full flex items-center justify-center text-white font-bold text-sm mr-3"
+                                  style={lid.foto_url ? 'display:none' : ''}
+                                >
                                   {lid.voornaam?.charAt(0) || 'U'}{lid.achternaam?.charAt(0) || ''}
                                 </div>
                                 {lid.is_online > 0 && (

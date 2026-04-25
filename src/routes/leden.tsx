@@ -9,6 +9,7 @@ import { requireAuth } from '../middleware/auth'
 import { queryOne, queryAll, execute } from '../utils/db'
 import { createMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
+import { processBodyLinks } from '../utils/text'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1051,7 +1052,7 @@ app.get('/leden/board/:id', async (c) => {
 
             <div 
               class="prose prose-lg max-w-none"
-              dangerouslySetInnerHTML={{ __html: thread.body }}
+              dangerouslySetInnerHTML={{ __html: processBodyLinks(thread.body, [new URL(c.req.url).hostname, 'animato-live.pages.dev', 'animato.be']) }}
             />
           </div>
 
@@ -1084,7 +1085,7 @@ app.get('/leden/board/:id', async (c) => {
                         </div>
                       </div>
                     </div>
-                    <div class="prose" dangerouslySetInnerHTML={{ __html: reply.body }} />
+                    <div class="prose" dangerouslySetInnerHTML={{ __html: processBodyLinks(reply.body, [new URL(c.req.url).hostname, 'animato-live.pages.dev', 'animato.be']) }} />
                   </div>
                 </div>
               </div>

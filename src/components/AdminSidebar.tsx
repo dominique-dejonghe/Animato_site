@@ -28,7 +28,8 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({
     { id: 'attendance', label: 'Aanwezigheid & Streaks', href: '/admin/attendance', icon: 'fas fa-qrcode' },
     { id: 'seating', label: 'Zaalplannen', href: '/admin/seating', icon: 'fas fa-chair' },
     { id: 'finance', label: 'Financiën & Lidgeld', href: '/admin/lidgelden', icon: 'fas fa-euro-sign' },
-    { id: 'communications', label: 'Communicatie', href: '/admin/communicatie', icon: 'fas fa-envelope' },
+    // #117: 'Communicatie' wegens niet-gebruikt verborgen — routes blijven bestaan
+    // { id: 'communications', label: 'Communicatie', href: '/admin/communicatie', icon: 'fas fa-envelope' },
     { id: 'meetings', label: 'Vergaderingen', href: '/admin/meetings', icon: 'fas fa-handshake', boardOnly: true },
     { id: 'projects', label: 'Projecten', href: '/admin/projects', icon: 'fas fa-project-diagram', boardOnly: true },
     { id: 'prints', label: 'Printservice', href: '/admin/prints', icon: 'fas fa-print' },

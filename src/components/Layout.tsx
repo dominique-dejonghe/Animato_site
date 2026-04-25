@@ -978,12 +978,39 @@ export const Layout: FC<LayoutProps> = ({
             }
 
             function loadScreenshot(blob) {
+                // Compress screenshot client-side voor snellere upload (#bug-report-traagheid)
+                // Doel: max 1280px breed, JPEG q=0.75 — typisch < 200 KB ipv 2-3 MB
                 const reader = new FileReader();
                 reader.onload = function(e) {
-                    betaScreenshotData = e.target.result;
-                    document.getElementById('screenshot-img').src = betaScreenshotData;
-                    document.getElementById('screenshot-preview').classList.remove('hidden');
-                    document.getElementById('screenshot-zone').classList.add('hidden');
+                    const img = new Image();
+                    img.onload = function() {
+                        try {
+                            const maxW = 1280;
+                            const scale = img.width > maxW ? maxW / img.width : 1;
+                            const w = Math.round(img.width * scale);
+                            const h = Math.round(img.height * scale);
+                            const canvas = document.createElement('canvas');
+                            canvas.width = w; canvas.height = h;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(img, 0, 0, w, h);
+                            // JPEG voor kleinere bestanden; behoud transparency niet nodig voor screenshots
+                            betaScreenshotData = canvas.toDataURL('image/jpeg', 0.75);
+                        } catch(err) {
+                            // Fallback: gebruik origineel
+                            betaScreenshotData = e.target.result;
+                        }
+                        document.getElementById('screenshot-img').src = betaScreenshotData;
+                        document.getElementById('screenshot-preview').classList.remove('hidden');
+                        document.getElementById('screenshot-zone').classList.add('hidden');
+                    };
+                    img.onerror = function() {
+                        // Fallback: gebruik raw data url
+                        betaScreenshotData = e.target.result;
+                        document.getElementById('screenshot-img').src = betaScreenshotData;
+                        document.getElementById('screenshot-preview').classList.remove('hidden');
+                        document.getElementById('screenshot-zone').classList.add('hidden');
+                    };
+                    img.src = e.target.result;
                 };
                 reader.readAsDataURL(blob);
             }
@@ -1003,6 +1030,8 @@ export const Layout: FC<LayoutProps> = ({
                 const submitBtn = form.querySelector('button[type="submit"]');
                 submitBtn.disabled = true;
                 submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Versturen...';
+                // Top loading bar tonen voor zichtbare feedback
+                if (window.__topbar && window.__topbar.start) window.__topbar.start();
 
                 const formData = new FormData(form);
                 const data = {
@@ -1014,12 +1043,18 @@ export const Layout: FC<LayoutProps> = ({
                 };
 
                 try {
+                    // Timeout van 30s zodat een hangende fetch niet eeuwig draait
+                    const ctrl = new AbortController();
+                    const timer = setTimeout(() => ctrl.abort(), 30000);
                     const res = await fetch('/api/feedback', {
                         method: 'POST',
                         headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify(data)
+                        body: JSON.stringify(data),
+                        signal: ctrl.signal
                     });
+                    clearTimeout(timer);
 
+                    if (window.__topbar && window.__topbar.done) window.__topbar.done();
                     if (res.ok) {
                         submitBtn.innerHTML = '<i class="fas fa-check mr-1"></i> Verzonden!';
                         betaFeedbackLoaded = false; // reset so it reloads next time
@@ -1031,16 +1066,21 @@ export const Layout: FC<LayoutProps> = ({
                             submitBtn.innerHTML = '<i class="fas fa-paper-plane mr-1"></i> Versturen';
                         }, 1500);
                     } else {
-                        const err = await res.json();
+                        const err = await res.json().catch(() => ({}));
                         submitBtn.disabled = false;
                         submitBtn.innerHTML = '<i class="fas fa-paper-plane mr-1"></i> Versturen';
                         if(err.error === 'Unauthorized') alert('Je moet ingelogd zijn om feedback te geven.');
                         else alert('Er ging iets mis: ' + (err.error || 'Onbekende fout'));
                     }
                 } catch(e) {
+                    if (window.__topbar && window.__topbar.done) window.__topbar.done();
                     submitBtn.disabled = false;
                     submitBtn.innerHTML = '<i class="fas fa-paper-plane mr-1"></i> Versturen';
-                    alert('Verbindingsfout');
+                    if (e && e.name === 'AbortError') {
+                        alert('De verbinding duurde te lang. Probeer opnieuw met een kleinere screenshot of zonder screenshot.');
+                    } else {
+                        alert('Verbindingsfout');
+                    }
                 }
             }
         `}} />

@@ -6,6 +6,7 @@ import type { Bindings } from '../types'
 import { Layout } from '../components/Layout'
 import { optionalAuth } from '../middleware/auth'
 import { queryOne, queryAll, paginate } from '../utils/db'
+import { processBodyLinks } from '../utils/text'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -340,10 +341,15 @@ app.get('/nieuws/:slug', async (c) => {
             </div>
           </header>
 
-          {/* Content */}
+          {/* Content — interne links open in zelfde tab, externe in nieuw tabblad (#90) */}
           <div 
             class="prose prose-lg max-w-none mb-12"
-            dangerouslySetInnerHTML={{ __html: artikel.body }}
+            dangerouslySetInnerHTML={{ __html: processBodyLinks(artikel.body, [
+              new URL(c.req.url).hostname,
+              'animato-live.pages.dev',
+              'animato.be',
+              'www.animato.be'
+            ]) }}
           />
 
           {/* Share buttons */}

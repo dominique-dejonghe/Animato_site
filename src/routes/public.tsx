@@ -501,9 +501,19 @@ app.get('/koor', async (c) => {
             </p>
 
             <h2 class="text-3xl font-bold text-animato-secondary mt-12 mb-6">Dirigent & Begeleiding</h2>
-            <p class="text-gray-700 mb-4">
-              Onder de bezielende leiding van onze dirigent en met ondersteuning van professionele muzikanten, werken we aan een verfijnde koorklank en muzikale expressie. Regelmatige stemgroeprepeties en workshops zorgen voor continue groei en ontwikkeling.
-            </p>
+            <div class="flex flex-col md:flex-row gap-6 items-start mb-4">
+              <figure class="flex-shrink-0 w-full md:w-56">
+                <img
+                  src="/static/images/dirigent.jpg"
+                  alt="Dirigent van Animato"
+                  class="w-full rounded-lg shadow-lg object-cover"
+                  loading="lazy"
+                />
+              </figure>
+              <p class="text-gray-700 flex-1">
+                Onder de bezielende leiding van onze dirigent en met ondersteuning van professionele muzikanten, werken we aan een verfijnde koorklank en muzikale expressie. Regelmatige stemgroeprepeties en workshops zorgen voor continue groei en ontwikkeling.
+              </p>
+            </div>
 
             <h2 class="text-3xl font-bold text-animato-secondary mt-12 mb-6">Concerten & Optredens</h2>
             <p class="text-gray-700 mb-4">

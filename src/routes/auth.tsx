@@ -669,14 +669,57 @@ app.post('/api/auth/forgot-password', async (c) => {
   }, c.env.RESEND_API_KEY)
 
   if (!emailSent) {
-    console.error(`[forgot-password] Email send FAILED for user ${user.id} (${user.email})`)
-    // Remove the token we just created since email failed
+    console.error(`[forgot-password] Email send FAILED for user ${user.id} (${user.email}) — RESEND_API_KEY=${c.env.RESEND_API_KEY ? 'set' : 'MISSING'}`)
+    // Token blijft 1u geldig in DB; admin kan via /admin/leden -> "Reset link genereren" een nieuwe maken
     await execute(c.env.DB, `DELETE FROM password_resets WHERE token = ?`, [token])
     return c.redirect(`/wachtwoord-vergeten?error=send_failed&email=${encodedEmail}`)
   }
 
   console.log(`[forgot-password] Reset email sent successfully to ${user.email}`)
   return c.redirect(`/wachtwoord-vergeten?success=sent&email=${encodedEmail}`)
+})
+
+// =====================================================
+// ADMIN: Generate reset link manually (no email needed)
+// Useful when RESEND_API_KEY is not configured or as backup
+// =====================================================
+app.post('/api/admin/users/:id/reset-link', async (c) => {
+  const user = c.get('user') as SessionUser
+  if (!user || (user.role !== 'admin' && user.role !== 'moderator')) {
+    return c.json({ error: 'Onvoldoende rechten' }, 403)
+  }
+
+  const targetId = parseInt(c.req.param('id'))
+  if (!targetId) return c.json({ error: 'Ongeldig ID' }, 400)
+
+  const target = await queryOne<any>(c.env.DB,
+    `SELECT id, email FROM users WHERE id = ? AND status != 'verwijderd'`,
+    [targetId]
+  )
+  if (!target) return c.json({ error: 'Gebruiker niet gevonden' }, 404)
+
+  const token = generateRandomToken(32)
+  await execute(c.env.DB,
+    `INSERT INTO password_resets (user_id, token, expires_at) VALUES (?, ?, datetime('now', '+24 hour'))`,
+    [target.id, token]
+  )
+
+  // Audit log
+  try {
+    await execute(c.env.DB,
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta) VALUES (?, 'password_reset_link_generated', 'user', ?, ?)`,
+      [user.id, target.id, JSON.stringify({ target_email: target.email, generated_by: user.email })]
+    )
+  } catch (_) {}
+
+  const siteUrl = (c.env.SITE_URL || 'https://animato-live.pages.dev').replace(/\/$/, '')
+  return c.json({
+    success: true,
+    email: target.email,
+    reset_link: `${siteUrl}/reset-wachtwoord/${token}`,
+    expires_in: '24 uur',
+    note: 'Stuur deze link manueel door naar de gebruiker. Eénmalig bruikbaar.'
+  })
 })
 
 app.post('/api/auth/reset-password', async (c) => {

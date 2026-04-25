@@ -2571,15 +2571,26 @@ app.get('/admin/leden/:id', async (c) => {
               </div>
 
               {/* Action Buttons */}
-              <div class="flex justify-between items-center pt-6 border-t border-gray-200">
-                <button
-                  type="button"
-                  onclick={`openDeleteModal('/api/admin/leden/${member.id}/delete')`}
-                  class="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition inline-block"
-                >
-                  <i class="fas fa-trash mr-2"></i>
-                  Verwijder Lid
-                </button>
+              <div class="flex justify-between items-center pt-6 border-t border-gray-200 flex-wrap gap-3">
+                <div class="flex gap-3 flex-wrap">
+                  <button
+                    type="button"
+                    onclick={`openDeleteModal('/api/admin/leden/${member.id}/delete')`}
+                    class="px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition inline-block"
+                  >
+                    <i class="fas fa-trash mr-2"></i>
+                    Verwijder Lid
+                  </button>
+                  <button
+                    type="button"
+                    onclick={`generateResetLink(${member.id}, '${(member.voornaam + ' ' + member.achternaam).replace(/'/g, "\\'")}')`}
+                    class="px-6 py-2 bg-amber-500 text-white rounded-lg hover:bg-amber-600 transition inline-block"
+                    title="Genereer een reset-link en deel manueel (geen email)"
+                  >
+                    <i class="fas fa-key mr-2"></i>
+                    Reset link genereren
+                  </button>
+                </div>
                 <div class="flex gap-3">
                   <a
                     href="/admin/leden"
@@ -2596,6 +2607,79 @@ app.get('/admin/leden/:id', async (c) => {
                   </button>
                 </div>
               </div>
+
+              {/* Reset link result modal */}
+              <div id="resetLinkModal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[200] flex items-center justify-center p-4">
+                <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6">
+                  <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-bold text-gray-900">
+                      <i class="fas fa-key text-amber-500 mr-2"></i>
+                      Wachtwoord reset link
+                    </h3>
+                    <button type="button" onclick="document.getElementById('resetLinkModal').classList.add('hidden')" class="text-gray-400 hover:text-gray-700">
+                      <i class="fas fa-times"></i>
+                    </button>
+                  </div>
+                  <div id="resetLinkContent" class="text-sm text-gray-700">
+                    <div class="animate-pulse">Bezig...</div>
+                  </div>
+                </div>
+              </div>
+              <script dangerouslySetInnerHTML={{ __html: `
+                async function generateResetLink(userId, naam) {
+                  const modal = document.getElementById('resetLinkModal');
+                  const content = document.getElementById('resetLinkContent');
+                  modal.classList.remove('hidden');
+                  content.innerHTML = '<div class="text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>Reset link genereren voor ' + naam + '...</div>';
+                  try {
+                    const r = await fetch('/api/admin/users/' + userId + '/reset-link', {
+                      method: 'POST',
+                      credentials: 'include',
+                      headers: { 'Content-Type': 'application/json' }
+                    });
+                    const d = await r.json();
+                    if (!r.ok) {
+                      content.innerHTML = '<div class="text-red-600"><i class="fas fa-exclamation-circle mr-2"></i>' + (d.error || 'Onbekende fout') + '</div>';
+                      return;
+                    }
+                    content.innerHTML =
+                      '<div class="space-y-3">' +
+                        '<div class="bg-green-50 border border-green-200 rounded-lg p-3 text-green-800 text-sm">' +
+                          '<i class="fas fa-check-circle mr-1"></i> Reset link gegenereerd voor <strong>' + d.email + '</strong>' +
+                        '</div>' +
+                        '<div>' +
+                          '<label class="block text-xs font-medium text-gray-600 mb-1">Reset link (geldig ' + d.expires_in + ', éénmalig bruikbaar)</label>' +
+                          '<div class="flex gap-2">' +
+                            '<input type="text" id="rl_input" readonly value="' + d.reset_link + '" class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-xs font-mono bg-gray-50" onclick="this.select()" />' +
+                            '<button type="button" id="rl_copy_btn" onclick="copyResetLink()" class="px-3 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 text-sm">' +
+                              '<i class="fas fa-copy"></i> Kopieer' +
+                            '</button>' +
+                          '</div>' +
+                        '</div>' +
+                        '<div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-blue-800 text-xs">' +
+                          '<strong>Tip:</strong> kopieer en stuur de link via WhatsApp, SMS of een ander kanaal. ' + d.note +
+                        '</div>' +
+                      '</div>';
+                  } catch (e) {
+                    content.innerHTML = '<div class="text-red-600"><i class="fas fa-exclamation-circle mr-2"></i>' + e.message + '</div>';
+                  }
+                }
+                window.generateResetLink = generateResetLink;
+                function copyResetLink() {
+                  const input = document.getElementById('rl_input');
+                  if (!input) return;
+                  input.select();
+                  navigator.clipboard.writeText(input.value).then(function() {
+                    const btn = document.getElementById('rl_copy_btn');
+                    if (btn) {
+                      btn.innerHTML = '<i class="fas fa-check"></i> Gekopieerd';
+                      btn.classList.remove('bg-blue-500','hover:bg-blue-600');
+                      btn.classList.add('bg-green-500');
+                    }
+                  });
+                }
+                window.copyResetLink = copyResetLink;
+              `}} />
             </form>
           </div>
 

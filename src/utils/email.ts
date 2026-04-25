@@ -11,7 +11,13 @@ interface EmailOptions {
   replyTo?: string
 }
 
-export async function sendEmail(options: EmailOptions, resendApiKey: string): Promise<boolean> {
+export async function sendEmail(options: EmailOptions, resendApiKey: string | undefined): Promise<boolean> {
+  // Skip when API key is missing — clear log so the cause is obvious
+  if (!resendApiKey || resendApiKey.trim() === '') {
+    console.error('[email] RESEND_API_KEY is not configured — cannot send email to', options.to)
+    return false
+  }
+
   try {
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -30,13 +36,13 @@ export async function sendEmail(options: EmailOptions, resendApiKey: string): Pr
 
     if (!response.ok) {
       const error = await response.text()
-      console.error('Email send failed:', error)
+      console.error('[email] Resend API error', response.status, error.substring(0, 300))
       return false
     }
 
     return true
-  } catch (error) {
-    console.error('Email error:', error)
+  } catch (error: any) {
+    console.error('[email] network/exception:', error?.message || error)
     return false
   }
 }

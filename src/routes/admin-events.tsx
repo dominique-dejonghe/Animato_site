@@ -5,6 +5,7 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser, Event, Location, RecurrenceRule } from '../types'
 import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
+import { QuillLinkPicker } from '../components/QuillLinkPicker'
 import { requireAuth, requireRole } from '../middleware/auth'
 import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 import { createEventOccurrences, formatRecurrenceRule } from '../utils/recurring-events'
@@ -1892,6 +1893,9 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
       {/* Quill Rich Text Editor */}
       <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet" />
       <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+
+      {/* #120: Link picker met interne-pagina selector — moet vóór de Quill init staan */}
+      <QuillLinkPicker />
       <style dangerouslySetInnerHTML={{ __html: `
         .ql-toolbar.ql-snow { border-top-left-radius: 0.5rem; border-top-right-radius: 0.5rem; border-color: #d1d5db; background: #f9fafb; }
         .ql-container.ql-snow { border-bottom-left-radius: 0.5rem; border-bottom-right-radius: 0.5rem; border-color: #d1d5db; font-size: 0.95rem; }
@@ -1913,17 +1917,36 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
             theme: 'snow',
             placeholder: 'Beschrijf het event... (gebruik de werkbalk voor opmaak)',
             modules: {
-              toolbar: [
-                [{ 'header': [1, 2, 3, false] }],
-                ['bold', 'italic', 'underline', 'strike'],
-                [{ 'color': [] }, { 'background': [] }],
-                [{ 'list': 'ordered' }, { 'list': 'bullet' }],
-                ['blockquote'],
-                ['link'],
-                ['clean']
-              ]
+              toolbar: {
+                container: [
+                  [{ 'header': [1, 2, 3, false] }],
+                  ['bold', 'italic', 'underline', 'strike'],
+                  [{ 'color': [] }, { 'background': [] }],
+                  [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+                  ['blockquote'],
+                  ['link'],
+                  ['clean']
+                ],
+                handlers: {
+                  // #120: gebruik onze interne-pagina-picker
+                  link: function(value) {
+                    if (typeof window.__quillLinkHandler === 'function') {
+                      return window.__quillLinkHandler.call(this, value);
+                    }
+                    // Fallback (component nog niet geladen)
+                    if (value) {
+                      var url = prompt('Link URL:');
+                      if (url) this.quill.format('link', url);
+                    } else {
+                      this.quill.format('link', false);
+                    }
+                  }
+                }
+              }
             }
           });
+          // Extra fallback: hang link-picker aan na init
+          if (window.__attachQuillLinkPicker) window.__attachQuillLinkPicker(quill);
 
           // Load existing HTML content
           if (hiddenInput.value) {

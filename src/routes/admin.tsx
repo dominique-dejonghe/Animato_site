@@ -5,6 +5,7 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
+import { QuillLinkPicker } from '../components/QuillLinkPicker'
 import { requireAuth, requireRole } from '../middleware/auth'
 import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 import { setCookie } from 'hono/cookie'
@@ -4047,21 +4048,37 @@ app.get('/admin/content/:id', async (c) => {
                 editorContainer.style.backgroundColor = 'white';
                 textarea.parentNode.insertBefore(editorContainer, textarea);
                 
-                // Initialize Quill
+                // Initialize Quill met custom link-handler (#120: interne pagina-picker)
                 const quill = new Quill('#quill-editor', {
                   theme: 'snow',
                   modules: {
-                    toolbar: [
-                      [{ 'header': [1, 2, 3, 4, false] }],
-                      ['bold', 'italic', 'underline', 'strike'],
-                      [{ 'color': [] }, { 'background': [] }],
-                      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                      [{ 'indent': '-1'}, { 'indent': '+1' }],
-                      [{ 'align': [] }],
-                      ['blockquote', 'code-block'],
-                      ['link', 'image', 'video'],
-                      ['clean']
-                    ]
+                    toolbar: {
+                      container: [
+                        [{ 'header': [1, 2, 3, 4, false] }],
+                        ['bold', 'italic', 'underline', 'strike'],
+                        [{ 'color': [] }, { 'background': [] }],
+                        [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                        [{ 'indent': '-1'}, { 'indent': '+1' }],
+                        [{ 'align': [] }],
+                        ['blockquote', 'code-block'],
+                        ['link', 'image', 'video'],
+                        ['clean']
+                      ],
+                      handlers: {
+                        link: function(value) {
+                          // Open onze custom modal — value=true bij toevoegen, false bij verwijderen
+                          if (value) {
+                            const range = this.quill.getSelection(true);
+                            const selectedText = range && range.length > 0
+                              ? this.quill.getText(range.index, range.length)
+                              : '';
+                            window.__openLinkPicker(this.quill, range, selectedText);
+                          } else {
+                            this.quill.format('link', false);
+                          }
+                        }
+                      }
+                    }
                   },
                   placeholder: 'Schrijf hier je artikel...'
                 });
@@ -4158,6 +4175,9 @@ app.get('/admin/content/:id', async (c) => {
             `
           }}></script>
 
+          {/* #120: Link picker modal — herbruikbare component (interne pagina-picker voor Quill) */}
+          <QuillLinkPicker />
+
           </div>
         </div>
       </div>
@@ -4234,6 +4254,115 @@ app.get('/admin/content/:id', async (c) => {
       ` }} />
     </Layout>
   )
+})
+
+// =====================================================
+// INTERNAL PAGES PICKER API (#120)
+// Levert een lijst van interne pagina's voor de Quill link-knop
+// zodat redacteurs zonder URL te typen naar een eigen pagina kunnen linken.
+// =====================================================
+app.get('/api/admin/internal-pages', async (c) => {
+  const q = (c.req.query('q') || '').trim().toLowerCase()
+  const like = `%${q.replace(/[%_]/g, '\\$&')}%`
+
+  // 1) Vaste pagina's (hardcoded)
+  const fixedPages: Array<{ titel: string; url: string; type: string; subtitel?: string }> = [
+    { titel: 'Homepage',          url: '/',                  type: 'pagina', subtitel: 'Startpagina' },
+    { titel: 'Over het koor',     url: '/koor',              type: 'pagina', subtitel: 'Voorstelling van Animato' },
+    { titel: 'Word lid',          url: '/word-lid',          type: 'pagina', subtitel: 'Aanmeldformulier nieuwe leden' },
+    { titel: 'Contact',           url: '/contact',           type: 'pagina', subtitel: 'Contactformulier' },
+    { titel: 'Nieuws (overzicht)', url: '/nieuws',           type: 'pagina', subtitel: 'Alle nieuwsberichten' },
+    { titel: 'Concerten (overzicht)', url: '/concerten',     type: 'pagina', subtitel: 'Alle concerten' },
+    { titel: 'Agenda (overzicht)', url: '/agenda',           type: 'pagina', subtitel: 'Volledige agenda' },
+    { titel: 'Fotoboek',          url: '/fotoboek',          type: 'pagina', subtitel: 'Foto-albums' },
+    { titel: 'Privacyverklaring', url: '/privacyverklaring', type: 'pagina' },
+    { titel: 'Cookieverklaring',  url: '/cookies',           type: 'pagina' },
+  ]
+  const fixedFiltered = q
+    ? fixedPages.filter(p =>
+        p.titel.toLowerCase().includes(q) ||
+        p.url.toLowerCase().includes(q) ||
+        (p.subtitel || '').toLowerCase().includes(q))
+    : fixedPages
+
+  try {
+    // 2) Gepubliceerde nieuws-posts (route: /nieuws/:slug)
+    const newsRows = q
+      ? await queryAll<any>(c.env.DB,
+          `SELECT id, titel, slug, type, published_at FROM posts
+           WHERE type = 'nieuws' AND is_published = 1 AND zichtbaarheid = 'publiek'
+             AND (LOWER(titel) LIKE ? ESCAPE '\\' OR LOWER(slug) LIKE ? ESCAPE '\\')
+           ORDER BY published_at DESC LIMIT 50`,
+          [like, like])
+      : await queryAll<any>(c.env.DB,
+          `SELECT id, titel, slug, type, published_at FROM posts
+           WHERE type = 'nieuws' AND is_published = 1 AND zichtbaarheid = 'publiek'
+           ORDER BY published_at DESC LIMIT 30`)
+
+    // 3) Concerten / events met slug (route: /concerten/:slug en /agenda/:slug)
+    const eventRows = q
+      ? await queryAll<any>(c.env.DB,
+          `SELECT id, titel, slug, type, start_at FROM events
+           WHERE slug IS NOT NULL AND slug != ''
+             AND (LOWER(titel) LIKE ? ESCAPE '\\' OR LOWER(slug) LIKE ? ESCAPE '\\')
+           ORDER BY start_at DESC LIMIT 50`,
+          [like, like])
+      : await queryAll<any>(c.env.DB,
+          `SELECT id, titel, slug, type, start_at FROM events
+           WHERE slug IS NOT NULL AND slug != ''
+           ORDER BY start_at DESC LIMIT 30`)
+
+    // 4) Albums (route: /fotoboek/:slug)
+    const albumRows = q
+      ? await queryAll<any>(c.env.DB,
+          `SELECT id, titel, slug FROM albums
+           WHERE is_publiek = 1 AND slug IS NOT NULL AND slug != ''
+             AND (LOWER(titel) LIKE ? ESCAPE '\\' OR LOWER(slug) LIKE ? ESCAPE '\\')
+           ORDER BY created_at DESC LIMIT 30`,
+          [like, like]).catch(() => [])
+      : await queryAll<any>(c.env.DB,
+          `SELECT id, titel, slug FROM albums
+           WHERE is_publiek = 1 AND slug IS NOT NULL AND slug != ''
+           ORDER BY created_at DESC LIMIT 20`).catch(() => [])
+
+    const items = [
+      ...fixedFiltered.map(p => ({
+        category: 'Vaste pagina',
+        titel: p.titel,
+        url: p.url,
+        subtitel: p.subtitel || ''
+      })),
+      ...newsRows.map((r: any) => ({
+        category: 'Nieuws',
+        titel: r.titel,
+        url: '/nieuws/' + r.slug,
+        subtitel: r.published_at ? new Date(r.published_at).toLocaleDateString('nl-BE') : ''
+      })),
+      ...eventRows.map((r: any) => ({
+        category: r.type === 'concert' ? 'Concert' : (r.type === 'repetitie' ? 'Repetitie' : 'Activiteit'),
+        titel: r.titel,
+        url: (r.type === 'concert' ? '/concerten/' : '/agenda/') + r.slug,
+        subtitel: r.start_at ? new Date(r.start_at).toLocaleDateString('nl-BE') : ''
+      })),
+      ...albumRows.map((r: any) => ({
+        category: 'Fotoalbum',
+        titel: r.titel,
+        url: '/fotoboek/' + r.slug,
+        subtitel: ''
+      })),
+    ]
+
+    return c.json({ items, total: items.length })
+  } catch (e: any) {
+    console.error('internal-pages error:', e)
+    // Bij DB-fout: minimaal de vaste pagina's teruggeven zodat de picker bruikbaar blijft
+    return c.json({
+      items: fixedFiltered.map(p => ({ category: 'Vaste pagina', titel: p.titel, url: p.url, subtitel: p.subtitel || '' })),
+      total: fixedFiltered.length,
+      partial: true,
+      error: e.message
+    })
+  }
 })
 
 // =====================================================

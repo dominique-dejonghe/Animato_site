@@ -1248,6 +1248,7 @@ app.get('/admin/leden', async (c) => {
   const stemgroep = c.req.query('stemgroep') || 'all'
   const status = c.req.query('status') || 'actief'  // Default to only active members
   const bestuur = c.req.query('bestuur') || 'all'   // 'all' | 'yes' | 'no'
+  const inactief = c.req.query('inactief') || 'all' // 'all' | 'never' | '14d' | '30d' | '90d'
 
   // Build query with online status
   let query = `
@@ -1290,6 +1291,17 @@ app.get('/admin/leden', async (c) => {
     query += ` AND u.is_bestuurslid = 1`
   } else if (bestuur === 'no') {
     query += ` AND (u.is_bestuurslid IS NULL OR u.is_bestuurslid = 0)`
+  }
+
+  // Inactiviteits-filter
+  if (inactief === 'never') {
+    query += ` AND u.last_login_at IS NULL`
+  } else if (inactief === '14d') {
+    query += ` AND (u.last_login_at IS NULL OR u.last_login_at < datetime('now','-14 days'))`
+  } else if (inactief === '30d') {
+    query += ` AND (u.last_login_at IS NULL OR u.last_login_at < datetime('now','-30 days'))`
+  } else if (inactief === '90d') {
+    query += ` AND (u.last_login_at IS NULL OR u.last_login_at < datetime('now','-90 days'))`
   }
 
   // Default sort: stemgroep first, then alphabetically (#54)
@@ -1487,7 +1499,7 @@ app.get('/admin/leden', async (c) => {
           {/* Filters & Search */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <form method="GET" action="/admin/leden" class="space-y-4" id="ledenFilterForm">
-              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+              <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-2">
                     Zoeken
@@ -1558,6 +1570,24 @@ app.get('/admin/leden', async (c) => {
                     <option value="all" selected={bestuur === 'all'}>Iedereen</option>
                     <option value="yes" selected={bestuur === 'yes'}>👔 Enkel bestuursleden ({counts.bestuur?.count || 0})</option>
                     <option value="no" selected={bestuur === 'no'}>Enkel gewone leden</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-2">
+                    <i class="fas fa-moon text-amber-500 mr-1"></i>
+                    Inactiviteit
+                  </label>
+                  <select
+                    name="inactief"
+                    onchange="this.form.submit()"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    title="Filter op leden die lang niet ingelogd hebben"
+                  >
+                    <option value="all" selected={inactief === 'all'}>Alle leden</option>
+                    <option value="never" selected={inactief === 'never'}>Nooit ingelogd</option>
+                    <option value="14d" selected={inactief === '14d'}>≥ 14 dagen inactief</option>
+                    <option value="30d" selected={inactief === '30d'}>≥ 30 dagen inactief</option>
+                    <option value="90d" selected={inactief === '90d'}>≥ 90 dagen inactief</option>
                   </select>
                 </div>
               </div>

@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { Layout } from '../components/Layout'
+import { QuillLinkPicker } from '../components/QuillLinkPicker'
 import { requireRole, type SessionUser } from '../middleware/auth'
 import { queryAll, queryOne, execute } from '../utils/db'
 import { getMollieMode } from '../utils/mollie'
@@ -1330,6 +1331,9 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
           </div>
         </div>
 
+        {/* Internal Page Link Picker (#120) */}
+        <QuillLinkPicker />
+
         {/* JavaScript */}
         <script src="https://cdn.quilljs.com/1.3.6/quill.min.js"></script>
         <script dangerouslySetInnerHTML={{ __html: `
@@ -1339,12 +1343,29 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
               var quill = new Quill('#' + containerId, {
                 theme: 'snow',
                 modules: {
-                  toolbar: [
-                    [{ 'header': [3, 4, false] }],
-                    ['bold', 'italic', 'underline'],
-                    [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-                    ['clean']
-                  ]
+                  toolbar: {
+                    container: [
+                      [{ 'header': [3, 4, false] }],
+                      ['bold', 'italic', 'underline'],
+                      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
+                      ['link'],
+                      ['clean']
+                    ],
+                    handlers: {
+                      link: function(value) {
+                        if (value && typeof window.__quillLinkHandler === 'function') {
+                          return window.__quillLinkHandler.call(this, value);
+                        }
+                        // Fallback: standaard prompt
+                        if (value) {
+                          var url = prompt('Link URL:');
+                          if (url) this.quill.format('link', url);
+                        } else {
+                          this.quill.format('link', false);
+                        }
+                      }
+                    }
+                  }
                 }
               });
 
@@ -1358,6 +1379,9 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
               quill.on('text-change', function() {
                 document.getElementById(inputId).value = quill.root.innerHTML;
               });
+
+              // Hang ook de link-picker aan deze instance (extra zekerheid)
+              if (window.__attachQuillLinkPicker) window.__attachQuillLinkPicker(quill);
             }
           }
 

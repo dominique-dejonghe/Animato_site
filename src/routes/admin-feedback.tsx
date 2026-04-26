@@ -302,6 +302,7 @@ app.post('/api/admin/feedback/ask-info', async (c) => {
 // UPDATE SINGLE FEEDBACK STATUS (enhanced)
 // =============================================================================
 app.post('/api/admin/feedback/update', async (c) => {
+  const user = c.get('user') as SessionUser
   const body = await c.req.parseBody()
   const status = body.status as string
   const id = body.id as string
@@ -311,8 +312,57 @@ app.post('/api/admin/feedback/update', async (c) => {
     return c.redirect('/admin/feedback')
   }
 
-  await execute(c.env.DB, "UPDATE feedback SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", [status, id])
-  return c.redirect('/admin/feedback')
+  // Auto-assign: bij in_progress / hertesten / meer_info_nodig wordt de huidige admin
+  // automatisch toegewezen als er nog niemand toegewezen is. Zo weet je achteraf
+  // wie het opvolgde of moest hertesten.
+  const autoAssignStatuses = ['in_progress', 'hertesten', 'meer_info_nodig']
+  if (autoAssignStatuses.includes(status)) {
+    await execute(
+      c.env.DB,
+      `UPDATE feedback
+         SET status = ?,
+             assigned_to = COALESCE(assigned_to, ?),
+             updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [status, user.id, id]
+    )
+  } else {
+    await execute(
+      c.env.DB,
+      "UPDATE feedback SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+      [status, id]
+    )
+  }
+  // Behoud filter na status-wijziging zodat admin niet uit zijn filter geknikkerd wordt
+  const ref = c.req.header('referer') || '/admin/feedback'
+  return c.redirect(ref)
+})
+
+// =============================================================================
+// ASSIGN FEEDBACK TO ADMIN (or unassign)
+// =============================================================================
+app.post('/api/admin/feedback/assign', async (c) => {
+  const user = c.get('user') as SessionUser
+  const body = await c.req.parseBody()
+  const id = body.id as string
+  const assignedToRaw = body.assigned_to as string
+
+  let assignedTo: number | null = null
+  if (assignedToRaw === 'me') {
+    assignedTo = user.id
+  } else if (assignedToRaw === '' || assignedToRaw === 'null' || assignedToRaw === 'unassign') {
+    assignedTo = null
+  } else if (/^\d+$/.test(assignedToRaw)) {
+    assignedTo = parseInt(assignedToRaw, 10)
+  }
+
+  await execute(
+    c.env.DB,
+    "UPDATE feedback SET assigned_to = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+    [assignedTo, id]
+  )
+  const ref = c.req.header('referer') || '/admin/feedback'
+  return c.redirect(ref)
 })
 
 // =============================================================================
@@ -324,18 +374,37 @@ app.get('/admin/feedback', async (c) => {
   const typeFilter = c.req.query('type') || 'all'
   const ageFilter = c.req.query('age') || 'all'  // today|week|month|quarter|older|actionable
   const sortFilter = c.req.query('sort') || 'newest' // newest|oldest
+  // Toewijzing-filter: 'all' | 'mine' | 'unassigned' | numeric admin id | 'mine_hertesten' shortcut
+  const assignedFilter = c.req.query('assigned') || 'all'
 
   let query = `SELECT f.*, u.email, p.voornaam, p.achternaam,
+     a.email as assigned_email, ap.voornaam as assigned_voornaam, ap.achternaam as assigned_achternaam,
      (SELECT COUNT(*) FROM feedback_comments fc WHERE fc.feedback_id = f.id) as comment_count,
      (SELECT MAX(fc.created_at) FROM feedback_comments fc WHERE fc.feedback_id = f.id) as last_comment_at
      FROM feedback f
      LEFT JOIN users u ON u.id = f.user_id
      LEFT JOIN profiles p ON p.user_id = u.id
+     LEFT JOIN users a ON a.id = f.assigned_to
+     LEFT JOIN profiles ap ON ap.user_id = f.assigned_to
      WHERE 1=1`
   const params: any[] = []
 
   if (statusFilter !== 'all') { query += ` AND f.status = ?`; params.push(statusFilter) }
   if (typeFilter !== 'all') { query += ` AND f.type = ?`; params.push(typeFilter) }
+
+  // Toewijzing-filter
+  if (assignedFilter === 'mine') {
+    query += ` AND f.assigned_to = ?`
+    params.push(user.id)
+  } else if (assignedFilter === 'mine_hertesten') {
+    query += ` AND f.assigned_to = ? AND f.status = 'hertesten'`
+    params.push(user.id)
+  } else if (assignedFilter === 'unassigned') {
+    query += ` AND f.assigned_to IS NULL`
+  } else if (/^\d+$/.test(assignedFilter)) {
+    query += ` AND f.assigned_to = ?`
+    params.push(parseInt(assignedFilter, 10))
+  }
 
   // Leeftijd-filter (alleen relevant op openstaande items, behalve 'all')
   if (ageFilter === 'today')   query += ` AND julianday('now') - julianday(f.created_at) < 1`
@@ -351,6 +420,32 @@ app.get('/admin/feedback', async (c) => {
   query += sortFilter === 'oldest' ? ` ORDER BY f.created_at ASC` : ` ORDER BY f.created_at DESC`
 
   const feedback = await queryAll(c.env.DB, query, params)
+
+  // Lijst van alle admins voor toewijzing-dropdown + filter
+  const allAdmins = await queryAll<any>(c.env.DB, `
+    SELECT u.id, u.email, p.voornaam, p.achternaam
+    FROM users u
+    LEFT JOIN profiles p ON p.user_id = u.id
+    WHERE u.role = 'admin' AND u.status = 'actief'
+    ORDER BY p.voornaam, p.achternaam
+  `)
+
+  // Counts voor "mijn tickets" KPI's
+  const myStats = await queryOne<any>(c.env.DB, `
+    SELECT
+      COUNT(*) as my_total,
+      SUM(CASE WHEN status = 'hertesten' THEN 1 ELSE 0 END) as my_hertesten,
+      SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as my_in_progress,
+      SUM(CASE WHEN status IN ('open', 'in_progress', 'meer_info_nodig', 'hertesten') THEN 1 ELSE 0 END) as my_actionable
+    FROM feedback WHERE assigned_to = ?
+  `, [user.id])
+
+  // Niet-toegewezen openstaande items (interessante indicator)
+  const unassignedOpen = await queryOne<any>(c.env.DB, `
+    SELECT COUNT(*) as cnt FROM feedback
+    WHERE assigned_to IS NULL
+      AND status IN ('open', 'in_progress', 'meer_info_nodig', 'hertesten')
+  `)
 
   // Count per status for badges
   const counts = await queryAll<any>(c.env.DB, `SELECT status, COUNT(*) as cnt FROM feedback GROUP BY status`)
@@ -468,17 +563,30 @@ app.get('/admin/feedback', async (c) => {
   }
 
   // Helper voor filter URLs vanuit dashboard
-  function filterUrl(opts: { status?: string; type?: string; age?: string; sort?: string }): string {
+  function filterUrl(opts: { status?: string; type?: string; age?: string; sort?: string; assigned?: string }): string {
     const params = new URLSearchParams()
     params.set('status', opts.status ?? 'all')
     params.set('type', opts.type ?? 'all')
     if (opts.age && opts.age !== 'all') params.set('age', opts.age)
     if (opts.sort) params.set('sort', opts.sort)
+    if (opts.assigned && opts.assigned !== 'all') params.set('assigned', opts.assigned)
     return '/admin/feedback?' + params.toString() + '#feedback-list'
   }
 
   // Is er een actief dashboard-filter?
-  const hasActiveFilter = statusFilter !== 'all' || typeFilter !== 'all' || ageFilter !== 'all' || sortFilter !== 'newest'
+  const hasActiveFilter = statusFilter !== 'all' || typeFilter !== 'all' || ageFilter !== 'all' || sortFilter !== 'newest' || assignedFilter !== 'all'
+
+  // Helper: label voor assigned-filter banner
+  function assignedFilterLabel(val: string): string {
+    if (val === 'mine') return 'Mijn tickets'
+    if (val === 'mine_hertesten') return 'Mijn hertesten'
+    if (val === 'unassigned') return 'Niet toegewezen'
+    if (/^\d+$/.test(val)) {
+      const a = allAdmins.find((x: any) => x.id === parseInt(val, 10))
+      return a ? `Toegewezen aan ${a.voornaam || a.email}` : `Admin #${val}`
+    }
+    return val
+  }
 
   return c.html(
     <Layout title="Beta Feedback" user={user}>
@@ -592,6 +700,50 @@ app.get('/admin/feedback', async (c) => {
               <span class="text-xs text-gray-500 font-normal ml-2">(klik om in/uit te klappen)</span>
             </summary>
             <div class="p-5 pt-0 space-y-5">
+
+              {/* "Mijn tickets" rij — admin-specifieke KPI cards (alleen als er iets toegewezen is) */}
+              {(myStats?.my_total > 0 || (unassignedOpen?.cnt || 0) > 0) && (
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-1">
+                  <a href={filterUrl({ assigned: 'mine_hertesten' })} class={`rounded-lg p-4 shadow-sm border-l-4 border-purple-500 transition cursor-pointer block ${
+                    (myStats?.my_hertesten || 0) > 0
+                      ? 'bg-gradient-to-br from-purple-50 to-pink-50 hover:shadow-md ring-1 ring-purple-200'
+                      : 'bg-white hover:shadow-md'
+                  }`}>
+                    <p class="text-xs text-purple-700 uppercase tracking-wide font-semibold flex items-center gap-1">
+                      <i class="fas fa-rotate"></i> Mijn hertesten
+                    </p>
+                    <p class="text-2xl font-bold text-purple-800">{myStats?.my_hertesten || 0}</p>
+                    <p class="text-xs text-gray-500 mt-1">
+                      {(myStats?.my_hertesten || 0) > 0 ? 'jij moet (her)testen →' : 'niets te hertesten 🎉'}
+                    </p>
+                  </a>
+                  <a href={filterUrl({ assigned: 'mine' })} class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-indigo-400 hover:shadow-md hover:bg-indigo-50 transition cursor-pointer block">
+                    <p class="text-xs text-indigo-700 uppercase tracking-wide font-semibold flex items-center gap-1">
+                      <i class="fas fa-user-tag"></i> Mijn tickets
+                    </p>
+                    <p class="text-2xl font-bold text-indigo-800">{myStats?.my_total || 0}</p>
+                    <p class="text-xs text-gray-500 mt-1">{myStats?.my_actionable || 0} openstaand →</p>
+                  </a>
+                  <a href={filterUrl({ assigned: 'mine', status: 'in_progress' })} class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-blue-400 hover:shadow-md hover:bg-blue-50 transition cursor-pointer block">
+                    <p class="text-xs text-blue-700 uppercase tracking-wide font-semibold flex items-center gap-1">
+                      <i class="fas fa-spinner"></i> Mijn in behandeling
+                    </p>
+                    <p class="text-2xl font-bold text-blue-800">{myStats?.my_in_progress || 0}</p>
+                    <p class="text-xs text-gray-500 mt-1">onder werk bij jou →</p>
+                  </a>
+                  <a href={filterUrl({ assigned: 'unassigned' })} class={`rounded-lg p-4 shadow-sm border-l-4 transition cursor-pointer block ${
+                    (unassignedOpen?.cnt || 0) > 0
+                      ? 'border-amber-500 bg-amber-50 hover:shadow-md'
+                      : 'border-gray-300 bg-white hover:shadow-md'
+                  }`}>
+                    <p class="text-xs text-amber-700 uppercase tracking-wide font-semibold flex items-center gap-1">
+                      <i class="fas fa-question-circle"></i> Niet toegewezen
+                    </p>
+                    <p class="text-2xl font-bold text-amber-800">{unassignedOpen?.cnt || 0}</p>
+                    <p class="text-xs text-gray-500 mt-1">openstaand zonder eigenaar →</p>
+                  </a>
+                </div>
+              )}
 
               {/* KPI cards row — klikbaar, filter de lijst */}
               <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -963,6 +1115,11 @@ app.get('/admin/feedback', async (c) => {
                     Sortering: oudste eerst
                   </span>
                 )}
+                {assignedFilter !== 'all' && (
+                  <span class="px-2 py-0.5 rounded-full bg-purple-100 border border-purple-300 text-xs font-semibold text-purple-800">
+                    <i class="fas fa-user-tag mr-1"></i>{assignedFilterLabel(assignedFilter)}
+                  </span>
+                )}
                 <span class="text-xs text-indigo-700">→ {feedback.length} resultaat(en)</span>
               </div>
               <a href="/admin/feedback" class="px-3 py-1 bg-white border border-indigo-300 rounded-lg text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition">
@@ -971,12 +1128,66 @@ app.get('/admin/feedback', async (c) => {
             </div>
           )}
 
+          {/* Toewijzing-filter — admin kan filteren op zijn eigen tickets */}
+          <div class="bg-white rounded-lg shadow-sm p-4 mb-3 flex flex-wrap gap-2 items-center">
+            <span class="text-sm font-medium text-gray-600 mr-1">
+              <i class="fas fa-user-tag text-indigo-500 mr-1"></i>Toegewezen:
+            </span>
+            {[
+              { val: 'all', label: 'Alle', icon: '🌐', count: null },
+              { val: 'mine', label: 'Mijn tickets', icon: '👤', count: myStats?.my_total || 0 },
+              { val: 'mine_hertesten', label: 'Mijn hertesten', icon: '🔁', count: myStats?.my_hertesten || 0, highlight: true },
+              { val: 'unassigned', label: 'Niet toegewezen', icon: '❓', count: unassignedOpen?.cnt || 0 },
+            ].map(opt => (
+              <a
+                href={filterUrl({ status: statusFilter, type: typeFilter, age: ageFilter, sort: sortFilter, assigned: opt.val })}
+                class={`px-3 py-1.5 rounded-full text-xs font-semibold border transition flex items-center gap-1.5 ${
+                  assignedFilter === opt.val
+                    ? (opt.highlight
+                        ? 'bg-purple-600 text-white border-purple-600 ring-2 ring-purple-300'
+                        : 'bg-indigo-600 text-white border-indigo-600 ring-2 ring-indigo-300')
+                    : (opt.highlight && opt.count
+                        ? 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
+                        : 'bg-gray-100 text-gray-700 border-transparent hover:border-gray-300')
+                }`}
+              >
+                <span>{opt.icon}</span>
+                <span>{opt.label}</span>
+                {opt.count !== null && (
+                  <span class={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                    assignedFilter === opt.val ? 'bg-white/20' : 'bg-white border'
+                  }`}>{opt.count}</span>
+                )}
+              </a>
+            ))}
+            {/* Dropdown voor specifieke andere admin */}
+            {allAdmins.length > 1 && (
+              <div class="ml-auto flex items-center gap-2">
+                <span class="text-xs text-gray-500">Andere admin:</span>
+                <select
+                  onchange={`if(this.value) window.location.href = this.value;`}
+                  class="text-xs px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-indigo-300 focus:border-indigo-500"
+                >
+                  <option value="">— kies admin —</option>
+                  {allAdmins.filter((a: any) => a.id !== user.id).map((a: any) => (
+                    <option
+                      value={filterUrl({ status: statusFilter, type: typeFilter, age: ageFilter, sort: sortFilter, assigned: String(a.id) })}
+                      selected={assignedFilter === String(a.id)}
+                    >
+                      {a.voornaam || a.email} {a.achternaam || ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+
           {/* Filter bar - enhanced with new statuses */}
           <div class="bg-white rounded-lg shadow-sm p-4 mb-6 flex flex-wrap gap-3 items-center">
             <span class="text-sm font-medium text-gray-600">Status:</span>
             {STATUS_CONFIG.map(opt => (
               <a
-                href={filterUrl({ status: opt.val, type: typeFilter, age: ageFilter, sort: sortFilter })}
+                href={filterUrl({ status: opt.val, type: typeFilter, age: ageFilter, sort: sortFilter, assigned: assignedFilter })}
                 class={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
                   statusFilter === opt.val
                     ? 'border-animato-primary ring-2 ring-animato-primary ring-offset-1 ' + opt.color
@@ -996,7 +1207,7 @@ app.get('/admin/feedback', async (c) => {
                 { val: 'feature', label: '💡 Idee' },
               ].map(opt => (
                 <a
-                  href={filterUrl({ status: statusFilter, type: opt.val, age: ageFilter, sort: sortFilter })}
+                  href={filterUrl({ status: statusFilter, type: opt.val, age: ageFilter, sort: sortFilter, assigned: assignedFilter })}
                   class={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
                     typeFilter === opt.val
                       ? 'bg-animato-primary text-white border-animato-primary'
@@ -1044,6 +1255,16 @@ app.get('/admin/feedback', async (c) => {
                           <i class="fas fa-comments mr-1"></i>{item.comment_count} {item.comment_count === 1 ? 'reactie' : 'reacties'}
                         </span>
                       )}
+                      {item.assigned_to && (
+                        <span class={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                          item.assigned_to === user.id
+                            ? 'bg-purple-100 text-purple-800 ring-1 ring-purple-300'
+                            : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
+                        }`} title={`Toegewezen aan ${item.assigned_voornaam || item.assigned_email || 'admin'}`}>
+                          <i class="fas fa-user-tag mr-1"></i>
+                          {item.assigned_to === user.id ? 'Mij' : (item.assigned_voornaam || item.assigned_email || 'admin')}
+                        </span>
+                      )}
                       <span class="text-xs text-gray-400">
                         {item.voornaam} {item.achternaam} — {new Date(item.created_at).toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                       </span>
@@ -1073,6 +1294,30 @@ app.get('/admin/feedback', async (c) => {
                         <option value="rejected" selected={item.status === 'rejected'}>❌ Afgewezen</option>
                       </select>
                     </form>
+
+                    {/* Toewijzing — admin selector */}
+                    <form action="/api/admin/feedback/assign" method="POST" class="flex items-center gap-1">
+                      <input type="hidden" name="id" value={item.id} />
+                      <select
+                        name="assigned_to"
+                        onchange="this.form.submit()"
+                        class={`text-xs border rounded p-1.5 ${
+                          item.assigned_to === user.id ? 'bg-purple-50 border-purple-300 text-purple-800 font-semibold' :
+                          item.assigned_to ? 'bg-indigo-50 border-indigo-200 text-indigo-700' :
+                          'bg-gray-50 text-gray-500'
+                        }`}
+                        title="Wijs toe aan een admin"
+                      >
+                        <option value="unassign" selected={!item.assigned_to}>👤 Niet toegewezen</option>
+                        <option value="me" selected={item.assigned_to === user.id}>⭐ Mijzelf</option>
+                        {allAdmins.filter((a: any) => a.id !== user.id).map((a: any) => (
+                          <option value={String(a.id)} selected={item.assigned_to === a.id}>
+                            👤 {a.voornaam || a.email} {a.achternaam || ''}
+                          </option>
+                        ))}
+                      </select>
+                    </form>
+
                     {/* Quick actions */}
                     <div class="flex gap-1">
                       <button

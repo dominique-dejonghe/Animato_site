@@ -346,6 +346,113 @@ app.get('/admin/feedback', async (c) => {
   // Count actionable (for export badge)
   const actionableCount = (countMap['open'] || 0) + (countMap['in_progress'] || 0) + (countMap['meer_info_nodig'] || 0) + (countMap['hertesten'] || 0)
 
+  // ============================================================
+  // DASHBOARD STATS — overzicht van bugs/ideas + verloop over tijd
+  // ============================================================
+  // 1. Totalen per type (bugs vs features vs other)
+  const typeCounts = await queryAll<any>(c.env.DB, `SELECT type, COUNT(*) as cnt FROM feedback GROUP BY type`)
+  const typeMap: Record<string, number> = { bug: 0, feature: 0, other: 0 }
+  for (const r of typeCounts) typeMap[r.type] = r.cnt
+
+  // 2. Type x Status kruistabel (hoeveel bugs zijn open, hoeveel features in progress, etc.)
+  const crossStats = await queryAll<any>(c.env.DB,
+    `SELECT type, status, COUNT(*) as cnt FROM feedback GROUP BY type, status`)
+  const crossMap: Record<string, Record<string, number>> = {}
+  for (const r of crossStats) {
+    if (!crossMap[r.type]) crossMap[r.type] = {}
+    crossMap[r.type][r.status] = r.cnt
+  }
+
+  // 3. Tijd-distributie: hoe lang staan ACTIONABLE items al open?
+  //    Berekend obv created_at — geeft buckets: <1d, 1-7d, 7-30d, 30-90d, 90+d
+  const ageDistro = await queryAll<any>(c.env.DB, `
+    SELECT
+      CASE
+        WHEN julianday('now') - julianday(created_at) < 1 THEN 'today'
+        WHEN julianday('now') - julianday(created_at) < 7 THEN 'week'
+        WHEN julianday('now') - julianday(created_at) < 30 THEN 'month'
+        WHEN julianday('now') - julianday(created_at) < 90 THEN 'quarter'
+        ELSE 'older'
+      END as bucket,
+      COUNT(*) as cnt
+    FROM feedback
+    WHERE status IN ('open', 'in_progress', 'meer_info_nodig', 'hertesten')
+    GROUP BY bucket`)
+  const ageMap: Record<string, number> = { today: 0, week: 0, month: 0, quarter: 0, older: 0 }
+  for (const r of ageDistro) ageMap[r.bucket] = r.cnt
+
+  // 4. Gemiddelde resolutie-tijd voor opgeloste items (resolved/rejected)
+  //    in dagen: updated_at - created_at
+  const avgResolution = await queryOne<any>(c.env.DB, `
+    SELECT
+      AVG(julianday(updated_at) - julianday(created_at)) as avg_days,
+      MIN(julianday(updated_at) - julianday(created_at)) as min_days,
+      MAX(julianday(updated_at) - julianday(created_at)) as max_days,
+      COUNT(*) as resolved_count
+    FROM feedback
+    WHERE status IN ('resolved', 'rejected')
+      AND updated_at IS NOT NULL`)
+
+  // 5. Gemiddelde leeftijd van openstaande items (in dagen)
+  const avgOpenAge = await queryOne<any>(c.env.DB, `
+    SELECT AVG(julianday('now') - julianday(created_at)) as avg_days
+    FROM feedback
+    WHERE status IN ('open', 'in_progress', 'meer_info_nodig', 'hertesten')`)
+
+  // 6. Top 5 oudste openstaande items
+  const oldestOpen = await queryAll<any>(c.env.DB, `
+    SELECT f.id, f.type, f.status, f.message, f.created_at,
+      julianday('now') - julianday(f.created_at) as age_days,
+      p.voornaam, p.achternaam
+    FROM feedback f
+    LEFT JOIN users u ON u.id = f.user_id
+    LEFT JOIN profiles p ON p.user_id = u.id
+    WHERE f.status IN ('open', 'in_progress', 'meer_info_nodig', 'hertesten')
+    ORDER BY f.created_at ASC
+    LIMIT 5`)
+
+  // 7. Trend: nieuwe items per week (laatste 12 weken)
+  const trendRaw = await queryAll<any>(c.env.DB, `
+    SELECT
+      strftime('%Y-%W', created_at) as week_key,
+      DATE(created_at, 'weekday 0', '-7 days') as week_start,
+      COUNT(*) as new_count,
+      SUM(CASE WHEN type = 'bug' THEN 1 ELSE 0 END) as bug_count,
+      SUM(CASE WHEN type = 'feature' THEN 1 ELSE 0 END) as feature_count
+    FROM feedback
+    WHERE julianday('now') - julianday(created_at) < 84
+    GROUP BY week_key
+    ORDER BY week_start ASC`)
+
+  // 8. Recent activiteit: items met updates in laatste 7 dagen
+  const recentActivity = await queryOne<any>(c.env.DB, `
+    SELECT COUNT(*) as cnt FROM feedback
+    WHERE julianday('now') - julianday(updated_at) < 7
+      AND updated_at != created_at`)
+
+  // 9. Nieuw deze week
+  const newThisWeek = await queryOne<any>(c.env.DB, `
+    SELECT COUNT(*) as cnt FROM feedback
+    WHERE julianday('now') - julianday(created_at) < 7`)
+
+  // 10. Resolved deze week
+  const resolvedThisWeek = await queryOne<any>(c.env.DB, `
+    SELECT COUNT(*) as cnt FROM feedback
+    WHERE status IN ('resolved', 'rejected')
+      AND julianday('now') - julianday(updated_at) < 7`)
+
+  const totalCount = (countMap['open'] || 0) + (countMap['in_progress'] || 0) + (countMap['meer_info_nodig'] || 0)
+                   + (countMap['hertesten'] || 0) + (countMap['resolved'] || 0) + (countMap['rejected'] || 0)
+
+  // Helper voor relatieve tijd
+  function fmtDays(d: number | null | undefined): string {
+    if (d == null) return '—'
+    const days = Math.round(d * 10) / 10
+    if (days < 1) return Math.round(d * 24) + 'u'
+    if (days < 30) return days + 'd'
+    return Math.round(days / 30 * 10) / 10 + 'm'
+  }
+
   return c.html(
     <Layout title="Beta Feedback" user={user}>
       <div class="flex min-h-screen bg-gray-50">
@@ -447,6 +554,326 @@ app.get('/admin/feedback', async (c) => {
               </button>
             </div>
           </div>
+
+          {/* ============================================================
+              DASHBOARD — Overzicht & verloop over tijd
+              ============================================================ */}
+          <details open class="mb-6 bg-gradient-to-br from-indigo-50 via-white to-purple-50 rounded-xl shadow-sm border border-indigo-100">
+            <summary class="cursor-pointer px-5 py-4 font-semibold text-gray-800 flex items-center gap-2 hover:bg-white/50 rounded-t-xl">
+              <i class="fas fa-chart-line text-indigo-600"></i>
+              <span>Dashboard — overzicht & trends</span>
+              <span class="text-xs text-gray-500 font-normal ml-2">(klik om in/uit te klappen)</span>
+            </summary>
+            <div class="p-5 pt-0 space-y-5">
+
+              {/* KPI cards row */}
+              <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-100">
+                  <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold">Totaal</p>
+                  <p class="text-2xl font-bold text-gray-900">{totalCount}</p>
+                  <p class="text-xs text-gray-400 mt-1">{typeMap.bug} bugs · {typeMap.feature} ideeën</p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-yellow-400">
+                  <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold">Open</p>
+                  <p class="text-2xl font-bold text-yellow-700">{countMap['open'] || 0}</p>
+                  <p class="text-xs text-gray-400 mt-1">wachten op behandeling</p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-blue-400">
+                  <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold">In behandeling</p>
+                  <p class="text-2xl font-bold text-blue-700">{countMap['in_progress'] || 0}</p>
+                  <p class="text-xs text-gray-400 mt-1">onder werk</p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-purple-400">
+                  <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold">Hertesten</p>
+                  <p class="text-2xl font-bold text-purple-700">{countMap['hertesten'] || 0}</p>
+                  <p class="text-xs text-gray-400 mt-1">wacht op tester</p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-green-400">
+                  <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold">Opgelost</p>
+                  <p class="text-2xl font-bold text-green-700">{countMap['resolved'] || 0}</p>
+                  <p class="text-xs text-gray-400 mt-1">{countMap['rejected'] || 0} afgewezen</p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-orange-400">
+                  <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold">Meer info</p>
+                  <p class="text-2xl font-bold text-orange-700">{countMap['meer_info_nodig'] || 0}</p>
+                  <p class="text-xs text-gray-400 mt-1">gevraagd aan melder</p>
+                </div>
+              </div>
+
+              {/* Tweede rij: tijd-metrics */}
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-100">
+                  <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold flex items-center gap-1">
+                    <i class="fas fa-hourglass-half text-amber-500"></i> Gem. leeftijd openstaand
+                  </p>
+                  <p class="text-2xl font-bold text-gray-900 mt-1">{fmtDays(avgOpenAge?.avg_days)}</p>
+                  <p class="text-xs text-gray-400 mt-1">over {actionableCount} items</p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-100">
+                  <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold flex items-center gap-1">
+                    <i class="fas fa-stopwatch text-green-500"></i> Gem. doorlooptijd (opgelost)
+                  </p>
+                  <p class="text-2xl font-bold text-gray-900 mt-1">{fmtDays(avgResolution?.avg_days)}</p>
+                  <p class="text-xs text-gray-400 mt-1">
+                    min {fmtDays(avgResolution?.min_days)} · max {fmtDays(avgResolution?.max_days)} ({avgResolution?.resolved_count || 0} items)
+                  </p>
+                </div>
+                <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-100">
+                  <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold flex items-center gap-1">
+                    <i class="fas fa-bolt text-indigo-500"></i> Activiteit (7 dagen)
+                  </p>
+                  <p class="text-2xl font-bold text-gray-900 mt-1">
+                    +{newThisWeek?.cnt || 0} <span class="text-sm font-normal text-gray-500">nieuw</span>
+                  </p>
+                  <p class="text-xs text-gray-400 mt-1">
+                    {recentActivity?.cnt || 0} updates · {resolvedThisWeek?.cnt || 0} afgesloten
+                  </p>
+                </div>
+              </div>
+
+              {/* Status distributie als horizontale stacked bar */}
+              <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-100">
+                <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Statusverdeling</p>
+                {totalCount > 0 ? (
+                  <>
+                    <div class="flex h-8 rounded-full overflow-hidden border border-gray-200">
+                      {STATUS_CONFIG.filter(s => s.val !== 'all').map(s => {
+                        const cnt = countMap[s.val] || 0
+                        if (cnt === 0) return null
+                        const pct = (cnt / totalCount) * 100
+                        const colors: Record<string, string> = {
+                          open: 'bg-yellow-400',
+                          meer_info_nodig: 'bg-orange-400',
+                          in_progress: 'bg-blue-500',
+                          hertesten: 'bg-purple-500',
+                          resolved: 'bg-green-500',
+                          rejected: 'bg-red-400'
+                        }
+                        return (
+                          <div
+                            class={`${colors[s.val] || 'bg-gray-400'} flex items-center justify-center text-white text-xs font-semibold`}
+                            style={`width: ${pct}%`}
+                            title={`${s.label}: ${cnt} (${pct.toFixed(1)}%)`}
+                          >
+                            {pct >= 8 ? cnt : ''}
+                          </div>
+                        )
+                      })}
+                    </div>
+                    <div class="flex flex-wrap gap-3 mt-2 text-xs">
+                      {STATUS_CONFIG.filter(s => s.val !== 'all' && (countMap[s.val] || 0) > 0).map(s => {
+                        const colors: Record<string, string> = {
+                          open: 'bg-yellow-400',
+                          meer_info_nodig: 'bg-orange-400',
+                          in_progress: 'bg-blue-500',
+                          hertesten: 'bg-purple-500',
+                          resolved: 'bg-green-500',
+                          rejected: 'bg-red-400'
+                        }
+                        return (
+                          <span class="flex items-center gap-1.5 text-gray-600">
+                            <span class={`w-3 h-3 rounded-sm ${colors[s.val] || 'bg-gray-400'}`}></span>
+                            {s.label} ({countMap[s.val]})
+                          </span>
+                        )
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <p class="text-sm text-gray-400">Nog geen feedback items</p>
+                )}
+              </div>
+
+              {/* Type x Status kruistabel + leeftijd-buckets naast elkaar */}
+              <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+                {/* Type × Status kruistabel */}
+                <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-100">
+                  <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
+                    <i class="fas fa-th text-indigo-500 mr-1"></i> Type × Status
+                  </p>
+                  <div class="overflow-x-auto">
+                    <table class="w-full text-xs">
+                      <thead>
+                        <tr class="text-gray-500 border-b">
+                          <th class="text-left py-1 pr-2">Type</th>
+                          <th class="text-center py-1 px-1" title="Open">🟡</th>
+                          <th class="text-center py-1 px-1" title="Meer info">🔶</th>
+                          <th class="text-center py-1 px-1" title="In behandeling">🔵</th>
+                          <th class="text-center py-1 px-1" title="Hertesten">🔁</th>
+                          <th class="text-center py-1 px-1" title="Opgelost">✅</th>
+                          <th class="text-center py-1 px-1" title="Afgewezen">❌</th>
+                          <th class="text-center py-1 pl-2 font-bold">Tot</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { key: 'bug', label: '🐛 Bug', total: typeMap.bug },
+                          { key: 'feature', label: '💡 Idee', total: typeMap.feature },
+                          { key: 'other', label: '📝 Anders', total: typeMap.other }
+                        ].filter(r => r.total > 0).map(row => {
+                          const c = crossMap[row.key] || {}
+                          return (
+                            <tr class="border-b border-gray-50">
+                              <td class="py-1.5 pr-2 font-medium text-gray-700">{row.label}</td>
+                              <td class="text-center py-1.5 px-1">{c['open'] || '—'}</td>
+                              <td class="text-center py-1.5 px-1">{c['meer_info_nodig'] || '—'}</td>
+                              <td class="text-center py-1.5 px-1">{c['in_progress'] || '—'}</td>
+                              <td class="text-center py-1.5 px-1">{c['hertesten'] || '—'}</td>
+                              <td class="text-center py-1.5 px-1 text-green-700">{c['resolved'] || '—'}</td>
+                              <td class="text-center py-1.5 px-1 text-red-600">{c['rejected'] || '—'}</td>
+                              <td class="text-center py-1.5 pl-2 font-bold text-gray-900">{row.total}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Leeftijd-buckets van openstaande items */}
+                <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-100">
+                  <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
+                    <i class="fas fa-clock text-amber-500 mr-1"></i> Hoe lang staan openstaande items al open?
+                  </p>
+                  {actionableCount > 0 ? (
+                    <div class="space-y-2">
+                      {[
+                        { key: 'today', label: '< 1 dag', color: 'bg-green-400' },
+                        { key: 'week', label: '1 – 7 dagen', color: 'bg-lime-400' },
+                        { key: 'month', label: '7 – 30 dagen', color: 'bg-yellow-400' },
+                        { key: 'quarter', label: '30 – 90 dagen', color: 'bg-orange-400' },
+                        { key: 'older', label: '> 90 dagen ⚠️', color: 'bg-red-400' }
+                      ].map(b => {
+                        const cnt = ageMap[b.key] || 0
+                        const pct = actionableCount > 0 ? (cnt / actionableCount) * 100 : 0
+                        return (
+                          <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-600 w-28 flex-shrink-0">{b.label}</span>
+                            <div class="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden relative">
+                              <div
+                                class={`${b.color} h-full transition-all rounded-full flex items-center px-2`}
+                                style={`width: ${Math.max(pct, cnt > 0 ? 2 : 0)}%`}
+                              >
+                                {pct >= 15 && <span class="text-xs font-semibold text-white">{cnt}</span>}
+                              </div>
+                              {pct < 15 && cnt > 0 && (
+                                <span class="absolute left-2 top-0 h-full flex items-center text-xs font-semibold text-gray-700">{cnt}</span>
+                              )}
+                            </div>
+                            <span class="text-xs text-gray-500 w-12 text-right">{pct.toFixed(0)}%</span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <p class="text-sm text-gray-400">Geen openstaande items 🎉</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Trend: nieuwe items per week + Top 5 langst openstaand */}
+              <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+                {/* Trend bar chart (laatste 12 weken) */}
+                <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-100">
+                  <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
+                    <i class="fas fa-chart-bar text-indigo-500 mr-1"></i> Nieuwe items — laatste 12 weken
+                  </p>
+                  {trendRaw.length > 0 ? (
+                    (() => {
+                      const maxCnt = Math.max(...trendRaw.map((r: any) => r.new_count))
+                      return (
+                        <>
+                          <div class="flex items-end gap-1 h-32 border-b border-gray-200 pb-1">
+                            {trendRaw.map((w: any) => {
+                              const bugH = maxCnt > 0 ? (w.bug_count / maxCnt) * 100 : 0
+                              const featH = maxCnt > 0 ? (w.feature_count / maxCnt) * 100 : 0
+                              const wkLabel = w.week_start ? new Date(w.week_start).toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit' }) : ''
+                              return (
+                                <div class="flex-1 flex flex-col items-center gap-0.5 group relative">
+                                  <div
+                                    class="w-full bg-gradient-to-t from-blue-500 to-blue-300 rounded-t hover:from-blue-600 hover:to-blue-400 transition cursor-pointer"
+                                    style={`height: ${featH}%; min-height: ${w.feature_count > 0 ? '2px' : '0'}`}
+                                    title={`${wkLabel}: ${w.feature_count} ideeën`}
+                                  ></div>
+                                  <div
+                                    class="w-full bg-gradient-to-t from-red-500 to-red-300 hover:from-red-600 hover:to-red-400 transition cursor-pointer"
+                                    style={`height: ${bugH}%; min-height: ${w.bug_count > 0 ? '2px' : '0'}`}
+                                    title={`${wkLabel}: ${w.bug_count} bugs`}
+                                  ></div>
+                                  <div class="absolute -top-6 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap z-10">
+                                    {wkLabel}: {w.new_count}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          <div class="flex justify-between mt-1 text-[10px] text-gray-400">
+                            {trendRaw.map((w: any, i: number) => (
+                              <span class={i % 2 === 0 ? '' : 'invisible'}>
+                                {w.week_start ? new Date(w.week_start).toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit' }) : ''}
+                              </span>
+                            ))}
+                          </div>
+                          <div class="flex gap-3 mt-2 text-xs text-gray-600">
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-red-400"></span>Bugs</span>
+                            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-blue-400"></span>Ideeën</span>
+                          </div>
+                        </>
+                      )
+                    })()
+                  ) : (
+                    <p class="text-sm text-gray-400">Geen activiteit in de laatste 12 weken</p>
+                  )}
+                </div>
+
+                {/* Top 5 oudste openstaand */}
+                <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-100">
+                  <p class="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-3">
+                    <i class="fas fa-fire text-red-500 mr-1"></i> Top 5 langst openstaand
+                  </p>
+                  {oldestOpen.length > 0 ? (
+                    <ol class="space-y-2">
+                      {oldestOpen.map((item: any, idx: number) => {
+                        const days = Math.round(item.age_days)
+                        const isUrgent = days > 30
+                        return (
+                          <li class="flex items-start gap-2">
+                            <span class={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                              idx === 0 ? 'bg-red-100 text-red-700' :
+                              idx === 1 ? 'bg-orange-100 text-orange-700' :
+                              'bg-gray-100 text-gray-700'
+                            }`}>{idx + 1}</span>
+                            <a
+                              href={`#feedback-${item.id}`}
+                              class="flex-1 min-w-0 hover:bg-gray-50 rounded px-1 py-0.5 transition"
+                            >
+                              <div class="flex items-center gap-2 flex-wrap">
+                                <span class="text-xs">{item.type === 'bug' ? '🐛' : item.type === 'feature' ? '💡' : '📝'}</span>
+                                <span class={`px-1.5 py-0.5 rounded text-[10px] font-bold ${getStatusColor(item.status)}`}>
+                                  {getStatusLabel(item.status)}
+                                </span>
+                                <span class={`text-xs font-bold ${isUrgent ? 'text-red-600' : 'text-gray-500'}`}>
+                                  {days}d {isUrgent && '🔥'}
+                                </span>
+                              </div>
+                              <p class="text-xs text-gray-700 truncate mt-0.5">#{item.id} — {item.message}</p>
+                              {(item.voornaam || item.achternaam) && (
+                                <p class="text-[10px] text-gray-400">{item.voornaam} {item.achternaam}</p>
+                              )}
+                            </a>
+                          </li>
+                        )
+                      })}
+                    </ol>
+                  ) : (
+                    <p class="text-sm text-gray-400">Geen openstaande items 🎉</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </details>
 
           {/* Filter bar - enhanced with new statuses */}
           <div class="bg-white rounded-lg shadow-sm p-4 mb-6 flex flex-wrap gap-3 items-center">

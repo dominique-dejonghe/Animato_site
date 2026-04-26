@@ -2432,6 +2432,27 @@ app.get('/leden/betaling-lidgeld', async (c) => {
   const feeBase = Number(membership.fee_base ?? 35)
   const feeFull = Number(membership.fee_full ?? 70)
 
+  // 🔧 AUTO-SYNC: corrigeer historische scheve data waar membership.amount
+  // niet meer overeenkomt met het tarief van zijn type.
+  // Dit gebeurt bv. wanneer een seizoen aangemaakt is met andere prijzen,
+  // of wanneer fee_base/fee_full nadien is aangepast in /admin/lidgelden.
+  // Voorwaarden om te syncen:
+  //   1) er is geen openstaande Mollie-betaallink (anders wijken bedragen af van betaling)
+  //   2) status is nog 'pending' (al gewaarborgd via WHERE)
+  //   3) huidige amount wijkt af van de fee voor zijn type
+  const expectedAmount = membership.type === 'full' ? feeFull : feeBase
+  if (
+    !membership.mollie_payment_url &&
+    Number(membership.amount) !== expectedAmount
+  ) {
+    await execute(
+      c.env.DB,
+      `UPDATE user_memberships SET amount = ? WHERE id = ?`,
+      [expectedAmount, membership.id]
+    )
+    membership.amount = expectedAmount
+  }
+
   // Bank details
   const settingsRes = await queryAll(c.env.DB, "SELECT * FROM system_settings WHERE key IN ('bank_iban', 'bank_bic', 'bank_name')")
   const settings = settingsRes.reduce((acc: any, curr: any) => ({...acc, [curr.key]: curr.value}), {})

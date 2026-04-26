@@ -2414,10 +2414,10 @@ app.get('/leden/profiel', async (c) => {
 app.get('/leden/betaling-lidgeld', async (c) => {
   const user = c.get('user') as SessionUser
   
-  // Get active unpaid membership
+  // Get active unpaid membership — incl. beide formule-bedragen voor de keuze
   const membership = await queryOne<any>(
     c.env.DB,
-    `SELECT um.*, my.season, my.description
+    `SELECT um.*, my.season, my.description, my.fee_base, my.fee_full
      FROM user_memberships um
      JOIN membership_years my ON um.year_id = my.id
      WHERE um.user_id = ? AND um.status = 'pending' AND my.is_active = 1`,
@@ -2427,6 +2427,10 @@ app.get('/leden/betaling-lidgeld', async (c) => {
   if (!membership) {
     return c.redirect('/leden/profiel')
   }
+
+  // Fallback waarden als fee_base/fee_full niet gezet zijn op het seizoen
+  const feeBase = Number(membership.fee_base ?? 35)
+  const feeFull = Number(membership.fee_full ?? 70)
 
   // Bank details
   const settingsRes = await queryAll(c.env.DB, "SELECT * FROM system_settings WHERE key IN ('bank_iban', 'bank_bic', 'bank_name')")
@@ -2458,10 +2462,80 @@ app.get('/leden/betaling-lidgeld', async (c) => {
             <div class="p-8">
               <div class="mb-8 text-center">
                 <p class="text-gray-600 mb-2">Te betalen bedrag</p>
-                <div class="text-4xl font-bold text-gray-900" id="displayTotal">€ {membership.amount.toFixed(2)}</div>
-                <div class="mt-2 inline-block px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                  {membership.type === 'full' ? 'Lidmaatschap + Partituren' : 'Basis Lidmaatschap'}
+                <div class="text-4xl font-bold text-gray-900" id="displayTotal">€ {Number(membership.amount).toFixed(2)}</div>
+                <p class="text-xs text-gray-400 mt-1" id="displayBreakdown">
+                  Basis: € <span id="displayBase">{Number(membership.amount).toFixed(2)}</span>
+                </p>
+              </div>
+
+              {/* #110/#111: Lidmaatschapsformule kiezer */}
+              <div class="mb-8">
+                <p class="text-sm font-semibold text-gray-700 mb-3 text-center">
+                  <i class="fas fa-list-check text-animato-primary mr-1"></i> Kies je lidmaatschapsformule
+                </p>
+                <div class="grid sm:grid-cols-2 gap-3" id="formulaPicker">
+                  <label
+                    class={`formula-option relative cursor-pointer rounded-xl border-2 p-4 transition hover:shadow-md ${membership.type === 'basis' ? 'border-animato-primary bg-blue-50 ring-2 ring-animato-primary ring-opacity-30' : 'border-gray-200 bg-white'}`}
+                    data-type="basis"
+                    data-amount={feeBase}
+                  >
+                    <input
+                      type="radio"
+                      name="formula_choice"
+                      value="basis"
+                      checked={membership.type === 'basis'}
+                      class="absolute top-3 right-3 w-4 h-4 accent-animato-primary"
+                      onchange="selectFormula('basis')"
+                    />
+                    <div class="flex items-start gap-3">
+                      <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-tablet-screen-button text-blue-600"></i>
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <h4 class="font-bold text-gray-900">Basis Lidmaatschap</h4>
+                        <p class="text-2xl font-bold text-animato-primary mt-1">€ {feeBase.toFixed(2)}</p>
+                        <ul class="text-xs text-gray-600 mt-2 space-y-1">
+                          <li><i class="fas fa-check text-green-500 mr-1"></i> Volwaardig lidmaatschap</li>
+                          <li><i class="fas fa-check text-green-500 mr-1"></i> Digitale partituren</li>
+                          <li><i class="fas fa-times text-gray-300 mr-1"></i> Geen papieren partituren</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </label>
+
+                  <label
+                    class={`formula-option relative cursor-pointer rounded-xl border-2 p-4 transition hover:shadow-md ${membership.type === 'full' ? 'border-animato-primary bg-blue-50 ring-2 ring-animato-primary ring-opacity-30' : 'border-gray-200 bg-white'}`}
+                    data-type="full"
+                    data-amount={feeFull}
+                  >
+                    <input
+                      type="radio"
+                      name="formula_choice"
+                      value="full"
+                      checked={membership.type === 'full'}
+                      class="absolute top-3 right-3 w-4 h-4 accent-animato-primary"
+                      onchange="selectFormula('full')"
+                    />
+                    <div class="flex items-start gap-3">
+                      <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <i class="fas fa-print text-purple-600"></i>
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <h4 class="font-bold text-gray-900">Volledig + Partituren</h4>
+                        <p class="text-2xl font-bold text-animato-primary mt-1">€ {feeFull.toFixed(2)}</p>
+                        <ul class="text-xs text-gray-600 mt-2 space-y-1">
+                          <li><i class="fas fa-check text-green-500 mr-1"></i> Volwaardig lidmaatschap</li>
+                          <li><i class="fas fa-check text-green-500 mr-1"></i> Digitale partituren</li>
+                          <li><i class="fas fa-check text-green-500 mr-1"></i> Papieren partituren</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </label>
                 </div>
+                <p class="text-xs text-gray-500 text-center mt-2" id="formulaChangeNotice">
+                  Je huidige formule is <strong>{membership.type === 'full' ? 'Volledig + Partituren' : 'Basis'}</strong>.
+                  Je kan kiezen voor een andere formule — het bedrag wordt automatisch aangepast.
+                </p>
               </div>
 
               {/* Donation Upsell */}
@@ -2499,12 +2573,22 @@ app.get('/leden/betaling-lidgeld', async (c) => {
                         <a href={membership.mollie_payment_url} class="block w-full py-3 px-4 bg-animato-accent text-white text-center rounded-lg hover:bg-amber-600 transition font-bold shadow mb-2">
                           Doorgaan naar betaling
                         </a>
-                        <p class="text-xs text-gray-500">Let op: dit is de link voor enkel het lidgeld.</p>
+                        <p class="text-xs text-gray-500 mb-3">Let op: dit is de link voor enkel het lidgeld.</p>
+                        <form action="/api/leden/betaling/online" method="POST">
+                          <input type="hidden" name="membership_id" value={membership.id} />
+                          <input type="hidden" name="donation_amount" id="formDonationAmount" value="0" />
+                          <input type="hidden" name="formula_type" id="formFormulaType" value={membership.type} />
+                          <input type="hidden" name="regenerate" value="1" />
+                          <button type="submit" class="text-xs text-animato-primary hover:underline">
+                            <i class="fas fa-rotate mr-1"></i> Andere formule of bedrag? Maak een nieuwe link
+                          </button>
+                        </form>
                     </div>
                   ) : (
                     <form action="/api/leden/betaling/online" method="POST">
                       <input type="hidden" name="membership_id" value={membership.id} />
                       <input type="hidden" name="donation_amount" id="formDonationAmount" value="0" />
+                      <input type="hidden" name="formula_type" id="formFormulaType" value={membership.type} />
                       <button type="submit" class="w-full py-3 px-4 bg-animato-accent text-white text-center rounded-lg hover:bg-amber-600 transition font-bold shadow">
                         Link Aanmaken & Betalen
                       </button>
@@ -2549,8 +2633,35 @@ app.get('/leden/betaling-lidgeld', async (c) => {
             </div>
             
             <script dangerouslySetInnerHTML={{__html: `
-                const baseAmount = ${membership.amount};
+                // Formule-prijzen vanuit server (membership_years.fee_base / fee_full)
+                const FEE_BASE = ${feeBase};
+                const FEE_FULL = ${feeFull};
+                let baseAmount = ${Number(membership.amount)}; // start met huidige formule
                 let donationAmount = 0;
+
+                // #110/#111: Formule-keuze handler
+                function selectFormula(type) {
+                    baseAmount = (type === 'full') ? FEE_FULL : FEE_BASE;
+                    const formField = document.getElementById('formFormulaType');
+                    if (formField) formField.value = type;
+
+                    // Visual highlight op de gekozen kaart
+                    document.querySelectorAll('.formula-option').forEach(card => {
+                        if (card.getAttribute('data-type') === type) {
+                            card.classList.add('border-animato-primary', 'bg-blue-50', 'ring-2', 'ring-animato-primary', 'ring-opacity-30');
+                            card.classList.remove('border-gray-200', 'bg-white');
+                        } else {
+                            card.classList.remove('border-animato-primary', 'bg-blue-50', 'ring-2', 'ring-animato-primary', 'ring-opacity-30');
+                            card.classList.add('border-gray-200', 'bg-white');
+                        }
+                    });
+
+                    // Update breakdown text
+                    const baseEl = document.getElementById('displayBase');
+                    if (baseEl) baseEl.innerText = baseAmount.toFixed(2);
+
+                    updateDisplay();
+                }
                 
                 function addDonation(amount) {
                     donationAmount = amount;
@@ -2608,11 +2719,13 @@ app.post('/api/leden/betaling/online', async (c) => {
   const body = await c.req.parseBody()
   const membershipId = body.membership_id
   const donationAmount = parseFloat(String(body.donation_amount || '0'))
+  // #110/#111: gekozen formule (basis|full) — kan afwijken van wat in DB staat
+  const requestedFormula = String(body.formula_type || '').trim()
 
-  // Verify ownership
+  // Verify ownership — incl. fee_base/fee_full voor formule-validatie
   const membership = await queryOne<any>(
     c.env.DB, 
-    `SELECT um.*, my.season 
+    `SELECT um.*, my.season, my.fee_base, my.fee_full
      FROM user_memberships um
      JOIN membership_years my ON um.year_id = my.id
      WHERE um.id = ? AND um.user_id = ?`, 
@@ -2620,6 +2733,30 @@ app.post('/api/leden/betaling/online', async (c) => {
   )
 
   if (!membership) return c.redirect('/leden/betaling-lidgeld?error=invalid')
+
+  // Als de gebruiker een andere formule koos: type + amount aanpassen op de membership row
+  if (requestedFormula === 'basis' || requestedFormula === 'full') {
+    if (requestedFormula !== membership.type) {
+      const newAmount = requestedFormula === 'full'
+        ? Number(membership.fee_full ?? 70)
+        : Number(membership.fee_base ?? 35)
+      // Bij wijziging van formule MOET de oude Mollie URL ongeldig worden — die was gekoppeld aan ander bedrag
+      await execute(
+        c.env.DB,
+        `UPDATE user_memberships SET type = ?, amount = ?, mollie_payment_url = NULL WHERE id = ?`,
+        [requestedFormula, newAmount, membership.id]
+      )
+      membership.type = requestedFormula
+      membership.amount = newAmount
+      membership.mollie_payment_url = null
+    }
+  }
+
+  // Bij expliciete 'regenerate' actie: oude link wissen
+  if (body.regenerate === '1' && membership.mollie_payment_url) {
+    await execute(c.env.DB, `UPDATE user_memberships SET mollie_payment_url = NULL WHERE id = ?`, [membership.id])
+    membership.mollie_payment_url = null
+  }
 
   const siteUrl = c.env.SITE_URL || 'https://animato.be'
   

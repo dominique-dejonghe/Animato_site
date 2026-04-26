@@ -322,6 +322,8 @@ app.get('/admin/feedback', async (c) => {
   const user = c.get('user') as SessionUser
   const statusFilter = c.req.query('status') || 'all'
   const typeFilter = c.req.query('type') || 'all'
+  const ageFilter = c.req.query('age') || 'all'  // today|week|month|quarter|older|actionable
+  const sortFilter = c.req.query('sort') || 'newest' // newest|oldest
 
   let query = `SELECT f.*, u.email, p.voornaam, p.achternaam,
      (SELECT COUNT(*) FROM feedback_comments fc WHERE fc.feedback_id = f.id) as comment_count,
@@ -334,7 +336,19 @@ app.get('/admin/feedback', async (c) => {
 
   if (statusFilter !== 'all') { query += ` AND f.status = ?`; params.push(statusFilter) }
   if (typeFilter !== 'all') { query += ` AND f.type = ?`; params.push(typeFilter) }
-  query += ` ORDER BY f.created_at DESC`
+
+  // Leeftijd-filter (alleen relevant op openstaande items, behalve 'all')
+  if (ageFilter === 'today')   query += ` AND julianday('now') - julianday(f.created_at) < 1`
+  if (ageFilter === 'week')    query += ` AND julianday('now') - julianday(f.created_at) >= 1 AND julianday('now') - julianday(f.created_at) < 7`
+  if (ageFilter === 'month')   query += ` AND julianday('now') - julianday(f.created_at) >= 7 AND julianday('now') - julianday(f.created_at) < 30`
+  if (ageFilter === 'quarter') query += ` AND julianday('now') - julianday(f.created_at) >= 30 AND julianday('now') - julianday(f.created_at) < 90`
+  if (ageFilter === 'older')   query += ` AND julianday('now') - julianday(f.created_at) >= 90`
+  // 'actionable' filter: alleen open/in_progress/meer_info/hertesten
+  if (ageFilter === 'actionable' && statusFilter === 'all') {
+    query += ` AND f.status IN ('open', 'in_progress', 'meer_info_nodig', 'hertesten')`
+  }
+
+  query += sortFilter === 'oldest' ? ` ORDER BY f.created_at ASC` : ` ORDER BY f.created_at DESC`
 
   const feedback = await queryAll(c.env.DB, query, params)
 
@@ -453,6 +467,19 @@ app.get('/admin/feedback', async (c) => {
     return Math.round(days / 30 * 10) / 10 + 'm'
   }
 
+  // Helper voor filter URLs vanuit dashboard
+  function filterUrl(opts: { status?: string; type?: string; age?: string; sort?: string }): string {
+    const params = new URLSearchParams()
+    params.set('status', opts.status ?? 'all')
+    params.set('type', opts.type ?? 'all')
+    if (opts.age && opts.age !== 'all') params.set('age', opts.age)
+    if (opts.sort) params.set('sort', opts.sort)
+    return '/admin/feedback?' + params.toString() + '#feedback-list'
+  }
+
+  // Is er een actief dashboard-filter?
+  const hasActiveFilter = statusFilter !== 'all' || typeFilter !== 'all' || ageFilter !== 'all' || sortFilter !== 'newest'
+
   return c.html(
     <Layout title="Beta Feedback" user={user}>
       <div class="flex min-h-screen bg-gray-50">
@@ -566,59 +593,59 @@ app.get('/admin/feedback', async (c) => {
             </summary>
             <div class="p-5 pt-0 space-y-5">
 
-              {/* KPI cards row */}
+              {/* KPI cards row — klikbaar, filter de lijst */}
               <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-                <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-100">
+                <a href={filterUrl({ status: 'all', type: 'all' })} class="bg-white rounded-lg p-4 shadow-sm border border-gray-100 hover:shadow-md hover:border-gray-300 transition cursor-pointer block">
                   <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold">Totaal</p>
                   <p class="text-2xl font-bold text-gray-900">{totalCount}</p>
                   <p class="text-xs text-gray-400 mt-1">{typeMap.bug} bugs · {typeMap.feature} ideeën</p>
-                </div>
-                <div class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-yellow-400">
+                </a>
+                <a href={filterUrl({ status: 'open' })} class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-yellow-400 hover:shadow-md hover:bg-yellow-50 transition cursor-pointer block">
                   <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold">Open</p>
                   <p class="text-2xl font-bold text-yellow-700">{countMap['open'] || 0}</p>
                   <p class="text-xs text-gray-400 mt-1">wachten op behandeling</p>
-                </div>
-                <div class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-blue-400">
+                </a>
+                <a href={filterUrl({ status: 'in_progress' })} class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-blue-400 hover:shadow-md hover:bg-blue-50 transition cursor-pointer block">
                   <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold">In behandeling</p>
                   <p class="text-2xl font-bold text-blue-700">{countMap['in_progress'] || 0}</p>
                   <p class="text-xs text-gray-400 mt-1">onder werk</p>
-                </div>
-                <div class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-purple-400">
+                </a>
+                <a href={filterUrl({ status: 'hertesten' })} class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-purple-400 hover:shadow-md hover:bg-purple-50 transition cursor-pointer block">
                   <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold">Hertesten</p>
                   <p class="text-2xl font-bold text-purple-700">{countMap['hertesten'] || 0}</p>
                   <p class="text-xs text-gray-400 mt-1">wacht op tester</p>
-                </div>
-                <div class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-green-400">
+                </a>
+                <a href={filterUrl({ status: 'resolved' })} class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-green-400 hover:shadow-md hover:bg-green-50 transition cursor-pointer block">
                   <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold">Opgelost</p>
                   <p class="text-2xl font-bold text-green-700">{countMap['resolved'] || 0}</p>
                   <p class="text-xs text-gray-400 mt-1">{countMap['rejected'] || 0} afgewezen</p>
-                </div>
-                <div class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-orange-400">
+                </a>
+                <a href={filterUrl({ status: 'meer_info_nodig' })} class="bg-white rounded-lg p-4 shadow-sm border-l-4 border-orange-400 hover:shadow-md hover:bg-orange-50 transition cursor-pointer block">
                   <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold">Meer info</p>
                   <p class="text-2xl font-bold text-orange-700">{countMap['meer_info_nodig'] || 0}</p>
                   <p class="text-xs text-gray-400 mt-1">gevraagd aan melder</p>
-                </div>
+                </a>
               </div>
 
-              {/* Tweede rij: tijd-metrics */}
+              {/* Tweede rij: tijd-metrics — klikbaar */}
               <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-100">
+                <a href={filterUrl({ age: 'actionable', sort: 'oldest' })} class="bg-white rounded-lg p-4 shadow-sm border border-gray-100 hover:shadow-md hover:border-amber-300 transition cursor-pointer block">
                   <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold flex items-center gap-1">
                     <i class="fas fa-hourglass-half text-amber-500"></i> Gem. leeftijd openstaand
                   </p>
                   <p class="text-2xl font-bold text-gray-900 mt-1">{fmtDays(avgOpenAge?.avg_days)}</p>
-                  <p class="text-xs text-gray-400 mt-1">over {actionableCount} items</p>
-                </div>
-                <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-100">
+                  <p class="text-xs text-gray-400 mt-1">over {actionableCount} items · oudste eerst →</p>
+                </a>
+                <a href={filterUrl({ status: 'resolved', sort: 'newest' })} class="bg-white rounded-lg p-4 shadow-sm border border-gray-100 hover:shadow-md hover:border-green-300 transition cursor-pointer block">
                   <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold flex items-center gap-1">
                     <i class="fas fa-stopwatch text-green-500"></i> Gem. doorlooptijd (opgelost)
                   </p>
                   <p class="text-2xl font-bold text-gray-900 mt-1">{fmtDays(avgResolution?.avg_days)}</p>
                   <p class="text-xs text-gray-400 mt-1">
-                    min {fmtDays(avgResolution?.min_days)} · max {fmtDays(avgResolution?.max_days)} ({avgResolution?.resolved_count || 0} items)
+                    min {fmtDays(avgResolution?.min_days)} · max {fmtDays(avgResolution?.max_days)} ({avgResolution?.resolved_count || 0} items) →
                   </p>
-                </div>
-                <div class="bg-white rounded-lg p-4 shadow-sm border border-gray-100">
+                </a>
+                <a href={filterUrl({ age: 'week' })} class="bg-white rounded-lg p-4 shadow-sm border border-gray-100 hover:shadow-md hover:border-indigo-300 transition cursor-pointer block">
                   <p class="text-xs text-gray-500 uppercase tracking-wide font-semibold flex items-center gap-1">
                     <i class="fas fa-bolt text-indigo-500"></i> Activiteit (7 dagen)
                   </p>
@@ -626,9 +653,9 @@ app.get('/admin/feedback', async (c) => {
                     +{newThisWeek?.cnt || 0} <span class="text-sm font-normal text-gray-500">nieuw</span>
                   </p>
                   <p class="text-xs text-gray-400 mt-1">
-                    {recentActivity?.cnt || 0} updates · {resolvedThisWeek?.cnt || 0} afgesloten
+                    {recentActivity?.cnt || 0} updates · {resolvedThisWeek?.cnt || 0} afgesloten →
                   </p>
-                </div>
+                </a>
               </div>
 
               {/* Status distributie als horizontale stacked bar */}
@@ -642,21 +669,22 @@ app.get('/admin/feedback', async (c) => {
                         if (cnt === 0) return null
                         const pct = (cnt / totalCount) * 100
                         const colors: Record<string, string> = {
-                          open: 'bg-yellow-400',
-                          meer_info_nodig: 'bg-orange-400',
-                          in_progress: 'bg-blue-500',
-                          hertesten: 'bg-purple-500',
-                          resolved: 'bg-green-500',
-                          rejected: 'bg-red-400'
+                          open: 'bg-yellow-400 hover:bg-yellow-500',
+                          meer_info_nodig: 'bg-orange-400 hover:bg-orange-500',
+                          in_progress: 'bg-blue-500 hover:bg-blue-600',
+                          hertesten: 'bg-purple-500 hover:bg-purple-600',
+                          resolved: 'bg-green-500 hover:bg-green-600',
+                          rejected: 'bg-red-400 hover:bg-red-500'
                         }
                         return (
-                          <div
-                            class={`${colors[s.val] || 'bg-gray-400'} flex items-center justify-center text-white text-xs font-semibold`}
+                          <a
+                            href={filterUrl({ status: s.val })}
+                            class={`${colors[s.val] || 'bg-gray-400'} flex items-center justify-center text-white text-xs font-semibold transition cursor-pointer`}
                             style={`width: ${pct}%`}
-                            title={`${s.label}: ${cnt} (${pct.toFixed(1)}%)`}
+                            title={`${s.label}: ${cnt} (${pct.toFixed(1)}%) — klik om te filteren`}
                           >
                             {pct >= 8 ? cnt : ''}
-                          </div>
+                          </a>
                         )
                       })}
                     </div>
@@ -671,10 +699,10 @@ app.get('/admin/feedback', async (c) => {
                           rejected: 'bg-red-400'
                         }
                         return (
-                          <span class="flex items-center gap-1.5 text-gray-600">
+                          <a href={filterUrl({ status: s.val })} class="flex items-center gap-1.5 text-gray-600 hover:text-gray-900 hover:underline">
                             <span class={`w-3 h-3 rounded-sm ${colors[s.val] || 'bg-gray-400'}`}></span>
                             {s.label} ({countMap[s.val]})
-                          </span>
+                          </a>
                         )
                       })}
                     </div>
@@ -712,17 +740,33 @@ app.get('/admin/feedback', async (c) => {
                           { key: 'feature', label: '💡 Idee', total: typeMap.feature },
                           { key: 'other', label: '📝 Anders', total: typeMap.other }
                         ].filter(r => r.total > 0).map(row => {
-                          const c = crossMap[row.key] || {}
+                          const cm = crossMap[row.key] || {}
+                          // Helper voor cellen — klikbare link wanneer count > 0, anders dash
+                          const cell = (statusVal: string, extraCls = '') => {
+                            const cnt = cm[statusVal] || 0
+                            if (cnt === 0) return <td class={`text-center py-1.5 px-1 text-gray-300 ${extraCls}`}>—</td>
+                            return (
+                              <td class={`text-center py-1.5 px-1 ${extraCls}`}>
+                                <a href={filterUrl({ status: statusVal, type: row.key })} class="hover:underline hover:font-bold inline-block px-1.5 py-0.5 rounded hover:bg-gray-100">
+                                  {cnt}
+                                </a>
+                              </td>
+                            )
+                          }
                           return (
                             <tr class="border-b border-gray-50">
-                              <td class="py-1.5 pr-2 font-medium text-gray-700">{row.label}</td>
-                              <td class="text-center py-1.5 px-1">{c['open'] || '—'}</td>
-                              <td class="text-center py-1.5 px-1">{c['meer_info_nodig'] || '—'}</td>
-                              <td class="text-center py-1.5 px-1">{c['in_progress'] || '—'}</td>
-                              <td class="text-center py-1.5 px-1">{c['hertesten'] || '—'}</td>
-                              <td class="text-center py-1.5 px-1 text-green-700">{c['resolved'] || '—'}</td>
-                              <td class="text-center py-1.5 px-1 text-red-600">{c['rejected'] || '—'}</td>
-                              <td class="text-center py-1.5 pl-2 font-bold text-gray-900">{row.total}</td>
+                              <td class="py-1.5 pr-2 font-medium text-gray-700">
+                                <a href={filterUrl({ type: row.key })} class="hover:underline">{row.label}</a>
+                              </td>
+                              {cell('open')}
+                              {cell('meer_info_nodig')}
+                              {cell('in_progress')}
+                              {cell('hertesten')}
+                              {cell('resolved', 'text-green-700')}
+                              {cell('rejected', 'text-red-600')}
+                              <td class="text-center py-1.5 pl-2 font-bold text-gray-900">
+                                <a href={filterUrl({ type: row.key })} class="hover:underline">{row.total}</a>
+                              </td>
                             </tr>
                           )
                         })}
@@ -739,29 +783,37 @@ app.get('/admin/feedback', async (c) => {
                   {actionableCount > 0 ? (
                     <div class="space-y-2">
                       {[
-                        { key: 'today', label: '< 1 dag', color: 'bg-green-400' },
-                        { key: 'week', label: '1 – 7 dagen', color: 'bg-lime-400' },
-                        { key: 'month', label: '7 – 30 dagen', color: 'bg-yellow-400' },
-                        { key: 'quarter', label: '30 – 90 dagen', color: 'bg-orange-400' },
-                        { key: 'older', label: '> 90 dagen ⚠️', color: 'bg-red-400' }
+                        { key: 'today', label: '< 1 dag', color: 'bg-green-400 hover:bg-green-500' },
+                        { key: 'week', label: '1 – 7 dagen', color: 'bg-lime-400 hover:bg-lime-500' },
+                        { key: 'month', label: '7 – 30 dagen', color: 'bg-yellow-400 hover:bg-yellow-500' },
+                        { key: 'quarter', label: '30 – 90 dagen', color: 'bg-orange-400 hover:bg-orange-500' },
+                        { key: 'older', label: '> 90 dagen ⚠️', color: 'bg-red-400 hover:bg-red-500' }
                       ].map(b => {
                         const cnt = ageMap[b.key] || 0
                         const pct = actionableCount > 0 ? (cnt / actionableCount) * 100 : 0
-                        return (
-                          <div class="flex items-center gap-2">
-                            <span class="text-xs text-gray-600 w-28 flex-shrink-0">{b.label}</span>
+                        // Wrapper-link als er items zijn; anders 'leeg' div
+                        const url = filterUrl({ age: b.key })
+                        return cnt > 0 ? (
+                          <a href={url} class="flex items-center gap-2 group hover:bg-gray-50 -mx-2 px-2 py-1 rounded transition" title={`Toon de ${cnt} item(s) in deze leeftijdsgroep`}>
+                            <span class="text-xs text-gray-600 group-hover:text-gray-900 w-28 flex-shrink-0">{b.label}</span>
                             <div class="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden relative">
                               <div
                                 class={`${b.color} h-full transition-all rounded-full flex items-center px-2`}
-                                style={`width: ${Math.max(pct, cnt > 0 ? 2 : 0)}%`}
+                                style={`width: ${Math.max(pct, 2)}%`}
                               >
                                 {pct >= 15 && <span class="text-xs font-semibold text-white">{cnt}</span>}
                               </div>
-                              {pct < 15 && cnt > 0 && (
+                              {pct < 15 && (
                                 <span class="absolute left-2 top-0 h-full flex items-center text-xs font-semibold text-gray-700">{cnt}</span>
                               )}
                             </div>
-                            <span class="text-xs text-gray-500 w-12 text-right">{pct.toFixed(0)}%</span>
+                            <span class="text-xs text-gray-500 group-hover:text-gray-900 w-12 text-right">{pct.toFixed(0)}%</span>
+                          </a>
+                        ) : (
+                          <div class="flex items-center gap-2 opacity-50">
+                            <span class="text-xs text-gray-600 w-28 flex-shrink-0">{b.label}</span>
+                            <div class="flex-1 bg-gray-100 rounded-full h-5 overflow-hidden"></div>
+                            <span class="text-xs text-gray-500 w-12 text-right">0%</span>
                           </div>
                         )
                       })}
@@ -875,12 +927,56 @@ app.get('/admin/feedback', async (c) => {
             </div>
           </details>
 
+          {/* Anchor voor scroll-naar-lijst vanuit dashboard */}
+          <div id="feedback-list"></div>
+
+          {/* Actief filter banner — toont wanneer er een filter actief is vanuit het dashboard */}
+          {hasActiveFilter && (
+            <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-3 mb-4 flex items-center justify-between gap-3 flex-wrap">
+              <div class="flex items-center gap-2 flex-wrap">
+                <i class="fas fa-filter text-indigo-600"></i>
+                <span class="text-sm text-indigo-900 font-semibold">Actieve filter:</span>
+                {statusFilter !== 'all' && (
+                  <span class="px-2 py-0.5 rounded-full bg-white border border-indigo-300 text-xs font-semibold text-indigo-800">
+                    Status: {getStatusLabel(statusFilter)}
+                  </span>
+                )}
+                {typeFilter !== 'all' && (
+                  <span class="px-2 py-0.5 rounded-full bg-white border border-indigo-300 text-xs font-semibold text-indigo-800">
+                    Type: {typeFilter === 'bug' ? '🐛 Bug' : typeFilter === 'feature' ? '💡 Idee' : '📝 Anders'}
+                  </span>
+                )}
+                {ageFilter !== 'all' && (
+                  <span class="px-2 py-0.5 rounded-full bg-white border border-indigo-300 text-xs font-semibold text-indigo-800">
+                    Leeftijd: {
+                      ageFilter === 'today' ? '< 1 dag' :
+                      ageFilter === 'week' ? '1 – 7 dagen' :
+                      ageFilter === 'month' ? '7 – 30 dagen' :
+                      ageFilter === 'quarter' ? '30 – 90 dagen' :
+                      ageFilter === 'older' ? '> 90 dagen' :
+                      ageFilter === 'actionable' ? 'Alle openstaande' : ageFilter
+                    }
+                  </span>
+                )}
+                {sortFilter !== 'newest' && (
+                  <span class="px-2 py-0.5 rounded-full bg-white border border-indigo-300 text-xs font-semibold text-indigo-800">
+                    Sortering: oudste eerst
+                  </span>
+                )}
+                <span class="text-xs text-indigo-700">→ {feedback.length} resultaat(en)</span>
+              </div>
+              <a href="/admin/feedback" class="px-3 py-1 bg-white border border-indigo-300 rounded-lg text-xs font-semibold text-indigo-700 hover:bg-indigo-100 transition">
+                <i class="fas fa-xmark mr-1"></i> Filter wissen
+              </a>
+            </div>
+          )}
+
           {/* Filter bar - enhanced with new statuses */}
           <div class="bg-white rounded-lg shadow-sm p-4 mb-6 flex flex-wrap gap-3 items-center">
             <span class="text-sm font-medium text-gray-600">Status:</span>
             {STATUS_CONFIG.map(opt => (
               <a
-                href={`/admin/feedback?status=${opt.val}&type=${typeFilter}`}
+                href={filterUrl({ status: opt.val, type: typeFilter, age: ageFilter, sort: sortFilter })}
                 class={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
                   statusFilter === opt.val
                     ? 'border-animato-primary ring-2 ring-animato-primary ring-offset-1 ' + opt.color
@@ -900,7 +996,7 @@ app.get('/admin/feedback', async (c) => {
                 { val: 'feature', label: '💡 Idee' },
               ].map(opt => (
                 <a
-                  href={`/admin/feedback?status=${statusFilter}&type=${opt.val}`}
+                  href={filterUrl({ status: statusFilter, type: opt.val, age: ageFilter, sort: sortFilter })}
                   class={`px-3 py-1.5 rounded-full text-xs font-semibold border transition ${
                     typeFilter === opt.val
                       ? 'bg-animato-primary text-white border-animato-primary'

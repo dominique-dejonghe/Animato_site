@@ -29,12 +29,16 @@ app.get('/admin/lidgelden', async (c) => {
   const user = c.get('user')
   const db = c.env.DB
   const selectedSeasonId = c.req.query('season_id')
+  const filter = c.req.query('filter') || 'all'  // all | paid | pending | fast | slow | overdue
+  const successMsg = c.req.query('success') || ''
+  const errorMsg = c.req.query('error') || ''
+  const successCount = c.req.query('count') || ''
 
   // Get all seasons
   const seasons = await queryAll(db, "SELECT * FROM membership_years ORDER BY start_date DESC")
   
   // Determine active season (selected or most recent)
-  let activeSeason = null
+  let activeSeason: any = null
   if (selectedSeasonId) {
     activeSeason = seasons.find((s: any) => s.id == selectedSeasonId)
   } else {
@@ -42,7 +46,7 @@ app.get('/admin/lidgelden', async (c) => {
   }
 
   // If no seasons exist yet, activeSeason might be null
-  const memberships = activeSeason ? await queryAll(db, `
+  const memberships: any[] = activeSeason ? await queryAll(db, `
     SELECT um.*, u.email, p.voornaam, p.achternaam
     FROM user_memberships um
     JOIN users u ON um.user_id = u.id
@@ -52,7 +56,7 @@ app.get('/admin/lidgelden', async (c) => {
   `, [activeSeason.id]) : []
 
   // Get active users WITHOUT membership for this season (to add them manually or bulk)
-  const usersWithoutMembership = activeSeason ? await queryAll(db, `
+  const usersWithoutMembership: any[] = activeSeason ? await queryAll(db, `
     SELECT u.id, u.email, p.voornaam, p.achternaam
     FROM users u
     LEFT JOIN profiles p ON u.id = p.user_id
@@ -65,10 +69,84 @@ app.get('/admin/lidgelden', async (c) => {
     ORDER BY p.achternaam
   `, [activeSeason.id]) : []
 
-  // Calculate totals
-  const totalAmount = memberships.reduce((acc: number, m: any) => acc + m.amount, 0)
-  const paidAmount = memberships.filter((m: any) => m.status === 'paid').reduce((acc: number, m: any) => acc + m.amount, 0)
-  const openAmount = memberships.filter((m: any) => m.status === 'pending').reduce((acc: number, m: any) => acc + m.amount, 0)
+  // === Payment Analytics ===
+  const now = Date.now()
+  const DAY = 1000 * 60 * 60 * 24
+
+  // Helper: hoeveel dagen open / hoe snel betaald
+  const computeDays = (m: any) => {
+    const created = m.created_at ? new Date(m.created_at).getTime() : now
+    if (m.status === 'paid' && m.paid_at) {
+      const paid = new Date(m.paid_at).getTime()
+      return { daysToPay: Math.max(0, Math.round((paid - created) / DAY)), daysOpen: 0 }
+    }
+    return { daysToPay: null, daysOpen: Math.max(0, Math.round((now - created) / DAY)) }
+  }
+
+  // Verrijk memberships met days info
+  const enriched = memberships.map((m: any) => ({ ...m, ...computeDays(m) }))
+
+  // KPI berekeningen
+  const paid = enriched.filter((m: any) => m.status === 'paid')
+  const pending = enriched.filter((m: any) => m.status === 'pending')
+  const totalAmount = enriched.reduce((acc: number, m: any) => acc + m.amount, 0)
+  const paidAmount = paid.reduce((acc: number, m: any) => acc + m.amount, 0)
+  const openAmount = pending.reduce((acc: number, m: any) => acc + m.amount, 0)
+  const paidPct = enriched.length > 0 ? Math.round((paid.length / enriched.length) * 100) : 0
+
+  // Snelle vs late betalers
+  const fastPayers = paid.filter((m: any) => m.daysToPay !== null && m.daysToPay <= 7)
+  const slowPayers = paid.filter((m: any) => m.daysToPay !== null && m.daysToPay > 30)
+  const overdue = pending.filter((m: any) => m.daysOpen > 30)
+  const avgDaysToPay = paid.length > 0
+    ? Math.round(paid.reduce((a: number, m: any) => a + (m.daysToPay || 0), 0) / paid.length)
+    : 0
+  const avgDaysOpen = pending.length > 0
+    ? Math.round(pending.reduce((a: number, m: any) => a + (m.daysOpen || 0), 0) / pending.length)
+    : 0
+
+  // Top 5 snelste & langzaamste betalers
+  const fastestPayers = [...paid]
+    .filter((m: any) => m.daysToPay !== null)
+    .sort((a: any, b: any) => (a.daysToPay || 0) - (b.daysToPay || 0))
+    .slice(0, 5)
+  const slowestOpen = [...pending]
+    .sort((a: any, b: any) => (b.daysOpen || 0) - (a.daysOpen || 0))
+    .slice(0, 5)
+
+  // Recente betalingen (laatste 10)
+  const recentPayments = [...paid]
+    .filter((m: any) => m.paid_at)
+    .sort((a: any, b: any) => new Date(b.paid_at).getTime() - new Date(a.paid_at).getTime())
+    .slice(0, 10)
+
+  // Weekly trend (laatste 8 weken: nieuwe betalingen per week)
+  const weeklyTrend: { week: string; count: number; amount: number }[] = []
+  for (let i = 7; i >= 0; i--) {
+    const weekStart = now - (i + 1) * 7 * DAY
+    const weekEnd = now - i * 7 * DAY
+    const weekPaid = paid.filter((m: any) => {
+      if (!m.paid_at) return false
+      const t = new Date(m.paid_at).getTime()
+      return t >= weekStart && t < weekEnd
+    })
+    const d = new Date(weekStart)
+    weeklyTrend.push({
+      week: `${d.getDate()}/${d.getMonth() + 1}`,
+      count: weekPaid.length,
+      amount: weekPaid.reduce((a: number, m: any) => a + m.amount, 0)
+    })
+  }
+  const maxWeekCount = Math.max(1, ...weeklyTrend.map((w) => w.count))
+
+  // Filter de visible memberships op basis van ?filter=
+  let visibleMemberships = enriched
+  let filterLabel = ''
+  if (filter === 'paid') { visibleMemberships = paid; filterLabel = 'Betaald' }
+  else if (filter === 'pending') { visibleMemberships = pending; filterLabel = 'Openstaand' }
+  else if (filter === 'fast') { visibleMemberships = fastPayers; filterLabel = 'Snelle betalers (≤7 dagen)' }
+  else if (filter === 'slow') { visibleMemberships = slowPayers; filterLabel = 'Langzame betalers (>30 dagen)' }
+  else if (filter === 'overdue') { visibleMemberships = overdue; filterLabel = 'Overdue (>30 dagen open)' }
 
   return c.html(
     <Layout title="Lidgelden Beheer" user={user}>
@@ -83,17 +161,42 @@ app.get('/admin/lidgelden', async (c) => {
               </h1>
               <p class="text-gray-600 mt-1">Beheer seizoenen en betalingen</p>
             </div>
-            <div class="flex gap-2">
+            <div class="flex gap-2 flex-wrap">
               <button onclick="document.getElementById('createSeasonModal').classList.remove('hidden')" class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-50">
                 <i class="fas fa-calendar-plus mr-2"></i> Nieuw Seizoen
               </button>
               {activeSeason && (
-                <button onclick="document.getElementById('addModal').classList.remove('hidden')" class="bg-animato-primary text-white px-4 py-2 rounded hover:opacity-90">
-                  <i class="fas fa-plus mr-2"></i> Lidmaatschap Toekennen
-                </button>
+                <>
+                  <button onclick="document.getElementById('addModal').classList.remove('hidden')" class="bg-animato-primary text-white px-4 py-2 rounded hover:opacity-90">
+                    <i class="fas fa-plus mr-2"></i> Lidmaatschap Toekennen
+                  </button>
+                  <button onclick="document.getElementById('resetSeasonModal').classList.remove('hidden')" class="bg-white border border-red-300 text-red-700 px-4 py-2 rounded hover:bg-red-50" title="Verwijder alle lidmaatschappen voor dit seizoen">
+                    <i class="fas fa-eraser mr-2"></i> Reset Seizoen
+                  </button>
+                </>
               )}
             </div>
           </div>
+
+          {/* Feedback banners */}
+          {successMsg === 'reset' && (
+            <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 text-sm text-green-800">
+              <i class="fas fa-check-circle mr-2"></i>
+              Seizoen gereset — <strong>{successCount}</strong> lidmaatschap{Number(successCount) === 1 ? '' : 'pen'} verwijderd. Klaar voor een nieuwe start. 🚀
+            </div>
+          )}
+          {successMsg === 'bulk_generated' && (
+            <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 text-sm text-green-800">
+              <i class="fas fa-check-circle mr-2"></i>
+              <strong>{successCount}</strong> lidmaatschap{Number(successCount) === 1 ? '' : 'pen'} aangemaakt en notificaties verstuurd.
+            </div>
+          )}
+          {errorMsg === 'confirm_mismatch' && (
+            <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
+              <i class="fas fa-exclamation-circle mr-2"></i>
+              Reset geannuleerd: de getypte seizoennaam kwam niet overeen.
+            </div>
+          )}
 
           {/* Season Selector */}
           <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6 flex items-center justify-between">
@@ -151,20 +254,25 @@ app.get('/admin/lidgelden', async (c) => {
                  </div>
               </div>
 
-              {/* Stats Cards */}
-              <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-                <div class="bg-white p-4 rounded shadow border-l-4 border-blue-500">
+              {/* Stats Cards — klikbaar voor filter */}
+              <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=all`} class={`bg-white p-4 rounded shadow border-l-4 border-blue-500 hover:bg-blue-50 transition cursor-pointer ${filter === 'all' ? 'ring-2 ring-blue-400' : ''}`}>
                   <p class="text-gray-500 text-sm">Totaal Leden</p>
                   <p class="text-2xl font-bold">{memberships.length}</p>
-                </div>
-                <div class="bg-white p-4 rounded shadow border-l-4 border-green-500">
-                  <p class="text-gray-500 text-sm">Betaald ({memberships.filter((m: any) => m.status === 'paid').length})</p>
+                  <p class="text-xs text-gray-400 mt-1">€ {totalAmount.toFixed(2)}</p>
+                </a>
+                <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=paid`} class={`bg-white p-4 rounded shadow border-l-4 border-green-500 hover:bg-green-50 transition cursor-pointer ${filter === 'paid' ? 'ring-2 ring-green-400' : ''}`}>
+                  <p class="text-gray-500 text-sm">Betaald ({paid.length}) — {paidPct}%</p>
                   <p class="text-2xl font-bold">€ {paidAmount.toFixed(2)}</p>
-                </div>
-                <div class="bg-white p-4 rounded shadow border-l-4 border-amber-500">
-                  <p class="text-gray-500 text-sm">Openstaand ({memberships.filter((m: any) => m.status === 'pending').length})</p>
+                  <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2">
+                    <div class="bg-green-500 h-1.5 rounded-full" style={`width: ${paidPct}%`}></div>
+                  </div>
+                </a>
+                <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=pending`} class={`bg-white p-4 rounded shadow border-l-4 border-amber-500 hover:bg-amber-50 transition cursor-pointer ${filter === 'pending' ? 'ring-2 ring-amber-400' : ''}`}>
+                  <p class="text-gray-500 text-sm">Openstaand ({pending.length})</p>
                   <p class="text-2xl font-bold">€ {openAmount.toFixed(2)}</p>
-                </div>
+                  <p class="text-xs text-gray-400 mt-1">Gemiddeld {avgDaysOpen} dagen open</p>
+                </a>
                 <div class="bg-white p-4 rounded shadow border-l-4 border-gray-500 flex flex-col justify-center items-start relative" id="bulkGenerateCard">
                    <p class="text-gray-500 text-sm mb-1">Actie</p>
                    {/* #114 — Hover preview van leden die meegenomen worden */}
@@ -215,6 +323,143 @@ app.get('/admin/lidgelden', async (c) => {
                 </div>
               </div>
 
+              {/* === PAYMENT DASHBOARD === */}
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=fast`} class={`bg-white p-3 rounded shadow border-l-4 border-emerald-400 hover:bg-emerald-50 transition cursor-pointer ${filter === 'fast' ? 'ring-2 ring-emerald-400' : ''}`}>
+                  <p class="text-gray-500 text-xs"><i class="fas fa-bolt mr-1"></i> Snelle betalers (≤7d)</p>
+                  <p class="text-xl font-bold text-emerald-700">{fastPayers.length}</p>
+                </a>
+                <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=slow`} class={`bg-white p-3 rounded shadow border-l-4 border-orange-400 hover:bg-orange-50 transition cursor-pointer ${filter === 'slow' ? 'ring-2 ring-orange-400' : ''}`}>
+                  <p class="text-gray-500 text-xs"><i class="fas fa-hourglass-half mr-1"></i> Langzame betalers (&gt;30d)</p>
+                  <p class="text-xl font-bold text-orange-700">{slowPayers.length}</p>
+                </a>
+                <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=overdue`} class={`bg-white p-3 rounded shadow border-l-4 border-red-400 hover:bg-red-50 transition cursor-pointer ${filter === 'overdue' ? 'ring-2 ring-red-400' : ''}`}>
+                  <p class="text-gray-500 text-xs"><i class="fas fa-exclamation-triangle mr-1"></i> Overdue (&gt;30d open)</p>
+                  <p class="text-xl font-bold text-red-700">{overdue.length}</p>
+                </a>
+                <div class="bg-white p-3 rounded shadow border-l-4 border-gray-400">
+                  <p class="text-gray-500 text-xs"><i class="fas fa-stopwatch mr-1"></i> Gem. tijd tot betaling</p>
+                  <p class="text-xl font-bold text-gray-700">{avgDaysToPay} dagen</p>
+                </div>
+              </div>
+
+              {/* Trend + lijsten */}
+              <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+                {/* Wekelijkse betalingstrend */}
+                <div class="bg-white p-4 rounded-lg shadow">
+                  <h3 class="font-bold text-gray-800 mb-3 text-sm flex items-center">
+                    <i class="fas fa-chart-bar text-blue-500 mr-2"></i> Betalingstrend (8 weken)
+                  </h3>
+                  <div class="flex items-end gap-1 h-32">
+                    {weeklyTrend.map((w) => (
+                      <div class="flex-1 flex flex-col items-center justify-end" title={`${w.week}: ${w.count} betaling${w.count === 1 ? '' : 'en'} (€${w.amount.toFixed(0)})`}>
+                        <div class="text-[10px] text-gray-500 mb-1">{w.count > 0 ? w.count : ''}</div>
+                        <div
+                          class="w-full bg-blue-400 hover:bg-blue-500 transition rounded-t"
+                          style={`height: ${(w.count / maxWeekCount) * 100}%; min-height: ${w.count > 0 ? '4px' : '0'}`}
+                        ></div>
+                        <div class="text-[9px] text-gray-400 mt-1">{w.week}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Top 5 snelste betalers */}
+                <div class="bg-white p-4 rounded-lg shadow">
+                  <h3 class="font-bold text-gray-800 mb-3 text-sm flex items-center">
+                    <i class="fas fa-trophy text-emerald-500 mr-2"></i> Top 5 Snelste Betalers
+                  </h3>
+                  {fastestPayers.length > 0 ? (
+                    <ul class="space-y-2 text-sm">
+                      {fastestPayers.map((m: any, idx: number) => (
+                        <li class="flex justify-between items-center">
+                          <div class="flex items-center gap-2 min-w-0">
+                            <span class="text-xs text-gray-400 w-4">{idx + 1}.</span>
+                            <span class="truncate">{m.voornaam} {m.achternaam}</span>
+                          </div>
+                          <span class="text-xs font-semibold text-emerald-700 whitespace-nowrap">
+                            {m.daysToPay === 0 ? 'zelfde dag' : `${m.daysToPay} dag${m.daysToPay === 1 ? '' : 'en'}`}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p class="text-xs text-gray-400 italic">Nog geen betalingen</p>
+                  )}
+                </div>
+
+                {/* Top 5 langst openstaande */}
+                <div class="bg-white p-4 rounded-lg shadow">
+                  <h3 class="font-bold text-gray-800 mb-3 text-sm flex items-center">
+                    <i class="fas fa-clock text-red-500 mr-2"></i> Langst Openstaand
+                  </h3>
+                  {slowestOpen.length > 0 ? (
+                    <ul class="space-y-2 text-sm">
+                      {slowestOpen.map((m: any, idx: number) => (
+                        <li class="flex justify-between items-center">
+                          <div class="flex items-center gap-2 min-w-0">
+                            <span class="text-xs text-gray-400 w-4">{idx + 1}.</span>
+                            <span class="truncate">{m.voornaam} {m.achternaam}</span>
+                          </div>
+                          <span class={`text-xs font-semibold whitespace-nowrap ${m.daysOpen > 30 ? 'text-red-700' : m.daysOpen > 14 ? 'text-orange-600' : 'text-gray-600'}`}>
+                            {m.daysOpen} dagen
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p class="text-xs text-gray-400 italic">Alles betaald! 🎉</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Recente betalingen tijdlijn */}
+              {recentPayments.length > 0 && (
+                <div class="bg-white p-4 rounded-lg shadow mb-6">
+                  <h3 class="font-bold text-gray-800 mb-3 text-sm flex items-center">
+                    <i class="fas fa-history text-purple-500 mr-2"></i> Recente Betalingen (laatste 10)
+                  </h3>
+                  <div class="space-y-1.5">
+                    {recentPayments.map((m: any) => {
+                      const d = new Date(m.paid_at)
+                      const dateStr = d.toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: 'numeric' })
+                      const timeStr = d.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })
+                      return (
+                        <div class="flex items-center gap-3 text-sm py-1.5 border-b border-gray-100 last:border-0">
+                          <i class="fas fa-check-circle text-green-500 text-xs"></i>
+                          <span class="font-medium flex-1 truncate">{m.voornaam} {m.achternaam}</span>
+                          <span class={`text-xs px-1.5 py-0.5 rounded ${m.type === 'full' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'}`}>
+                            {m.type === 'full' ? 'Full' : 'Basis'}
+                          </span>
+                          <span class="font-mono text-xs text-gray-700">€{m.amount.toFixed(2)}</span>
+                          <span class="text-xs text-gray-500 whitespace-nowrap">
+                            {dateStr} {timeStr}
+                          </span>
+                          <span class="text-xs text-gray-400 whitespace-nowrap">
+                            {m.daysToPay === 0 ? 'zelfde dag' : `na ${m.daysToPay}d`}
+                          </span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Active filter banner */}
+              {filter !== 'all' && (
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-center justify-between">
+                  <div class="text-sm">
+                    <i class="fas fa-filter text-blue-600 mr-2"></i>
+                    <span class="font-semibold text-blue-900">Filter actief:</span>
+                    <span class="text-blue-800 ml-1">{filterLabel}</span>
+                    <span class="text-blue-600 ml-2">({visibleMemberships.length} resultaten)</span>
+                  </div>
+                  <a href={`/admin/lidgelden?season_id=${activeSeason.id}`} class="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                    <i class="fas fa-times mr-1"></i> Filter wissen
+                  </a>
+                </div>
+              )}
+
               {/* Table */}
               <div class="bg-white rounded-lg shadow overflow-hidden">
                 <table class="w-full">
@@ -224,11 +469,12 @@ app.get('/admin/lidgelden', async (c) => {
                       <th class="px-6 py-3 text-left font-medium text-gray-500">Formule</th>
                       <th class="px-6 py-3 text-left font-medium text-gray-500">Bedrag</th>
                       <th class="px-6 py-3 text-left font-medium text-gray-500">Status</th>
+                      <th class="px-6 py-3 text-left font-medium text-gray-500">Tijd</th>
                       <th class="px-6 py-3 text-right font-medium text-gray-500">Actie</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-gray-200">
-                    {memberships.length > 0 ? memberships.map((m: any) => (
+                    {visibleMemberships.length > 0 ? visibleMemberships.map((m: any) => (
                       <tr>
                         <td class="px-6 py-4">
                           <div class="font-medium text-gray-900">{m.voornaam} {m.achternaam}</div>
@@ -254,6 +500,21 @@ app.get('/admin/lidgelden', async (c) => {
                             </div>
                           ) : (
                             <span class="text-amber-600 font-semibold"><i class="fas fa-clock mr-1"></i> Openstaand</span>
+                          )}
+                        </td>
+                        <td class="px-6 py-4 text-xs">
+                          {m.status === 'paid' ? (
+                            m.daysToPay !== null ? (
+                              <span class={`px-2 py-1 rounded ${m.daysToPay <= 7 ? 'bg-emerald-100 text-emerald-700' : m.daysToPay <= 30 ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`} title={`Betaald na ${m.daysToPay} dagen`}>
+                                <i class="fas fa-bolt mr-1"></i>{m.daysToPay === 0 ? 'zelfde dag' : `${m.daysToPay}d`}
+                              </span>
+                            ) : (
+                              <span class="text-gray-400">—</span>
+                            )
+                          ) : (
+                            <span class={`px-2 py-1 rounded ${m.daysOpen > 30 ? 'bg-red-100 text-red-700' : m.daysOpen > 14 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-700'}`} title={`${m.daysOpen} dagen open`}>
+                              <i class="fas fa-clock mr-1"></i>{m.daysOpen}d open
+                            </span>
                           )}
                         </td>
                         <td class="px-6 py-4 text-right">
@@ -303,12 +564,24 @@ app.get('/admin/lidgelden', async (c) => {
                       </tr>
                     )) : (
                         <tr>
-                            <td colspan="5" class="px-6 py-8 text-center text-gray-500">
-                                Geen lidmaatschappen gevonden voor dit seizoen.
-                                <br/>
-                                <button onclick="document.querySelector('form[action=\'/api/admin/lidgelden/generate-bulk\'] button').click()" class="text-animato-primary hover:underline mt-2">
-                                    Genereer automatisch voor alle actieve leden
-                                </button>
+                            <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                                {filter === 'all' ? (
+                                  <>
+                                    Geen lidmaatschappen gevonden voor dit seizoen.
+                                    <br/>
+                                    <button onclick="document.querySelector('form[action=\'/api/admin/lidgelden/generate-bulk\'] button').click()" class="text-animato-primary hover:underline mt-2">
+                                        Genereer automatisch voor alle actieve leden
+                                    </button>
+                                  </>
+                                ) : (
+                                  <>
+                                    Geen resultaten voor filter "{filterLabel}".
+                                    <br/>
+                                    <a href={`/admin/lidgelden?season_id=${activeSeason.id}`} class="text-animato-primary hover:underline mt-2 inline-block">
+                                      ← Toon alle lidmaatschappen
+                                    </a>
+                                  </>
+                                )}
                             </td>
                         </tr>
                     )}
@@ -407,6 +680,55 @@ app.get('/admin/lidgelden', async (c) => {
         </div>
       )}
 
+      {/* Reset Season Modal — verwijdert ALLE memberships voor het actieve seizoen */}
+      {activeSeason && (
+        <div id="resetSeasonModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 class="text-xl font-bold mb-2 text-red-700 flex items-center gap-2">
+              <i class="fas fa-exclamation-triangle"></i> Reset Seizoen
+            </h3>
+            <p class="text-sm text-gray-700 mb-4">
+              Dit verwijdert <strong>alle {memberships.length} lidmaatschappen</strong> van seizoen <strong>{activeSeason.season}</strong>.
+              Het seizoen zelf en de tarieven (€{activeSeason.fee_base?.toFixed(2)} / €{activeSeason.fee_full?.toFixed(2)}) blijven bestaan.
+              Hierna kan je opnieuw bulk-genereren voor alle actieve leden.
+            </p>
+            <div class="bg-amber-50 border border-amber-200 rounded p-3 mb-4 text-xs text-amber-800">
+              <i class="fas fa-info-circle mr-1"></i>
+              <strong>Let op:</strong> alle <strong>betalingen</strong> (status, paid_at, mollie-links) gaan ook weg.
+              Eventuele giften en webhook-records blijven onaangeroerd.
+            </div>
+            <form action="/api/admin/lidgelden/reset-season" method="POST">
+              <input type="hidden" name="season_id" value={activeSeason.id} />
+              <div class="mb-4">
+                <label class="block text-sm font-medium mb-1 text-gray-700">
+                  Typ ter bevestiging het seizoen: <code class="bg-gray-100 px-1 rounded">{activeSeason.season}</code>
+                </label>
+                <input
+                  type="text"
+                  name="confirm_season"
+                  class="w-full border-2 border-red-200 rounded p-2 focus:border-red-500 focus:outline-none"
+                  placeholder={activeSeason.season}
+                  required
+                  autocomplete="off"
+                />
+              </div>
+              <div class="flex justify-end gap-2">
+                <button type="button" onclick="document.getElementById('resetSeasonModal').classList.add('hidden')" class="px-4 py-2 border rounded hover:bg-gray-50">
+                  Annuleren
+                </button>
+                <button
+                  type="submit"
+                  class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 font-semibold"
+                  onclick="return confirm('Definitief alle lidmaatschappen verwijderen voor dit seizoen?');"
+                >
+                  <i class="fas fa-eraser mr-1"></i> Definitief Resetten
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Create Season Modal */}
       <div id="createSeasonModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
         <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
@@ -429,11 +751,11 @@ app.get('/admin/lidgelden', async (c) => {
             <div class="grid grid-cols-2 gap-4 mb-4">
               <div>
                 <label class="block text-sm font-medium mb-1">Basis Lidgeld (€)</label>
-                <input type="number" step="0.01" name="fee_base" value="25.00" class="w-full border rounded p-2" required />
+                <input type="number" step="0.01" name="fee_base" value="35.00" class="w-full border rounded p-2" required />
               </div>
               <div>
                 <label class="block text-sm font-medium mb-1">Full Lidgeld (€)</label>
-                <input type="number" step="0.01" name="fee_full" value="65.00" class="w-full border rounded p-2" required />
+                <input type="number" step="0.01" name="fee_full" value="55.00" class="w-full border rounded p-2" required />
               </div>
             </div>
             <div class="mb-4">
@@ -712,6 +1034,32 @@ app.post('/api/admin/lidgelden/send-link', async (c) => {
 app.post('/api/admin/lidgelden/remind', async (c) => {
   // In a real app, this would send an email with the payment link
   return c.redirect('/admin/lidgelden?sent=true')
+})
+
+// === Reset Season — verwijdert alle user_memberships voor één seizoen ===
+// Confirmatie via typed seizoennaam (extra veiligheid)
+app.post('/api/admin/lidgelden/reset-season', async (c) => {
+  const body = await c.req.parseBody()
+  const db = c.env.DB
+  const seasonId = body.season_id
+  const confirmSeason = String(body.confirm_season || '').trim()
+
+  // Verifieer seizoen + bevestiging
+  const year = await queryOne<any>(db, "SELECT * FROM membership_years WHERE id = ?", [seasonId])
+  if (!year) return c.redirect('/admin/lidgelden?error=year_not_found')
+
+  if (confirmSeason !== year.season) {
+    return c.redirect(`/admin/lidgelden?season_id=${seasonId}&error=confirm_mismatch`)
+  }
+
+  // Tellen voor de feedback message
+  const before = await queryOne<any>(db, "SELECT COUNT(*) as c FROM user_memberships WHERE year_id = ?", [seasonId])
+  const count = before?.c || 0
+
+  // Verwijder alle memberships voor dit seizoen
+  await execute(db, "DELETE FROM user_memberships WHERE year_id = ?", [seasonId])
+
+  return c.redirect(`/admin/lidgelden?season_id=${seasonId}&success=reset&count=${count}`)
 })
 
 export default app

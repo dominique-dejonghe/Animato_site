@@ -5,7 +5,7 @@ import { AdminSidebar } from '../components/AdminSidebar'
 import { queryAll, queryOne, execute } from '../utils/db'
 import { verifyToken } from '../utils/auth'
 
-import { createMolliePayment } from '../utils/mollie'
+import { createMolliePayment, getMollieMode } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { sendEmail } from '../utils/email'
 import { createNotification, createNotificationForUsers } from '../utils/notifications'
@@ -33,6 +33,10 @@ app.get('/admin/lidgelden', async (c) => {
   const successMsg = c.req.query('success') || ''
   const errorMsg = c.req.query('error') || ''
   const successCount = c.req.query('count') || ''
+
+  // Mollie status — voor banner bovenaan zodat je nooit twijfelt
+  const mollieKey = await getMollieApiKey(c.env)
+  const mollieMode = getMollieMode(mollieKey)
 
   // Get all seasons
   const seasons = await queryAll(db, "SELECT * FROM membership_years ORDER BY start_date DESC")
@@ -178,6 +182,36 @@ app.get('/admin/lidgelden', async (c) => {
             </div>
           </div>
 
+          {/* Mollie mode badge — altijd zichtbaar zodat MOCK ↔ TEST ↔ LIVE niet verward worden */}
+          {mollieMode === 'mock' && (
+            <div class="bg-amber-50 border border-amber-300 rounded-lg p-3 mb-4 flex items-center justify-between">
+              <div class="text-sm text-amber-900">
+                <i class="fas fa-flask mr-2"></i>
+                <strong>MOCK-modus actief</strong> — er is geen Mollie API-key geconfigureerd. Online betalingen worden gesimuleerd (auto-paid). Geen echt geld.
+              </div>
+              <a href="/admin/settings" class="text-sm font-semibold text-amber-900 hover:text-amber-700 whitespace-nowrap">
+                <i class="fas fa-cog mr-1"></i> Configureer Mollie →
+              </a>
+            </div>
+          )}
+          {mollieMode === 'test' && (
+            <div class="bg-blue-50 border border-blue-300 rounded-lg p-3 mb-4 text-sm text-blue-900 flex items-center justify-between">
+              <div>
+                <i class="fas fa-vial mr-2"></i>
+                <strong>TEST-modus actief</strong> — gebruik Mollie testkaarten. Geen echt geld wordt verwerkt.
+              </div>
+              <a href="/admin/settings" class="text-xs font-semibold text-blue-900 hover:underline whitespace-nowrap">
+                Naar instellingen →
+              </a>
+            </div>
+          )}
+          {mollieMode === 'live' && (
+            <div class="bg-green-50 border border-green-300 rounded-lg p-2 mb-4 text-xs text-green-800 flex items-center gap-2">
+              <i class="fas fa-check-circle"></i>
+              <span><strong>LIVE</strong> — echte betalingen via Mollie zijn actief.</span>
+            </div>
+          )}
+
           {/* Feedback banners */}
           {successMsg === 'reset' && (
             <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 text-sm text-green-800">
@@ -189,6 +223,13 @@ app.get('/admin/lidgelden', async (c) => {
             <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 text-sm text-green-800">
               <i class="fas fa-check-circle mr-2"></i>
               <strong>{successCount}</strong> lidmaatschap{Number(successCount) === 1 ? '' : 'pen'} aangemaakt en notificaties verstuurd.
+            </div>
+          )}
+          {successMsg === 'bulk_reminded' && (
+            <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 text-sm text-green-800">
+              <i class="fas fa-paper-plane mr-2"></i>
+              Bulk reminder verstuurd naar <strong>{successCount}</strong> lid{Number(successCount) === 1 ? '' : 'leden'}.
+              {c.req.query('failed') && <span class="text-red-700 ml-2">({c.req.query('failed')} mislukt — check logs)</span>}
             </div>
           )}
           {errorMsg === 'confirm_mismatch' && (
@@ -445,17 +486,50 @@ app.get('/admin/lidgelden', async (c) => {
                 </div>
               )}
 
-              {/* Active filter banner */}
+              {/* Active filter banner — met bulk-acties op gefilterde lijst */}
               {filter !== 'all' && (
-                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-center justify-between">
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 flex items-center justify-between flex-wrap gap-2">
                   <div class="text-sm">
                     <i class="fas fa-filter text-blue-600 mr-2"></i>
                     <span class="font-semibold text-blue-900">Filter actief:</span>
                     <span class="text-blue-800 ml-1">{filterLabel}</span>
                     <span class="text-blue-600 ml-2">({visibleMemberships.length} resultaten)</span>
                   </div>
-                  <a href={`/admin/lidgelden?season_id=${activeSeason.id}`} class="text-sm text-blue-600 hover:text-blue-800 font-medium">
-                    <i class="fas fa-times mr-1"></i> Filter wissen
+                  <div class="flex gap-2 flex-wrap">
+                    {/* Bulk reminder — alleen bij overdue/pending filters */}
+                    {(filter === 'overdue' || filter === 'pending') && visibleMemberships.length > 0 && (
+                      <form action="/api/admin/lidgelden/bulk-remind" method="POST" class="inline" onsubmit={`return confirm('Reminder mail sturen naar ${visibleMemberships.length} lid${visibleMemberships.length === 1 ? '' : 'leden'}?');`}>
+                        <input type="hidden" name="season_id" value={activeSeason.id} />
+                        <input type="hidden" name="filter" value={filter} />
+                        <button type="submit" class="inline-flex items-center h-9 px-3 bg-amber-600 text-white text-sm rounded-lg hover:bg-amber-700 transition font-medium whitespace-nowrap">
+                          <i class="fas fa-paper-plane mr-1.5"></i> Bulk reminder ({visibleMemberships.length})
+                        </button>
+                      </form>
+                    )}
+                    {/* CSV Export van gefilterde lijst */}
+                    <a
+                      href={`/api/admin/lidgelden/export?season_id=${activeSeason.id}&filter=${filter}`}
+                      class="inline-flex items-center h-9 px-3 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 transition font-medium whitespace-nowrap"
+                      title="Download als CSV (Excel-compatibel)"
+                    >
+                      <i class="fas fa-file-csv mr-1.5"></i> Export CSV
+                    </a>
+                    <a href={`/admin/lidgelden?season_id=${activeSeason.id}`} class="inline-flex items-center h-9 px-3 text-sm text-blue-600 hover:text-blue-800 font-medium">
+                      <i class="fas fa-times mr-1"></i> Filter wissen
+                    </a>
+                  </div>
+                </div>
+              )}
+
+              {/* Permanente CSV Export knop (zonder filter) — voor de penningmeester */}
+              {filter === 'all' && memberships.length > 0 && (
+                <div class="mb-4 flex justify-end">
+                  <a
+                    href={`/api/admin/lidgelden/export?season_id=${activeSeason.id}&filter=all`}
+                    class="inline-flex items-center h-9 px-3 bg-white border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50 transition font-medium"
+                    title="Download volledige lijst als CSV"
+                  >
+                    <i class="fas fa-file-csv mr-1.5 text-green-600"></i> Volledige lijst exporteren (CSV)
                   </a>
                 </div>
               )}
@@ -1060,6 +1134,182 @@ app.post('/api/admin/lidgelden/reset-season', async (c) => {
   await execute(db, "DELETE FROM user_memberships WHERE year_id = ?", [seasonId])
 
   return c.redirect(`/admin/lidgelden?season_id=${seasonId}&success=reset&count=${count}`)
+})
+
+// === CSV EXPORT — gefilterde of volledige lijst ===
+app.get('/api/admin/lidgelden/export', async (c) => {
+  const db = c.env.DB
+  const seasonId = c.req.query('season_id')
+  const filter = c.req.query('filter') || 'all'
+
+  if (!seasonId) return c.text('season_id required', 400)
+
+  const year = await queryOne<any>(db, "SELECT * FROM membership_years WHERE id = ?", [seasonId])
+  if (!year) return c.text('season not found', 404)
+
+  const rows = await queryAll<any>(db, `
+    SELECT um.*, u.email, p.voornaam, p.achternaam, p.telefoon
+    FROM user_memberships um
+    JOIN users u ON um.user_id = u.id
+    LEFT JOIN profiles p ON u.id = p.user_id
+    WHERE um.year_id = ?
+    ORDER BY p.achternaam
+  `, [seasonId])
+
+  // Verrijken met days_open / days_to_pay (zelfde logica als view)
+  const now = Date.now()
+  const DAY = 86400000
+  const enriched = (rows as any[]).map(m => {
+    const created = m.created_at ? new Date(m.created_at).getTime() : now
+    const paid = m.status === 'paid' && m.paid_at ? new Date(m.paid_at).getTime() : null
+    return {
+      ...m,
+      daysToPay: paid ? Math.max(0, Math.round((paid - created) / DAY)) : null,
+      daysOpen: !paid ? Math.max(0, Math.round((now - created) / DAY)) : 0,
+    }
+  })
+
+  // Filter toepassen
+  let filtered = enriched
+  if (filter === 'paid') filtered = enriched.filter(m => m.status === 'paid')
+  else if (filter === 'pending') filtered = enriched.filter(m => m.status === 'pending')
+  else if (filter === 'fast') filtered = enriched.filter(m => m.status === 'paid' && m.daysToPay !== null && m.daysToPay <= 7)
+  else if (filter === 'slow') filtered = enriched.filter(m => m.status === 'paid' && m.daysToPay !== null && m.daysToPay > 30)
+  else if (filter === 'overdue') filtered = enriched.filter(m => m.status === 'pending' && m.daysOpen > 30)
+
+  // CSV bouwen — Excel-compatibel met BOM voor accenten
+  const escape = (v: any) => {
+    if (v === null || v === undefined) return ''
+    const s = String(v).replace(/"/g, '""')
+    return /[",;\n]/.test(s) ? `"${s}"` : s
+  }
+  const headers = [
+    'Voornaam', 'Achternaam', 'Email', 'Telefoon',
+    'Seizoen', 'Formule', 'Bedrag', 'Status',
+    'Aangemaakt op', 'Betaald op',
+    'Dagen tot betaling', 'Dagen open',
+    'Mollie Payment ID'
+  ]
+  const lines = [headers.join(';')]
+  for (const m of filtered) {
+    lines.push([
+      escape(m.voornaam),
+      escape(m.achternaam),
+      escape(m.email),
+      escape(m.telefoon),
+      escape(year.season),
+      escape(m.type === 'full' ? 'Full (+partituren)' : 'Basis (digitaal)'),
+      escape(typeof m.amount === 'number' ? m.amount.toFixed(2).replace('.', ',') : m.amount),
+      escape(m.status === 'paid' ? 'Betaald' : 'Openstaand'),
+      escape(m.created_at ? new Date(m.created_at).toLocaleDateString('nl-BE') : ''),
+      escape(m.paid_at ? new Date(m.paid_at).toLocaleDateString('nl-BE') : ''),
+      escape(m.daysToPay !== null ? m.daysToPay : ''),
+      escape(m.daysOpen || ''),
+      escape(m.mollie_payment_id || ''),
+    ].join(';'))
+  }
+  const csv = '\uFEFF' + lines.join('\r\n')
+
+  const dateStamp = new Date().toISOString().slice(0, 10)
+  const filename = `lidgelden_${year.season}_${filter}_${dateStamp}.csv`
+
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    }
+  })
+})
+
+// === BULK REMINDER — verstuur betaallinks naar alle pending of overdue leden ===
+app.post('/api/admin/lidgelden/bulk-remind', async (c) => {
+  const body = await c.req.parseBody()
+  const db = c.env.DB
+  const seasonId = body.season_id
+  const filter = String(body.filter || 'pending')
+
+  if (!seasonId) return c.redirect('/admin/lidgelden?error=missing_season')
+
+  const year = await queryOne<any>(db, "SELECT * FROM membership_years WHERE id = ?", [seasonId])
+  if (!year) return c.redirect('/admin/lidgelden?error=year_not_found')
+
+  // Selecteer enkel openstaande memberships
+  const rows = await queryAll<any>(db, `
+    SELECT um.*, u.email, p.voornaam, p.achternaam
+    FROM user_memberships um
+    JOIN users u ON um.user_id = u.id
+    LEFT JOIN profiles p ON u.id = p.user_id
+    WHERE um.year_id = ? AND um.status = 'pending'
+  `, [seasonId])
+
+  // Bij filter=overdue: alleen die >30 dagen open zijn
+  const now = Date.now()
+  const DAY = 86400000
+  const targets = (rows as any[]).filter(m => {
+    if (filter !== 'overdue') return true
+    const created = m.created_at ? new Date(m.created_at).getTime() : now
+    return (now - created) / DAY > 30
+  })
+
+  const siteUrl = c.env.SITE_URL || 'https://animato-live.pages.dev'
+  const apiKey = await getMollieApiKey(c.env)
+  let sent = 0
+  let failed = 0
+
+  for (const m of targets) {
+    try {
+      let paymentUrl = m.mollie_payment_url
+
+      // Maak Mollie-link aan indien nog niet bestaat
+      if (!paymentUrl) {
+        const payment = await createMolliePayment(apiKey, {
+          amount: m.amount,
+          description: `Lidgeld Animato ${year.season} - ${m.type}`,
+          redirectUrl: `${siteUrl}/leden/profiel?payment=success`,
+          webhookUrl: `${siteUrl}/api/webhooks/mollie`,
+          metadata: { membership_id: m.id, type: 'membership' }
+        })
+        paymentUrl = payment.checkoutUrl
+        await execute(db, `UPDATE user_memberships SET mollie_payment_url = ?, mollie_payment_id = ? WHERE id = ?`, [paymentUrl, payment.id, m.id])
+      }
+
+      const subject = filter === 'overdue'
+        ? `⏰ Herinnering: lidgeld ${year.season} staat nog open`
+        : `Lidgeld ${year.season} - betaalverzoek`
+
+      const html = `
+        <h2>Beste ${m.voornaam || 'lid'},</h2>
+        <p>Hierbij een ${filter === 'overdue' ? '<strong>vriendelijke herinnering</strong>' : 'verzoek'} voor je lidgeld voor seizoen <strong>${year.season}</strong>.</p>
+        <p><strong>Bedrag: €${(m.amount || 0).toFixed(2)}</strong> — ${m.type === 'full' ? 'Full (met papieren partituren)' : 'Basis (digitaal)'}</p>
+        <p style="margin: 24px 0;">
+          <a href="${paymentUrl}" style="background-color: #00A9CE; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+            💳 Betaal nu via Mollie
+          </a>
+        </p>
+        <p style="color:#666; font-size: 13px;">Of kopieer deze link in je browser:<br>${paymentUrl}</p>
+        <p>Vragen? Antwoord gewoon op deze mail.</p>
+        <p>Met muzikale groet,<br>Het Bestuur — Gemengd Koor Animato</p>
+      `
+
+      await sendEmail({ to: m.email, subject, html }, c.env.RESEND_API_KEY)
+
+      // Notificatie ook in-app
+      try {
+        await createNotification(db, m.user_id, 'lidgeld',
+          filter === 'overdue' ? '⏰ Herinnering lidgeld open' : 'Lidgeld betaalverzoek verstuurd',
+          `Bekijk je mailbox voor de betaallink — bedrag €${(m.amount||0).toFixed(2)}`,
+          '/leden/profiel#lidgeld'
+        )
+      } catch (_) {}
+
+      sent++
+    } catch (err) {
+      console.error('bulk-remind failed for membership', m.id, err)
+      failed++
+    }
+  }
+
+  return c.redirect(`/admin/lidgelden?season_id=${seasonId}&success=bulk_reminded&count=${sent}${failed > 0 ? '&failed=' + failed : ''}`)
 })
 
 export default app

@@ -99,10 +99,10 @@ app.get('/', async (c) => {
 
       {/* Hero Section with Full-Width Video Background */}
       <section class="relative overflow-hidden text-white" style="height: 600px;">
-        {/* YouTube Video Background - Full Width - Starts at 20 seconds */}
+        {/* YouTube Video Background - Full Width - Loops from 0:06 to 4:00 (#107) */}
         <div class="absolute inset-0 w-full h-full overflow-hidden">
           <iframe
-            src="https://www.youtube.com/embed/oXLw5RC0lNo?autoplay=1&mute=1&loop=1&playlist=oXLw5RC0lNo&controls=0&showinfo=0&rel=0&modestbranding=1&playsinline=1&start=20"
+            src="https://www.youtube.com/embed/oXLw5RC0lNo?autoplay=1&mute=1&loop=1&playlist=oXLw5RC0lNo&controls=0&showinfo=0&rel=0&modestbranding=1&playsinline=1&start=6&end=240"
             title="Gemengd Koor Animato"
             frameborder="0"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"

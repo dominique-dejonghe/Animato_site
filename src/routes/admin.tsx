@@ -798,41 +798,41 @@ app.get('/admin/aanmeldingen', async (c) => {
                           </div>
                         </div>
 
-                        {/* Action buttons - always visible */}
-                        <div class="flex items-center gap-2">
+                        {/* Action buttons - always visible — alle knoppen h-9 voor strakke uitlijning */}
+                        <div class="flex items-center gap-2 flex-shrink-0">
                           {/* Convert to member (only for word_lid submissions) */}
                           {!isConverted && sub.type === 'word_lid' && (
                             <a
                               href={`/admin/aanmeldingen/${sub.id}/omzetten`}
-                              class="px-3 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition font-medium"
+                              class="inline-flex items-center justify-center h-9 px-3 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition font-medium whitespace-nowrap"
                               title="Omzetten naar lid"
                             >
-                              <i class="fas fa-user-plus mr-1"></i> Omzetten naar lid
+                              <i class="fas fa-user-plus mr-1.5"></i> Omzetten naar lid
                             </a>
                           )}
                           
                           {/* Mark as processed */}
                           {isNew && (
-                            <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/verwerk`} class="inline">
-                              <button type="submit" class="px-3 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition">
-                                <i class="fas fa-check mr-1"></i> Verwerkt
+                            <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/verwerk`} class="inline-flex">
+                              <button type="submit" class="inline-flex items-center justify-center h-9 px-3 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition whitespace-nowrap">
+                                <i class="fas fa-check mr-1.5"></i> Verwerkt
                               </button>
                             </form>
                           )}
 
-                          {/* Archive */}
+                          {/* Archive — icon-only, vaste vierkante grootte */}
                           {(isNew || sub.status === 'verwerkt') && (
-                            <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/archiveer`} class="inline">
-                              <button type="submit" class="px-3 py-2 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 transition">
-                                <i class="fas fa-archive mr-1"></i>
+                            <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/archiveer`} class="inline-flex">
+                              <button type="submit" class="inline-flex items-center justify-center h-9 w-9 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 transition" title="Archiveren">
+                                <i class="fas fa-archive"></i>
                               </button>
                             </form>
                           )}
 
-                          {/* Delete with confirmation */}
+                          {/* Delete with confirmation — icon-only, vaste vierkante grootte */}
                           <button
                             onclick={`if(confirm('Aanvraag van ${sub.naam.replace(/'/g, "\\'")} definitief verwijderen?')) document.getElementById('delete-form-${sub.id}').submit()`}
-                            class="px-3 py-2 bg-red-50 text-red-600 text-sm rounded-lg hover:bg-red-100 transition"
+                            class="inline-flex items-center justify-center h-9 w-9 bg-red-50 text-red-600 text-sm rounded-lg hover:bg-red-100 transition"
                             title="Verwijderen"
                           >
                             <i class="fas fa-trash"></i>

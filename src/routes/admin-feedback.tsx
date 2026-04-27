@@ -4,6 +4,7 @@ import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
 import { queryAll, queryOne, execute } from '../utils/db'
 import { verifyToken } from '../utils/auth'
+import { sendEmail } from '../utils/email'
 import type { Bindings, SessionUser } from '../types'
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -376,6 +377,11 @@ app.get('/admin/feedback', async (c) => {
   const sortFilter = c.req.query('sort') || 'newest' // newest|oldest
   // Toewijzing-filter: 'all' | 'mine' | 'unassigned' | numeric admin id | 'mine_hertesten' shortcut
   const assignedFilter = c.req.query('assigned') || 'all'
+  // Success/error feedback banners (from redirects)
+  const successMsg = c.req.query('success') || ''
+  const errorMsg = c.req.query('error') || ''
+  const successCount = c.req.query('count') || ''
+  const successFailed = c.req.query('failed') || ''
 
   let query = `SELECT f.*, u.email, p.voornaam, p.achternaam,
      a.email as assigned_email, ap.voornaam as assigned_voornaam, ap.achternaam as assigned_achternaam,
@@ -603,6 +609,15 @@ app.get('/admin/feedback', async (c) => {
               <p class="text-gray-500 mt-1">{feedback.length} item(s) gevonden</p>
             </div>
             <div class="flex flex-wrap gap-2">
+              {/* Retest Coverage link */}
+              <a
+                href="/admin/feedback/coverage"
+                class="px-4 py-2.5 bg-white border border-gray-300 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-50 transition shadow-sm flex items-center gap-2"
+                title="Wie testte wat, wanneer, op welke deploy"
+              >
+                <i class="fas fa-clipboard-check text-purple-600"></i>
+                Retest Coverage
+              </a>
               {/* Export dropdown */}
               <div class="relative" id="export-dropdown-container">
                 <button
@@ -689,6 +704,26 @@ app.get('/admin/feedback', async (c) => {
               </button>
             </div>
           </div>
+
+          {/* Success / error banners */}
+          {successMsg === 'digest_sent' && (
+            <div class="mb-4 bg-green-50 border border-green-200 text-green-800 rounded-lg px-4 py-3 flex items-center gap-2">
+              <i class="fas fa-check-circle"></i>
+              <span><strong>Retest digest verstuurd</strong> naar {successCount} ontvanger(s){successFailed ? ` — ${successFailed} mislukt` : ''}.</span>
+            </div>
+          )}
+          {errorMsg === 'no_items_to_retest' && (
+            <div class="mb-4 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-4 py-3 flex items-center gap-2">
+              <i class="fas fa-exclamation-triangle"></i>
+              <span>Geen items op status <code>hertesten</code> — niets om te mailen.</span>
+            </div>
+          )}
+          {errorMsg === 'no_recipients' && (
+            <div class="mb-4 bg-red-50 border border-red-200 text-red-800 rounded-lg px-4 py-3 flex items-center gap-2">
+              <i class="fas fa-times-circle"></i>
+              <span>Geen ontvangers gevonden.</span>
+            </div>
+          )}
 
           {/* ============================================================
               DASHBOARD — Overzicht & verloop over tijd
@@ -1319,7 +1354,7 @@ app.get('/admin/feedback', async (c) => {
                     </form>
 
                     {/* Quick actions */}
-                    <div class="flex gap-1">
+                    <div class="flex flex-wrap gap-1 justify-end">
                       <button
                         onclick={`askForMoreInfo(${item.id}, '${(item.voornaam || 'Gebruiker').replace(/'/g, "\\'")}')` }
                         class="text-xs px-2 py-1 bg-orange-50 text-orange-700 rounded hover:bg-orange-100 transition border border-orange-200"
@@ -1327,7 +1362,15 @@ app.get('/admin/feedback', async (c) => {
                       >
                         <i class="fas fa-question-circle"></i> Info vragen
                       </button>
-
+                      {item.status === 'hertesten' && (
+                        <button
+                          onclick={`openRetestModal(${item.id})`}
+                          class="text-xs px-2 py-1 bg-purple-50 text-purple-700 rounded hover:bg-purple-100 transition border border-purple-200"
+                          title="Markeer als getest (werkt / werkt niet / partieel)"
+                        >
+                          <i class="fas fa-flask"></i> Markeer als getest
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1435,9 +1478,135 @@ app.get('/admin/feedback', async (c) => {
         </div>
       </div>
 
+      {/* Retest Modal */}
+      <div id="retest-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md" onclick="event.stopPropagation()">
+          <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-bold text-gray-900">
+                <i class="fas fa-flask text-purple-500 mr-2"></i>
+                Retest resultaat — #<span id="retest-feedback-id-display"></span>
+              </h3>
+              <button onclick="closeRetestModal()" class="text-gray-400 hover:text-gray-600">
+                <i class="fas fa-times text-xl"></i>
+              </button>
+            </div>
+            <p class="text-sm text-gray-500 mb-4">
+              Werkt de fix zoals verwacht? Jouw resultaat wordt gelogd in de retest-historie.
+            </p>
+            <input type="hidden" id="retest-feedback-id" />
+
+            <div class="grid grid-cols-2 gap-2 mb-3">
+              <button onclick="setRetestResult('werkt')" id="retest-btn-werkt"
+                class="border-2 border-gray-200 rounded-lg px-3 py-3 text-sm hover:bg-green-50 hover:border-green-400 transition text-left">
+                <div class="font-semibold text-green-700">✅ Werkt</div>
+                <div class="text-xs text-gray-500">Status → Opgelost</div>
+              </button>
+              <button onclick="setRetestResult('werkt_niet')" id="retest-btn-werkt_niet"
+                class="border-2 border-gray-200 rounded-lg px-3 py-3 text-sm hover:bg-red-50 hover:border-red-400 transition text-left">
+                <div class="font-semibold text-red-700">❌ Werkt niet</div>
+                <div class="text-xs text-gray-500">Status → Open</div>
+              </button>
+              <button onclick="setRetestResult('partieel')" id="retest-btn-partieel"
+                class="border-2 border-gray-200 rounded-lg px-3 py-3 text-sm hover:bg-amber-50 hover:border-amber-400 transition text-left">
+                <div class="font-semibold text-amber-700">🟡 Partieel</div>
+                <div class="text-xs text-gray-500">Blijft op Hertesten</div>
+              </button>
+              <button onclick="setRetestResult('meer_info')" id="retest-btn-meer_info"
+                class="border-2 border-gray-200 rounded-lg px-3 py-3 text-sm hover:bg-blue-50 hover:border-blue-400 transition text-left">
+                <div class="font-semibold text-blue-700">❓ Meer info</div>
+                <div class="text-xs text-gray-500">Status → Meer info nodig</div>
+              </button>
+            </div>
+
+            <div class="mb-3">
+              <label class="block text-xs font-medium text-gray-600 mb-1">Deploy ref (optioneel)</label>
+              <input type="text" id="retest-deploy-ref" placeholder="bv. ab621afb"
+                class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-400 focus:border-transparent" />
+            </div>
+            <div class="mb-4">
+              <label class="block text-xs font-medium text-gray-600 mb-1">Notitie (optioneel)</label>
+              <textarea id="retest-notes" rows="2" placeholder="Korte opmerking..."
+                class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-purple-400 focus:border-transparent"></textarea>
+            </div>
+
+            <div class="flex justify-end gap-2">
+              <button onclick="closeRetestModal()" class="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg transition">
+                Annuleren
+              </button>
+              <button onclick="submitRetest()" id="retest-submit-btn" disabled
+                class="px-6 py-2 bg-purple-600 text-white text-sm font-semibold rounded-lg hover:bg-purple-700 transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                <i class="fas fa-check"></i>
+                Resultaat opslaan
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* JavaScript */}
       <script dangerouslySetInnerHTML={{__html: `
         const loadedConversations = {};
+
+        // ===================== RETEST MODAL =====================
+        let selectedRetestResult = null;
+        function openRetestModal(feedbackId) {
+          document.getElementById('retest-feedback-id').value = feedbackId;
+          document.getElementById('retest-feedback-id-display').textContent = feedbackId;
+          document.getElementById('retest-deploy-ref').value = '';
+          document.getElementById('retest-notes').value = '';
+          selectedRetestResult = null;
+          document.getElementById('retest-submit-btn').disabled = true;
+          ['werkt','werkt_niet','partieel','meer_info'].forEach(r => {
+            const btn = document.getElementById('retest-btn-' + r);
+            if (btn) btn.classList.remove('ring-2','ring-purple-500','bg-purple-50');
+          });
+          document.getElementById('retest-modal').classList.remove('hidden');
+        }
+        function closeRetestModal() {
+          document.getElementById('retest-modal').classList.add('hidden');
+        }
+        function setRetestResult(result) {
+          selectedRetestResult = result;
+          ['werkt','werkt_niet','partieel','meer_info'].forEach(r => {
+            const btn = document.getElementById('retest-btn-' + r);
+            if (btn) btn.classList.remove('ring-2','ring-purple-500','bg-purple-50');
+          });
+          const sel = document.getElementById('retest-btn-' + result);
+          if (sel) sel.classList.add('ring-2','ring-purple-500','bg-purple-50');
+          document.getElementById('retest-submit-btn').disabled = false;
+        }
+        async function submitRetest() {
+          if (!selectedRetestResult) return;
+          const feedbackId = document.getElementById('retest-feedback-id').value;
+          const deployRef = document.getElementById('retest-deploy-ref').value;
+          const notes = document.getElementById('retest-notes').value;
+          const btn = document.getElementById('retest-submit-btn');
+          btn.disabled = true;
+          btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Opslaan...';
+          try {
+            const fd = new FormData();
+            fd.append('feedback_id', feedbackId);
+            fd.append('result', selectedRetestResult);
+            fd.append('deploy_ref', deployRef);
+            fd.append('notes', notes);
+            const res = await fetch('/api/admin/feedback/retest', { method: 'POST', body: fd });
+            const data = await res.json();
+            if (data.ok) {
+              closeRetestModal();
+              window.location.reload();
+            } else {
+              alert('Fout bij opslaan: ' + (data.error || 'onbekend'));
+              btn.disabled = false;
+              btn.innerHTML = '<i class="fas fa-check"></i> Resultaat opslaan';
+            }
+          } catch (e) {
+            alert('Netwerkfout: ' + e.message);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-check"></i> Resultaat opslaan';
+          }
+        }
+
 
         // ===================== CONVERSATION FUNCTIONS =====================
         // Auto-load conversations that are already visible (items with comments)
@@ -1623,6 +1792,450 @@ app.get('/admin/feedback', async (c) => {
           return div.innerHTML;
         }
       `}} />
+    </Layout>
+  )
+})
+
+// =============================================================================
+// API: Verstuur retest-digest naar testers (Dirk, Dries, alle admins)
+// =============================================================================
+app.post('/api/admin/feedback/send-retest-digest', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.parseBody()
+  const targetParam = String(body.targets || 'admins') // 'admins' | comma-separated user_ids
+  const deployRef = String(body.deploy_ref || 'latest')
+
+  // Haal alle items op die op 'hertesten' staan
+  const items = await queryAll<any>(db, `
+    SELECT id, type, message, admin_notes, updated_at
+    FROM feedback
+    WHERE status = 'hertesten'
+    ORDER BY id DESC
+  `)
+
+  if (items.length === 0) {
+    return c.redirect('/admin/feedback?error=no_items_to_retest')
+  }
+
+  // Bepaal ontvangers
+  let recipients: any[] = []
+  if (targetParam === 'admins') {
+    recipients = await queryAll<any>(db, `
+      SELECT u.id, u.email, p.voornaam, p.achternaam
+      FROM users u
+      LEFT JOIN profiles p ON p.user_id = u.id
+      WHERE u.role IN ('admin', 'moderator') AND u.status = 'actief'
+    `)
+  } else {
+    const ids = targetParam.split(',').map(s => Number(s.trim())).filter(Boolean)
+    if (ids.length > 0) {
+      const placeholders = ids.map(() => '?').join(',')
+      recipients = await queryAll<any>(db, `
+        SELECT u.id, u.email, p.voornaam, p.achternaam
+        FROM users u
+        LEFT JOIN profiles p ON p.user_id = u.id
+        WHERE u.id IN (${placeholders})
+      `, ids)
+    }
+  }
+
+  if (recipients.length === 0) {
+    return c.redirect('/admin/feedback?error=no_recipients')
+  }
+
+  // Bouw één HTML body met de lijst
+  const siteUrl = c.env.SITE_URL || 'https://animato-live.pages.dev'
+  const itemsHtml = (items as any[]).map(item => {
+    const truncated = (item.message || '').substring(0, 200)
+    const typeIcon = item.type === 'bug' ? '🐛' : item.type === 'feature' ? '💡' : '📝'
+    return `
+      <tr style="border-bottom: 1px solid #e5e7eb;">
+        <td style="padding: 12px; vertical-align: top;">
+          <div style="font-weight: 600;">${typeIcon} #${item.id}</div>
+          <div style="font-size: 12px; color: #6b7280;">${item.type}</div>
+        </td>
+        <td style="padding: 12px; vertical-align: top; font-size: 13px;">
+          ${truncated.replace(/[<>]/g, c => c === '<' ? '&lt;' : '&gt;')}${item.message && item.message.length > 200 ? '…' : ''}
+          <div style="margin-top: 6px;">
+            <a href="${siteUrl}/admin/feedback?id=${item.id}" style="color: #00A9CE; text-decoration: none; font-size: 12px;">→ Bekijk in dashboard</a>
+          </div>
+        </td>
+      </tr>
+    `
+  }).join('')
+
+  let sent = 0
+  let failed = 0
+  for (const r of recipients) {
+    const greeting = r.voornaam ? `Beste ${r.voornaam}` : 'Beste tester'
+    const html = `
+      <div style="font-family: -apple-system, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #00A9CE;">🔔 ${items.length} item${items.length === 1 ? '' : 's'} klaar voor retest</h2>
+        <p>${greeting},</p>
+        <p>De volgende items zijn live op <strong>${siteUrl}</strong> (deploy <code>${deployRef}</code>) en wachten op jouw retest:</p>
+
+        <table style="width: 100%; border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; margin: 16px 0;">
+          <thead style="background-color: #f9fafb;">
+            <tr>
+              <th style="padding: 10px; text-align: left; font-size: 12px; color: #6b7280;">Item</th>
+              <th style="padding: 10px; text-align: left; font-size: 12px; color: #6b7280;">Beschrijving</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsHtml}
+          </tbody>
+        </table>
+
+        <div style="margin: 24px 0; text-align: center;">
+          <a href="${siteUrl}/admin/feedback?status=hertesten"
+             style="background-color: #00A9CE; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block; font-weight: 600;">
+            🧪 Open retest dashboard
+          </a>
+        </div>
+
+        <h3 style="color: #374151; font-size: 16px; margin-top: 24px;">📋 Hoe te retesten?</h3>
+        <ol style="color: #4b5563; font-size: 14px; line-height: 1.6;">
+          <li>Klik op "Open retest dashboard" hierboven</li>
+          <li>Per item: probeer het beschreven gedrag te reproduceren op de live site</li>
+          <li>Klik op "🧪 Markeer als getest" en kies <strong>Werkt</strong> / <strong>Werkt niet</strong> / <strong>Partieel</strong></li>
+          <li>Voeg eventueel een korte notitie toe</li>
+        </ol>
+
+        <p style="color: #9ca3af; font-size: 12px; margin-top: 24px; border-top: 1px solid #e5e7eb; padding-top: 16px;">
+          Deze digest werd handmatig getriggerd door een admin via /admin/feedback. Reageer op deze mail bij vragen.
+        </p>
+      </div>
+    `
+
+    const ok = await sendEmail({
+      to: r.email,
+      subject: `🔔 ${items.length} item${items.length === 1 ? '' : 's'} klaar voor retest — Animato`,
+      html
+    }, c.env.RESEND_API_KEY)
+
+    if (ok) sent++; else failed++
+  }
+
+  return c.redirect(`/admin/feedback?success=digest_sent&count=${sent}${failed > 0 ? '&failed=' + failed : ''}`)
+})
+
+// =============================================================================
+// API: Log een retest result + update item status indien gewenst
+// =============================================================================
+app.post('/api/admin/feedback/retest', async (c) => {
+  const db = c.env.DB
+  const user: SessionUser = c.get('user')
+  const body = await c.req.parseBody()
+
+  const feedbackId = Number(body.feedback_id)
+  const result = String(body.result || '') // werkt | werkt_niet | partieel | meer_info
+  const notes = String(body.notes || '').trim()
+  const deployRef = String(body.deploy_ref || '').trim()
+
+  if (!feedbackId || !['werkt', 'werkt_niet', 'partieel', 'meer_info'].includes(result)) {
+    return c.json({ ok: false, error: 'invalid_input' }, 400)
+  }
+
+  // Insert retest history
+  await execute(db, `
+    INSERT INTO feedback_retest_history (feedback_id, tester_user_id, deploy_ref, result, notes)
+    VALUES (?, ?, ?, ?, ?)
+  `, [feedbackId, user.id, deployRef || null, result, notes || null])
+
+  // Update feedback status afhankelijk van resultaat
+  let newStatus: string | null = null
+  if (result === 'werkt') newStatus = 'resolved'
+  else if (result === 'werkt_niet') newStatus = 'open'
+  else if (result === 'meer_info') newStatus = 'meer_info_nodig'
+  // 'partieel' laat status op 'hertesten' staan
+
+  if (newStatus) {
+    await execute(db, `UPDATE feedback SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [newStatus, feedbackId])
+  }
+
+  return c.json({ ok: true, new_status: newStatus || 'hertesten' })
+})
+
+// =============================================================================
+// PAGE: Retest Coverage rapport — wie testte wat, wanneer, op welke deploy
+// =============================================================================
+app.get('/admin/feedback/coverage', async (c) => {
+  const user = c.get('user')
+  const db = c.env.DB
+
+  // Stats per tester
+  const testerStats = await queryAll<any>(db, `
+    SELECT
+      u.id, u.email, p.voornaam, p.achternaam,
+      COUNT(*) as total_tests,
+      SUM(CASE WHEN h.result = 'werkt' THEN 1 ELSE 0 END) as werkt,
+      SUM(CASE WHEN h.result = 'werkt_niet' THEN 1 ELSE 0 END) as werkt_niet,
+      SUM(CASE WHEN h.result = 'partieel' THEN 1 ELSE 0 END) as partieel,
+      SUM(CASE WHEN h.result = 'meer_info' THEN 1 ELSE 0 END) as meer_info,
+      MAX(h.tested_at) as last_test
+    FROM feedback_retest_history h
+    JOIN users u ON u.id = h.tester_user_id
+    LEFT JOIN profiles p ON p.user_id = u.id
+    GROUP BY u.id
+    ORDER BY total_tests DESC
+  `)
+
+  // Items met retest info — laat zien hoe vaak elk item getest is
+  const itemsCoverage = await queryAll<any>(db, `
+    SELECT
+      f.id, f.type, f.status, substr(f.message, 1, 100) as msg_preview, f.updated_at,
+      COUNT(h.id) as retest_count,
+      MAX(h.tested_at) as last_tested,
+      GROUP_CONCAT(DISTINCT p.voornaam) as testers
+    FROM feedback f
+    LEFT JOIN feedback_retest_history h ON h.feedback_id = f.id
+    LEFT JOIN users u ON u.id = h.tester_user_id
+    LEFT JOIN profiles p ON p.user_id = u.id
+    WHERE f.status IN ('hertesten', 'resolved', 'open')
+    GROUP BY f.id
+    ORDER BY
+      CASE WHEN f.status = 'hertesten' THEN 0 WHEN f.status = 'open' THEN 1 ELSE 2 END,
+      retest_count ASC,
+      f.id DESC
+    LIMIT 50
+  `)
+
+  // Items die op 'hertesten' staan en nog NOOIT getest zijn (= achterstand)
+  const untested = (itemsCoverage as any[]).filter(i => i.status === 'hertesten' && i.retest_count === 0)
+
+  // Recente retest activiteit (laatste 20)
+  const recentTests = await queryAll<any>(db, `
+    SELECT h.*, p.voornaam, p.achternaam, f.type as feedback_type, substr(f.message, 1, 80) as feedback_preview
+    FROM feedback_retest_history h
+    JOIN users u ON u.id = h.tester_user_id
+    LEFT JOIN profiles p ON p.user_id = u.id
+    JOIN feedback f ON f.id = h.feedback_id
+    ORDER BY h.tested_at DESC
+    LIMIT 20
+  `)
+
+  // Totalen
+  const totalRetests = (testerStats as any[]).reduce((s: number, t: any) => s + (t.total_tests || 0), 0)
+  const totalHertesten = (itemsCoverage as any[]).filter(i => i.status === 'hertesten').length
+
+  const resultBadge = (result: string) => {
+    if (result === 'werkt') return { label: '✅ Werkt', class: 'bg-green-100 text-green-700' }
+    if (result === 'werkt_niet') return { label: '❌ Werkt niet', class: 'bg-red-100 text-red-700' }
+    if (result === 'partieel') return { label: '🟡 Partieel', class: 'bg-amber-100 text-amber-700' }
+    if (result === 'meer_info') return { label: '❓ Meer info', class: 'bg-blue-100 text-blue-700' }
+    return { label: result, class: 'bg-gray-100 text-gray-700' }
+  }
+
+  return c.html(
+    <Layout title="Retest Coverage" user={user}>
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="feedback" />
+        <div class="flex-1 p-8">
+          <div class="flex justify-between items-center mb-6">
+            <div>
+              <h1 class="text-3xl font-bold text-gray-900 flex items-center gap-3">
+                <i class="fas fa-clipboard-check text-animato-primary"></i>
+                Retest Coverage
+              </h1>
+              <p class="text-gray-600 mt-1">Wie testte wat, wanneer, op welke deploy</p>
+            </div>
+            <div class="flex gap-2">
+              <a href="/admin/feedback?status=hertesten" class="inline-flex items-center h-9 px-3 bg-white border border-gray-300 text-gray-700 text-sm rounded-lg hover:bg-gray-50">
+                <i class="fas fa-arrow-left mr-1.5"></i> Terug naar feedback
+              </a>
+              <form action="/api/admin/feedback/send-retest-digest" method="POST" class="inline" onsubmit="return confirm('Retest-digest mailen naar alle admins?');">
+                <input type="hidden" name="targets" value="admins" />
+                <input type="hidden" name="deploy_ref" value="latest" />
+                <button type="submit" class="inline-flex items-center h-9 px-3 bg-animato-primary text-white text-sm rounded-lg hover:opacity-90 font-medium">
+                  <i class="fas fa-paper-plane mr-1.5"></i> Mail digest
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* KPI cards */}
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-white p-4 rounded shadow border-l-4 border-blue-500">
+              <p class="text-gray-500 text-sm">Wachten op retest</p>
+              <p class="text-2xl font-bold text-blue-700">{totalHertesten}</p>
+              <p class="text-xs text-gray-400 mt-1">{untested.length} nog nooit getest</p>
+            </div>
+            <div class="bg-white p-4 rounded shadow border-l-4 border-green-500">
+              <p class="text-gray-500 text-sm">Totaal retests gedaan</p>
+              <p class="text-2xl font-bold text-green-700">{totalRetests}</p>
+            </div>
+            <div class="bg-white p-4 rounded shadow border-l-4 border-purple-500">
+              <p class="text-gray-500 text-sm">Actieve testers</p>
+              <p class="text-2xl font-bold text-purple-700">{testerStats.length}</p>
+            </div>
+            <div class="bg-white p-4 rounded shadow border-l-4 border-amber-500">
+              <p class="text-gray-500 text-sm">Coverage</p>
+              <p class="text-2xl font-bold text-amber-700">
+                {totalHertesten > 0 ? Math.round(((totalHertesten - untested.length) / totalHertesten) * 100) : 100}%
+              </p>
+              <p class="text-xs text-gray-400 mt-1">van hertesten-items aangeraakt</p>
+            </div>
+          </div>
+
+          {/* Tester leaderboard */}
+          <div class="bg-white rounded-lg shadow mb-6">
+            <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+              <h2 class="font-bold text-gray-800"><i class="fas fa-trophy text-yellow-500 mr-2"></i>Tester Leaderboard</h2>
+              <span class="text-xs text-gray-500">Sortering: aantal retests</span>
+            </div>
+            {testerStats.length > 0 ? (
+              <table class="w-full text-sm">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Tester</th>
+                    <th class="px-4 py-2 text-center text-xs font-medium text-gray-500">Totaal</th>
+                    <th class="px-4 py-2 text-center text-xs font-medium text-green-600">✅ Werkt</th>
+                    <th class="px-4 py-2 text-center text-xs font-medium text-red-600">❌ Werkt niet</th>
+                    <th class="px-4 py-2 text-center text-xs font-medium text-amber-600">🟡 Partieel</th>
+                    <th class="px-4 py-2 text-center text-xs font-medium text-blue-600">❓ Meer info</th>
+                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Laatste test</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-200">
+                  {testerStats.map((t: any, idx: number) => (
+                    <tr>
+                      <td class="px-4 py-3">
+                        <div class="flex items-center gap-2">
+                          <span class="text-xs text-gray-400 w-5">{idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `${idx + 1}.`}</span>
+                          <div>
+                            <div class="font-medium">{t.voornaam || '?'} {t.achternaam || ''}</div>
+                            <div class="text-xs text-gray-500">{t.email}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="px-4 py-3 text-center font-bold">{t.total_tests}</td>
+                      <td class="px-4 py-3 text-center text-green-700">{t.werkt}</td>
+                      <td class="px-4 py-3 text-center text-red-700">{t.werkt_niet}</td>
+                      <td class="px-4 py-3 text-center text-amber-700">{t.partieel}</td>
+                      <td class="px-4 py-3 text-center text-blue-700">{t.meer_info}</td>
+                      <td class="px-4 py-3 text-xs text-gray-500">
+                        {t.last_test ? new Date(t.last_test).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <div class="px-4 py-8 text-center text-gray-500 text-sm">
+                <i class="fas fa-inbox text-3xl mb-2 text-gray-300"></i>
+                <p>Nog geen retests geregistreerd. Begin met de eerste!</p>
+              </div>
+            )}
+          </div>
+
+          {/* Items zonder retest */}
+          {untested.length > 0 && (
+            <div class="bg-amber-50 border border-amber-200 rounded-lg shadow mb-6">
+              <div class="px-4 py-3 border-b border-amber-200">
+                <h2 class="font-bold text-amber-900">
+                  <i class="fas fa-exclamation-triangle mr-2"></i>
+                  {untested.length} item{untested.length === 1 ? '' : 's'} op &lsquo;hertesten&rsquo; — nog niemand getest
+                </h2>
+              </div>
+              <ul class="divide-y divide-amber-200">
+                {untested.map((item: any) => (
+                  <li class="px-4 py-3 flex items-center justify-between">
+                    <div class="min-w-0 flex-1">
+                      <span class="font-mono text-xs text-amber-700 mr-2">#{item.id}</span>
+                      <span class="text-sm text-gray-700">{item.msg_preview}{item.msg_preview && item.msg_preview.length >= 100 ? '…' : ''}</span>
+                    </div>
+                    <a href={`/admin/feedback?id=${item.id}`} class="text-xs text-animato-primary hover:underline whitespace-nowrap ml-3">
+                      Test nu →
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Recente retests */}
+          <div class="bg-white rounded-lg shadow mb-6">
+            <div class="px-4 py-3 border-b border-gray-200">
+              <h2 class="font-bold text-gray-800"><i class="fas fa-history text-purple-500 mr-2"></i>Recente Retest Activiteit</h2>
+            </div>
+            {recentTests.length > 0 ? (
+              <ul class="divide-y divide-gray-100 text-sm">
+                {recentTests.map((t: any) => {
+                  const badge = resultBadge(t.result)
+                  return (
+                    <li class="px-4 py-3 flex items-start gap-3">
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-2 mb-1">
+                          <span class="font-medium">{t.voornaam || '?'}</span>
+                          <span class="text-gray-400">testte</span>
+                          <a href={`/admin/feedback?id=${t.feedback_id}`} class="font-mono text-xs text-animato-primary hover:underline">#{t.feedback_id}</a>
+                          <span class={`text-xs px-2 py-0.5 rounded-full ${badge.class}`}>{badge.label}</span>
+                          {t.deploy_ref && <span class="text-xs text-gray-400 font-mono">deploy {t.deploy_ref}</span>}
+                        </div>
+                        <div class="text-xs text-gray-500 truncate">{t.feedback_preview}{t.feedback_preview && t.feedback_preview.length >= 80 ? '…' : ''}</div>
+                        {t.notes && <div class="text-xs text-gray-700 mt-1 italic bg-gray-50 px-2 py-1 rounded">"{t.notes}"</div>}
+                      </div>
+                      <span class="text-xs text-gray-400 whitespace-nowrap">
+                        {new Date(t.tested_at).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' })}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : (
+              <div class="px-4 py-8 text-center text-gray-500 text-sm">Nog geen retest activiteit.</div>
+            )}
+          </div>
+
+          {/* Per-item coverage tabel */}
+          <div class="bg-white rounded-lg shadow">
+            <div class="px-4 py-3 border-b border-gray-200">
+              <h2 class="font-bold text-gray-800"><i class="fas fa-list-check mr-2"></i>Item Coverage (top 50)</h2>
+            </div>
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">#</th>
+                  <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Type</th>
+                  <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Status</th>
+                  <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Beschrijving</th>
+                  <th class="px-4 py-2 text-center text-xs font-medium text-gray-500">Testen</th>
+                  <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Door</th>
+                  <th class="px-4 py-2 text-left text-xs font-medium text-gray-500">Laatst getest</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-gray-200">
+                {(itemsCoverage as any[]).map((item: any) => (
+                  <tr class={item.retest_count === 0 && item.status === 'hertesten' ? 'bg-amber-50' : ''}>
+                    <td class="px-4 py-2"><a href={`/admin/feedback?id=${item.id}`} class="font-mono text-xs text-animato-primary hover:underline">#{item.id}</a></td>
+                    <td class="px-4 py-2 text-xs">{item.type === 'bug' ? '🐛' : item.type === 'feature' ? '💡' : '📝'} {item.type}</td>
+                    <td class="px-4 py-2">
+                      <span class={`text-xs px-2 py-0.5 rounded-full ${
+                        item.status === 'resolved' ? 'bg-green-100 text-green-700' :
+                        item.status === 'hertesten' ? 'bg-purple-100 text-purple-700' :
+                        item.status === 'open' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'
+                      }`}>{item.status}</span>
+                    </td>
+                    <td class="px-4 py-2 text-xs text-gray-700 max-w-md truncate">{item.msg_preview}</td>
+                    <td class="px-4 py-2 text-center font-bold">
+                      {item.retest_count > 0 ? (
+                        <span class="text-green-700">{item.retest_count}</span>
+                      ) : (
+                        <span class="text-gray-400">0</span>
+                      )}
+                    </td>
+                    <td class="px-4 py-2 text-xs text-gray-600">{item.testers || '—'}</td>
+                    <td class="px-4 py-2 text-xs text-gray-500">
+                      {item.last_tested ? new Date(item.last_tested).toLocaleDateString('nl-BE') : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </div>
     </Layout>
   )
 })

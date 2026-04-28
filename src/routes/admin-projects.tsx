@@ -954,9 +954,18 @@ app.get('/admin/projects/:id', async (c) => {
                                   {item.betaald ? <i class="fas fa-check text-green-500"></i> : <i class="fas fa-clock text-yellow-500"></i>}
                                </td>
                                <td class="px-6 py-4 text-right">
-                                  <button 
-                                    onclick={`openEditBudgetModal(${JSON.stringify(item).replace(/"/g, '&quot;')})`}
+                                  <button
+                                    data-budget-id={item.id}
+                                    data-budget-type={item.type}
+                                    data-budget-omschrijving={item.omschrijving || ''}
+                                    data-budget-categorie={item.categorie || ''}
+                                    data-budget-verwacht={item.verwacht_bedrag || 0}
+                                    data-budget-werkelijk={item.werkelijk_bedrag || 0}
+                                    data-budget-betaald={item.betaald ? '1' : '0'}
+                                    data-budget-betaaldatum={item.betaaldatum || ''}
+                                    onclick="openEditBudgetModalFromDataset(this)"
                                     class="text-blue-600 hover:text-blue-900 mr-3"
+                                    title="Item bewerken"
                                   >
                                     <i class="fas fa-edit"></i>
                                   </button>
@@ -1259,8 +1268,24 @@ app.get('/admin/projects/:id', async (c) => {
               document.getElementById('edit-budget-werkelijk').value = item.werkelijk_bedrag || 0;
               document.getElementById('edit-budget-betaald').checked = !!item.betaald;
               document.getElementById('edit-budget-betaaldatum').value = item.betaaldatum ? item.betaaldatum.split('T')[0] : '';
-              
+
               document.getElementById('edit-budget-modal').classList.remove('hidden');
+            }
+
+            // Robuuste variant via data-* attributes (zelfde fix als task-modal)
+            function openEditBudgetModalFromDataset(btn) {
+              const ds = btn.dataset;
+              const item = {
+                id: ds.budgetId,
+                type: ds.budgetType,
+                omschrijving: ds.budgetOmschrijving,
+                categorie: ds.budgetCategorie,
+                verwacht_bedrag: ds.budgetVerwacht,
+                werkelijk_bedrag: ds.budgetWerkelijk,
+                betaald: ds.budgetBetaald === '1',
+                betaaldatum: ds.budgetBetaaldatum
+              };
+              openEditBudgetModal(item);
             }
 
             document.getElementById('confirmDeleteBtn').addEventListener('click', function() {

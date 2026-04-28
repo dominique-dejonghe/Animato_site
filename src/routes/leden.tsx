@@ -205,7 +205,7 @@ app.get('/leden', async (c) => {
             </div>
           )}
 
-          {/* 🎂 Birthday banner — week overview for trakteermoment */}
+          {/* 🎂 Birthday banner — week overview */}
           {birthdayMembers.length > 0 && (
             <div class="mb-8 bg-gradient-to-br from-amber-50 via-yellow-50 to-orange-50 border-2 border-amber-300 rounded-2xl p-6 shadow-md relative overflow-hidden">
               <div class="absolute top-2 right-4 text-2xl opacity-30 select-none">🎊</div>
@@ -220,7 +220,7 @@ app.get('/leden', async (c) => {
                     🎉 Jarig deze week!
                   </h2>
                   <p class="text-xs text-amber-600 mt-0.5">
-                    Er wordt getrakteerd op de repetitie — proficiat!
+                    Proficiat aan de jarige(n)!
                   </p>
                 </div>
               </div>
@@ -3413,7 +3413,7 @@ app.get('/leden/smoelenboek', async (c) => {
                 </h2>
                 <p class="text-xs text-amber-600 mt-0.5">
                   {birthdayMembers.length > 0
-                    ? 'Er wordt getrakteerd op de repetitie — proficiat!'
+                    ? 'Proficiat aan de jarige(n)!'
                     : 'Geen jarigen deze week'}
                 </p>
               </div>

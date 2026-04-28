@@ -760,9 +760,16 @@ app.get('/admin/projects/:id', async (c) => {
                                   </form>
                                </td>
                                <td class="px-6 py-4 text-right text-sm">
-                                  <button 
-                                    onclick={`openEditTaskModal(${JSON.stringify(task).replace(/"/g, '&quot;')})`}
+                                  <button
+                                    data-task-id={task.id}
+                                    data-task-titel={task.titel || ''}
+                                    data-task-beschrijving={task.beschrijving || ''}
+                                    data-task-deadline={task.deadline || ''}
+                                    data-task-verantwoordelijke={task.verantwoordelijke_id || ''}
+                                    data-task-prioriteit={task.prioriteit || 'medium'}
+                                    onclick="openEditTaskModalFromDataset(this)"
                                     class="text-blue-600 hover:text-blue-900 mr-3"
+                                    title="Taak bewerken"
                                   >
                                     <i class="fas fa-edit"></i>
                                   </button>
@@ -1218,14 +1225,29 @@ app.get('/admin/projects/:id', async (c) => {
               document.getElementById('edit-task-titel').value = task.titel;
               document.getElementById('edit-task-beschrijving').value = task.beschrijving || '';
               document.getElementById('edit-task-deadline').value = task.deadline ? task.deadline.split('T')[0] : '';
-              
+
               const respSelect = document.getElementById('edit-task-verantwoordelijke');
               if (respSelect) respSelect.value = task.verantwoordelijke_id || '';
-              
+
               const priorSelect = document.getElementById('edit-task-prioriteit');
               if (priorSelect) priorSelect.value = task.prioriteit || 'medium';
-              
+
               document.getElementById('edit-task-modal').classList.remove('hidden');
+            }
+
+            // New, robust variant: read fields from data-* attributes on the button itself.
+            // Avoids JSON-in-onclick HTML-escape issues that broke the previous version.
+            function openEditTaskModalFromDataset(btn) {
+              const ds = btn.dataset;
+              const task = {
+                id: ds.taskId,
+                titel: ds.taskTitel,
+                beschrijving: ds.taskBeschrijving,
+                deadline: ds.taskDeadline,
+                verantwoordelijke_id: ds.taskVerantwoordelijke,
+                prioriteit: ds.taskPrioriteit
+              };
+              openEditTaskModal(task);
             }
 
             function openEditBudgetModal(item) {

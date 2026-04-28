@@ -351,6 +351,10 @@ app.post('/api/admin/feedback/assign', async (c) => {
   let assignedTo: number | null = null
   if (assignedToRaw === 'me') {
     assignedTo = user.id
+  } else if (assignedToRaw === 'reporter') {
+    // Wijs toe aan de melder van het ticket
+    const row = await queryOne<any>(c.env.DB, `SELECT user_id FROM feedback WHERE id = ?`, [id])
+    assignedTo = row?.user_id ?? null
   } else if (assignedToRaw === '' || assignedToRaw === 'null' || assignedToRaw === 'unassign') {
     assignedTo = null
   } else if (/^\d+$/.test(assignedToRaw)) {
@@ -364,6 +368,30 @@ app.post('/api/admin/feedback/assign', async (c) => {
   )
   const ref = c.req.header('referer') || '/admin/feedback'
   return c.redirect(ref)
+})
+
+// =============================================================================
+// BULK ASSIGN TO REPORTER — wijs alle (filter) tickets toe aan hun melder
+// =============================================================================
+app.post('/api/admin/feedback/bulk-assign-reporter', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.parseBody()
+  const scope = String(body.scope || 'unassigned') // 'unassigned' | 'all_open'
+
+  let whereClause = 'assigned_to IS NULL'
+  if (scope === 'all_open') {
+    whereClause = `status IN ('open', 'in_progress', 'meer_info_nodig', 'hertesten')`
+  }
+
+  // Update: assigned_to = user_id voor alle items binnen scope
+  const result = await execute(
+    db,
+    `UPDATE feedback SET assigned_to = user_id, updated_at = CURRENT_TIMESTAMP
+     WHERE ${whereClause} AND user_id IS NOT NULL`
+  )
+
+  const count = (result as any)?.meta?.changes || 0
+  return c.redirect(`/admin/feedback?success=bulk_assigned_reporter&count=${count}`)
 })
 
 // =============================================================================
@@ -609,6 +637,25 @@ app.get('/admin/feedback', async (c) => {
               <p class="text-gray-500 mt-1">{feedback.length} item(s) gevonden</p>
             </div>
             <div class="flex flex-wrap gap-2">
+              {/* Bulk assign to reporter */}
+              {(unassignedOpen?.cnt || 0) > 0 && (
+                <form
+                  action="/api/admin/feedback/bulk-assign-reporter"
+                  method="POST"
+                  class="inline"
+                  onsubmit={`return confirm('Wijs ${unassignedOpen.cnt} niet-toegewezen ticket(s) toe aan hun melder?');`}
+                >
+                  <input type="hidden" name="scope" value="unassigned" />
+                  <button
+                    type="submit"
+                    class="px-4 py-2.5 bg-emerald-600 text-white text-sm font-semibold rounded-lg hover:bg-emerald-700 transition shadow-sm flex items-center gap-2"
+                    title={`Wijs alle ${unassignedOpen.cnt} niet-toegewezen tickets toe aan hun melder`}
+                  >
+                    <i class="fas fa-user-check"></i>
+                    Wijs {unassignedOpen.cnt} toe aan melder
+                  </button>
+                </form>
+              )}
               {/* Retest Coverage link */}
               <a
                 href="/admin/feedback/coverage"
@@ -706,6 +753,12 @@ app.get('/admin/feedback', async (c) => {
           </div>
 
           {/* Success / error banners */}
+          {successMsg === 'bulk_assigned_reporter' && (
+            <div class="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg px-4 py-3 flex items-center gap-2">
+              <i class="fas fa-user-check"></i>
+              <span><strong>{successCount} ticket(s)</strong> toegewezen aan hun melder.</span>
+            </div>
+          )}
           {successMsg === 'digest_sent' && (
             <div class="mb-4 bg-green-50 border border-green-200 text-green-800 rounded-lg px-4 py-3 flex items-center gap-2">
               <i class="fas fa-check-circle"></i>
@@ -1330,7 +1383,7 @@ app.get('/admin/feedback', async (c) => {
                       </select>
                     </form>
 
-                    {/* Toewijzing — admin selector */}
+                    {/* Toewijzing — selector (admin of melder) */}
                     <form action="/api/admin/feedback/assign" method="POST" class="flex items-center gap-1">
                       <input type="hidden" name="id" value={item.id} />
                       <select
@@ -1338,12 +1391,16 @@ app.get('/admin/feedback', async (c) => {
                         onchange="this.form.submit()"
                         class={`text-xs border rounded p-1.5 ${
                           item.assigned_to === user.id ? 'bg-purple-50 border-purple-300 text-purple-800 font-semibold' :
+                          item.assigned_to === item.user_id ? 'bg-emerald-50 border-emerald-300 text-emerald-800' :
                           item.assigned_to ? 'bg-indigo-50 border-indigo-200 text-indigo-700' :
-                          'bg-gray-50 text-gray-500'
+                          'bg-amber-50 border-amber-300 text-amber-700'
                         }`}
-                        title="Wijs toe aan een admin"
+                        title="Wijs toe aan een admin of aan de melder zelf"
                       >
-                        <option value="unassign" selected={!item.assigned_to}>👤 Niet toegewezen</option>
+                        <option value="unassign" selected={!item.assigned_to}>⚠️ Niet toegewezen</option>
+                        <option value="reporter" selected={item.assigned_to === item.user_id && item.user_id != null}>
+                          🙋 Melder ({item.voornaam || item.email})
+                        </option>
                         <option value="me" selected={item.assigned_to === user.id}>⭐ Mijzelf</option>
                         {allAdmins.filter((a: any) => a.id !== user.id).map((a: any) => (
                           <option value={String(a.id)} selected={item.assigned_to === a.id}>

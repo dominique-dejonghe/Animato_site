@@ -172,10 +172,12 @@ app.post('/api/feedback', async (c) => {
       return c.json({ error: 'Screenshot te groot (max 2MB)' }, 400)
     }
 
+    // assigned_to = melder zelf — zo blijft het ticket bij de eigenaar staan
+    // tot een admin het overneemt of resolved.
     await execute(
       c.env.DB,
-      `INSERT INTO feedback (user_id, type, message, url, screenshot, browser_info, status) VALUES (?, ?, ?, ?, ?, ?, 'open')`,
-      [user.id, type, message, url, screenshot, browserInfo]
+      `INSERT INTO feedback (user_id, assigned_to, type, message, url, screenshot, browser_info, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'open')`,
+      [user.id, user.id, type, message, url, screenshot, browserInfo]
     )
 
     return c.json({ success: true })

@@ -2291,6 +2291,24 @@ app.get('/admin/leden/:id', async (c) => {
 
   const relations = await queryAll(c.env.DB, `SELECT * FROM user_relations WHERE user_id = ? ORDER BY start_date DESC`, [userId])
 
+  // Login activiteit: laatste 5 sessies + totaal aantal logins
+  const recentSessions = await queryAll<any>(c.env.DB,
+    `SELECT login_at, logout_at, duration_seconds, ip_address, user_agent, login_method
+     FROM user_sessions
+     WHERE user_id = ?
+     ORDER BY login_at DESC
+     LIMIT 5`,
+    [userId]
+  )
+  const sessionStats = await queryOne<any>(c.env.DB,
+    `SELECT COUNT(*) as total_logins,
+            MAX(login_at) as last_login,
+            SUM(COALESCE(duration_seconds, 0)) as total_seconds
+     FROM user_sessions
+     WHERE user_id = ?`,
+    [userId]
+  )
+
   return c.html(
     <Layout 
       title={`Bewerk ${member.voornaam} ${member.achternaam}`}
@@ -2419,6 +2437,159 @@ app.get('/admin/leden/:id', async (c) => {
                   </div>
                 </div>
               </div>
+
+              {/* Login Activiteit Card */}
+              {(() => {
+                const lastLogin = sessionStats?.last_login || member.last_login_at;
+                const totalLogins = sessionStats?.total_logins || 0;
+                const totalSeconds = sessionStats?.total_seconds || 0;
+                const totalHours = Math.floor(totalSeconds / 3600);
+                const totalMinutes = Math.floor((totalSeconds % 3600) / 60);
+
+                // Helper: relatieve tijd ("3 dagen geleden")
+                const relTime = (iso: string | null) => {
+                  if (!iso) return null;
+                  const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z');
+                  const diffMs = Date.now() - d.getTime();
+                  const diffMin = Math.floor(diffMs / 60000);
+                  if (diffMin < 1) return 'zojuist';
+                  if (diffMin < 60) return `${diffMin} min geleden`;
+                  const diffH = Math.floor(diffMin / 60);
+                  if (diffH < 24) return `${diffH} u geleden`;
+                  const diffD = Math.floor(diffH / 24);
+                  if (diffD < 7) return `${diffD} dag${diffD === 1 ? '' : 'en'} geleden`;
+                  if (diffD < 30) return `${Math.floor(diffD / 7)} week${diffD < 14 ? '' : 'en'} geleden`;
+                  if (diffD < 365) return `${Math.floor(diffD / 30)} maand${diffD < 60 ? '' : 'en'} geleden`;
+                  return `${Math.floor(diffD / 365)} jaar geleden`;
+                };
+
+                // Helper: detect device/browser uit user_agent
+                const parseUA = (ua: string | null) => {
+                  if (!ua) return { device: 'Onbekend', icon: 'fa-question' };
+                  const lo = ua.toLowerCase();
+                  let device = 'Desktop', icon = 'fa-desktop';
+                  if (lo.includes('iphone') || lo.includes('android')) { device = 'Mobile'; icon = 'fa-mobile-screen'; }
+                  else if (lo.includes('ipad') || lo.includes('tablet')) { device = 'Tablet'; icon = 'fa-tablet-screen-button'; }
+                  let browser = '';
+                  if (lo.includes('edg/')) browser = 'Edge';
+                  else if (lo.includes('chrome/')) browser = 'Chrome';
+                  else if (lo.includes('firefox/')) browser = 'Firefox';
+                  else if (lo.includes('safari/')) browser = 'Safari';
+                  return { device: browser ? `${device} · ${browser}` : device, icon };
+                };
+
+                const lastLoginRel = relTime(lastLogin);
+                const isStale = lastLogin ? (Date.now() - new Date(lastLogin.replace(' ', 'T') + 'Z').getTime()) > 30 * 24 * 60 * 60 * 1000 : false;
+
+                return (
+                  <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                    <div class="flex items-center justify-between mb-4">
+                      <h3 class="text-xl font-bold text-gray-900">
+                        <i class="fas fa-clock-rotate-left text-animato-primary mr-2"></i>
+                        Login Activiteit
+                      </h3>
+                      <a href={`/admin/audit?user_id=${userId}`} class="text-xs text-animato-primary hover:underline">
+                        <i class="fas fa-external-link-alt mr-1"></i>Volledige audit log
+                      </a>
+                    </div>
+
+                    {/* Top KPI strip */}
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                      <div class={`rounded-lg border p-3 ${isStale ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+                        <p class="text-xs uppercase tracking-wide text-gray-500 font-semibold">Laatste login</p>
+                        <p class={`text-lg font-bold mt-1 ${isStale ? 'text-amber-800' : 'text-green-800'}`}>
+                          {lastLoginRel || '—'}
+                        </p>
+                        {lastLogin && (
+                          <p class="text-xs text-gray-500 mt-0.5">
+                            {new Date(lastLogin.includes('T') ? lastLogin : lastLogin.replace(' ', 'T') + 'Z').toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' })}
+                          </p>
+                        )}
+                        {!lastLogin && <p class="text-xs text-gray-500 mt-0.5">Nog nooit ingelogd</p>}
+                      </div>
+                      <div class="rounded-lg border bg-blue-50 border-blue-200 p-3">
+                        <p class="text-xs uppercase tracking-wide text-gray-500 font-semibold">Totaal logins</p>
+                        <p class="text-lg font-bold text-blue-800 mt-1">{totalLogins}</p>
+                        <p class="text-xs text-gray-500 mt-0.5">sessies geregistreerd</p>
+                      </div>
+                      <div class="rounded-lg border bg-purple-50 border-purple-200 p-3">
+                        <p class="text-xs uppercase tracking-wide text-gray-500 font-semibold">Totaal tijd online</p>
+                        <p class="text-lg font-bold text-purple-800 mt-1">
+                          {totalHours > 0 ? `${totalHours}u ${totalMinutes}m` : totalMinutes > 0 ? `${totalMinutes}m` : '—'}
+                        </p>
+                        <p class="text-xs text-gray-500 mt-0.5">cumulatief</p>
+                      </div>
+                    </div>
+
+                    {/* Recente sessies tabel */}
+                    {recentSessions.length > 0 ? (
+                      <div>
+                        <h4 class="text-sm font-semibold text-gray-700 mb-2">
+                          <i class="fas fa-history text-gray-400 mr-1"></i>
+                          Laatste {recentSessions.length} login{recentSessions.length === 1 ? '' : 's'}
+                        </h4>
+                        <div class="overflow-x-auto">
+                          <table class="w-full text-sm">
+                            <thead class="bg-gray-50 border-y border-gray-200">
+                              <tr>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Wanneer</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Apparaat</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">IP</th>
+                                <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Methode</th>
+                                <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Duur</th>
+                              </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                              {recentSessions.map((s: any) => {
+                                const ua = parseUA(s.user_agent);
+                                const dur = s.duration_seconds
+                                  ? (s.duration_seconds < 60
+                                      ? `${s.duration_seconds}s`
+                                      : s.duration_seconds < 3600
+                                        ? `${Math.floor(s.duration_seconds / 60)}m`
+                                        : `${Math.floor(s.duration_seconds / 3600)}u ${Math.floor((s.duration_seconds % 3600) / 60)}m`)
+                                  : (s.logout_at ? '—' : <span class="text-green-600 font-semibold">actief</span>);
+                                const loginIso = s.login_at;
+                                const loginRel = relTime(loginIso);
+                                return (
+                                  <tr class="hover:bg-gray-50">
+                                    <td class="px-3 py-2 whitespace-nowrap">
+                                      <div class="text-gray-900">{loginRel}</div>
+                                      <div class="text-xs text-gray-400">
+                                        {loginIso ? new Date(loginIso.includes('T') ? loginIso : loginIso.replace(' ', 'T') + 'Z').toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) : ''}
+                                      </div>
+                                    </td>
+                                    <td class="px-3 py-2 whitespace-nowrap text-gray-700">
+                                      <i class={`fas ${ua.icon} text-gray-400 mr-1.5`}></i>{ua.device}
+                                    </td>
+                                    <td class="px-3 py-2 whitespace-nowrap text-xs text-gray-500 font-mono">{s.ip_address || '—'}</td>
+                                    <td class="px-3 py-2 whitespace-nowrap">
+                                      <span class={`text-xs px-2 py-0.5 rounded-full ${
+                                        s.login_method === 'password' ? 'bg-blue-100 text-blue-700' :
+                                        s.login_method === 'magic_link' ? 'bg-purple-100 text-purple-700' :
+                                        s.login_method === 'reset_token' ? 'bg-amber-100 text-amber-700' :
+                                        'bg-gray-100 text-gray-700'
+                                      }`}>
+                                        {s.login_method || 'onbekend'}
+                                      </span>
+                                    </td>
+                                    <td class="px-3 py-2 whitespace-nowrap text-right text-gray-700">{dur}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : (
+                      <div class="text-center py-6 text-gray-400 text-sm bg-gray-50 rounded">
+                        <i class="fas fa-user-slash text-2xl mb-2 text-gray-300"></i>
+                        <p>{lastLogin ? 'Logins geregistreerd voor het sessie-tracking systeem' : 'Dit lid heeft nog nooit ingelogd.'}</p>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Profile Card */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">

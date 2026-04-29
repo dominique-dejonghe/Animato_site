@@ -996,10 +996,11 @@ app.get('/admin/attendance/event/:id', async (c) => {
                     placeholder="Zoek lid..."
                     class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-animato-primary"
                   />
-                  <form method="POST" action="/api/admin/attendance/bulk" style="display:inline"
+                  <form id="bulk-all-present-form" method="POST" action="/api/admin/attendance/bulk" style="display:inline"
                         onsubmit="return confirm('Alle actieve leden als aanwezig markeren?');">
                     <input type="hidden" name="event_id" value={String(event.id)} />
                     <input type="hidden" name="action" value="all_present" />
+                    <input type="hidden" name="count_for_streak" id="bulk-cfs-1" value="0" />
                     <button type="submit" class="px-3 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">
                       <i class="fas fa-check-double mr-1"></i> Allen aanwezig
                     </button>
@@ -1012,6 +1013,25 @@ app.get('/admin/attendance/event/:id', async (c) => {
                       <i class="fas fa-eraser mr-1"></i> Wissen
                     </button>
                   </form>
+                </div>
+              </div>
+
+              {/* Streak-toggle: bepaalt of admin-correcties (toggle + bulk 'allen aanwezig') wel/niet meetellen voor de streak */}
+              <div class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
+                <label class="inline-flex items-center cursor-pointer mt-0.5">
+                  <input type="checkbox" id="count-for-streak-toggle" class="sr-only peer" />
+                  <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                </label>
+                <div class="flex-1">
+                  <div class="text-sm font-semibold text-amber-900">
+                    <i class="fas fa-fire mr-1"></i>
+                    Streak mee laten tellen
+                    <span id="cfs-state-label" class="ml-2 text-xs font-normal text-gray-600">(uit — wijzigingen tellen NIET mee)</span>
+                  </div>
+                  <p class="text-xs text-amber-800 mt-1">
+                    <strong>Aan</strong>: een handmatige check-in geldt alsof het lid zelf de QR scande, en telt mee voor de streak/badges. Gebruik dit bij correcties (bv. lid was er wél maar vergat te scannen).<br />
+                    <strong>Uit</strong> (standaard): registratie blijft als 'admin'-correctie, telt niet mee — voorkomt dat streaks "gratis" doortikken.
+                  </p>
                 </div>
               </div>
 
@@ -1081,6 +1101,20 @@ app.get('/admin/attendance/event/:id', async (c) => {
           const totalPctEl = document.getElementById('total-pct');
           const totalMembers = ${allMembersWithState.length};
 
+          // Streak-toggle: synchroniseer met hidden input van bulk-form + label
+          const cfsToggle = document.getElementById('count-for-streak-toggle');
+          const cfsLabel = document.getElementById('cfs-state-label');
+          const bulkCfsInput = document.getElementById('bulk-cfs-1');
+          if (cfsToggle) {
+            cfsToggle.addEventListener('change', function() {
+              const on = cfsToggle.checked;
+              if (bulkCfsInput) bulkCfsInput.value = on ? '1' : '0';
+              if (cfsLabel) cfsLabel.textContent = on
+                ? '(aan — wijzigingen tellen WEL mee voor streak)'
+                : '(uit — wijzigingen tellen NIET mee)';
+            });
+          }
+
           // Toggle attendance on click
           grid.addEventListener('click', async function(e) {
             const btn = e.target.closest('.attendance-toggle');
@@ -1098,12 +1132,16 @@ app.get('/admin/attendance/event/:id', async (c) => {
               fd.append('event_id', eventId);
               fd.append('user_id', userId);
               fd.append('action', wantState);
+              // Streak-toggle status meegeven
+              const cfsToggle = document.getElementById('count-for-streak-toggle');
+              const countForStreak = cfsToggle && cfsToggle.checked;
+              fd.append('count_for_streak', countForStreak ? '1' : '0');
               const res = await fetch('/api/admin/attendance/toggle', { method: 'POST', body: fd });
               const data = await res.json();
 
               if (data.success) {
                 btn.dataset.state = data.state;
-                btn.dataset.source = data.state === 'present' ? 'admin' : '';
+                btn.dataset.source = data.state === 'present' ? (data.source || 'admin') : '';
                 const badge = btn.querySelector('.attendance-badge');
                 const avatar = btn.querySelector('.w-8.h-8');
                 const avatarIcon = avatar.querySelector('i');
@@ -1116,20 +1154,38 @@ app.get('/admin/attendance/event/:id', async (c) => {
                 }
 
                 if (data.state === 'present') {
-                  // Altijd admin-kleur (paars) na handmatige toggle
-                  btn.classList.remove('border-gray-200','bg-white','hover:bg-gray-50','border-blue-400','bg-blue-50','hover:bg-blue-100');
-                  btn.classList.add('border-purple-400','bg-purple-50','hover:bg-purple-100');
-                  badge.className = 'attendance-badge text-xs px-2 py-1 rounded-full font-medium ml-2 flex-shrink-0 bg-purple-200 text-purple-900';
-                  badge.textContent = 'Aanwezig';
-                  avatar.className = 'w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-sm bg-purple-500 text-white';
-                  avatar.title = 'Door admin geregistreerd';
-                  avatarIcon.className = 'fas fa-user-shield';
-                  // Voeg 'admin' pill toe
-                  if (subtitle) {
-                    const pill = document.createElement('span');
-                    pill.className = 'text-[10px] font-semibold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded';
-                    pill.textContent = 'admin';
-                    subtitle.appendChild(pill);
+                  const isQrSource = data.source === 'qr';
+                  if (isQrSource) {
+                    // Lid telt mee voor streak — blauwe stijl (zoals zelf-scan)
+                    btn.classList.remove('border-gray-200','bg-white','hover:bg-gray-50','border-purple-400','bg-purple-50','hover:bg-purple-100');
+                    btn.classList.add('border-blue-400','bg-blue-50','hover:bg-blue-100');
+                    badge.className = 'attendance-badge text-xs px-2 py-1 rounded-full font-medium ml-2 flex-shrink-0 bg-blue-200 text-blue-900';
+                    badge.textContent = 'Aanwezig';
+                    avatar.className = 'w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-sm bg-blue-500 text-white';
+                    avatar.title = 'Door admin gemarkeerd — telt mee voor streak';
+                    avatarIcon.className = 'fas fa-qrcode';
+                    if (subtitle) {
+                      const pill = document.createElement('span');
+                      pill.className = 'text-[10px] font-semibold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded';
+                      pill.textContent = 'streak ✓';
+                      pill.title = 'Door admin gemarkeerd, telt mee voor streak';
+                      subtitle.appendChild(pill);
+                    }
+                  } else {
+                    // Admin-correctie zonder streak — paarse stijl
+                    btn.classList.remove('border-gray-200','bg-white','hover:bg-gray-50','border-blue-400','bg-blue-50','hover:bg-blue-100');
+                    btn.classList.add('border-purple-400','bg-purple-50','hover:bg-purple-100');
+                    badge.className = 'attendance-badge text-xs px-2 py-1 rounded-full font-medium ml-2 flex-shrink-0 bg-purple-200 text-purple-900';
+                    badge.textContent = 'Aanwezig';
+                    avatar.className = 'w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-sm bg-purple-500 text-white';
+                    avatar.title = 'Door admin geregistreerd — telt NIET mee voor streak';
+                    avatarIcon.className = 'fas fa-user-shield';
+                    if (subtitle) {
+                      const pill = document.createElement('span');
+                      pill.className = 'text-[10px] font-semibold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded';
+                      pill.textContent = 'admin';
+                      subtitle.appendChild(pill);
+                    }
                   }
                 } else {
                   btn.classList.add('border-gray-200','bg-white','hover:bg-gray-50');
@@ -1402,6 +1458,11 @@ app.post('/api/admin/attendance/toggle', async (c) => {
   const eventId = parseInt(body.event_id as string)
   const userId = parseInt(body.user_id as string)
   const action = String(body.action || 'toggle') // 'present' | 'absent' | 'toggle'
+  // Nieuw: admin kiest of deze handmatige check-in voor de streak telt.
+  // Default = false (veilige optie: blijft 'admin'-source, telt niet mee).
+  // true → 'qr'-source, alsof het lid zelf scande, telt wel mee voor streak.
+  const countForStreak = body.count_for_streak === '1' || body.count_for_streak === 'true'
+  const sourceTag: 'qr' | 'admin' = countForStreak ? 'qr' : 'admin'
 
   if (!eventId || !userId) {
     return c.json({ success: false, error: 'invalid_params' }, 400)
@@ -1415,17 +1476,22 @@ app.post('/api/admin/attendance/toggle', async (c) => {
 
   // Check current state
   const existing = await queryOne<any>(c.env.DB,
-    `SELECT id FROM qr_checkins WHERE event_id = ? AND user_id = ?`,
+    `SELECT id, source FROM qr_checkins WHERE event_id = ? AND user_id = ?`,
     [eventId, userId]
   )
 
   let newState: 'present' | 'absent'
   if (action === 'present' || (action === 'toggle' && !existing)) {
     if (!existing) {
-      // source='admin' → handmatig door admin, telt NIET mee voor streak
       await execute(c.env.DB,
-        `INSERT INTO qr_checkins (event_id, user_id, checked_in_at, source) VALUES (?, ?, CURRENT_TIMESTAMP, 'admin')`,
-        [eventId, userId]
+        `INSERT INTO qr_checkins (event_id, user_id, checked_in_at, source) VALUES (?, ?, CURRENT_TIMESTAMP, ?)`,
+        [eventId, userId, sourceTag]
+      )
+    } else if (existing.source !== sourceTag) {
+      // Bestaat al — admin upgrade/downgrade van source (bv. omzetten naar 'qr' om streak te laten meetellen)
+      await execute(c.env.DB,
+        `UPDATE qr_checkins SET source = ? WHERE event_id = ? AND user_id = ?`,
+        [sourceTag, eventId, userId]
       )
     }
     newState = 'present'
@@ -1443,11 +1509,12 @@ app.post('/api/admin/attendance/toggle', async (c) => {
   try {
     await execute(c.env.DB,
       `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta) VALUES (?, ?, ?, ?, ?)`,
-      [user.id, `attendance_${newState}`, 'qr_checkins', eventId, JSON.stringify({ target_user_id: userId, by_admin: true })]
+      [user.id, `attendance_${newState}`, 'qr_checkins', eventId,
+       JSON.stringify({ target_user_id: userId, by_admin: true, source: sourceTag, count_for_streak: countForStreak })]
     )
   } catch (e) { /* audit_logs optional */ }
 
-  return c.json({ success: true, state: newState, event_id: eventId, user_id: userId })
+  return c.json({ success: true, state: newState, source: sourceTag, count_for_streak: countForStreak, event_id: eventId, user_id: userId })
 })
 
 // =====================================================
@@ -1458,6 +1525,8 @@ app.post('/api/admin/attendance/bulk', async (c) => {
   const body = await c.req.parseBody()
   const eventId = parseInt(body.event_id as string)
   const action = String(body.action || '') // 'all_present' | 'clear_all'
+  const countForStreak = body.count_for_streak === '1' || body.count_for_streak === 'true'
+  const sourceTag: 'qr' | 'admin' = countForStreak ? 'qr' : 'admin'
 
   if (!eventId) return c.redirect('/admin/attendance?error=invalid_event')
 
@@ -1474,10 +1543,9 @@ app.post('/api/admin/attendance/bulk', async (c) => {
     )
     for (const m of members) {
       try {
-        // Bulk 'allen aanwezig' wordt altijd geregistreerd als admin-source
         await execute(c.env.DB,
-          `INSERT OR IGNORE INTO qr_checkins (event_id, user_id, source) VALUES (?, ?, 'admin')`,
-          [eventId, m.id]
+          `INSERT OR IGNORE INTO qr_checkins (event_id, user_id, source) VALUES (?, ?, ?)`,
+          [eventId, m.id, sourceTag]
         )
       } catch (e) { /* ignore */ }
     }
@@ -1486,7 +1554,8 @@ app.post('/api/admin/attendance/bulk', async (c) => {
   try {
     await execute(c.env.DB,
       `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta) VALUES (?, ?, ?, ?, ?)`,
-      [user.id, `attendance_bulk_${action}`, 'qr_checkins', eventId, JSON.stringify({ by_admin: true })]
+      [user.id, `attendance_bulk_${action}`, 'qr_checkins', eventId,
+       JSON.stringify({ by_admin: true, source: sourceTag, count_for_streak: countForStreak })]
     )
   } catch (e) { /* ignore */ }
 

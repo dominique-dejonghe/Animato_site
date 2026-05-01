@@ -262,6 +262,15 @@ app.get('/nieuws/:slug', async (c) => {
   )
 
   if (!artikel) {
+    // Slug bestaat misschien onder een ander type (board/posts) — oude WhatsApp-links blijven dan werken via /posts/:slug
+    const otherTypePost = await queryOne<any>(
+      c.env.DB,
+      `SELECT id, type FROM posts WHERE slug = ? AND is_published = 1 LIMIT 1`,
+      [slug]
+    )
+    if (otherTypePost && otherTypePost.type !== 'nieuws') {
+      return c.redirect(`/posts/${slug}`, 301)
+    }
     return c.notFound()
   }
 

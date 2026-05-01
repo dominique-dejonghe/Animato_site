@@ -250,11 +250,11 @@ export const Layout: FC<LayoutProps> = ({
               <div class="flex items-center space-x-4">
                 {user ? (
                   <>
-                    {/* Admin link (only for admin/moderator) */}
-                    {(user.role === 'admin' || user.role === 'moderator') && (
+                    {/* Admin/Bestuur link — admins, moderators én bestuursleden */}
+                    {(user.role === 'admin' || user.role === 'moderator' || user.is_bestuurslid === 1) && (
                       <a href="/admin" class="hidden md:block text-gray-700 hover:text-animato-primary transition">
                         <i class="fas fa-shield-alt mr-2"></i>
-                        Admin
+                        {(user.role === 'admin' || user.role === 'moderator') ? 'Admin' : 'Bestuur'}
                       </a>
                     )}
                     {/* #116 — Notificatie-belletje met badge (voor ingelogde leden) */}
@@ -310,11 +310,11 @@ export const Layout: FC<LayoutProps> = ({
               
               {user ? (
                 <>
-                  {/* Admin link in mobile menu */}
-                  {(user.role === 'admin' || user.role === 'moderator') && (
+                  {/* Admin/Bestuur link in mobile menu */}
+                  {(user.role === 'admin' || user.role === 'moderator' || user.is_bestuurslid === 1) && (
                     <a href="/admin" class="block text-gray-700 hover:text-animato-primary">
                       <i class="fas fa-shield-alt mr-2"></i>
-                      Admin Panel
+                      {(user.role === 'admin' || user.role === 'moderator') ? 'Admin Panel' : 'Bestuur Panel'}
                     </a>
                   )}
                   {/* Leden portal link in mobile menu */}

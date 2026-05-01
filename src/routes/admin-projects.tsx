@@ -17,12 +17,16 @@ app.use('/admin/*', requireBestuurslid)
 app.get('/admin/projects', async (c) => {
   const user = c.get('user') as SessionUser
 
-  // Get all projects with optional event info
+  // Get all projects with optional event info — realtime budget totals via SUM
   const projects = await queryAll(
     c.env.DB,
     `SELECT p.*, e.titel as event_titel, e.start_at, e.type as event_type,
             (SELECT COUNT(*) FROM concert_project_tasks WHERE project_id = p.id) as total_tasks,
-            (SELECT COUNT(*) FROM concert_project_tasks WHERE project_id = p.id AND status = 'done') as completed_tasks
+            (SELECT COUNT(*) FROM concert_project_tasks WHERE project_id = p.id AND status = 'done') as completed_tasks,
+            COALESCE((SELECT SUM(verwacht_bedrag)  FROM concert_budget_items WHERE project_id = p.id AND type = 'inkomst'), 0) as budget_inkomsten,
+            COALESCE((SELECT SUM(verwacht_bedrag)  FROM concert_budget_items WHERE project_id = p.id AND type = 'uitgave'), 0) as budget_uitgaven,
+            COALESCE((SELECT SUM(werkelijk_bedrag) FROM concert_budget_items WHERE project_id = p.id AND type = 'inkomst'), 0) as werkelijke_inkomsten,
+            COALESCE((SELECT SUM(werkelijk_bedrag) FROM concert_budget_items WHERE project_id = p.id AND type = 'uitgave'), 0) as werkelijke_uitgaven
      FROM concert_projects p
      LEFT JOIN events e ON e.id = p.event_id
      ORDER BY p.created_at DESC`
@@ -41,7 +45,7 @@ app.get('/admin/projects', async (c) => {
     <Layout title="Projecten" user={user}>
       <div class="flex min-h-screen bg-gray-100">
         {/* Sidebar (simplified for brevity, normally imported) */}
-        <AdminSidebar activeSection="projects" />
+        <AdminSidebar activeSection="projects" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
 
         {/* Main Content */}
         <div class="flex-1 p-8 overflow-y-auto">
@@ -392,11 +396,29 @@ app.get('/admin/projects/:id', async (c) => {
   const user = c.get('user') as SessionUser
   const projectId = c.req.param('id')
   const tab = c.req.query('tab') || 'dashboard'
+  // Sortering taken — kolom + richting via querystring
+  // Toegestane kolommen mappen we expliciet om SQL-injectie uit te sluiten
+  const sortKey = (c.req.query('sort') || 'status').toLowerCase()
+  const sortDir = (c.req.query('dir') || 'asc').toLowerCase() === 'desc' ? 'DESC' : 'ASC'
+  const sortMap: Record<string, string> = {
+    'status':     `CASE t.status WHEN 'todo' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'blocked' THEN 3 ELSE 4 END ${sortDir}, t.deadline ASC`,
+    'deadline':   `t.deadline IS NULL, t.deadline ${sortDir}`,
+    'titel':      `LOWER(t.titel) ${sortDir}`,
+    'prioriteit': `CASE t.prioriteit WHEN 'urgent' THEN 1 WHEN 'hoog' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END ${sortDir}, t.deadline ASC`,
+    'wie':        `LOWER(COALESCE(p.voornaam, '~')) ${sortDir}, LOWER(COALESCE(p.achternaam, '~')) ${sortDir}`,
+    'created':    `t.created_at ${sortDir}`,
+  }
+  const orderBy = sortMap[sortKey] || sortMap['status']
 
-  // Get project info
+  // Get project info — use REALTIME SUM from concert_budget_items as source of truth
+  // (cumulative columns op concert_projects bleven historisch uit sync lopen na delete/edit)
   const project = await queryOne<any>(
     c.env.DB,
-    `SELECT p.*, e.titel as event_titel, e.start_at, e.locatie, e.location_id, e.type as event_type
+    `SELECT p.*, e.titel as event_titel, e.start_at, e.locatie, e.location_id, e.type as event_type,
+            COALESCE((SELECT SUM(verwacht_bedrag)  FROM concert_budget_items WHERE project_id = p.id AND type = 'inkomst'), 0) as budget_inkomsten,
+            COALESCE((SELECT SUM(verwacht_bedrag)  FROM concert_budget_items WHERE project_id = p.id AND type = 'uitgave'), 0) as budget_uitgaven,
+            COALESCE((SELECT SUM(werkelijk_bedrag) FROM concert_budget_items WHERE project_id = p.id AND type = 'inkomst'), 0) as werkelijke_inkomsten,
+            COALESCE((SELECT SUM(werkelijk_bedrag) FROM concert_budget_items WHERE project_id = p.id AND type = 'uitgave'), 0) as werkelijke_uitgaven
      FROM concert_projects p
      LEFT JOIN events e ON e.id = p.event_id
      WHERE p.id = ?`,
@@ -405,7 +427,7 @@ app.get('/admin/projects/:id', async (c) => {
 
   if (!project) return c.redirect('/admin/projects?error=not_found')
 
-  // Get tasks
+  // Get tasks (sortering via querystring — orderBy is een whitelist-mapping)
   const tasks = await queryAll(
     c.env.DB,
     `SELECT t.*, u.id as user_id, p.voornaam, p.achternaam
@@ -413,9 +435,7 @@ app.get('/admin/projects/:id', async (c) => {
      LEFT JOIN users u ON u.id = t.verantwoordelijke_id
      LEFT JOIN profiles p ON p.user_id = u.id
      WHERE t.project_id = ?
-     ORDER BY 
-       CASE t.status WHEN 'todo' THEN 1 WHEN 'in_progress' THEN 2 WHEN 'blocked' THEN 3 ELSE 4 END,
-       deadline ASC`,
+     ORDER BY ${orderBy}`,
     [projectId]
   )
 
@@ -702,14 +722,34 @@ app.get('/admin/projects/:id', async (c) => {
                 </div>
                 
                 <div class="bg-white rounded-lg shadow overflow-hidden">
+                   {/* Sort helper: bouw sort-link met flip-richting per kolom */}
+                   {(() => { return null })()}
                    <table class="min-w-full divide-y divide-gray-200">
                       <thead class="bg-gray-50">
                          <tr>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Taak</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Wie</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Deadline</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Prioriteit</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            {[
+                              { key: 'titel',      label: 'Taak' },
+                              { key: 'wie',        label: 'Wie' },
+                              { key: 'deadline',   label: 'Deadline' },
+                              { key: 'prioriteit', label: 'Prioriteit' },
+                              { key: 'status',     label: 'Status' },
+                            ].map(col => {
+                              const isActive = sortKey === col.key
+                              const nextDir  = isActive && sortDir === 'ASC' ? 'desc' : 'asc'
+                              const arrow    = !isActive ? 'fa-sort text-gray-300'
+                                              : sortDir === 'ASC' ? 'fa-sort-up text-animato-primary'
+                                              : 'fa-sort-down text-animato-primary'
+                              return (
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                                  <a href={`/admin/projects/${projectId}?tab=tasks&sort=${col.key}&dir=${nextDir}`}
+                                     class="inline-flex items-center gap-1.5 hover:text-animato-primary transition"
+                                     title={`Sorteren op ${col.label.toLowerCase()}`}>
+                                    {col.label}
+                                    <i class={`fas ${arrow} text-[10px]`}></i>
+                                  </a>
+                                </th>
+                              )
+                            })}
                             <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actie</th>
                          </tr>
                       </thead>

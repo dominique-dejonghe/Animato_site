@@ -70,11 +70,14 @@ app.use('/admin/*', impersonateAuthFallback)
 app.use('/api/admin', impersonateAuthFallback)
 app.use('/api/admin/*', impersonateAuthFallback)
 
-// Apply auth middleware - admin and moderator for ALL /admin/* routes
+// Apply auth middleware - admin, moderator én bestuursleden krijgen toegang tot /admin/*
+// (bestuursleden hebben verantwoordelijkheid voor projecten, vergaderingen, budgettering)
+// Strikte admin-only acties (bv. user roles wijzigen, lid verwijderen) blijven binnen
+// individuele handlers via expliciete role-check beschermd.
 app.use('/admin/*', requireAuth)
-app.use('/admin/*', requireRole('admin', 'moderator'))
+app.use('/admin/*', requireBestuurslid)
 app.use('/api/admin/*', requireAuth)
-app.use('/api/admin/*', requireRole('admin', 'moderator'))
+app.use('/api/admin/*', requireBestuurslid)
 
 // =====================================================
 // ADMIN DASHBOARD
@@ -175,7 +178,7 @@ app.get('/admin', async (c) => {
       breadcrumbs={[{ label: 'Admin', href: '/admin' }]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="dashboard" pendingRegistrationsCount={stats.total_pending?.count || 0} />
+        <AdminSidebar activeSection="dashboard" pendingRegistrationsCount={stats.total_pending?.count || 0} userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           {/* Header */}
           <div class="bg-white border-b border-gray-200">

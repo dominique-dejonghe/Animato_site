@@ -56,7 +56,7 @@ app.get('/admin/meetings', async (c) => {
     <Layout title="Vergaderingen" user={user}>
       <div class="flex min-h-screen bg-gray-100">
         {/* Sidebar */}
-        <AdminSidebar activeSection="meetings" />
+        <AdminSidebar activeSection="meetings" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
 
         {/* Main Content */}
         <div class="flex-1 p-8 overflow-y-auto">

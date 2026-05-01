@@ -289,6 +289,10 @@ app.get('/agenda', async (c) => {
                   <option value="all" selected={type === 'all'}>Alle activiteiten</option>
                   <option value="repetitie" selected={type === 'repetitie'}>Repetities</option>
                   <option value="concert" selected={type === 'concert'}>Concerten</option>
+                  <option value="vergadering" selected={type === 'vergadering'}>Vergaderingen</option>
+                  <option value="activiteit" selected={type === 'activiteit'}>Activiteiten</option>
+                  <option value="workshop" selected={type === 'workshop'}>Workshops</option>
+                  <option value="uitstap" selected={type === 'uitstap'}>Uitstappen</option>
                   <option value="ander" selected={type === 'ander'}>Overige</option>
                 </select>
               </div>
@@ -485,13 +489,20 @@ app.get('/agenda', async (c) => {
                               <div class="flex items-start justify-between mb-2">
                                 <div>
                                   <span class={`inline-block px-3 py-1 rounded-full text-xs font-semibold mb-2 ${
-                                    event.type === 'concert' ? 'bg-yellow-100 text-yellow-800' :
-                                    event.type === 'repetitie' ? 'bg-blue-100 text-blue-800' :
+                                    event.type === 'concert'     ? 'bg-yellow-100 text-yellow-800' :
+                                    event.type === 'repetitie'   ? 'bg-blue-100 text-blue-800' :
+                                    event.type === 'vergadering' ? 'bg-indigo-100 text-indigo-800' :
+                                    event.type === 'activiteit'  ? 'bg-green-100 text-green-800' :
+                                    event.type === 'workshop'    ? 'bg-purple-100 text-purple-800' :
+                                    event.type === 'uitstap'     ? 'bg-pink-100 text-pink-800' :
                                     'bg-gray-100 text-gray-800'
                                   }`}>
-                                    {event.type === 'concert' ? 'Concert' :
-                                     event.type === 'repetitie' ? 'Repetitie' :
-                                     event.type === 'activiteit' ? 'Activiteit' :
+                                    {event.type === 'concert'     ? '🎤 Concert' :
+                                     event.type === 'repetitie'   ? '🎵 Repetitie' :
+                                     event.type === 'vergadering' ? '📋 Vergadering' :
+                                     event.type === 'activiteit'  ? '🎉 Activiteit' :
+                                     event.type === 'workshop'    ? '📚 Workshop' :
+                                     event.type === 'uitstap'     ? '🚌 Uitstap' :
                                      'Overige'}
                                   </span>
                                   <h3 class="text-xl font-bold text-gray-900">
@@ -1741,10 +1752,12 @@ function renderCalendarGrid(events: any[], year: number, month: number, birthday
                         data-event-slug={event.slug || ''}
                         data-event-beschrijving={event.beschrijving || ''}
                         class={`block text-xs px-2 py-1.5 rounded-md truncate hover:opacity-80 transition cursor-pointer font-medium shadow-sm ${
-                          event.type === 'concert' ? 'bg-yellow-200 text-yellow-900 border-l-4 border-yellow-500' :
-                          event.type === 'repetitie' ? 'bg-blue-200 text-blue-900 border-l-4 border-blue-500' :
-                          event.type === 'activiteit' ? 'bg-green-200 text-green-900 border-l-4 border-green-500' :
-                          event.type === 'workshop' ? 'bg-purple-200 text-purple-900 border-l-4 border-purple-500' :
+                          event.type === 'concert'     ? 'bg-yellow-200 text-yellow-900 border-l-4 border-yellow-500' :
+                          event.type === 'repetitie'   ? 'bg-blue-200 text-blue-900 border-l-4 border-blue-500' :
+                          event.type === 'vergadering' ? 'bg-indigo-200 text-indigo-900 border-l-4 border-indigo-500' :
+                          event.type === 'activiteit'  ? 'bg-green-200 text-green-900 border-l-4 border-green-500' :
+                          event.type === 'workshop'    ? 'bg-purple-200 text-purple-900 border-l-4 border-purple-500' :
+                          event.type === 'uitstap'     ? 'bg-pink-200 text-pink-900 border-l-4 border-pink-500' :
                           'bg-gray-200 text-gray-800 border-l-4 border-gray-500'
                         }`}
                         title={`${event.titel} - ${new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}`}

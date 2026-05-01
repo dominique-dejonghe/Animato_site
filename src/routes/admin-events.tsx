@@ -166,7 +166,10 @@ app.get('/admin/events', async (c) => {
                   <option value="all" selected={type === 'all'}>Alle Types</option>
                   <option value="repetitie" selected={type === 'repetitie'}>Repetitie</option>
                   <option value="concert" selected={type === 'concert'}>Concert</option>
+                  <option value="vergadering" selected={type === 'vergadering'}>Vergadering</option>
                   <option value="activiteit" selected={type === 'activiteit'}>Activiteit / Jaarfeest</option>
+                  <option value="workshop" selected={type === 'workshop'}>Workshop</option>
+                  <option value="uitstap" selected={type === 'uitstap'}>Uitstap</option>
                   <option value="ander" selected={type === 'ander'}>Ander</option>
                 </select>
               </div>
@@ -1307,9 +1310,12 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
                     const activeType = event?.type || preselectedType || 'repetitie'
                     return (
                       <>
-                        <option value="repetitie" selected={activeType === 'repetitie'}>Repetitie</option>
-                        <option value="concert" selected={activeType === 'concert'}>Concert</option>
-                        <option value="activiteit" selected={activeType === 'activiteit'}>Activiteit / Jaarfeest</option>
+                        <option value="repetitie" selected={activeType === 'repetitie'}>🎵 Repetitie</option>
+                        <option value="concert" selected={activeType === 'concert'}>🎤 Concert</option>
+                        <option value="vergadering" selected={activeType === 'vergadering'}>📋 Vergadering</option>
+                        <option value="activiteit" selected={activeType === 'activiteit'}>🎉 Activiteit / Jaarfeest</option>
+                        <option value="workshop" selected={activeType === 'workshop'}>📚 Workshop</option>
+                        <option value="uitstap" selected={activeType === 'uitstap'}>🚌 Uitstap</option>
                         <option value="ander" selected={activeType === 'ander'}>Ander</option>
                       </>
                     )

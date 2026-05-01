@@ -3949,37 +3949,58 @@ app.get('/admin/content/:id', async (c) => {
                   const detailPath = post.type === 'nieuws' ? `/nieuws/${post.slug}` : `/posts/${post.slug}`
                   const shareUrl = `https://animato-live.pages.dev${detailPath}`
                   const shareText = `${post.titel} — ${shareUrl}`
+                  const isPublicShare = post.public_share === 1
+                  const needsLogin = !isPublicShare && (post.zichtbaarheid === 'leden' || post.zichtbaarheid === 'bestuur')
                   return (
-                    <div class="flex items-center gap-2">
-                      <a
-                        href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition shadow-sm"
-                        title="Open WhatsApp om dit bericht in een groep of contact te delen"
-                      >
-                        <i class="fab fa-whatsapp mr-2 text-base"></i>
-                        Deel via WhatsApp
-                      </a>
-                      <a
-                        href={detailPath}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="inline-flex items-center px-3 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm transition"
-                        title="Open het publieke bericht in een nieuw tabblad"
-                      >
-                        <i class="fas fa-external-link-alt mr-1"></i>
-                        Bekijk
-                      </a>
-                      <button
-                        type="button"
-                        onclick={`navigator.clipboard.writeText('${post.titel.replace(/'/g, "\\'")} — ${shareUrl}'); this.innerHTML='<i class=\\'fas fa-check mr-1\\'></i> Gekopieerd!'; setTimeout(()=>{this.innerHTML='<i class=\\'fas fa-copy mr-1\\'></i> Kopieer link'}, 2000);`}
-                        class="inline-flex items-center px-3 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm transition"
-                        title="Kopieer link + titel voor andere kanalen"
-                      >
-                        <i class="fas fa-copy mr-1"></i>
-                        Kopieer link
-                      </button>
+                    <div class="flex flex-col items-end gap-1">
+                      <div class="flex items-center gap-2 flex-wrap">
+                        <a
+                          href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition shadow-sm"
+                          title="Open WhatsApp om dit bericht in een groep of contact te delen"
+                        >
+                          <i class="fab fa-whatsapp mr-2 text-base"></i>
+                          Deel via WhatsApp
+                        </a>
+                        <a
+                          href={detailPath}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          class="inline-flex items-center px-3 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm transition"
+                          title="Open het publieke bericht in een nieuw tabblad"
+                        >
+                          <i class="fas fa-external-link-alt mr-1"></i>
+                          Bekijk
+                        </a>
+                        <button
+                          type="button"
+                          onclick={`navigator.clipboard.writeText('${post.titel.replace(/'/g, "\\'")} — ${shareUrl}'); this.innerHTML='<i class=\\'fas fa-check mr-1\\'></i> Gekopieerd!'; setTimeout(()=>{this.innerHTML='<i class=\\'fas fa-copy mr-1\\'></i> Kopieer link'}, 2000);`}
+                          class="inline-flex items-center px-3 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm transition"
+                          title="Kopieer link + titel voor andere kanalen"
+                        >
+                          <i class="fas fa-copy mr-1"></i>
+                          Kopieer link
+                        </button>
+                      </div>
+                      {/* Status-indicator: openbaar of leden-only */}
+                      {isPublicShare ? (
+                        <div class="text-xs text-green-700 font-medium">
+                          <i class="fas fa-share-alt mr-1"></i>
+                          🔓 Publiek deelbaar — ontvangers hoeven niet in te loggen
+                        </div>
+                      ) : needsLogin ? (
+                        <div class="text-xs text-amber-700 font-medium">
+                          <i class="fas fa-info-circle mr-1"></i>
+                          🔒 Ontvangers moeten inloggen (alleen leden). Vink "🔓 Maak publiek deelbaar" aan voor breed delen.
+                        </div>
+                      ) : (
+                        <div class="text-xs text-gray-500">
+                          <i class="fas fa-globe mr-1"></i>
+                          Publieke post — werkt zonder login
+                        </div>
+                      )}
                     </div>
                   )
                 })()}
@@ -4209,6 +4230,34 @@ app.get('/admin/content/:id', async (c) => {
                 <label for="is_pinned" class="ml-2 text-sm text-gray-700">
                   Pin dit bericht bovenaan (voor belangrijke berichten)
                 </label>
+              </div>
+
+              {/* Public-share toggle: als aan, is /posts/:slug toegankelijk zonder login (voor WhatsApp-delen) */}
+              <div class="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <div class="flex items-start gap-3">
+                  <input
+                    type="checkbox"
+                    name="public_share"
+                    id="public_share"
+                    value="1"
+                    checked={post?.public_share === 1}
+                    class="mt-0.5 w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                  />
+                  <div class="flex-1">
+                    <label for="public_share" class="text-sm font-semibold text-green-900 cursor-pointer">
+                      🔓 Maak deze post publiek deelbaar via WhatsApp
+                    </label>
+                    <p class="text-xs text-green-800 mt-1">
+                      <strong>Aan:</strong> de share-link <code class="bg-white px-1 rounded text-[11px]">/posts/{post?.slug || '<slug>'}</code> werkt
+                      zonder login — handig om via WhatsApp breder te delen (familie, vrienden, andere koren).
+                      <br />
+                      <strong>Uit (standaard):</strong> de zichtbaarheid hierboven bepaalt wie het kan zien.
+                      Niet-leden krijgen een loginscherm.
+                      <br />
+                      <em class="text-amber-700">⚠️ Let op: zet enkel aan als de inhoud echt voor het bredere publiek bestemd is.</em>
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <div class="mt-4">
@@ -4693,6 +4742,7 @@ app.post('/api/admin/content/save', async (c) => {
       zichtbaarheid,
       is_published,
       is_pinned,
+      public_share,
       cover_image,
       published_at: customPublishedAt,
       verloopt_op
@@ -4726,6 +4776,7 @@ app.post('/api/admin/content/save', async (c) => {
     const now = new Date().toISOString()
     const publishedValue = is_published === '1' ? 1 : 0
     const pinnedValue = is_pinned === '1' ? 1 : 0
+    const publicShareValue = public_share === '1' ? 1 : 0
 
     // Determine published_at: use custom date if provided, else auto-set on publish
     const resolvedPublishedAt = customPublishedAt 
@@ -4737,8 +4788,8 @@ app.post('/api/admin/content/save', async (c) => {
       const result = await c.env.DB.prepare(
         `INSERT INTO posts (
           type, categorie, titel, slug, excerpt, body, zichtbaarheid, 
-          is_published, is_pinned, auteur_id, created_at, published_at, cover_image, verloopt_op
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          is_published, is_pinned, public_share, auteur_id, created_at, published_at, cover_image, verloopt_op
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).bind(
         type,
         categorie || null,
@@ -4749,6 +4800,7 @@ app.post('/api/admin/content/save', async (c) => {
         zichtbaarheid,
         publishedValue,
         pinnedValue,
+        publicShareValue,
         user.id,
         now,
         resolvedPublishedAt,
@@ -4781,7 +4833,7 @@ app.post('/api/admin/content/save', async (c) => {
       await c.env.DB.prepare(
         `UPDATE posts 
          SET type = ?, categorie = ?, titel = ?, slug = ?, excerpt = ?, body = ?, 
-             zichtbaarheid = ?, is_published = ?, is_pinned = ?,
+             zichtbaarheid = ?, is_published = ?, is_pinned = ?, public_share = ?,
              published_at = CASE WHEN ? IS NOT NULL THEN ? WHEN is_published = 0 AND ? = 1 THEN ? ELSE published_at END,
              cover_image = ?,
              verloopt_op = ?,
@@ -4797,6 +4849,7 @@ app.post('/api/admin/content/save', async (c) => {
         zichtbaarheid,
         publishedValue,
         pinnedValue,
+        publicShareValue,
         customPublishedAt || null,
         customPublishedAt ? String(customPublishedAt).replace('T', ' ') + ':00' : null,
         publishedValue,

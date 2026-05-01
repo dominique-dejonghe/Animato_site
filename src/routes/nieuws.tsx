@@ -452,13 +452,18 @@ const postDetailHandler = async (c: any) => {
     return c.redirect(`/nieuws/${slug}`, 301)
   }
 
-  // Visibility check: leden-only posts vereisen login
-  if (post.zichtbaarheid === 'leden' && !user) {
-    return c.redirect(`/login?redirect=${encodeURIComponent(c.req.path)}`)
-  }
-  // Bestuur-only posts (board): enkel zichtbaar voor admin/bestuur
-  if (post.zichtbaarheid === 'bestuur' && (!user || (user.role !== 'admin' && user.role !== 'bestuur'))) {
-    return c.redirect(`/login?redirect=${encodeURIComponent(c.req.path)}&error=unauthorized`)
+  // Visibility check — public_share=1 omzeilt de leden/bestuur-restrictie
+  // (admin heeft expliciet aangevinkt: "🔓 Maak deze post publiek deelbaar via WhatsApp")
+  const isPubliclyShared = post.public_share === 1
+  if (!isPubliclyShared) {
+    if (post.zichtbaarheid === 'leden' && !user) {
+      return c.redirect(`/login?redirect=${encodeURIComponent(c.req.path)}`)
+    }
+    // Bestuur-only posts (board) — public_share telt hier ook,
+    // dus alleen blokkeren als public_share UIT staat.
+    if (post.zichtbaarheid === 'bestuur' && (!user || (user.role !== 'admin' && user.role !== 'bestuur'))) {
+      return c.redirect(`/login?redirect=${encodeURIComponent(c.req.path)}&error=unauthorized`)
+    }
   }
 
   // Increment views
@@ -469,11 +474,12 @@ const postDetailHandler = async (c: any) => {
     ? new Date(post.published_at).toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
     : ''
 
-  // Visibility badge
-  const visBadge =
-    post.zichtbaarheid === 'leden' ? { label: 'Alleen voor leden', cls: 'bg-blue-100 text-blue-800', icon: 'fa-lock' } :
-    post.zichtbaarheid === 'bestuur' ? { label: 'Bestuur intern', cls: 'bg-purple-100 text-purple-800', icon: 'fa-shield' } :
-    { label: 'Publiek', cls: 'bg-green-100 text-green-800', icon: 'fa-globe' }
+  // Visibility badge — public_share toont expliciet de "publiek deelbaar"-status
+  const visBadge = isPubliclyShared
+    ? { label: 'Publiek deelbaar', cls: 'bg-green-100 text-green-800', icon: 'fa-share-alt' }
+    : post.zichtbaarheid === 'leden' ? { label: 'Alleen voor leden', cls: 'bg-blue-100 text-blue-800', icon: 'fa-lock' }
+    : post.zichtbaarheid === 'bestuur' ? { label: 'Bestuur intern', cls: 'bg-purple-100 text-purple-800', icon: 'fa-shield' }
+    : { label: 'Publiek', cls: 'bg-green-100 text-green-800', icon: 'fa-globe' }
 
   // Type label
   const typeLabel: Record<string, string> = {

@@ -3942,30 +3942,47 @@ app.get('/admin/content/:id', async (c) => {
                     {success === 'updated' && 'Post succesvol bijgewerkt'}
                   </div>
                 </div>
-                {/* #119 — Deel via WhatsApp wanneer post gepubliceerd is */}
-                {post && post.is_published === 1 && contentType === 'posts' && post.slug && (
-                  <div class="flex items-center gap-2">
-                    <a
-                      href={`https://wa.me/?text=${encodeURIComponent(`${post.titel} — https://animato-live.pages.dev/nieuws/${post.slug}`)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition shadow-sm"
-                      title="Open WhatsApp om dit bericht in een groep of contact te delen"
-                    >
-                      <i class="fab fa-whatsapp mr-2 text-base"></i>
-                      Deel via WhatsApp
-                    </a>
-                    <button
-                      type="button"
-                      onclick={`navigator.clipboard.writeText('${post.titel.replace(/'/g, "\\'")} — https://animato-live.pages.dev/nieuws/${post.slug}'); this.innerHTML='<i class=\\'fas fa-check mr-1\\'></i> Gekopieerd!'; setTimeout(()=>{this.innerHTML='<i class=\\'fas fa-copy mr-1\\'></i> Kopieer link'}, 2000);`}
-                      class="inline-flex items-center px-3 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm transition"
-                      title="Kopieer link + titel voor andere kanalen"
-                    >
-                      <i class="fas fa-copy mr-1"></i>
-                      Kopieer link
-                    </button>
-                  </div>
-                )}
+                {/* #119 — Deel via WhatsApp wanneer post gepubliceerd is.
+                    Gebruik /posts/:slug voor type='posts'/'board'/etc., /nieuws/:slug enkel voor type='nieuws'.
+                    Dit werkt voor àlle post-types via de universele post-detail route. */}
+                {post && post.is_published === 1 && contentType === 'posts' && post.slug && (() => {
+                  const detailPath = post.type === 'nieuws' ? `/nieuws/${post.slug}` : `/posts/${post.slug}`
+                  const shareUrl = `https://animato-live.pages.dev${detailPath}`
+                  const shareText = `${post.titel} — ${shareUrl}`
+                  return (
+                    <div class="flex items-center gap-2">
+                      <a
+                        href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition shadow-sm"
+                        title="Open WhatsApp om dit bericht in een groep of contact te delen"
+                      >
+                        <i class="fab fa-whatsapp mr-2 text-base"></i>
+                        Deel via WhatsApp
+                      </a>
+                      <a
+                        href={detailPath}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        class="inline-flex items-center px-3 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm transition"
+                        title="Open het publieke bericht in een nieuw tabblad"
+                      >
+                        <i class="fas fa-external-link-alt mr-1"></i>
+                        Bekijk
+                      </a>
+                      <button
+                        type="button"
+                        onclick={`navigator.clipboard.writeText('${post.titel.replace(/'/g, "\\'")} — ${shareUrl}'); this.innerHTML='<i class=\\'fas fa-check mr-1\\'></i> Gekopieerd!'; setTimeout(()=>{this.innerHTML='<i class=\\'fas fa-copy mr-1\\'></i> Kopieer link'}, 2000);`}
+                        class="inline-flex items-center px-3 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm transition"
+                        title="Kopieer link + titel voor andere kanalen"
+                      >
+                        <i class="fas fa-copy mr-1"></i>
+                        Kopieer link
+                      </button>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
           )}

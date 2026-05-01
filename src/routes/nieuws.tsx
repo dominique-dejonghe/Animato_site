@@ -411,4 +411,150 @@ app.get('/nieuws/:slug', async (c) => {
   )
 })
 
+// =====================================================
+// UNIVERSAL POST DETAIL — werkt voor alle post-types
+// (nieuws, board, posts, ...) zodat WhatsApp-share-links
+// (/posts/:slug, /berichten/:slug) altijd werken.
+// =====================================================
+
+const postDetailHandler = async (c: any) => {
+  const user = c.get('user')
+  const slug = c.req.param('slug')
+
+  // Look up post by slug, ongeacht type
+  const post = await queryOne<any>(
+    c.env.DB,
+    `SELECT p.*, 
+            u.id as auteur_id, 
+            pr.voornaam as auteur_voornaam, 
+            pr.achternaam as auteur_achternaam,
+            pr.foto_url as auteur_foto
+     FROM posts p
+     LEFT JOIN users u ON u.id = p.auteur_id
+     LEFT JOIN profiles pr ON pr.user_id = u.id
+     WHERE p.slug = ? AND p.is_published = 1`,
+    [slug]
+  )
+
+  if (!post) return c.notFound()
+
+  // Voor type='nieuws': stuur door naar de bestaande nieuws-pagina
+  if (post.type === 'nieuws') {
+    return c.redirect(`/nieuws/${slug}`, 301)
+  }
+
+  // Visibility check: leden-only posts vereisen login
+  if (post.zichtbaarheid === 'leden' && !user) {
+    return c.redirect(`/login?redirect=${encodeURIComponent(c.req.path)}`)
+  }
+  // Bestuur-only posts (board): enkel zichtbaar voor admin/bestuur
+  if (post.zichtbaarheid === 'bestuur' && (!user || (user.role !== 'admin' && user.role !== 'bestuur'))) {
+    return c.redirect(`/login?redirect=${encodeURIComponent(c.req.path)}&error=unauthorized`)
+  }
+
+  // Increment views
+  await c.env.DB.prepare('UPDATE posts SET views = views + 1 WHERE id = ?').bind(post.id).run()
+
+  const auteurNaam = post.auteur_voornaam ? `${post.auteur_voornaam} ${post.auteur_achternaam || ''}`.trim() : 'Animato'
+  const dateStr = post.published_at
+    ? new Date(post.published_at).toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    : ''
+
+  // Visibility badge
+  const visBadge =
+    post.zichtbaarheid === 'leden' ? { label: 'Alleen voor leden', cls: 'bg-blue-100 text-blue-800', icon: 'fa-lock' } :
+    post.zichtbaarheid === 'bestuur' ? { label: 'Bestuur intern', cls: 'bg-purple-100 text-purple-800', icon: 'fa-shield' } :
+    { label: 'Publiek', cls: 'bg-green-100 text-green-800', icon: 'fa-globe' }
+
+  // Type label
+  const typeLabel: Record<string, string> = {
+    board: 'Bestuursbericht',
+    posts: 'Bericht',
+    nieuws: 'Nieuws',
+    repetitie: 'Repetitie',
+    concert: 'Concert',
+  }
+  const typeName = typeLabel[post.type] || 'Bericht'
+
+  return c.html(
+    <Layout title={post.titel} description={post.excerpt} user={user}>
+      <article class="py-12 bg-gray-50 min-h-screen">
+        <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="bg-white rounded-xl shadow-md overflow-hidden">
+            {post.cover_image && (
+              <img src={post.cover_image} alt={post.titel} class="w-full h-64 object-cover" />
+            )}
+            <div class="p-6 sm:p-10">
+              {/* Header meta */}
+              <div class="flex flex-wrap items-center gap-2 mb-4 text-xs">
+                <span class={`inline-flex items-center px-2.5 py-1 rounded-full font-semibold ${visBadge.cls}`}>
+                  <i class={`fas ${visBadge.icon} mr-1.5`}></i>{visBadge.label}
+                </span>
+                <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 font-semibold">
+                  <i class="fas fa-tag mr-1.5"></i>{typeName}
+                </span>
+                {post.is_pinned === 1 && (
+                  <span class="inline-flex items-center px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 font-semibold">
+                    <i class="fas fa-thumbtack mr-1.5"></i>Vastgepind
+                  </span>
+                )}
+              </div>
+
+              <h1 class="text-3xl md:text-4xl font-bold text-gray-900 mb-4" style="font-family: 'Playfair Display', serif;">
+                {post.titel}
+              </h1>
+
+              <div class="flex items-center gap-3 mb-6 text-sm text-gray-600 border-b border-gray-200 pb-4">
+                {post.auteur_foto ? (
+                  <img src={post.auteur_foto} alt={auteurNaam} class="w-10 h-10 rounded-full object-cover" />
+                ) : (
+                  <div class="w-10 h-10 rounded-full bg-animato-primary text-white flex items-center justify-center font-bold">
+                    {auteurNaam.charAt(0)}
+                  </div>
+                )}
+                <div>
+                  <div class="font-semibold text-gray-800">{auteurNaam}</div>
+                  {dateStr && <div class="text-xs text-gray-500">{dateStr}</div>}
+                </div>
+                <div class="ml-auto text-xs text-gray-400">
+                  <i class="fas fa-eye mr-1"></i>{(post.views || 0) + 1} weergaven
+                </div>
+              </div>
+
+              {post.excerpt && (
+                <p class="text-lg text-gray-700 leading-relaxed mb-6 italic">
+                  {post.excerpt}
+                </p>
+              )}
+
+              <div
+                class="prose prose-lg max-w-none text-gray-800 leading-relaxed"
+                dangerouslySetInnerHTML={{ __html: processBodyLinks(post.body || '') }}
+              />
+
+              {/* Footer actions */}
+              <div class="mt-10 pt-6 border-t border-gray-200 flex flex-wrap items-center gap-3">
+                <a
+                  href={`https://wa.me/?text=${encodeURIComponent(`${post.titel} — https://animato-live.pages.dev/posts/${post.slug}`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition"
+                >
+                  <i class="fab fa-whatsapp mr-2"></i>Deel via WhatsApp
+                </a>
+                <a href={user ? '/dashboard' : '/'} class="inline-flex items-center px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-semibold transition">
+                  <i class="fas fa-arrow-left mr-2"></i>{user ? 'Naar dashboard' : 'Terug naar home'}
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+    </Layout>
+  )
+}
+
+app.get('/posts/:slug', postDetailHandler)
+app.get('/berichten/:slug', postDetailHandler)
+
 export default app

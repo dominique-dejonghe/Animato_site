@@ -3568,7 +3568,7 @@ app.get('/leden/smoelenboek', async (c) => {
                                 <h3 class="font-bold text-gray-900 text-lg group-hover:text-animato-primary transition-colors">{m.voornaam} {m.achternaam}</h3>
                                 {memberStreaks[m.id] > 0 && (
                                   <div class="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 text-orange-600 rounded-full text-xs font-bold">
-                                    <span>🔥</span> {memberStreaks[m.id]} week{memberStreaks[m.id] !== 1 ? 'en' : ''} streak
+                                    <span>🔥</span> {memberStreaks[m.id]} {memberStreaks[m.id] === 1 ? 'week' : 'weken'} streak
                                   </div>
                                 )}
                                 {m.bio && <p class="text-sm text-gray-500 mt-2 line-clamp-2">{m.bio}</p>}

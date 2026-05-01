@@ -1000,7 +1000,7 @@ app.get('/admin/attendance/event/:id', async (c) => {
                         onsubmit="return confirm('Alle actieve leden als aanwezig markeren?');">
                     <input type="hidden" name="event_id" value={String(event.id)} />
                     <input type="hidden" name="action" value="all_present" />
-                    <input type="hidden" name="count_for_streak" id="bulk-cfs-1" value="0" />
+                    <input type="hidden" name="count_for_streak" id="bulk-cfs-1" value={event.type === 'repetitie' ? '1' : '0'} />
                     <button type="submit" class="px-3 py-2 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700">
                       <i class="fas fa-check-double mr-1"></i> Allen aanwezig
                     </button>
@@ -1019,18 +1019,27 @@ app.get('/admin/attendance/event/:id', async (c) => {
               {/* Streak-toggle: bepaalt of admin-correcties (toggle + bulk 'allen aanwezig') wel/niet meetellen voor de streak */}
               <div class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
                 <label class="inline-flex items-center cursor-pointer mt-0.5">
-                  <input type="checkbox" id="count-for-streak-toggle" class="sr-only peer" />
+                  <input type="checkbox" id="count-for-streak-toggle" class="sr-only peer" defaultChecked={event.type === 'repetitie'} />
                   <div class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
                 </label>
                 <div class="flex-1">
                   <div class="text-sm font-semibold text-amber-900">
                     <i class="fas fa-fire mr-1"></i>
                     Streak mee laten tellen
-                    <span id="cfs-state-label" class="ml-2 text-xs font-normal text-gray-600">(uit — wijzigingen tellen NIET mee)</span>
+                    <span id="cfs-state-label" class="ml-2 text-xs font-normal text-gray-600">
+                      {event.type === 'repetitie'
+                        ? '(aan — wijzigingen tellen WEL mee voor streak)'
+                        : '(uit — wijzigingen tellen NIET mee)'}
+                    </span>
                   </div>
                   <p class="text-xs text-amber-800 mt-1">
                     <strong>Aan</strong>: een handmatige check-in geldt alsof het lid zelf de QR scande, en telt mee voor de streak/badges. Gebruik dit bij correcties (bv. lid was er wél maar vergat te scannen).<br />
-                    <strong>Uit</strong> (standaard): registratie blijft als 'admin'-correctie, telt niet mee — voorkomt dat streaks "gratis" doortikken.
+                    <strong>Uit</strong>: registratie blijft als 'admin'-correctie, telt niet mee — voorkomt dat streaks "gratis" doortikken.
+                    {event.type === 'repetitie' ? (
+                      <span> <em>Default voor repetities = aan</em> (admin corrigeert meestal écht aanwezige leden).</span>
+                    ) : (
+                      <span> <em>Default voor dit type event = uit.</em></span>
+                    )}
                   </p>
                 </div>
               </div>

@@ -412,10 +412,25 @@ app.get('/admin/meetings/:id', async (c) => {
                                         {item.presenter && <span><i class="far fa-user mr-1"></i>{item.presenter}</span>}
                                      </div>
                                   </div>
-                                  <form id={`delete-agenda-${item.id}`} action={`/api/admin/meetings/agenda/${item.id}/delete`} method="POST" onsubmit="event.preventDefault(); openDeleteModal(this.id)">
-                                    <input type="hidden" name="meeting_id" value={meetingId} />
-                                    <button type="submit" class="text-gray-400 hover:text-red-500"><i class="fas fa-trash"></i></button>
-                                  </form>
+                                  <div class="flex items-start gap-2 flex-shrink-0">
+                                    <button
+                                       type="button"
+                                       data-agenda-id={item.id}
+                                       data-agenda-titel={item.titel || ''}
+                                       data-agenda-beschrijving={item.beschrijving || ''}
+                                       data-agenda-duration={item.duur_minuten || ''}
+                                       data-agenda-presenter={item.presentator_id || ''}
+                                       onclick="openEditAgendaModalFromDataset(this)"
+                                       class="text-blue-600 hover:text-blue-900"
+                                       title="Agendapunt bewerken"
+                                    >
+                                       <i class="fas fa-edit"></i>
+                                    </button>
+                                    <form id={`delete-agenda-${item.id}`} action={`/api/admin/meetings/agenda/${item.id}/delete`} method="POST" onsubmit="event.preventDefault(); openDeleteModal(this.id)">
+                                      <input type="hidden" name="meeting_id" value={meetingId} />
+                                      <button type="submit" class="text-gray-400 hover:text-red-500" title="Agendapunt verwijderen"><i class="fas fa-trash"></i></button>
+                                    </form>
+                                  </div>
                                </div>
                             ))}
                          </div>
@@ -464,6 +479,53 @@ app.get('/admin/meetings/:id', async (c) => {
                                   <div class="flex justify-end gap-3 mt-6">
                                     <button type="button" onclick="document.getElementById('add-agenda-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition">Annuleren</button>
                                     <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary font-medium shadow-md transition">Toevoegen</button>
+                                  </div>
+                                </form>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Edit Agenda Modal */}
+                      <div id="edit-agenda-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+                        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                          <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="document.getElementById('edit-agenda-modal').classList.add('hidden')"></div>
+                          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+                          <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-blue-500">
+                            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                              <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
+                                <h3 class="text-xl leading-6 font-bold text-gray-900 mb-4" style="font-family: 'Playfair Display', serif;">
+                                  Agendapunt bewerken
+                                </h3>
+                                <form id="edit-agenda-form" method="POST">
+                                  <input type="hidden" name="meeting_id" value={meetingId} />
+                                  <div class="mb-3">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Titel</label>
+                                    <input type="text" name="titel" id="edit-agenda-titel" required class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                                  </div>
+                                  <div class="mb-3">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Beschrijving</label>
+                                    <textarea name="beschrijving" id="edit-agenda-beschrijving" rows={2} class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary"></textarea>
+                                  </div>
+                                  <div class="flex gap-4 mb-3">
+                                     <div class="flex-1">
+                                       <label class="block text-sm font-medium text-gray-700 mb-1">Duur (min)</label>
+                                       <input type="number" name="duration" id="edit-agenda-duration" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                                     </div>
+                                     <div class="flex-1">
+                                       <label class="block text-sm font-medium text-gray-700 mb-1">Spreker</label>
+                                       <select name="presenter" id="edit-agenda-presenter" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
+                                         <option value="">Selecteer...</option>
+                                         {users.map((u: any) => (
+                                           <option value={u.id}>{u.voornaam} {u.achternaam}</option>
+                                         ))}
+                                       </select>
+                                     </div>
+                                  </div>
+                                  <div class="flex justify-end gap-3 mt-6">
+                                    <button type="button" onclick="document.getElementById('edit-agenda-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition">Annuleren</button>
+                                    <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary font-medium shadow-md transition">Wijzigingen opslaan</button>
                                   </div>
                                 </form>
                               </div>
@@ -608,10 +670,23 @@ app.get('/admin/meetings/:id', async (c) => {
                                           </select>
                                        </form>
                                     </td>
-                                    <td class="px-4 py-3 text-right">
-                                       <form id={`delete-action-${action.id}`} action={`/api/admin/meetings/actions/${action.id}/delete`} method="POST" onsubmit="event.preventDefault(); openDeleteModal(this.id)">
+                                    <td class="px-4 py-3 text-right whitespace-nowrap">
+                                       <button
+                                          type="button"
+                                          data-action-id={action.id}
+                                          data-action-titel={action.titel || ''}
+                                          data-action-beschrijving={action.beschrijving || ''}
+                                          data-action-verantwoordelijke={action.verantwoordelijke_id || ''}
+                                          data-action-deadline={action.deadline ? String(action.deadline).split('T')[0] : ''}
+                                          onclick="openEditActionModalFromDataset(this)"
+                                          class="text-blue-600 hover:text-blue-900 mr-3"
+                                          title="Actiepunt bewerken"
+                                       >
+                                          <i class="fas fa-edit"></i>
+                                       </button>
+                                       <form id={`delete-action-${action.id}`} action={`/api/admin/meetings/actions/${action.id}/delete`} method="POST" onsubmit="event.preventDefault(); openDeleteModal(this.id)" class="inline">
                                           <input type="hidden" name="meeting_id" value={meetingId} />
-                                          <button type="submit" class="text-gray-400 hover:text-red-500"><i class="fas fa-trash"></i></button>
+                                          <button type="submit" class="text-gray-400 hover:text-red-500" title="Actiepunt verwijderen"><i class="fas fa-trash"></i></button>
                                        </form>
                                     </td>
                                  </tr>
@@ -657,6 +732,51 @@ app.get('/admin/meetings/:id', async (c) => {
                                   <div class="flex justify-end gap-3 mt-6">
                                     <button type="button" onclick="document.getElementById('add-action-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition">Annuleren</button>
                                     <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary font-medium shadow-md transition">Toevoegen</button>
+                                  </div>
+                                </form>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Edit Action Modal */}
+                      <div id="edit-action-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+                        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                          <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="document.getElementById('edit-action-modal').classList.add('hidden')"></div>
+                          <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+                          <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-blue-500">
+                            <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                              <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
+                                <h3 class="text-xl leading-6 font-bold text-gray-900 mb-4" style="font-family: 'Playfair Display', serif;">
+                                  Actiepunt bewerken
+                                </h3>
+                                <form id="edit-action-form" method="POST">
+                                  <input type="hidden" name="meeting_id" value={meetingId} />
+                                  <div class="mb-3">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Titel</label>
+                                    <input type="text" name="titel" id="edit-action-titel" required class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                                  </div>
+                                  <div class="mb-3">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Beschrijving</label>
+                                    <input type="text" name="beschrijving" id="edit-action-beschrijving" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                                  </div>
+                                  <div class="mb-3">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Verantwoordelijke</label>
+                                    <select name="verantwoordelijke_id" id="edit-action-verantwoordelijke" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
+                                      <option value="">Selecteer...</option>
+                                      {users.map((u: any) => (
+                                        <option value={u.id}>{u.voornaam} {u.achternaam}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div class="mb-3">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Deadline</label>
+                                    <input type="date" name="deadline" id="edit-action-deadline" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                                  </div>
+                                  <div class="flex justify-end gap-3 mt-6">
+                                    <button type="button" onclick="document.getElementById('edit-action-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition">Annuleren</button>
+                                    <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary font-medium shadow-md transition">Wijzigingen opslaan</button>
                                   </div>
                                 </form>
                               </div>
@@ -971,6 +1091,32 @@ app.get('/admin/meetings/:id', async (c) => {
           }
           closeDeleteModal();
         });
+
+        // Edit Action Item modal — vult de form in met data uit de table-row
+        function openEditActionModalFromDataset(btn) {
+          const ds = btn.dataset;
+          const form = document.getElementById('edit-action-form');
+          form.action = '/api/admin/meetings/actions/' + ds.actionId + '/update';
+          document.getElementById('edit-action-titel').value = ds.actionTitel || '';
+          document.getElementById('edit-action-beschrijving').value = ds.actionBeschrijving || '';
+          document.getElementById('edit-action-verantwoordelijke').value = ds.actionVerantwoordelijke || '';
+          document.getElementById('edit-action-deadline').value = ds.actionDeadline || '';
+          document.getElementById('edit-action-modal').classList.remove('hidden');
+        }
+        window.openEditActionModalFromDataset = openEditActionModalFromDataset;
+
+        // Edit Agenda Item modal
+        function openEditAgendaModalFromDataset(btn) {
+          const ds = btn.dataset;
+          const form = document.getElementById('edit-agenda-form');
+          form.action = '/api/admin/meetings/agenda/' + ds.agendaId + '/update';
+          document.getElementById('edit-agenda-titel').value = ds.agendaTitel || '';
+          document.getElementById('edit-agenda-beschrijving').value = ds.agendaBeschrijving || '';
+          document.getElementById('edit-agenda-duration').value = ds.agendaDuration || '';
+          document.getElementById('edit-agenda-presenter').value = ds.agendaPresenter || '';
+          document.getElementById('edit-agenda-modal').classList.remove('hidden');
+        }
+        window.openEditAgendaModalFromDataset = openEditAgendaModalFromDataset;
       ` }} />
     </Layout>
   )
@@ -1030,6 +1176,48 @@ app.post('/api/admin/meetings/actions/status', async (c) => {
   
   await c.env.DB.prepare(`UPDATE meeting_action_items SET status = ? WHERE id = ?`).bind(status, action_id).run()
   return c.redirect(`/admin/meetings/${meeting_id}?tab=actions`)
+})
+
+// Update full action item (titel/beschrijving/verantwoordelijke/deadline)
+app.post('/api/admin/meetings/actions/:id/update', async (c) => {
+  const id = c.req.param('id')
+  const body = await c.req.parseBody()
+  const { meeting_id, titel, beschrijving, verantwoordelijke_id, deadline } = body
+
+  await c.env.DB.prepare(
+    `UPDATE meeting_action_items
+     SET titel = ?, beschrijving = ?, verantwoordelijke_id = ?, deadline = ?
+     WHERE id = ?`
+  ).bind(
+    titel,
+    beschrijving || '',
+    verantwoordelijke_id ? Number(verantwoordelijke_id) : null,
+    deadline || null,
+    id
+  ).run()
+
+  return c.redirect(`/admin/meetings/${meeting_id}?tab=actions`)
+})
+
+// Update full agenda item (titel/beschrijving/duur/spreker)
+app.post('/api/admin/meetings/agenda/:id/update', async (c) => {
+  const id = c.req.param('id')
+  const body = await c.req.parseBody()
+  const { meeting_id, titel, beschrijving, duration, presenter } = body
+
+  await c.env.DB.prepare(
+    `UPDATE meeting_agenda_items
+     SET titel = ?, beschrijving = ?, duur_minuten = ?, presentator_id = ?
+     WHERE id = ?`
+  ).bind(
+    titel,
+    beschrijving || '',
+    duration ? Number(duration) : null,
+    presenter ? Number(presenter) : null,
+    id
+  ).run()
+
+  return c.redirect(`/admin/meetings/${meeting_id}?tab=agenda`)
 })
 
 app.post('/api/admin/meetings/attendance', async (c) => {

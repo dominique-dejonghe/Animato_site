@@ -1157,10 +1157,22 @@ app.get('/admin/projects/:id', async (c) => {
                                     {new Date(doc.created_at).toLocaleDateString('nl-BE')}
                                  </td>
                                  <td class="px-6 py-4 text-right">
-                                    <a href={doc.file_url} target="_blank" class="text-blue-600 hover:text-blue-900 mr-3">
+                                    <a href={doc.file_url} target="_blank" class="text-blue-600 hover:text-blue-900 mr-3" title="Openen in nieuw tabblad">
                                       <i class="fas fa-external-link-alt"></i>
                                     </a>
-                                    <button onclick={`openDeleteModal('/api/admin/projects/documents/${doc.id}/delete?project_id=${projectId}')`} class="text-gray-400 hover:text-red-600">
+                                    <button
+                                      type="button"
+                                      data-doc-id={doc.id}
+                                      data-doc-name={doc.name || ''}
+                                      data-doc-url={doc.file_url || ''}
+                                      data-doc-type={doc.file_type || 'link'}
+                                      onclick="openEditDocumentModalFromDataset(this)"
+                                      class="text-blue-600 hover:text-blue-900 mr-3"
+                                      title="Document bewerken"
+                                    >
+                                      <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button onclick={`openDeleteModal('/api/admin/projects/documents/${doc.id}/delete?project_id=${projectId}')`} class="text-gray-400 hover:text-red-600" title="Document verwijderen">
                                       <i class="fas fa-trash"></i>
                                     </button>
                                  </td>
@@ -1211,6 +1223,49 @@ app.get('/admin/projects/:id', async (c) => {
                              <div class="flex justify-end gap-3 mt-6">
                                <button type="button" onclick="document.getElementById('add-document-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition">Annuleren</button>
                                <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary font-medium shadow-md transition">Opslaan</button>
+                             </div>
+                           </form>
+                         </div>
+                       </div>
+                     </div>
+                   </div>
+                 </div>
+
+                {/* Edit Document Modal */}
+                <div id="edit-document-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+                   <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+                     <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="document.getElementById('edit-document-modal').classList.add('hidden')"></div>
+                     <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+                     <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-blue-500">
+                       <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                         <div class="mt-3 text-center sm:mt-0 sm:text-left w-full">
+                           <h3 class="text-xl leading-6 font-bold text-gray-900 mb-4" style="font-family: 'Playfair Display', serif;">
+                             Document Bewerken
+                           </h3>
+                           <form id="edit-document-form" method="POST">
+                             <input type="hidden" name="project_id" value={projectId} />
+                             <div class="mb-3">
+                               <label class="block text-sm font-medium text-gray-700 mb-1">Naam Document</label>
+                               <input type="text" name="name" id="edit-document-name" required class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                             </div>
+                             <div class="mb-3">
+                               <label class="block text-sm font-medium text-gray-700 mb-1">URL / Link</label>
+                               <input type="url" name="file_url" id="edit-document-url" required class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                             </div>
+                             <div class="mb-3">
+                               <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                               <select name="file_type" id="edit-document-type" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
+                                 <option value="link">Link</option>
+                                 <option value="pdf">PDF</option>
+                                 <option value="doc">Word / Doc</option>
+                                 <option value="excel">Excel / Sheet</option>
+                                 <option value="image">Afbeelding</option>
+                                 <option value="other">Anders</option>
+                               </select>
+                             </div>
+                             <div class="flex justify-end gap-3 mt-6">
+                               <button type="button" onclick="document.getElementById('edit-document-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition">Annuleren</button>
+                               <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary font-medium shadow-md transition">Wijzigingen opslaan</button>
                              </div>
                            </form>
                          </div>
@@ -1328,6 +1383,17 @@ app.get('/admin/projects/:id', async (c) => {
               openEditBudgetModal(item);
             }
 
+            function openEditDocumentModalFromDataset(btn) {
+              const ds = btn.dataset;
+              const form = document.getElementById('edit-document-form');
+              form.action = '/api/admin/projects/documents/' + ds.docId + '/update';
+              document.getElementById('edit-document-name').value = ds.docName || '';
+              document.getElementById('edit-document-url').value = ds.docUrl || '';
+              document.getElementById('edit-document-type').value = ds.docType || 'link';
+              document.getElementById('edit-document-modal').classList.remove('hidden');
+            }
+            window.openEditDocumentModalFromDataset = openEditDocumentModalFromDataset;
+
             document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
               if (deleteUrl) {
                 window.location.href = deleteUrl;
@@ -1377,6 +1443,20 @@ app.get('/api/admin/projects/documents/:id/delete', async (c) => {
   
   await c.env.DB.prepare('DELETE FROM concert_project_documents WHERE id = ?').bind(id).run()
   return c.redirect(`/admin/projects/${projectId}?tab=documents`)
+})
+
+app.post('/api/admin/projects/documents/:id/update', async (c) => {
+  const id = c.req.param('id')
+  const body = await c.req.parseBody()
+  const { project_id, name, file_url, file_type } = body
+
+  await c.env.DB.prepare(
+    `UPDATE concert_project_documents
+     SET name = ?, file_url = ?, file_type = ?
+     WHERE id = ?`
+  ).bind(name, file_url, file_type || 'link', id).run()
+
+  return c.redirect(`/admin/projects/${project_id}?tab=documents`)
 })
 
 // =====================================================

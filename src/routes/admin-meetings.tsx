@@ -459,7 +459,7 @@ app.get('/admin/meetings/:id', async (c) => {
                                   </div>
                                   <div class="mb-3">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Beschrijving</label>
-                                    <textarea name="beschrijving" rows={2} class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary"></textarea>
+                                    <textarea name="beschrijving" rows={4} class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary resize-y overflow-y-auto" style="min-height: 100px; max-height: 300px;"></textarea>
                                   </div>
                                   <div class="flex gap-4 mb-3">
                                      <div class="flex-1">
@@ -506,7 +506,7 @@ app.get('/admin/meetings/:id', async (c) => {
                                   </div>
                                   <div class="mb-3">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Beschrijving</label>
-                                    <textarea name="beschrijving" id="edit-agenda-beschrijving" rows={2} class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary"></textarea>
+                                    <textarea name="beschrijving" id="edit-agenda-beschrijving" rows={4} class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary resize-y overflow-y-auto" style="min-height: 100px; max-height: 300px;"></textarea>
                                   </div>
                                   <div class="flex gap-4 mb-3">
                                      <div class="flex-1">
@@ -714,7 +714,7 @@ app.get('/admin/meetings/:id', async (c) => {
                                   </div>
                                   <div class="mb-3">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Beschrijving</label>
-                                    <input type="text" name="beschrijving" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" placeholder="Details..." />
+                                    <textarea name="beschrijving" rows={4} class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary resize-y overflow-y-auto" placeholder="Details..." style="min-height: 100px; max-height: 300px;"></textarea>
                                   </div>
                                   <div class="mb-3">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Verantwoordelijke</label>
@@ -759,7 +759,7 @@ app.get('/admin/meetings/:id', async (c) => {
                                   </div>
                                   <div class="mb-3">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Beschrijving</label>
-                                    <input type="text" name="beschrijving" id="edit-action-beschrijving" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                                    <textarea name="beschrijving" id="edit-action-beschrijving" rows={4} class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary resize-y overflow-y-auto" style="min-height: 100px; max-height: 300px;"></textarea>
                                   </div>
                                   <div class="mb-3">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Verantwoordelijke</label>

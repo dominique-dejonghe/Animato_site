@@ -1100,23 +1100,19 @@ app.get('/concerten/:slug', async (c) => {
     else stemFilter.push('S', 'A', 'T', 'B', 'SA', 'TB') // bv. dirigent / admin
 
     if ((concert as any).id) {
-      // We hebben concert_id nodig — concerts.id, niet events.id
-      const concertRow = await queryOne<any>(c.env.DB,
-        'SELECT id FROM concerts WHERE event_id = ?',
-        [(concert as any).id])
-      if (concertRow?.id) {
-        partituren = await queryAll(c.env.DB, `
-          SELECT cp.id as link_id, cp.volgorde, cp.opmerking,
-                 p.id as piece_id, p.titel as piece_titel, p.toonsoort, p.tempo, p.duur_minuten,
-                 w.componist, w.titel as work_titel, w.jaar
-          FROM concert_pieces cp
-          JOIN pieces p ON p.id = cp.piece_id
-          JOIN works w ON w.id = p.work_id
-          WHERE cp.concert_id = ?
-          ORDER BY cp.volgorde ASC, cp.id ASC
-        `, [concertRow.id]) as any[]
+      // event_pieces gebruikt rechtstreeks events.id (= concert.id hier)
+      partituren = await queryAll(c.env.DB, `
+        SELECT ep.id as link_id, ep.volgorde, ep.opmerking,
+               p.id as piece_id, p.titel as piece_titel, p.toonsoort, p.tempo, p.duur_minuten,
+               w.componist, w.titel as work_titel, w.jaar
+        FROM event_pieces ep
+        JOIN pieces p ON p.id = ep.piece_id
+        JOIN works w ON w.id = p.work_id
+        WHERE ep.event_id = ?
+        ORDER BY ep.volgorde ASC, ep.id ASC
+      `, [(concert as any).id]) as any[]
 
-        if (partituren.length > 0) {
+      if (partituren.length > 0) {
           const pieceIds = partituren.map((p: any) => p.piece_id)
           const placeholders = pieceIds.map(() => '?').join(',')
           const stemPlaceholders = stemFilter.map(() => '?').join(',')
@@ -1144,7 +1140,6 @@ app.get('/concerten/:slug', async (c) => {
             p.materials = matsByPiece[p.piece_id] || []
           })
         }
-      }
     }
   }
 
@@ -1352,14 +1347,47 @@ app.get('/concerten/:slug', async (c) => {
                                 {p.materials.map((m: any) => {
                                   const stemLabel = m.stem === 'S' ? 'Sopraan' : m.stem === 'A' ? 'Alt' : m.stem === 'T' ? 'Tenor' : m.stem === 'B' ? 'Bas' : m.stem === 'SA' ? 'S+A' : m.stem === 'TB' ? 'T+B' : m.stem === 'SATB' ? 'Alle stemmen' : m.stem === 'algemeen' ? 'Algemeen' : m.stem
                                   const isMine = m.stem === userStem
+                                  const url: string = String(m.url || '')
+                                  const isDrive = url.includes('drive.google.com')
+                                  const isPdfish = m.type === 'pdf' || /\.pdf($|\?)/i.test(url) || isDrive
                                   const iconCls = m.type === 'pdf' ? 'fa-file-pdf text-red-600'
                                                 : m.type === 'audio' ? 'fa-headphones text-purple-600'
                                                 : m.type === 'video' ? 'fa-video text-blue-600'
                                                 : m.type === 'zip' ? 'fa-file-archive text-amber-600'
+                                                : isDrive ? 'fa-file-pdf text-red-600'
                                                 : 'fa-link text-gray-600'
+                                  // Knop-paar voor PDF / Drive: Bekijken (modal preview) + Openen (nieuwe tab)
+                                  if (isPdfish) {
+                                    return (
+                                      <span class={`inline-flex items-stretch rounded-lg overflow-hidden border ${isMine ? 'border-animato-primary' : 'border-gray-300'} text-xs font-medium`}>
+                                        <button
+                                          type="button"
+                                          data-pdf-url={url}
+                                          data-pdf-title={`${p.work_titel}${p.piece_titel && p.piece_titel !== p.work_titel ? ' — ' + p.piece_titel : ''} (${stemLabel})`}
+                                          onclick="openPartituurPreview(this)"
+                                          class={`inline-flex items-center gap-2 px-3 py-2 transition ${isMine ? 'bg-animato-primary/10 text-animato-primary hover:bg-animato-primary/20' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
+                                          title={`Bekijk ${m.titel} in preview`}
+                                        >
+                                          <i class={`fas ${iconCls}`}></i>
+                                          <span>{stemLabel}</span>
+                                          <i class="fas fa-eye text-[10px] opacity-70 ml-0.5"></i>
+                                        </button>
+                                        <a
+                                          href={url}
+                                          target="_blank"
+                                          rel="noopener"
+                                          class={`inline-flex items-center px-2.5 py-2 border-l ${isMine ? 'border-animato-primary bg-animato-primary/10 text-animato-primary hover:bg-animato-primary/20' : 'border-gray-300 bg-white text-gray-500 hover:bg-gray-50'}`}
+                                          title="Open in nieuwe tab / download"
+                                        >
+                                          <i class="fas fa-external-link-alt text-[11px]"></i>
+                                        </a>
+                                      </span>
+                                    )
+                                  }
+                                  // Andere types: gewone open-knop
                                   return (
                                     <a
-                                      href={m.url}
+                                      href={url}
                                       target="_blank"
                                       rel="noopener"
                                       class={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition ${isMine ? 'bg-animato-primary/10 border-animato-primary text-animato-primary hover:bg-animato-primary/20' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
@@ -1367,7 +1395,6 @@ app.get('/concerten/:slug', async (c) => {
                                     >
                                       <i class={`fas ${iconCls}`}></i>
                                       <span>{stemLabel}</span>
-                                      {m.type === 'pdf' && <i class="fas fa-download text-[10px] opacity-60"></i>}
                                     </a>
                                   )
                                 })}
@@ -1388,6 +1415,84 @@ app.get('/concerten/:slug', async (c) => {
                     <i class="fas fa-lightbulb mr-1"></i>
                     Tip: alle partituren zijn ook beschikbaar via <a href="/leden/oefenmateriaal" class="underline font-semibold">Oefenmateriaal</a> waar je oefenopnames per stem kan beluisteren.
                   </div>
+
+                  {/* PDF Preview Modal */}
+                  <div id="partituur-preview-modal" class="fixed inset-0 z-50 hidden" role="dialog" aria-modal="true">
+                    <div class="absolute inset-0 bg-gray-900/80 backdrop-blur-sm" onclick="closePartituurPreview()"></div>
+                    <div class="absolute inset-0 flex flex-col p-2 sm:p-6">
+                      <div class="bg-white rounded-xl shadow-2xl flex flex-col flex-1 max-w-6xl mx-auto w-full overflow-hidden">
+                        <div class="flex items-center justify-between gap-3 p-3 sm:p-4 border-b border-gray-200 bg-gray-50">
+                          <div class="flex items-center gap-2 min-w-0">
+                            <i class="fas fa-file-pdf text-red-600 text-xl"></i>
+                            <h3 id="partituur-preview-title" class="font-bold text-gray-900 truncate text-sm sm:text-base">Partituur</h3>
+                          </div>
+                          <div class="flex items-center gap-2 flex-shrink-0">
+                            <a id="partituur-preview-open" href="#" target="_blank" rel="noopener"
+                               class="inline-flex items-center gap-2 px-3 py-2 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 rounded-lg text-xs sm:text-sm font-semibold">
+                              <i class="fas fa-external-link-alt"></i>
+                              <span class="hidden sm:inline">Open in nieuwe tab</span>
+                            </a>
+                            <button type="button" onclick="closePartituurPreview()"
+                                    class="inline-flex items-center justify-center w-9 h-9 sm:w-10 sm:h-10 bg-white hover:bg-red-50 text-gray-600 hover:text-red-600 border border-gray-300 rounded-lg" aria-label="Sluiten">
+                              <i class="fas fa-times"></i>
+                            </button>
+                          </div>
+                        </div>
+                        <div class="flex-1 bg-gray-100 relative">
+                          <iframe id="partituur-preview-iframe" class="absolute inset-0 w-full h-full border-0" allow="autoplay" title="Partituur preview"></iframe>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <script dangerouslySetInnerHTML={{__html: `
+                    // Converteer Google Drive /view of /edit URLs naar /preview voor inline iframe.
+                    function toPreviewUrl(rawUrl) {
+                      try {
+                        var u = new URL(rawUrl);
+                        if (u.hostname.includes('drive.google.com')) {
+                          // Patronen: /file/d/<id>/view  of /file/d/<id>/edit  of /open?id=<id>
+                          var m = u.pathname.match(/\\/file\\/d\\/([^\\/]+)/);
+                          if (m && m[1]) {
+                            return 'https://drive.google.com/file/d/' + m[1] + '/preview';
+                          }
+                          var qid = u.searchParams.get('id');
+                          if (qid) {
+                            return 'https://drive.google.com/file/d/' + qid + '/preview';
+                          }
+                        }
+                      } catch (e) {}
+                      return rawUrl;
+                    }
+                    window.openPartituurPreview = function(btn) {
+                      var url = btn.getAttribute('data-pdf-url');
+                      var title = btn.getAttribute('data-pdf-title') || 'Partituur';
+                      if (!url) return;
+                      var modal = document.getElementById('partituur-preview-modal');
+                      var iframe = document.getElementById('partituur-preview-iframe');
+                      var titleEl = document.getElementById('partituur-preview-title');
+                      var openLink = document.getElementById('partituur-preview-open');
+                      titleEl.textContent = title;
+                      openLink.href = url;
+                      iframe.src = toPreviewUrl(url);
+                      modal.classList.remove('hidden');
+                      document.body.style.overflow = 'hidden';
+                    };
+                    window.closePartituurPreview = function() {
+                      var modal = document.getElementById('partituur-preview-modal');
+                      var iframe = document.getElementById('partituur-preview-iframe');
+                      modal.classList.add('hidden');
+                      iframe.src = 'about:blank';
+                      document.body.style.overflow = '';
+                    };
+                    // ESC sluit
+                    document.addEventListener('keydown', function(e) {
+                      if (e.key === 'Escape') {
+                        var modal = document.getElementById('partituur-preview-modal');
+                        if (modal && !modal.classList.contains('hidden')) closePartituurPreview();
+                      }
+                    });
+                  `}} />
                 </div>
               )}
 

@@ -757,6 +757,39 @@ app.get('/admin/events/:id', async (c) => {
     ? await queryOne<any>(c.env.DB, `SELECT id, ticketing_enabled, uitverkocht, tickets_aangekondigd, voorverkoop_start_at, capaciteit, verkocht FROM concerts WHERE event_id = ?`, [id])
     : null
 
+  // Partituurlijst voor dit event (concert OF activiteit OF willekeurig event-type)
+  const partituren = await queryAll(c.env.DB, `
+    SELECT ep.id as link_id, ep.volgorde, ep.opmerking,
+           p.id as piece_id, p.titel as piece_titel, p.toonsoort, p.tempo, p.duur_minuten,
+           w.id as work_id, w.componist, w.titel as work_titel, w.jaar
+    FROM event_pieces ep
+    JOIN pieces p ON p.id = ep.piece_id
+    JOIN works w ON w.id = p.work_id
+    WHERE ep.event_id = ?
+    ORDER BY ep.volgorde ASC, ep.id ASC
+  `, [id]) as any[]
+
+  // Tel materialen per piece (voor admin info-badge)
+  const materialCounts = await queryAll(c.env.DB, `
+    SELECT piece_id, COUNT(*) as n
+    FROM materials
+    WHERE is_actief = 1 AND piece_id IN (
+      SELECT piece_id FROM event_pieces WHERE event_id = ?
+    )
+    GROUP BY piece_id
+  `, [id]) as any[]
+  const matCountMap: Record<number, number> = {}
+  materialCounts.forEach((m: any) => { matCountMap[m.piece_id] = m.n })
+
+  // Beschikbare stukken (die nog niet aan dit event gekoppeld zijn)
+  const availablePieces = await queryAll(c.env.DB, `
+    SELECT p.id, p.titel as piece_titel, p.toonsoort, w.componist, w.titel as work_titel
+    FROM pieces p
+    JOIN works w ON w.id = p.work_id
+    WHERE p.id NOT IN (SELECT piece_id FROM event_pieces WHERE event_id = ?)
+    ORDER BY w.componist, w.titel, p.nummer, p.titel
+  `, [id]) as any[]
+
   // Disable caching for admin pages
   noCacheHeaders(c)
 
@@ -774,6 +807,294 @@ app.get('/admin/events/:id', async (c) => {
         <AdminSidebar activeSection="events" />
         <div class="flex-1 min-w-0">
           {renderEventForm(event, locations, activity, null, null, concert)}
+
+          {/* ===================================================== */}
+          {/* PARTITUURLIJST — gekoppelde stukken voor dit event    */}
+          {/* ===================================================== */}
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
+            <div class="bg-white rounded-lg shadow-md p-6 mt-4">
+              <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+                <h2 class="text-xl font-bold text-gray-900">
+                  <i class="fas fa-music text-animato-primary mr-2"></i>
+                  Partituurlijst ({partituren.length})
+                </h2>
+                <button
+                  type="button"
+                  onclick="document.getElementById('add-piece-modal').classList.remove('hidden')"
+                  class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-opacity-90 text-sm font-semibold"
+                >
+                  <i class="fas fa-plus mr-2"></i> Stuk toevoegen
+                </button>
+              </div>
+              <p class="text-sm text-gray-500 mb-4">
+                Sleep stukken om de volgorde aan te passen. Leden zien deze lijst op de event-detailpagina (publieke kant) en kunnen daar de partituren downloaden of inline bekijken.
+              </p>
+
+              {partituren.length === 0 ? (
+                <div class="text-center py-10 text-gray-500 bg-gray-50 rounded-lg border border-dashed">
+                  <i class="fas fa-music text-4xl mb-3 text-gray-300"></i>
+                  <p>Nog geen stukken gekoppeld aan dit event.</p>
+                  <p class="text-xs mt-1">Klik op <strong>"Stuk toevoegen"</strong> om te beginnen.</p>
+                </div>
+              ) : (
+                <ul id="partituren-list" class="space-y-2" data-event-id={id}>
+                  {partituren.map((p: any, idx: number) => (
+                    <li
+                      data-link-id={p.link_id}
+                      class="partituur-item flex items-center gap-3 p-3 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg cursor-move transition"
+                      draggable={true}
+                    >
+                      <i class="fas fa-grip-vertical text-gray-400 flex-shrink-0"></i>
+                      <span class="flex-shrink-0 w-7 h-7 rounded-full bg-animato-primary text-white text-xs font-bold flex items-center justify-center order-number">
+                        {idx + 1}
+                      </span>
+                      <div class="flex-1 min-w-0">
+                        <div class="font-semibold text-gray-900 truncate">
+                          {p.work_titel}{p.piece_titel && p.piece_titel !== p.work_titel ? ` — ${p.piece_titel}` : ''}
+                        </div>
+                        <div class="text-xs text-gray-600 flex flex-wrap gap-x-3 gap-y-1 mt-0.5">
+                          <span><i class="fas fa-user-edit mr-1"></i>{p.componist}{p.jaar ? ` (${p.jaar})` : ''}</span>
+                          {p.toonsoort && <span><i class="fas fa-key mr-1"></i>{p.toonsoort}</span>}
+                          {p.tempo && <span><i class="fas fa-tachometer-alt mr-1"></i>{p.tempo}</span>}
+                          {p.duur_minuten && <span><i class="fas fa-clock mr-1"></i>{p.duur_minuten} min</span>}
+                          <span class={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${matCountMap[p.piece_id] ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                            <i class="fas fa-file-pdf mr-1"></i>
+                            {matCountMap[p.piece_id] || 0} bestand{matCountMap[p.piece_id] === 1 ? '' : 'en'}
+                          </span>
+                        </div>
+                        {p.opmerking && (
+                          <div class="text-xs text-amber-700 mt-1 italic">
+                            <i class="fas fa-comment mr-1"></i>{p.opmerking}
+                          </div>
+                        )}
+                      </div>
+                      <a
+                        href={`/admin/bestanden?piece=${p.piece_id}`}
+                        target="_blank"
+                        class="text-blue-600 hover:text-blue-800 text-sm flex-shrink-0"
+                        title="Bekijk/upload partituren voor dit stuk"
+                      >
+                        <i class="fas fa-folder-open"></i>
+                      </a>
+                      <button
+                        type="button"
+                        data-link-id={p.link_id}
+                        data-piece-titel={p.piece_titel || p.work_titel}
+                        data-opmerking={p.opmerking || ''}
+                        onclick="openEditPartituurFromDataset(this)"
+                        class="text-gray-500 hover:text-blue-600 text-sm flex-shrink-0"
+                        title="Opmerking bewerken"
+                      >
+                        <i class="fas fa-edit"></i>
+                      </button>
+                      <button
+                        type="button"
+                        onclick={`removePartituur(${p.link_id}, ${id})`}
+                        class="text-gray-400 hover:text-red-600 flex-shrink-0"
+                        title="Verwijder uit lijst"
+                      >
+                        <i class="fas fa-times"></i>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
+                <i class="fas fa-info-circle mr-1"></i>
+                <strong>Geen partituren bij een stuk?</strong> Ga naar <a href="/admin/bestanden" target="_blank" class="underline font-semibold">Oefenmateriaal</a> om PDF's per stemgroep te uploaden. Daar koppel je ook YouTube-tracks en oefenopnames.
+              </div>
+            </div>
+          </div>
+
+          {/* Add Piece Modal */}
+          <div id="add-piece-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+            <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+              <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm" onclick="document.getElementById('add-piece-modal').classList.add('hidden')"></div>
+              <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+              <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-animato-primary">
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                  <h3 class="text-xl leading-6 font-bold text-gray-900 mb-4" style="font-family: 'Playfair Display', serif;">
+                    Stuk toevoegen aan partituurlijst
+                  </h3>
+                  {availablePieces.length === 0 ? (
+                    <p class="text-gray-600 py-4">
+                      Alle bestaande stukken zijn al gekoppeld. Maak eerst een nieuw stuk aan via <a href="/admin/bestanden" target="_blank" class="text-animato-primary underline">Oefenmateriaal</a>.
+                    </p>
+                  ) : (
+                    <form id="add-piece-form" onsubmit="addPartituur(event); return false;">
+                      <input type="hidden" name="event_id" value={id} />
+                      <div class="mb-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Zoek stuk</label>
+                        <input type="text" id="piece-search" placeholder="Type om te filteren op componist of titel..." class="w-full border-gray-300 rounded-lg shadow-sm p-3 border" oninput="filterPieces(this.value)" />
+                      </div>
+                      <div class="mb-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Kies stuk *</label>
+                        <select name="piece_id" id="piece-select" required size={8} class="w-full border-gray-300 rounded-lg shadow-sm p-2 border text-sm">
+                          {availablePieces.map((ap: any) => (
+                            <option value={ap.id} data-search={`${ap.componist} ${ap.work_titel} ${ap.piece_titel}`.toLowerCase()}>
+                              {ap.componist} — {ap.work_titel}{ap.piece_titel && ap.piece_titel !== ap.work_titel ? ` (${ap.piece_titel})` : ''}{ap.toonsoort ? ` [${ap.toonsoort}]` : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div class="mb-3">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Opmerking (optioneel)</label>
+                        <input type="text" name="opmerking" placeholder="bv. encore, alleen sopraan, intro voor de pauze..." class="w-full border-gray-300 rounded-lg shadow-sm p-3 border" />
+                      </div>
+                      <div class="flex justify-end gap-3 mt-6">
+                        <button type="button" onclick="document.getElementById('add-piece-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium">Annuleren</button>
+                        <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-opacity-90 font-medium shadow-md">Toevoegen</button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Edit Partituur Opmerking Modal */}
+          <div id="edit-partituur-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+            <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+              <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm" onclick="document.getElementById('edit-partituur-modal').classList.add('hidden')"></div>
+              <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+              <div class="inline-block align-bottom bg-white rounded-xl text-left overflow-hidden shadow-2xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full border-t-4 border-blue-500">
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                  <h3 class="text-xl leading-6 font-bold text-gray-900 mb-4" style="font-family: 'Playfair Display', serif;">
+                    Opmerking bewerken
+                  </h3>
+                  <form id="edit-partituur-form" onsubmit="saveEditPartituur(event); return false;">
+                    <input type="hidden" id="edit-link-id" />
+                    <div class="mb-3">
+                      <label class="block text-sm font-medium text-gray-700 mb-1">Stuk</label>
+                      <input type="text" id="edit-piece-titel" disabled class="w-full border-gray-200 rounded-lg p-3 border bg-gray-100 text-gray-700" />
+                    </div>
+                    <div class="mb-3">
+                      <label class="block text-sm font-medium text-gray-700 mb-1">Opmerking</label>
+                      <input type="text" id="edit-opmerking" placeholder="bv. encore, alleen sopraan..." class="w-full border-gray-300 rounded-lg shadow-sm p-3 border" />
+                    </div>
+                    <div class="flex justify-end gap-3 mt-6">
+                      <button type="button" onclick="document.getElementById('edit-partituur-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium">Annuleren</button>
+                      <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-opacity-90 font-medium shadow-md">Opslaan</button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <script dangerouslySetInnerHTML={{ __html: `
+            function filterPieces(q) {
+              var qq = (q || '').toLowerCase().trim();
+              var sel = document.getElementById('piece-select');
+              if (!sel) return;
+              Array.from(sel.options).forEach(function(opt) {
+                var match = !qq || (opt.dataset.search || '').indexOf(qq) !== -1;
+                opt.style.display = match ? '' : 'none';
+              });
+            }
+            window.filterPieces = filterPieces;
+
+            async function addPartituur(e) {
+              if (e) e.preventDefault();
+              var form = document.getElementById('add-piece-form');
+              var fd = new FormData(form);
+              var res = await fetch('/api/admin/events/' + fd.get('event_id') + '/pieces/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  piece_id: fd.get('piece_id'),
+                  opmerking: fd.get('opmerking') || ''
+                })
+              });
+              if (res.ok) { window.location.reload(); }
+              else { alert('Fout bij toevoegen: ' + (await res.text())); }
+            }
+            window.addPartituur = addPartituur;
+
+            async function removePartituur(linkId, eventId) {
+              if (!confirm('Dit stuk uit de partituurlijst halen?')) return;
+              var res = await fetch('/api/admin/events/pieces/' + linkId + '/remove', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ event_id: eventId })
+              });
+              if (res.ok) { window.location.reload(); }
+              else { alert('Fout bij verwijderen: ' + (await res.text())); }
+            }
+            window.removePartituur = removePartituur;
+
+            function openEditPartituurFromDataset(btn) {
+              var ds = btn.dataset;
+              document.getElementById('edit-link-id').value = ds.linkId;
+              document.getElementById('edit-piece-titel').value = ds.pieceTitel || '';
+              document.getElementById('edit-opmerking').value = ds.opmerking || '';
+              document.getElementById('edit-partituur-modal').classList.remove('hidden');
+            }
+            window.openEditPartituurFromDataset = openEditPartituurFromDataset;
+
+            async function saveEditPartituur(e) {
+              if (e) e.preventDefault();
+              var linkId = document.getElementById('edit-link-id').value;
+              var opmerking = document.getElementById('edit-opmerking').value || '';
+              var res = await fetch('/api/admin/events/pieces/' + linkId + '/update', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ opmerking: opmerking })
+              });
+              if (res.ok) { window.location.reload(); }
+              else { alert('Fout bij opslaan: ' + (await res.text())); }
+            }
+            window.saveEditPartituur = saveEditPartituur;
+
+            // Drag & drop reorder
+            (function() {
+              var list = document.getElementById('partituren-list');
+              if (!list) return;
+              var dragSrc = null;
+              var eventId = list.dataset.eventId;
+
+              list.querySelectorAll('.partituur-item').forEach(function(item) {
+                item.addEventListener('dragstart', function(e) {
+                  dragSrc = item;
+                  item.style.opacity = '0.4';
+                  e.dataTransfer.effectAllowed = 'move';
+                });
+                item.addEventListener('dragend', function() {
+                  item.style.opacity = '';
+                });
+                item.addEventListener('dragover', function(e) {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  return false;
+                });
+                item.addEventListener('drop', function(e) {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  if (dragSrc && dragSrc !== item) {
+                    var rect = item.getBoundingClientRect();
+                    var below = (e.clientY - rect.top) > rect.height / 2;
+                    if (below) {
+                      item.parentNode.insertBefore(dragSrc, item.nextSibling);
+                    } else {
+                      item.parentNode.insertBefore(dragSrc, item);
+                    }
+                    list.querySelectorAll('.partituur-item').forEach(function(el, idx) {
+                      var num = el.querySelector('.order-number');
+                      if (num) num.textContent = idx + 1;
+                    });
+                    var ids = Array.from(list.querySelectorAll('.partituur-item')).map(function(el) {
+                      return parseInt(el.dataset.linkId);
+                    });
+                    fetch('/api/admin/events/' + eventId + '/pieces/reorder', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ link_ids: ids })
+                    }).catch(function(err) { console.error(err); });
+                  }
+                  return false;
+                });
+              });
+            })();
+          ` }} />
         </div>
       </div>
       {/* Delete Confirmation Modal */}
@@ -2361,6 +2682,90 @@ app.get('/admin/events/:id/google-calendar', async (c) => {
   })
   
   return c.redirect(googleURL)
+})
+
+// ===========================================================================
+// PARTITUURLIJST API — gekoppelde stukken per event (event_pieces tabel)
+// ===========================================================================
+
+// Voeg een stuk toe aan de partituurlijst van een event
+app.post('/api/admin/events/:eventId/pieces/add', async (c) => {
+  const eventId = parseInt(c.req.param('eventId'))
+  const body = await c.req.json<{ piece_id: number; opmerking?: string }>()
+  const pieceId = parseInt(String(body.piece_id))
+  const opmerking = (body.opmerking || '').toString().trim() || null
+
+  if (!eventId || !pieceId) {
+    return c.json({ error: 'event_id en piece_id zijn verplicht' }, 400)
+  }
+
+  // Check duplicate
+  const existing = await queryOne<any>(
+    c.env.DB,
+    'SELECT id FROM event_pieces WHERE event_id = ? AND piece_id = ?',
+    [eventId, pieceId]
+  )
+  if (existing) {
+    return c.json({ error: 'Dit stuk is al gekoppeld aan dit event.' }, 409)
+  }
+
+  // Volgende volgorde = max + 10 (zodat manueel reorderen ruimte heeft)
+  const maxRow = await queryOne<any>(
+    c.env.DB,
+    'SELECT COALESCE(MAX(volgorde), 0) as max_v FROM event_pieces WHERE event_id = ?',
+    [eventId]
+  )
+  const nextVolgorde = (maxRow?.max_v ?? 0) + 10
+
+  await execute(
+    c.env.DB,
+    'INSERT INTO event_pieces (event_id, piece_id, volgorde, opmerking) VALUES (?, ?, ?, ?)',
+    [eventId, pieceId, nextVolgorde, opmerking]
+  )
+
+  return c.json({ success: true })
+})
+
+// Verwijder een stuk uit de partituurlijst (link blijft, piece niet)
+app.post('/api/admin/events/pieces/:linkId/remove', async (c) => {
+  const linkId = parseInt(c.req.param('linkId'))
+  if (!linkId) return c.json({ error: 'link_id ontbreekt' }, 400)
+  await execute(c.env.DB, 'DELETE FROM event_pieces WHERE id = ?', [linkId])
+  return c.json({ success: true })
+})
+
+// Update opmerking voor een gekoppeld stuk
+app.post('/api/admin/events/pieces/:linkId/update', async (c) => {
+  const linkId = parseInt(c.req.param('linkId'))
+  if (!linkId) return c.json({ error: 'link_id ontbreekt' }, 400)
+  const body = await c.req.json<{ opmerking?: string }>()
+  const opmerking = (body.opmerking || '').toString().trim() || null
+  await execute(
+    c.env.DB,
+    'UPDATE event_pieces SET opmerking = ? WHERE id = ?',
+    [opmerking, linkId]
+  )
+  return c.json({ success: true })
+})
+
+// Volgorde aanpassen (drag-and-drop) — body = { ids: [linkId, ...] }
+app.post('/api/admin/events/:eventId/pieces/reorder', async (c) => {
+  const eventId = parseInt(c.req.param('eventId'))
+  const body = await c.req.json<{ ids: number[] }>()
+  if (!eventId || !Array.isArray(body.ids)) {
+    return c.json({ error: 'event_id en ids[] zijn verplicht' }, 400)
+  }
+  // Update volgorde in stappen van 10
+  for (let i = 0; i < body.ids.length; i++) {
+    const linkId = parseInt(String(body.ids[i]))
+    if (!linkId) continue
+    await execute(
+      c.env.DB,
+      'UPDATE event_pieces SET volgorde = ? WHERE id = ? AND event_id = ?',
+      [(i + 1) * 10, linkId, eventId]
+    )
+  }
+  return c.json({ success: true })
 })
 
 export default app

@@ -125,6 +125,7 @@ function renderEditor(c: any, layout: any) {
   var canvasH = ${canvasHeight};
   var gridSize = 20; // Snap-to-grid size in pixels
   var showGrid = true; // Show grid overlay
+  var selectedIndices = []; // Multi-select for alignment tools
 
   // ── DOM refs ───────────────────────────────────────
   var wrapper      = document.getElementById('canvasWrapper');
@@ -150,7 +151,7 @@ function renderEditor(c: any, layout: any) {
 
     var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.id = 'gridOverlay';
-    svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:0.3;';
+    svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;opacity:0.5;';
     svg.setAttribute('width', canvasW);
     svg.setAttribute('height', canvasH);
 
@@ -159,8 +160,9 @@ function renderEditor(c: any, layout: any) {
       var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       line.setAttribute('x1', x); line.setAttribute('y1', 0);
       line.setAttribute('x2', x); line.setAttribute('y2', canvasH);
-      line.setAttribute('stroke', '#ccc'); line.setAttribute('stroke-width', '0.5');
-      if (x % (gridSize * 5) === 0) line.setAttribute('stroke-width', '1');
+      var isMajor = (x % (gridSize * 5) === 0);
+      line.setAttribute('stroke', isMajor ? '#94a3b8' : '#cbd5e1');
+      line.setAttribute('stroke-width', isMajor ? '1' : '0.5');
       svg.appendChild(line);
     }
     // Horizontal lines
@@ -168,8 +170,9 @@ function renderEditor(c: any, layout: any) {
       var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       line.setAttribute('x1', 0); line.setAttribute('y1', y);
       line.setAttribute('x2', canvasW); line.setAttribute('y2', y);
-      line.setAttribute('stroke', '#ccc'); line.setAttribute('stroke-width', '0.5');
-      if (y % (gridSize * 5) === 0) line.setAttribute('stroke-width', '1');
+      var isMajor = (y % (gridSize * 5) === 0);
+      line.setAttribute('stroke', isMajor ? '#94a3b8' : '#cbd5e1');
+      line.setAttribute('stroke-width', isMajor ? '1' : '0.5');
       svg.appendChild(line);
     }
     wrapper.insertBefore(svg, wrapper.firstChild.nextSibling);
@@ -214,7 +217,10 @@ function renderEditor(c: any, layout: any) {
       el.style.left = seat.x + 'px';
       el.style.top  = seat.y + 'px';
       el.dataset.index = index;
-      el.title = (seat.row_label || '') + ' – ' + seat.seat_number;
+      el.title = (seat.row_label || '') + ' – ' + seat.seat_number + ' (Shift+klik om te selecteren)';
+
+      // Highlight when selected
+      var isSelected = selectedIndices.indexOf(index) !== -1;
 
       if (seat.type === 'wheelchair') {
         el.style.backgroundColor = '#10B981';
@@ -277,8 +283,33 @@ function renderEditor(c: any, layout: any) {
         e.preventDefault();
         e.stopPropagation();
         seats.splice(index, 1);
+        // Reset selection because indices shift
+        selectedIndices = [];
         renderSeats();
       });
+
+      // ── Shift+click → toggle selection for alignment ──
+      el.addEventListener('click', function(e) {
+        if (!e.shiftKey) return;
+        e.stopPropagation();
+        e.preventDefault();
+        var idx = parseInt(el.dataset.index);
+        var pos = selectedIndices.indexOf(idx);
+        if (pos === -1) {
+          selectedIndices.push(idx);
+        } else {
+          selectedIndices.splice(pos, 1);
+        }
+        renderSeats();
+        updateAlignToolbar();
+      });
+
+      // Apply selection styling
+      if (isSelected) {
+        el.style.outline = '3px solid #FBBF24';
+        el.style.outlineOffset = '2px';
+        el.style.zIndex = '50';
+      }
 
       wrapper.appendChild(el);
       total++;
@@ -296,6 +327,16 @@ function renderEditor(c: any, layout: any) {
 
     // Ignore if dragging
     if (isDraggingAnySeat) return;
+
+    // Shift+click on empty canvas = clear selection (don't place a new seat)
+    if (e.shiftKey) {
+      if (selectedIndices.length > 0) {
+        selectedIndices = [];
+        renderSeats();
+        updateAlignToolbar();
+      }
+      return;
+    }
 
     // Ignore clicks on existing seat elements (they have data-index)
     if (e.target !== wrapper && e.target.dataset && e.target.dataset.index !== undefined) return;
@@ -407,8 +448,85 @@ function renderEditor(c: any, layout: any) {
     e.stopPropagation();
     if (confirm('Alle stoelen wissen?')) {
       seats = [];
+      selectedIndices = [];
       renderSeats();
+      updateAlignToolbar();
     }
+  });
+
+  // ── Snap-all to grid ────────────────────────────────
+  var snapAllBtn = document.getElementById('snapAllBtn');
+  if (snapAllBtn) {
+    snapAllBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (seats.length === 0) { alert('Geen stoelen om uit te lijnen.'); return; }
+      seats.forEach(function(s) {
+        s.x = Math.max(0, Math.min(canvasW - 32, Math.round(s.x / gridSize) * gridSize));
+        s.y = Math.max(28, Math.min(canvasH - 32, Math.round(s.y / gridSize) * gridSize));
+      });
+      renderSeats();
+    });
+  }
+
+  // ── Alignment toolbar (visible when 2+ seats selected) ──
+  function updateAlignToolbar() {
+    var bar = document.getElementById('alignToolbar');
+    var counter = document.getElementById('selectionCount');
+    if (!bar) return;
+    if (selectedIndices.length >= 2) {
+      bar.classList.remove('hidden');
+      if (counter) counter.innerText = selectedIndices.length;
+    } else {
+      bar.classList.add('hidden');
+    }
+  }
+
+  function alignSelected(mode) {
+    if (selectedIndices.length < 2) return;
+    var sel = selectedIndices.map(function(i) { return seats[i]; }).filter(Boolean);
+    if (sel.length < 2) return;
+
+    if (mode === 'horizontal') {
+      // Same Y → use Y of first selected
+      var refY = sel[0].y;
+      sel.forEach(function(s) { s.y = refY; });
+    } else if (mode === 'vertical') {
+      // Same X → use X of first selected
+      var refX = sel[0].x;
+      sel.forEach(function(s) { s.x = refX; });
+    } else if (mode === 'distribute-h') {
+      // Sort by X, distribute evenly between min and max
+      sel.sort(function(a, b) { return a.x - b.x; });
+      var minX = sel[0].x, maxX = sel[sel.length - 1].x;
+      var step = (maxX - minX) / (sel.length - 1);
+      sel.forEach(function(s, i) { s.x = Math.round(minX + i * step); });
+    } else if (mode === 'distribute-v') {
+      sel.sort(function(a, b) { return a.y - b.y; });
+      var minY = sel[0].y, maxY = sel[sel.length - 1].y;
+      var step = (maxY - minY) / (sel.length - 1);
+      sel.forEach(function(s, i) { s.y = Math.round(minY + i * step); });
+    }
+    renderSeats();
+  }
+
+  function clearSelection() {
+    selectedIndices = [];
+    renderSeats();
+    updateAlignToolbar();
+  }
+
+  ['alignHBtn', 'alignVBtn', 'distHBtn', 'distVBtn', 'clearSelBtn'].forEach(function(id) {
+    var btn = document.getElementById(id);
+    if (!btn) return;
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      if (id === 'alignHBtn') alignSelected('horizontal');
+      else if (id === 'alignVBtn') alignSelected('vertical');
+      else if (id === 'distHBtn') alignSelected('distribute-h');
+      else if (id === 'distVBtn') alignSelected('distribute-v');
+      else if (id === 'clearSelBtn') clearSelection();
+    });
   });
 
   // ── Save ───────────────────────────────────────────
@@ -523,6 +641,15 @@ function renderEditor(c: any, layout: any) {
                         <span class="ml-1.5 text-xs text-gray-600">Toon</span>
                       </label>
                     </div>
+                    <button id="snapAllBtn" type="button" class="mt-2 w-full text-xs py-2 rounded border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 font-medium" title="Lijn alle bestaande stoelen uit op het huidige raster">
+                      <i class="fas fa-magnet mr-1"></i> Snap alles aan raster
+                    </button>
+                  </div>
+
+                  {/* Selection helper */}
+                  <div class="mt-3 p-3 bg-amber-50 border border-amber-200 rounded text-xs text-amber-900">
+                    <p class="font-bold mb-1"><i class="fas fa-mouse-pointer mr-1"></i> Uitlijnen?</p>
+                    <p>Houd <kbd class="bg-white border px-1 rounded">Shift</kbd> ingedrukt en klik op stoelen om er meerdere te selecteren. De uitlijn-knoppen verschijnen dan onderaan het canvas.</p>
                   </div>
                 </div>
               </div>
@@ -598,8 +725,36 @@ function renderEditor(c: any, layout: any) {
                   </div>
                 </div>
               </div>
+
+              {/* Alignment toolbar (visible only when 2+ seats selected) */}
+              <div id="alignToolbar" class="hidden mt-3 p-3 bg-amber-50 border-2 border-amber-300 rounded-lg shadow-md">
+                <div class="flex items-center justify-between flex-wrap gap-3">
+                  <span class="text-sm font-bold text-amber-900">
+                    <i class="fas fa-object-group mr-1"></i>
+                    <span id="selectionCount">0</span> stoelen geselecteerd
+                  </span>
+                  <div class="flex flex-wrap gap-2">
+                    <button id="alignHBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-amber-400 rounded hover:bg-amber-100 font-medium" title="Geef alle geselecteerde stoelen dezelfde Y-positie als de eerste">
+                      <i class="fas fa-grip-lines mr-1"></i> Lijn horizontaal
+                    </button>
+                    <button id="alignVBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-amber-400 rounded hover:bg-amber-100 font-medium" title="Geef alle geselecteerde stoelen dezelfde X-positie als de eerste">
+                      <i class="fas fa-grip-lines-vertical mr-1"></i> Lijn verticaal
+                    </button>
+                    <button id="distHBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-amber-400 rounded hover:bg-amber-100 font-medium" title="Verdeel gelijkmatig over de horizontale as">
+                      <i class="fas fa-arrows-alt-h mr-1"></i> Verdeel H
+                    </button>
+                    <button id="distVBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-amber-400 rounded hover:bg-amber-100 font-medium" title="Verdeel gelijkmatig over de verticale as">
+                      <i class="fas fa-arrows-alt-v mr-1"></i> Verdeel V
+                    </button>
+                    <button id="clearSelBtn" type="button" class="px-3 py-1.5 text-xs bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 font-medium text-gray-600">
+                      <i class="fas fa-times mr-1"></i> Selectie wissen
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               <p class="text-xs text-gray-500 mt-2 text-center">
-                <strong>Klik</strong> = stoel toevoegen &nbsp;|&nbsp; <strong>Blok Toe</strong> → klik op canvas = rijen plaatsen &nbsp;|&nbsp; <strong>Slepen</strong> = verplaatsen &nbsp;|&nbsp; <strong>Rechtermuisknop</strong> = verwijderen
+                <strong>Klik</strong> = stoel toevoegen &nbsp;|&nbsp; <strong>Blok Toe</strong> → klik op canvas = rijen plaatsen &nbsp;|&nbsp; <strong>Slepen</strong> = verplaatsen &nbsp;|&nbsp; <strong>Shift+klik</strong> = selecteren voor uitlijning &nbsp;|&nbsp; <strong>Rechtermuisknop</strong> = verwijderen
               </p>
             </div>
           </div>

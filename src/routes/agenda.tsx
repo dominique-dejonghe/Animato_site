@@ -1083,6 +1083,71 @@ app.get('/concerten/:slug', async (c) => {
 
   const prijzen = concert.prijsstructuur ? JSON.parse(concert.prijsstructuur) : []
 
+  // ── Partituurlijst (alleen voor ingelogde leden) ──────────────
+  // Per stuk halen we ook de bijhorende materialen (partituren) op,
+  // gefilterd op de stemgroep van de huidige gebruiker.
+  let partituren: any[] = []
+  let userStem = ''
+  if (user) {
+    userStem = String((user as any).stemgroep || '').toUpperCase()
+    // Bepaal welke 'stem' waarden zichtbaar zijn voor deze gebruiker
+    // S/A/T/B → ook SA, TB, SATB, algemeen, piano, orgel zijn relevant
+    const stemFilter: string[] = ['SATB', 'algemeen', 'piano', 'orgel']
+    if (userStem === 'S') stemFilter.push('S', 'SA')
+    else if (userStem === 'A') stemFilter.push('A', 'SA')
+    else if (userStem === 'T') stemFilter.push('T', 'TB')
+    else if (userStem === 'B') stemFilter.push('B', 'TB')
+    else stemFilter.push('S', 'A', 'T', 'B', 'SA', 'TB') // bv. dirigent / admin
+
+    if ((concert as any).id) {
+      // We hebben concert_id nodig — concerts.id, niet events.id
+      const concertRow = await queryOne<any>(c.env.DB,
+        'SELECT id FROM concerts WHERE event_id = ?',
+        [(concert as any).id])
+      if (concertRow?.id) {
+        partituren = await queryAll(c.env.DB, `
+          SELECT cp.id as link_id, cp.volgorde, cp.opmerking,
+                 p.id as piece_id, p.titel as piece_titel, p.toonsoort, p.tempo, p.duur_minuten,
+                 w.componist, w.titel as work_titel, w.jaar
+          FROM concert_pieces cp
+          JOIN pieces p ON p.id = cp.piece_id
+          JOIN works w ON w.id = p.work_id
+          WHERE cp.concert_id = ?
+          ORDER BY cp.volgorde ASC, cp.id ASC
+        `, [concertRow.id]) as any[]
+
+        if (partituren.length > 0) {
+          const pieceIds = partituren.map((p: any) => p.piece_id)
+          const placeholders = pieceIds.map(() => '?').join(',')
+          const stemPlaceholders = stemFilter.map(() => '?').join(',')
+          const mats = await queryAll(c.env.DB, `
+            SELECT id, piece_id, stem, type, titel, url, mime_type
+            FROM materials
+            WHERE is_actief = 1 AND piece_id IN (${placeholders})
+              AND stem IN (${stemPlaceholders})
+            ORDER BY
+              CASE stem
+                WHEN ? THEN 1
+                WHEN 'SATB' THEN 2
+                WHEN 'algemeen' THEN 3
+                ELSE 4 END,
+              type
+          `, [...pieceIds, ...stemFilter, userStem]) as any[]
+
+          // Group materials per piece
+          const matsByPiece: Record<number, any[]> = {}
+          mats.forEach((m: any) => {
+            if (!matsByPiece[m.piece_id]) matsByPiece[m.piece_id] = []
+            matsByPiece[m.piece_id].push(m)
+          })
+          partituren.forEach((p: any) => {
+            p.materials = matsByPiece[p.piece_id] || []
+          })
+        }
+      }
+    }
+  }
+
   // Ticket-status logica
   // Prioriteit: uitverkocht > (aangekondigd OR datum in toekomst) > verkoop open > gratis
   const voorverkoopStart = concert.voorverkoop_start_at ? new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')) : null
@@ -1233,6 +1298,104 @@ app.get('/concerten/:slug', async (c) => {
                     Programma
                   </h2>
                   <div class="prose prose-lg max-w-none" dangerouslySetInnerHTML={{ __html: concert.programma }} />
+                </div>
+              )}
+
+              {/* Partituurlijst — enkel voor ingelogde leden */}
+              {user && partituren.length > 0 && (
+                <div class="bg-white rounded-lg shadow-md p-6 sm:p-8 mb-8 border-l-4 border-animato-primary">
+                  <div class="flex items-start justify-between flex-wrap gap-3 mb-2">
+                    <h2 class="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                      <i class="fas fa-music text-animato-primary"></i>
+                      Partituren ({partituren.length} stuk{partituren.length === 1 ? '' : 'ken'})
+                    </h2>
+                    {userStem && ['S','A','T','B'].includes(userStem) && (
+                      <span class="text-xs px-2.5 py-1 rounded-full bg-animato-primary/10 text-animato-primary font-semibold">
+                        <i class="fas fa-user mr-1"></i>
+                        Stemgroep: {userStem === 'S' ? 'Sopraan' : userStem === 'A' ? 'Alt' : userStem === 'T' ? 'Tenor' : 'Bas'}
+                      </span>
+                    )}
+                  </div>
+                  <p class="text-sm text-gray-500 mb-5">
+                    Klik op een PDF om je partituur te downloaden of in de browser te openen.
+                  </p>
+
+                  <ol class="space-y-3">
+                    {partituren.map((p: any, idx: number) => (
+                      <li class="border border-gray-200 rounded-lg p-4 hover:border-animato-primary transition">
+                        <div class="flex items-start gap-3">
+                          <span class="flex-shrink-0 w-8 h-8 rounded-full bg-animato-primary text-white text-sm font-bold flex items-center justify-center">
+                            {idx + 1}
+                          </span>
+                          <div class="flex-1 min-w-0">
+                            <h3 class="font-bold text-gray-900 text-lg">
+                              {p.work_titel}
+                              {p.piece_titel && p.piece_titel !== p.work_titel && (
+                                <span class="text-gray-600 font-normal"> — {p.piece_titel}</span>
+                              )}
+                            </h3>
+                            <div class="text-sm text-gray-600 flex flex-wrap gap-x-3 gap-y-1 mt-1">
+                              <span><i class="fas fa-user-edit mr-1"></i>{p.componist}{p.jaar ? ` (${p.jaar})` : ''}</span>
+                              {p.toonsoort && <span><i class="fas fa-key mr-1"></i>{p.toonsoort}</span>}
+                              {p.tempo && <span><i class="fas fa-tachometer-alt mr-1"></i>{p.tempo}</span>}
+                              {p.duur_minuten && <span><i class="fas fa-clock mr-1"></i>{p.duur_minuten} min</span>}
+                            </div>
+                            {p.opmerking && (
+                              <div class="text-sm text-amber-700 mt-1 italic bg-amber-50 px-2 py-1 rounded inline-block">
+                                <i class="fas fa-comment mr-1"></i>{p.opmerking}
+                              </div>
+                            )}
+
+                            {/* Materialen-grid */}
+                            {(p.materials && p.materials.length > 0) ? (
+                              <div class="mt-3 flex flex-wrap gap-2">
+                                {p.materials.map((m: any) => {
+                                  const stemLabel = m.stem === 'S' ? 'Sopraan' : m.stem === 'A' ? 'Alt' : m.stem === 'T' ? 'Tenor' : m.stem === 'B' ? 'Bas' : m.stem === 'SA' ? 'S+A' : m.stem === 'TB' ? 'T+B' : m.stem === 'SATB' ? 'Alle stemmen' : m.stem === 'algemeen' ? 'Algemeen' : m.stem
+                                  const isMine = m.stem === userStem
+                                  const iconCls = m.type === 'pdf' ? 'fa-file-pdf text-red-600'
+                                                : m.type === 'audio' ? 'fa-headphones text-purple-600'
+                                                : m.type === 'video' ? 'fa-video text-blue-600'
+                                                : m.type === 'zip' ? 'fa-file-archive text-amber-600'
+                                                : 'fa-link text-gray-600'
+                                  return (
+                                    <a
+                                      href={m.url}
+                                      target="_blank"
+                                      rel="noopener"
+                                      class={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium border transition ${isMine ? 'bg-animato-primary/10 border-animato-primary text-animato-primary hover:bg-animato-primary/20' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`}
+                                      title={m.titel}
+                                    >
+                                      <i class={`fas ${iconCls}`}></i>
+                                      <span>{stemLabel}</span>
+                                      {m.type === 'pdf' && <i class="fas fa-download text-[10px] opacity-60"></i>}
+                                    </a>
+                                  )
+                                })}
+                              </div>
+                            ) : (
+                              <div class="mt-3 text-xs text-gray-400 italic">
+                                <i class="fas fa-info-circle mr-1"></i>
+                                Nog geen partituren beschikbaar voor jouw stemgroep.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+
+                  <div class="mt-5 p-3 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
+                    <i class="fas fa-lightbulb mr-1"></i>
+                    Tip: alle partituren zijn ook beschikbaar via <a href="/leden/oefenmateriaal" class="underline font-semibold">Oefenmateriaal</a> waar je oefenopnames per stem kan beluisteren.
+                  </div>
+                </div>
+              )}
+
+              {/* Hint voor niet-ingelogde bezoekers */}
+              {!user && (
+                <div class="bg-gray-50 border border-gray-200 rounded-lg p-5 mb-8 text-sm text-gray-600">
+                  <i class="fas fa-lock mr-1"></i>
+                  Ingelogde leden zien hier de volledige partituurlijst voor dit concert. <a href={`/login?redirect=${encodeURIComponent(c.req.path)}`} class="text-animato-primary font-semibold underline">Inloggen</a>
                 </div>
               )}
 

@@ -816,8 +816,8 @@ app.get('/admin/aanmeldingen', async (c) => {
                           
                           {/* Mark as processed */}
                           {isNew && (
-                            <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/verwerk`} class="inline-flex">
-                              <button type="submit" class="inline-flex items-center justify-center h-9 px-3 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition whitespace-nowrap">
+                            <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/verwerk`} class="inline-flex m-0">
+                              <button type="submit" class="inline-flex items-center justify-center h-9 px-3 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition whitespace-nowrap font-medium">
                                 <i class="fas fa-check mr-1.5"></i> Verwerkt
                               </button>
                             </form>
@@ -825,22 +825,28 @@ app.get('/admin/aanmeldingen', async (c) => {
 
                           {/* Archive — icon-only, vaste vierkante grootte */}
                           {(isNew || sub.status === 'verwerkt') && (
-                            <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/archiveer`} class="inline-flex">
+                            <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/archiveer`} class="inline-flex m-0">
                               <button type="submit" class="inline-flex items-center justify-center h-9 w-9 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 transition" title="Archiveren">
                                 <i class="fas fa-archive"></i>
                               </button>
                             </form>
                           )}
 
-                          {/* Delete with confirmation — icon-only, vaste vierkante grootte */}
-                          <button
-                            onclick={`if(confirm('Aanvraag van ${sub.naam.replace(/'/g, "\\'")} definitief verwijderen?')) document.getElementById('delete-form-${sub.id}').submit()`}
-                            class="inline-flex items-center justify-center h-9 w-9 bg-red-50 text-red-600 text-sm rounded-lg hover:bg-red-100 transition"
-                            title="Verwijderen"
+                          {/* Delete with confirmation — form direct rond de knop, niet hidden (anders blokkeert browser submit) */}
+                          <form
+                            method="POST"
+                            action={`/api/admin/aanmeldingen/${sub.id}/delete`}
+                            class="inline-flex m-0"
+                            onsubmit={`return confirm('Aanvraag van ${sub.naam.replace(/'/g, "\\'")} definitief verwijderen?');`}
                           >
-                            <i class="fas fa-trash"></i>
-                          </button>
-                          <form id={`delete-form-${sub.id}`} method="POST" action={`/api/admin/aanmeldingen/${sub.id}/delete`} class="hidden"></form>
+                            <button
+                              type="submit"
+                              class="inline-flex items-center justify-center h-9 w-9 bg-red-50 text-red-600 text-sm rounded-lg hover:bg-red-100 transition"
+                              title="Verwijderen"
+                            >
+                              <i class="fas fa-trash"></i>
+                            </button>
+                          </form>
                         </div>
                       </div>
 

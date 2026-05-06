@@ -398,13 +398,38 @@ app.get('/admin/meetings/:id', async (c) => {
                       </div>
 
                       {agendaItems.length > 0 ? (
-                         <div class="space-y-4">
+                         <ul id="agenda-items-list" class="space-y-4" data-meeting-id={meetingId}>
                             {agendaItems.map((item: any, index: number) => (
-                               <div class="flex items-start gap-4 p-4 border rounded-lg bg-gray-50">
-                                  <div class="flex-shrink-0 w-8 h-8 bg-white border rounded-full flex items-center justify-center font-bold text-gray-500">
+                               <li
+                                  data-agenda-id={item.id}
+                                  draggable={true}
+                                  class="agenda-row flex items-start gap-3 p-4 border rounded-lg bg-gray-50 hover:bg-gray-100 transition cursor-move"
+                               >
+                                  <div class="flex-shrink-0 flex flex-col items-center gap-1 pt-1">
+                                    <i class="fas fa-grip-vertical text-gray-400" title="Sleep om volgorde aan te passen"></i>
+                                    <button
+                                      type="button"
+                                      onclick={`moveAgenda(${item.id}, -1)`}
+                                      class={`text-gray-400 hover:text-animato-primary disabled:opacity-30 disabled:cursor-not-allowed`}
+                                      disabled={index === 0}
+                                      title="Een plaats omhoog"
+                                    >
+                                      <i class="fas fa-chevron-up text-xs"></i>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onclick={`moveAgenda(${item.id}, 1)`}
+                                      class="text-gray-400 hover:text-animato-primary disabled:opacity-30 disabled:cursor-not-allowed"
+                                      disabled={index === agendaItems.length - 1}
+                                      title="Een plaats omlaag"
+                                    >
+                                      <i class="fas fa-chevron-down text-xs"></i>
+                                    </button>
+                                  </div>
+                                  <div class="flex-shrink-0 w-8 h-8 bg-white border rounded-full flex items-center justify-center font-bold text-gray-500 agenda-nr">
                                      {index + 1}
                                   </div>
-                                  <div class="flex-1">
+                                  <div class="flex-1 min-w-0">
                                      <h4 class="font-semibold text-gray-900">{item.titel}</h4>
                                      {item.beschrijving && <p class="text-sm text-gray-600 mt-1">{item.beschrijving}</p>}
                                      <div class="flex gap-3 mt-2 text-xs text-gray-500">
@@ -431,9 +456,9 @@ app.get('/admin/meetings/:id', async (c) => {
                                       <button type="submit" class="text-gray-400 hover:text-red-500" title="Agendapunt verwijderen"><i class="fas fa-trash"></i></button>
                                     </form>
                                   </div>
-                               </div>
+                               </li>
                             ))}
-                         </div>
+                         </ul>
                       ) : (
                          <div class="text-center py-8 text-gray-500 bg-gray-50 rounded-lg border border-dashed">
                             Nog geen agendapunten.
@@ -602,14 +627,95 @@ app.get('/admin/meetings/:id', async (c) => {
                       </div>
 
                       <div class="bg-white rounded-lg shadow-md p-6">
-                          <div class="flex justify-between items-center mb-6">
+                          <div class="flex justify-between items-center mb-6 flex-wrap gap-3">
                              <h2 class="text-xl font-bold text-gray-800">Notulen Editor</h2>
+                             {agendaItems.length > 0 && (
+                               <button
+                                 type="button"
+                                 onclick="insertAgendaTemplate()"
+                                 class="inline-flex items-center gap-2 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 rounded-lg text-sm font-semibold"
+                                 title="Voeg de agendapunten toe als kop-structuur in de notulen"
+                               >
+                                 <i class="fas fa-list-ol"></i>
+                                 Vul agendapunten in
+                               </button>
+                             )}
                           </div>
+
+                          {/* Auto-template hint: tonen als notulen leeg zijn én er agendapunten bestaan */}
+                          {agendaItems.length > 0 && !minutes?.notulen && (
+                            <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800 flex items-start gap-2">
+                              <i class="fas fa-info-circle mt-0.5"></i>
+                              <div>
+                                <strong>Tip:</strong> Klik op <em>"Vul agendapunten in"</em> hierboven om de {agendaItems.length} agendapunt{agendaItems.length === 1 ? '' : 'en'} alvast als structuur in de notulen te plaatsen. Je kunt ze daarna aanvullen tijdens of na de vergadering.
+                              </div>
+                            </div>
+                          )}
+
                           <form action="/api/admin/meetings/minutes/save" method="POST">
                              <input type="hidden" name="meeting_id" value={meetingId} />
                              <div class="mb-4">
                                 <textarea id="minutesContent" name="content" rows={20} class="w-full p-4 border border-gray-300 rounded-lg shadow-sm focus:ring-animato-primary focus:border-animato-primary font-mono text-sm leading-relaxed" placeholder="# Notulen van de vergadering...">{minutes?.notulen || ''}</textarea>
                              </div>
+
+                             {/* Agendapunten template voor JS-injectie */}
+                             <script
+                               id="agenda-template-data"
+                               type="application/json"
+                               dangerouslySetInnerHTML={{ __html: JSON.stringify(agendaItems.map((it: any, idx: number) => ({
+                                 nr: idx + 1,
+                                 titel: it.titel,
+                                 beschrijving: it.beschrijving || '',
+                                 duur: it.duur_minuten || null
+                               }))) }}
+                             />
+                             <script dangerouslySetInnerHTML={{ __html: `
+                               window.insertAgendaTemplate = function() {
+                                 var ta = document.getElementById('minutesContent');
+                                 if (!ta) return;
+                                 var data;
+                                 try { data = JSON.parse(document.getElementById('agenda-template-data').textContent); } catch(e) { return; }
+                                 if (!Array.isArray(data) || data.length === 0) return;
+
+                                 var existing = (ta.value || '').trim();
+                                 if (existing.length > 0) {
+                                   if (!confirm('De notulen bevatten al tekst. Wil je deze vervangen door de agendapunten-structuur?\\n\\n(Klik Annuleren om de structuur ONDER de bestaande tekst toe te voegen.)')) {
+                                     // Toevoegen onderaan ipv vervangen
+                                     ta.value = existing + '\\n\\n' + buildTemplate(data);
+                                     ta.dispatchEvent(new Event('input', { bubbles: true }));
+                                     ta.focus();
+                                     return;
+                                   }
+                                 }
+                                 ta.value = buildTemplate(data);
+                                 ta.dispatchEvent(new Event('input', { bubbles: true }));
+                                 ta.focus();
+                                 // Scroll naar boven van textarea
+                                 ta.scrollTop = 0;
+                                 ta.setSelectionRange(0, 0);
+                               };
+
+                               function buildTemplate(items) {
+                                 var lines = [];
+                                 items.forEach(function(it) {
+                                   var header = it.nr + '. ' + it.titel;
+                                   if (it.duur) header += ' (' + it.duur + ' min)';
+                                   lines.push(header);
+                                   lines.push('---'.repeat(Math.max(10, Math.ceil(header.length / 3))).slice(0, header.length));
+                                   if (it.beschrijving) {
+                                     lines.push('');
+                                     lines.push('Achtergrond: ' + it.beschrijving);
+                                   }
+                                   lines.push('');
+                                   lines.push('Bespreking: ');
+                                   lines.push('');
+                                   lines.push('Beslissing / actiepunten: ');
+                                   lines.push('');
+                                   lines.push('');
+                                 });
+                                 return lines.join('\\n');
+                               }
+                             ` }} />
                              <div class="flex justify-between items-center bg-gray-50 p-4 rounded-lg">
                                 <div class="flex items-center gap-2">
                                    <input type="checkbox" id="is_published" name="is_published" value="1" checked={minutes?.goedgekeurd === 1} class="rounded text-animato-primary focus:ring-animato-primary" />
@@ -1117,6 +1223,90 @@ app.get('/admin/meetings/:id', async (c) => {
           document.getElementById('edit-agenda-modal').classList.remove('hidden');
         }
         window.openEditAgendaModalFromDataset = openEditAgendaModalFromDataset;
+
+        // ===========================================================
+        // Agendapunten — verschuiven (up/down knoppen + drag-and-drop)
+        // ===========================================================
+        function getAgendaList() { return document.getElementById('agenda-items-list'); }
+
+        function renumberAgenda() {
+          var list = getAgendaList(); if (!list) return;
+          var rows = Array.from(list.querySelectorAll('.agenda-row'));
+          rows.forEach(function(row, idx) {
+            var nr = row.querySelector('.agenda-nr');
+            if (nr) nr.textContent = String(idx + 1);
+            // Disable up-button op eerste, down-button op laatste
+            var btns = row.querySelectorAll('button[onclick^="moveAgenda"]');
+            if (btns.length === 2) {
+              btns[0].disabled = (idx === 0);
+              btns[1].disabled = (idx === rows.length - 1);
+            }
+          });
+        }
+
+        function persistAgendaOrder() {
+          var list = getAgendaList(); if (!list) return;
+          var meetingId = list.getAttribute('data-meeting-id');
+          var ids = Array.from(list.querySelectorAll('.agenda-row')).map(function(r) {
+            return parseInt(r.getAttribute('data-agenda-id'), 10);
+          });
+          fetch('/api/admin/meetings/' + meetingId + '/agenda/reorder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ids: ids })
+          }).catch(function(e) { console.error('Reorder failed', e); });
+        }
+
+        window.moveAgenda = function(agendaId, direction) {
+          var list = getAgendaList(); if (!list) return;
+          var row = list.querySelector('[data-agenda-id="' + agendaId + '"]'); if (!row) return;
+          if (direction < 0 && row.previousElementSibling) {
+            list.insertBefore(row, row.previousElementSibling);
+          } else if (direction > 0 && row.nextElementSibling) {
+            list.insertBefore(row.nextElementSibling, row);
+          } else {
+            return;
+          }
+          renumberAgenda();
+          persistAgendaOrder();
+        };
+
+        // Drag-and-drop
+        (function() {
+          var list = getAgendaList(); if (!list) return;
+          var dragSrc = null;
+          list.addEventListener('dragstart', function(e) {
+            var row = e.target.closest('.agenda-row');
+            if (!row) return;
+            dragSrc = row;
+            row.style.opacity = '0.4';
+            e.dataTransfer.effectAllowed = 'move';
+            try { e.dataTransfer.setData('text/plain', row.getAttribute('data-agenda-id')); } catch(_){}
+          });
+          list.addEventListener('dragend', function(e) {
+            var row = e.target.closest('.agenda-row');
+            if (row) row.style.opacity = '';
+            dragSrc = null;
+          });
+          list.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            var row = e.target.closest('.agenda-row');
+            if (!row || !dragSrc || row === dragSrc) return;
+            var rect = row.getBoundingClientRect();
+            var midY = rect.top + rect.height / 2;
+            if (e.clientY < midY) {
+              list.insertBefore(dragSrc, row);
+            } else {
+              list.insertBefore(dragSrc, row.nextElementSibling);
+            }
+          });
+          list.addEventListener('drop', function(e) {
+            e.preventDefault();
+            renumberAgenda();
+            persistAgendaOrder();
+          });
+        })();
       ` }} />
     </Layout>
   )
@@ -1218,6 +1408,25 @@ app.post('/api/admin/meetings/agenda/:id/update', async (c) => {
   ).run()
 
   return c.redirect(`/admin/meetings/${meeting_id}?tab=agenda`)
+})
+
+// Reorder agendapunten: ontvang gesorteerde array van IDs en update volgorde-kolom
+app.post('/api/admin/meetings/:meetingId/agenda/reorder', async (c) => {
+  const meetingId = parseInt(c.req.param('meetingId'))
+  if (!meetingId) return c.json({ error: 'meeting_id ontbreekt' }, 400)
+  let body: any
+  try { body = await c.req.json() } catch { return c.json({ error: 'invalid json' }, 400) }
+  const ids = Array.isArray(body?.ids) ? body.ids : null
+  if (!ids) return c.json({ error: 'ids[] is verplicht' }, 400)
+
+  for (let i = 0; i < ids.length; i++) {
+    const id = parseInt(String(ids[i]))
+    if (!id) continue
+    await c.env.DB.prepare(
+      `UPDATE meeting_agenda_items SET volgorde = ? WHERE id = ? AND meeting_id = ?`
+    ).bind((i + 1) * 10, id, meetingId).run()
+  }
+  return c.json({ success: true })
 })
 
 app.post('/api/admin/meetings/attendance', async (c) => {

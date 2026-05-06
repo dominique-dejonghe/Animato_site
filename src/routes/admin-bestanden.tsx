@@ -854,7 +854,11 @@ app.get('/admin/bestanden/nieuw', async (c) => {
                     Selecteer Bestand
                   </button>
                   <p class="text-sm text-gray-500 mt-2">
-                    Max 8MB • PDF, MP3, MP4, ZIP
+                    Max <strong>700&nbsp;KB</strong> voor directe upload • PDF, MP3, MP4, ZIP
+                  </p>
+                  <p class="text-xs text-amber-700 mt-1 bg-amber-50 inline-block px-2 py-1 rounded">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    PDF te groot? Upload naar <strong>Google Drive</strong> (rechts-klik &rarr; Delen &rarr; "Iedereen met link"), kopieer de link en plak hem in het URL-veld hieronder.
                   </p>
                   <div id="file_preview" class="hidden mt-4">
                     <div class="bg-gray-50 rounded-lg p-4 inline-block">
@@ -992,9 +996,19 @@ app.get('/admin/bestanden/nieuw', async (c) => {
             const file = event.target.files[0];
             if (!file) return;
 
-            // Validate file size (8MB max - SQLite limitation with base64 encoding)
-            if (file.size > 8 * 1024 * 1024) {
-              alert('Bestand is te groot. Maximaal 8MB toegestaan.\\n\\nVoor grotere bestanden kun je:\\n- YouTube links gebruiken (voor video)\\n- Externe hosting gebruiken (zoals Google Drive, Dropbox)\\n- Het bestand comprimeren');
+            // Validate file size — D1/SQLite limiteert rij-grootte tot ~1 MB.
+            // Base64 voegt 33% bloat toe → veilige limiet = 700 KB ruwe bestandsgrootte.
+            var MAX_BYTES = 700 * 1024;
+            if (file.size > MAX_BYTES) {
+              var sizeMB = (file.size / 1024 / 1024).toFixed(2);
+              alert('Bestand is te groot voor directe upload (' + sizeMB + ' MB).\\n\\n' +
+                    'Maximaal 700 KB voor directe upload (database-limiet).\\n\\n' +
+                    'Oplossing voor grotere PDFs:\\n' +
+                    '1. Upload je PDF naar Google Drive\\n' +
+                    '2. Rechtsklik → Delen → "Iedereen met de link" → Lezer\\n' +
+                    '3. Kopieer de Drive-link\\n' +
+                    '4. Plak hem in het URL-veld hieronder (geen bestand selecteren)\\n\\n' +
+                    'Voor video: gebruik YouTube/Vimeo links.');
               event.target.value = '';
               return;
             }
@@ -1025,11 +1039,42 @@ app.get('/admin/bestanden/nieuw', async (c) => {
 app.post('/api/admin/bestanden/create', async (c) => {
   const user = c.get('user') as SessionUser
   const body = await c.req.parseBody()
-  
+
+  // Track wat we hebben aangemaakt zodat we kunnen rollbacken bij faal
+  // (D1 ondersteunt geen multi-statement transactions in Workers — manueel).
+  let createdWorkId: number | null = null
+  let createdPieceId: number | null = null
+
   try {
+    // VROEGE VALIDATIE: file_data size check (vóór er iets in DB komt)
+    const earlyFileData = body.file_data ? String(body.file_data) : ''
+    if (earlyFileData && earlyFileData.startsWith('data:')) {
+      // Base64-payload: SQLite/D1 limiteert rij-grootte tot ~1 MB.
+      // We willen ruim onder de 1 MB blijven inclusief alle andere kolommen.
+      const MAX_DATA_URL_LEN = 1_000_000 // ~1 MB string-lengte
+      if (earlyFileData.length > MAX_DATA_URL_LEN) {
+        const approxKB = Math.round(earlyFileData.length * 0.75 / 1024)
+        return c.html(
+          `<html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto">
+            <h1 style="color:#dc2626">📦 Bestand te groot</h1>
+            <p>Het geüploade bestand is <strong>${approxKB} KB</strong>, dat past niet in de database (limiet: ~700 KB voor directe upload).</p>
+            <p><strong>Oplossing:</strong></p>
+            <ol>
+              <li>Upload je PDF naar <strong>Google Drive</strong></li>
+              <li>Rechtsklik → Delen → "Iedereen met de link" → Lezer</li>
+              <li>Kopieer de Drive-link</li>
+              <li>Ga terug en plak de link in het <strong>URL-veld</strong> (selecteer géén bestand)</li>
+            </ol>
+            <p><a href="javascript:history.back()" style="display:inline-block;background:#dc2626;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;margin-top:20px">← Terug naar formulier</a></p>
+          </body></html>`,
+          413
+        )
+      }
+    }
+
     // 1. Handle work creation/selection
     let workId: number
-    
+
     if (body.work_option === 'new') {
       // Create new work
       const result = await execute(c.env.DB,
@@ -1037,19 +1082,21 @@ app.post('/api/admin/bestanden/create', async (c) => {
         [body.new_componist, body.new_werk_titel, body.new_genre || null, body.new_jaar || null, body.new_beschrijving || null, body.new_image_url || null]
       )
       workId = result.meta.last_row_id
+      createdWorkId = workId
     } else {
       workId = parseInt(String(body.work_id))
     }
 
     // 2. Handle piece creation (if provided)
     let pieceId: number | null = null
-    
+
     if (body.piece_titel) {
       const result = await execute(c.env.DB,
         `INSERT INTO pieces (work_id, titel, nummer) VALUES (?, ?, ?)`,
         [workId, body.piece_titel, body.piece_nummer || null]
       )
       pieceId = result.meta.last_row_id
+      createdPieceId = pieceId
     } else {
       // If no piece specified, create a default piece
       const work = await queryOne(c.env.DB, `SELECT titel FROM works WHERE id = ?`, [workId])
@@ -1058,6 +1105,7 @@ app.post('/api/admin/bestanden/create', async (c) => {
         [workId, work.titel, 1]
       )
       pieceId = result.meta.last_row_id
+      createdPieceId = pieceId
     }
 
     // 3. Handle file upload or URL
@@ -1138,10 +1186,52 @@ app.post('/api/admin/bestanden/create', async (c) => {
     ])
 
     return c.redirect('/admin/bestanden')
-    
+
   } catch (error) {
     console.error('Error creating material:', error)
-    return c.text('Error: ' + (error as Error).message, 500)
+
+    // ROLLBACK: D1 ondersteunt geen multi-statement transactions, dus
+    // ruim handmatig op wat we tijdens deze request hebben aangemaakt.
+    // (Werk + Piece kunnen gedeeltelijk in DB staan terwijl material insert faalde.)
+    try {
+      if (createdPieceId) {
+        await execute(c.env.DB, `DELETE FROM pieces WHERE id = ?`, [createdPieceId])
+      }
+      if (createdWorkId) {
+        // Alleen verwijderen als geen andere pieces meer aan dit werk hangen
+        const otherPieces = await queryOne<any>(c.env.DB,
+          `SELECT COUNT(*) as n FROM pieces WHERE work_id = ?`, [createdWorkId])
+        if (!otherPieces || otherPieces.n === 0) {
+          await execute(c.env.DB, `DELETE FROM works WHERE id = ?`, [createdWorkId])
+        }
+      }
+    } catch (rollbackErr) {
+      console.error('Rollback failed:', rollbackErr)
+    }
+
+    const errMsg = (error as Error).message || 'Onbekende fout'
+    const isTooBig = errMsg.includes('TOOBIG') || errMsg.includes('too big')
+
+    return c.html(
+      `<html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto">
+        <h1 style="color:#dc2626">${isTooBig ? '📦 Bestand te groot' : '⚠️ Fout bij opslaan'}</h1>
+        ${isTooBig ? `
+          <p>Het bestand past niet in de database. We hebben de aangemaakte werk/stuk-records weer opgeruimd, dus je kunt opnieuw proberen.</p>
+          <p><strong>Oplossing voor grote PDFs:</strong></p>
+          <ol>
+            <li>Upload je PDF naar <strong>Google Drive</strong></li>
+            <li>Rechtsklik → Delen → "Iedereen met de link" → Lezer</li>
+            <li>Kopieer de Drive-link</li>
+            <li>Plak hem in het <strong>URL-veld</strong> (selecteer géén bestand)</li>
+          </ol>
+        ` : `
+          <p>Er is iets misgegaan: <code style="background:#fef2f2;padding:2px 6px;border-radius:4px">${errMsg.replace(/[<>]/g, '')}</code></p>
+          <p>De aangemaakte werk/stuk-records zijn weer opgeruimd, dus je kunt opnieuw proberen.</p>
+        `}
+        <p><a href="javascript:history.back()" style="display:inline-block;background:#dc2626;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;margin-top:20px">← Terug naar formulier</a></p>
+      </body></html>`,
+      isTooBig ? 413 : 500
+    )
   }
 })
 

@@ -3562,15 +3562,21 @@ app.get('/leden/smoelenboek', async (c) => {
                           <a href={`/leden/smoelenboek/${m.id}`} class="block">
                               <div class={`h-2 bg-${color}-500`}></div>
                               <div class="p-6 text-center">
-                                <div class="w-24 h-24 mx-auto bg-gray-200 rounded-full mb-4 overflow-hidden border-4 border-white shadow-sm">
-                                  <img src={m.foto_url || getDefaultAvatar(m.stemgroep)} class="w-full h-full object-cover" alt={m.voornaam} />
+                                {/* Foto + streak-badge (altijd zichtbaar als streak > 0, ongeacht bio) */}
+                                <div class="relative w-24 h-24 mx-auto mb-4">
+                                  <div class="w-24 h-24 bg-gray-200 rounded-full overflow-hidden border-4 border-white shadow-sm">
+                                    <img src={m.foto_url || getDefaultAvatar(m.stemgroep)} class="w-full h-full object-cover" alt={m.voornaam} />
+                                  </div>
+                                  {memberStreaks[m.id] > 0 && (
+                                    <div
+                                      class="absolute -top-1 -right-1 inline-flex items-center gap-0.5 px-2 py-0.5 bg-orange-500 text-white rounded-full text-xs font-bold shadow-md border-2 border-white"
+                                      title={`${memberStreaks[m.id]} ${memberStreaks[m.id] === 1 ? 'week' : 'weken'} streak`}
+                                    >
+                                      <span>🔥</span>{memberStreaks[m.id]}
+                                    </div>
+                                  )}
                                 </div>
                                 <h3 class="font-bold text-gray-900 text-lg group-hover:text-animato-primary transition-colors">{m.voornaam} {m.achternaam}</h3>
-                                {memberStreaks[m.id] > 0 && (
-                                  <div class="mt-2 inline-flex items-center gap-1 px-2 py-0.5 bg-orange-50 text-orange-600 rounded-full text-xs font-bold">
-                                    <span>🔥</span> {memberStreaks[m.id]} {memberStreaks[m.id] === 1 ? 'week' : 'weken'} streak
-                                  </div>
-                                )}
                                 {m.bio && <p class="text-sm text-gray-500 mt-2 line-clamp-2">{m.bio}</p>}
                               </div>
                           </a>
@@ -4124,7 +4130,7 @@ app.get('/leden/verjaardagen', async (c) => {
   // Fetch all members with birthdays, sorted by month/day
   const members = await queryAll<any>(
     c.env.DB,
-    `SELECT u.id, p.voornaam, p.achternaam, p.geboortedatum, u.stemgroep, p.foto_url
+    `SELECT u.id, p.voornaam, p.achternaam, p.geboortedatum, u.stemgroep, u.role, p.foto_url
      FROM users u
      JOIN profiles p ON p.user_id = u.id
      WHERE u.status = 'actief'
@@ -4142,7 +4148,18 @@ app.get('/leden/verjaardagen', async (c) => {
     byMonth[key].push(m)
   }
 
-  const stemgroepLabel = (s: string) => s === 'S' ? 'Sopraan' : s === 'A' ? 'Alt' : s === 'T' ? 'Tenor' : 'Bas'
+  // Label per rol/stemgroep. Dirigenten hebben geen stemgroep → toon 'Dirigent'.
+  const roleLabel = (m: any): { label: string; cls: string } => {
+    if (m.role === 'dirigent') return { label: 'Dirigent', cls: 'bg-amber-100 text-amber-800' }
+    if (m.role === 'admin' && !m.stemgroep) return { label: 'Admin', cls: 'bg-gray-200 text-gray-700' }
+    switch (m.stemgroep) {
+      case 'S': return { label: 'Sopraan', cls: 'bg-pink-100 text-pink-700' }
+      case 'A': return { label: 'Alt', cls: 'bg-purple-100 text-purple-700' }
+      case 'T': return { label: 'Tenor', cls: 'bg-blue-100 text-blue-700' }
+      case 'B': return { label: 'Bas', cls: 'bg-green-100 text-green-700' }
+      default: return { label: '—', cls: 'bg-gray-100 text-gray-500' }
+    }
+  }
 
   return c.html(
     <Layout title="Verjaardagslijst" user={user} impersonating={!!(c.get('impersonating' as any))} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Verjaardagslijst', href: '#'}]}>
@@ -4242,12 +4259,10 @@ app.get('/leden/verjaardagen', async (c) => {
                           </div>
                         </div>
                         <div>
-                          <span class={`px-2 py-1 rounded text-xs font-semibold ${
-                            m.stemgroep === 'S' ? 'bg-pink-100 text-pink-700' :
-                            m.stemgroep === 'A' ? 'bg-purple-100 text-purple-700' :
-                            m.stemgroep === 'T' ? 'bg-blue-100 text-blue-700' :
-                            'bg-green-100 text-green-700'
-                          }`}>{stemgroepLabel(m.stemgroep)}</span>
+                          {(() => {
+                            const rl = roleLabel(m)
+                            return <span class={`px-2 py-1 rounded text-xs font-semibold ${rl.cls}`}>{rl.label}</span>
+                          })()}
                         </div>
                       </div>
                     )

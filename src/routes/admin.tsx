@@ -803,48 +803,56 @@ app.get('/admin/aanmeldingen', async (c) => {
 
                         {/* Action buttons - always visible — alle knoppen h-9 voor strakke uitlijning */}
                         <div class="flex items-center gap-2 flex-shrink-0">
-                          {/* Convert to member (only for word_lid submissions) */}
+                          {/* Convert to member (only for word_lid submissions, niet als al omgezet) */}
                           {!isConverted && sub.type === 'word_lid' && (
                             <a
                               href={`/admin/aanmeldingen/${sub.id}/omzetten`}
                               class="inline-flex items-center justify-center h-9 px-3 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700 transition font-medium whitespace-nowrap"
-                              title="Omzetten naar lid"
+                              title="Omzetten naar lid (maakt automatisch een actief account aan en zet status op verwerkt)"
                             >
                               <i class="fas fa-user-plus mr-1.5"></i> Omzetten naar lid
                             </a>
                           )}
-                          
-                          {/* Mark as processed */}
-                          {isNew && (
+
+                          {/* "Verwerkt" markeren — alleen voor contact-formulieren of als word_lid niet wordt omgezet */}
+                          {isNew && sub.type !== 'word_lid' && (
                             <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/verwerk`} class="inline-flex m-0">
-                              <button type="submit" class="inline-flex items-center justify-center h-9 px-3 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition whitespace-nowrap font-medium">
-                                <i class="fas fa-check mr-1.5"></i> Verwerkt
+                              <button
+                                type="submit"
+                                class="inline-flex items-center justify-center h-9 px-3 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 transition whitespace-nowrap font-medium"
+                                title="Markeer als afgehandeld zonder lid aan te maken"
+                              >
+                                <i class="fas fa-check mr-1.5"></i> Afgehandeld
                               </button>
                             </form>
                           )}
 
-                          {/* Archive — icon-only, vaste vierkante grootte */}
+                          {/* Archive — duidelijk label "Archiveer" + grijs (= bewaar voor naslag, kan terugkomen) */}
                           {(isNew || sub.status === 'verwerkt') && (
                             <form method="POST" action={`/api/admin/aanmeldingen/${sub.id}/archiveer`} class="inline-flex m-0">
-                              <button type="submit" class="inline-flex items-center justify-center h-9 w-9 bg-gray-200 text-gray-700 text-sm rounded-lg hover:bg-gray-300 transition" title="Archiveren">
-                                <i class="fas fa-archive"></i>
+                              <button
+                                type="submit"
+                                class="inline-flex items-center justify-center h-9 px-3 bg-gray-100 text-gray-700 text-sm rounded-lg hover:bg-gray-200 transition border border-gray-300 whitespace-nowrap"
+                                title="Verbergen uit actieve lijst, blijft bewaard voor naslag"
+                              >
+                                <i class="fas fa-archive mr-1.5"></i> Archiveer
                               </button>
                             </form>
                           )}
 
-                          {/* Delete with confirmation — form direct rond de knop, niet hidden (anders blokkeert browser submit) */}
+                          {/* Delete — duidelijk rood + label "Verwijder" (= permanent weg) */}
                           <form
                             method="POST"
                             action={`/api/admin/aanmeldingen/${sub.id}/delete`}
                             class="inline-flex m-0"
-                            onsubmit={`return confirm('Aanvraag van ${sub.naam.replace(/'/g, "\\'")} definitief verwijderen?');`}
+                            onsubmit={`return confirm('LET OP: definitief verwijderen.\\n\\nAanvraag van ${sub.naam.replace(/'/g, "\\'")} wordt permanent uit de database verwijderd. Dit kan niet ongedaan gemaakt worden.\\n\\nDoorgaan?');`}
                           >
                             <button
                               type="submit"
-                              class="inline-flex items-center justify-center h-9 w-9 bg-red-50 text-red-600 text-sm rounded-lg hover:bg-red-100 transition"
-                              title="Verwijderen"
+                              class="inline-flex items-center justify-center h-9 px-3 bg-red-50 text-red-600 text-sm rounded-lg hover:bg-red-100 transition border border-red-200 whitespace-nowrap"
+                              title="Permanent verwijderen uit database (onomkeerbaar)"
                             >
-                              <i class="fas fa-trash"></i>
+                              <i class="fas fa-trash mr-1.5"></i> Verwijder
                             </button>
                           </form>
                         </div>

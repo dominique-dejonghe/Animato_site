@@ -5,6 +5,7 @@ import { Hono } from 'hono'
 import type { Bindings } from '../types'
 import { requireAuth } from '../middleware/auth'
 import { queryOne } from '../utils/db'
+import { uploadDataUrlToR2, deleteFromR2 } from '../utils/r2-storage'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -14,17 +15,29 @@ const app = new Hono<{ Bindings: Bindings }>()
 
 app.get('/api/photos/:userId', async (c) => {
   const userId = c.req.param('userId')
-  
+
   const photo = await queryOne<any>(
     c.env.DB,
-    'SELECT data, content_type FROM member_photos WHERE user_id = ?',
+    'SELECT data, content_type, r2_key FROM member_photos WHERE user_id = ?',
     [userId]
   )
-  
-  if (!photo || !photo.data) {
-    return c.body(null, 404)
+
+  if (!photo) return c.body(null, 404)
+
+  // Voorkeur: R2-versie als die bestaat
+  if (photo.r2_key && c.env.R2) {
+    const obj = await c.env.R2.get(photo.r2_key)
+    if (obj) {
+      const headers = new Headers()
+      obj.writeHttpMetadata(headers)
+      headers.set('Cache-Control', 'public, max-age=86400, s-maxage=604800')
+      if (obj.httpEtag) headers.set('ETag', obj.httpEtag)
+      return new Response(obj.body, { headers })
+    }
   }
-  
+
+  if (!photo.data) return c.body(null, 404)
+
   try {
     // Validate base64 padding before decoding
     let base64Data = photo.data
@@ -87,35 +100,56 @@ app.post('/api/photos/upload', requireAuth, async (c) => {
       }
     }
     
-    // Validate size (max ~500KB of base64 = ~375KB actual image)
-    if (cleanData.length > 700000) {
-      return c.json({ error: 'Foto is te groot. Maximum ~500KB na compressie.' }, 400)
+    // Limiet: 25 MB (R2 storage). Realistisch is ~1-2 MB na client-side compressie.
+    if (cleanData.length > 35_000_000) {
+      return c.json({ error: 'Foto is te groot (max 25 MB).' }, 413)
     }
-    
-    // Calculate approximate size in bytes
-    const sizeBytes = Math.round(cleanData.length * 3 / 4)
-    
-    // Upsert into member_photos table
+
+    // Upload naar R2
+    if (!c.env.R2) {
+      return c.json({ error: 'R2 storage niet geconfigureerd' }, 500)
+    }
+    const dataUrl = `data:${detectedType};base64,${cleanData}`
+    const up = await uploadDataUrlToR2(c.env.R2, 'member-photos', dataUrl, `${targetUserId}.jpg`)
+    if (!up) {
+      return c.json({ error: 'R2 upload mislukt' }, 500)
+    }
+
+    // Lees oude r2_key (om straks oude object op te ruimen)
+    const oldRow = await queryOne<any>(
+      c.env.DB,
+      'SELECT r2_key FROM member_photos WHERE user_id = ?',
+      [targetUserId]
+    )
+    const oldKey = oldRow?.r2_key
+
+    // Upsert into member_photos table — schrijf r2_key, laat data leeg (ruimte besparen)
     await c.env.DB.prepare(
-      `INSERT INTO member_photos (user_id, data, content_type, size_bytes, updated_at)
-       VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+      `INSERT INTO member_photos (user_id, data, content_type, size_bytes, r2_key, updated_at)
+       VALUES (?, NULL, ?, ?, ?, CURRENT_TIMESTAMP)
        ON CONFLICT(user_id) DO UPDATE SET
-         data = excluded.data,
+         data = NULL,
          content_type = excluded.content_type,
          size_bytes = excluded.size_bytes,
+         r2_key = excluded.r2_key,
          updated_at = CURRENT_TIMESTAMP`
-    ).bind(targetUserId, cleanData, detectedType, sizeBytes).run()
-    
-    // Update profiles.foto_url to point to the serving endpoint
+    ).bind(targetUserId, detectedType, up.size, up.key).run()
+
+    // Ruim oude R2-key op (best-effort)
+    if (oldKey && oldKey !== up.key) {
+      try { await deleteFromR2(c.env.R2, oldKey) } catch {}
+    }
+
+    // profiles.foto_url blijft wijzen naar /api/photos/<userId> (serveert nu R2-content)
     const photoUrl = `/api/photos/${targetUserId}`
     await c.env.DB.prepare(
       'UPDATE profiles SET foto_url = ? WHERE user_id = ?'
     ).bind(photoUrl, targetUserId).run()
-    
-    return c.json({ 
-      success: true, 
+
+    return c.json({
+      success: true,
       url: photoUrl,
-      size: sizeBytes
+      size: up.size
     })
   } catch (err: any) {
     console.error('Photo upload error:', err)
@@ -135,10 +169,21 @@ app.post('/api/photos/delete', requireAuth, async (c) => {
     const { target_user_id } = body
     
     const targetUserId = (user.role === 'admin' && target_user_id) ? target_user_id : user.id
-    
+
+    // Lees R2-key voor opruimen
+    const row = await queryOne<any>(
+      c.env.DB,
+      'SELECT r2_key FROM member_photos WHERE user_id = ?',
+      [targetUserId]
+    )
+
     await c.env.DB.prepare('DELETE FROM member_photos WHERE user_id = ?').bind(targetUserId).run()
     await c.env.DB.prepare('UPDATE profiles SET foto_url = NULL WHERE user_id = ?').bind(targetUserId).run()
-    
+
+    if (row?.r2_key && c.env.R2) {
+      try { await deleteFromR2(c.env.R2, row.r2_key) } catch {}
+    }
+
     return c.json({ success: true })
   } catch (err: any) {
     return c.json({ error: 'Verwijderen mislukt' }, 500)

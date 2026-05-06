@@ -1,6 +1,6 @@
 // Type definitions voor Animato Koor Website
 
-import type { D1Database } from '@cloudflare/workers-types'
+import type { D1Database, R2Bucket } from '@cloudflare/workers-types'
 
 // =====================================================
 // ENVIRONMENT BINDINGS
@@ -9,7 +9,7 @@ import type { D1Database } from '@cloudflare/workers-types'
 export type Bindings = {
   DB: D1Database
   AI: any // Cloudflare Workers AI binding
-  // R2: R2Bucket // Uncomment wanneer R2 toegevoegd wordt
+  R2: R2Bucket // Cloudflare R2 object storage voor foto's, partituren, covers
   JWT_SECRET: string
   SESSION_SECRET: string
   RESEND_API_KEY: string

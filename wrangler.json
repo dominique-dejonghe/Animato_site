@@ -13,6 +13,12 @@
       "database_id": "758eef10-f55b-428f-81ca-4d7f87862811"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "R2",
+      "bucket_name": "animato-storage"
+    }
+  ],
   "ai": {
     "binding": "AI"
   }

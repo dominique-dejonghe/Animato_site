@@ -50,6 +50,8 @@ import publicDonationRoutes from './routes/public-donation'
 import adminAttendanceRoutes from './routes/admin-attendance'
 import adminAiNewsRoutes from './routes/admin-ai-news'
 import checkinRoutes from './routes/checkin'
+import r2Routes from './routes/r2'
+import adminR2MigrateRoutes from './routes/admin-r2-migrate'
 
 // =====================================================
 // APP INITIALIZATION
@@ -74,6 +76,9 @@ app.use('/api/*', cors({
 
 // Static files from /static/* path
 app.use('/static/*', serveStatic({ root: './' }))
+
+// R2 object storage public-serve route (foto's, partituren, covers)
+app.route('/', r2Routes)
 
 // =====================================================
 // ROUTES
@@ -138,6 +143,7 @@ app.route('/', adminCommunicationsRoutes) // Added route
 app.route('/', adminFeedbackRoutes)
 // adminLedenImportRoutes en adminAttendanceRoutes zijn verplaatst naar boven (voor adminRoutes)
 app.route('/', adminAnalyticsRoutes)
+app.route('/', adminR2MigrateRoutes)
 
 // Tickets & Webhooks
 app.route('/', ticketsRoutes)

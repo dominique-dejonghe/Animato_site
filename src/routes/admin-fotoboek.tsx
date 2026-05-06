@@ -4,6 +4,7 @@ import { AdminSidebar } from '../components/AdminSidebar'
 import type { Bindings, SessionUser } from '../types'
 import { requireAuth, requireRole } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
+import { uploadDataUrlToR2, deleteFromR2, isDataUrl, r2KeyFromUrl } from '../utils/r2-storage'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1417,34 +1418,49 @@ app.post('/admin/fotoboek/album/create', async (c) => {
     .replace(/^-|-$/g, '')
 
   // Determine final cover URL
-  // Priority: uploaded file (base64) > URL input
-  let finalCoverUrl = null
+  // Priority: uploaded file (data URL → R2) > URL input
+  let finalCoverUrl: string | null = null
+  let coverR2Key: string | null = null
   if (cover_data && String(cover_data).startsWith('data:image/')) {
     const dataStr = String(cover_data)
-    if (dataStr.length > 900000) {
-      return c.redirect('/admin/fotoboek?error=' + encodeURIComponent('Cover foto is te groot (' + Math.round(dataStr.length / 1024) + ' KB). Gebruik een kleinere foto of een URL.'))
+    // 25 MB hard cap (Worker request body limit ~ realistic upper bound)
+    if (dataStr.length > 35_000_000) {
+      return c.redirect('/admin/fotoboek?error=' + encodeURIComponent('Cover foto is te groot (' + Math.round(dataStr.length / 1024 / 1024) + ' MB). Comprimeer de foto of gebruik een URL.'))
     }
-    finalCoverUrl = dataStr
+    if (!c.env.R2) {
+      return c.redirect('/admin/fotoboek?error=' + encodeURIComponent('R2 storage niet geconfigureerd'))
+    }
+    const up = await uploadDataUrlToR2(c.env.R2, 'covers/albums', dataStr)
+    if (!up) {
+      return c.redirect('/admin/fotoboek?error=' + encodeURIComponent('Cover upload mislukt'))
+    }
+    finalCoverUrl = up.url
+    coverR2Key = up.key
   } else if (cover_url) {
     finalCoverUrl = cover_url as string
   }
 
   try {
     const result = await c.env.DB.prepare(
-      `INSERT INTO albums (titel, slug, beschrijving, datum, cover_url, is_publiek, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO albums (titel, slug, beschrijving, datum, cover_url, cover_r2_key, is_publiek, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       titel,
       slug,
       beschrijving || null,
       datum || new Date().toISOString().split('T')[0],
       finalCoverUrl,
+      coverR2Key,
       is_publiek === '1' ? 1 : 0,
       user.id
     ).run()
 
     return c.redirect(`/admin/fotoboek/album/${result.meta.last_row_id}`)
   } catch (error: any) {
+    // Rollback: ruim de R2 cover op als DB-insert faalde
+    if (coverR2Key && c.env.R2) {
+      try { await deleteFromR2(c.env.R2, coverR2Key) } catch {}
+    }
     if (error.message && error.message.includes('TOOBIG')) {
       return c.redirect('/admin/fotoboek?error=' + encodeURIComponent('Foto is te groot voor de database. Gebruik een kleinere foto of een externe URL.'))
     }
@@ -1464,28 +1480,46 @@ app.post('/admin/fotoboek/album/:id/update', async (c) => {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
 
+  // Haal huidig album op (voor rollback van oude R2-cover bij vervanging)
+  const currentAlbum = await c.env.DB.prepare(
+    `SELECT cover_url, cover_r2_key FROM albums WHERE id = ?`
+  ).bind(albumId).first() as any
+
   // Determine final cover URL
-  // Priority: uploaded file (base64) > URL input > keep existing
-  let finalCoverUrl = cover_url || null
+  // Priority: uploaded file (data URL → R2) > URL input > keep existing
+  let finalCoverUrl: string | null = (cover_url as string) || null
+  let newCoverR2Key: string | null = null
+  let oldCoverR2KeyToDelete: string | null = null
+
   if (cover_data && String(cover_data).startsWith('data:image/')) {
-    // Check base64 size (D1 has ~1MB row limit)
     const dataStr = String(cover_data)
-    if (dataStr.length > 900000) {
-      return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Cover foto is te groot (' + Math.round(dataStr.length / 1024) + ' KB). Gebruik een kleinere foto of een URL.'))
+    if (dataStr.length > 35_000_000) {
+      return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Cover foto is te groot (' + Math.round(dataStr.length / 1024 / 1024) + ' MB). Comprimeer de foto of gebruik een URL.'))
     }
-    finalCoverUrl = dataStr
+    if (!c.env.R2) {
+      return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('R2 storage niet geconfigureerd'))
+    }
+    const up = await uploadDataUrlToR2(c.env.R2, 'covers/albums', dataStr)
+    if (!up) {
+      return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Cover upload mislukt'))
+    }
+    finalCoverUrl = up.url
+    newCoverR2Key = up.key
+    // Oude R2-cover is nu vervangen → mag straks weg
+    oldCoverR2KeyToDelete = currentAlbum?.cover_r2_key || r2KeyFromUrl(currentAlbum?.cover_url || null)
   } else if (!cover_url) {
-    // If no new data provided, keep existing (don't update)
-    const current = await c.env.DB.prepare(
-      `SELECT cover_url FROM albums WHERE id = ?`
-    ).bind(albumId).first() as any
-    finalCoverUrl = current?.cover_url || null
+    // Geen nieuwe data en geen nieuwe URL → behoud bestaande
+    finalCoverUrl = currentAlbum?.cover_url || null
+    newCoverR2Key = currentAlbum?.cover_r2_key || null
+  } else {
+    // Nieuwe externe URL → oude R2-cover (indien aanwezig) opruimen
+    oldCoverR2KeyToDelete = currentAlbum?.cover_r2_key || r2KeyFromUrl(currentAlbum?.cover_url || null)
   }
 
   try {
     await c.env.DB.prepare(
-      `UPDATE albums 
-       SET titel = ?, slug = ?, beschrijving = ?, datum = ?, cover_url = ?, is_publiek = ?
+      `UPDATE albums
+       SET titel = ?, slug = ?, beschrijving = ?, datum = ?, cover_url = ?, cover_r2_key = ?, is_publiek = ?
        WHERE id = ?`
     ).bind(
       titel,
@@ -1493,12 +1527,22 @@ app.post('/admin/fotoboek/album/:id/update', async (c) => {
       beschrijving || null,
       datum || new Date().toISOString().split('T')[0],
       finalCoverUrl,
+      newCoverR2Key,
       is_publiek === '1' ? 1 : 0,
       albumId
     ).run()
 
+    // Pas na succesvolle DB-update de oude R2-cover wegmieteren
+    if (oldCoverR2KeyToDelete && c.env.R2) {
+      try { await deleteFromR2(c.env.R2, oldCoverR2KeyToDelete) } catch {}
+    }
+
     return c.redirect(`/admin/fotoboek/album/${albumId}`)
   } catch (error: any) {
+    // Rollback nieuwe R2-cover als DB-update faalde
+    if (newCoverR2Key && c.env.R2) {
+      try { await deleteFromR2(c.env.R2, newCoverR2Key) } catch {}
+    }
     if (error.message && error.message.includes('TOOBIG')) {
       return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Foto is te groot voor de database. Gebruik een kleinere foto of een externe URL (bv. Imgur, Unsplash).'))
     }
@@ -1511,11 +1555,33 @@ app.post('/admin/fotoboek/album/:id/delete', async (c) => {
   const albumId = c.req.param('id')
 
   try {
+    // Verzamel alle R2-keys (album cover + foto's) zodat we ze achteraf opruimen
+    const album = await c.env.DB.prepare(
+      `SELECT cover_url, cover_r2_key FROM albums WHERE id = ?`
+    ).bind(albumId).first() as any
+    const photos = await c.env.DB.prepare(
+      `SELECT url, r2_key FROM photos WHERE album_id = ?`
+    ).bind(albumId).all()
+
     // Delete all photos in album first
     await c.env.DB.prepare(`DELETE FROM photos WHERE album_id = ?`).bind(albumId).run()
-    
+
     // Delete album
     await c.env.DB.prepare(`DELETE FROM albums WHERE id = ?`).bind(albumId).run()
+
+    // Ruim R2-objecten op (best-effort, faalt stil)
+    if (c.env.R2) {
+      const keysToDelete: string[] = []
+      const albumKey = album?.cover_r2_key || r2KeyFromUrl(album?.cover_url || null)
+      if (albumKey) keysToDelete.push(albumKey)
+      for (const p of (photos.results || []) as any[]) {
+        const k = p.r2_key || r2KeyFromUrl(p.url)
+        if (k) keysToDelete.push(k)
+      }
+      for (const k of keysToDelete) {
+        try { await deleteFromR2(c.env.R2, k) } catch {}
+      }
+    }
 
     return c.json({ success: true })
   } catch (error: any) {
@@ -1549,6 +1615,9 @@ app.post('/admin/fotoboek/album/:id/foto/add', async (c) => {
   let finalPhotoUrl: string | null = null
   let finalMediaType: string = 'photo'
   let finalYoutubeId: string | null = null
+  let photoR2Key: string | null = null
+  let photoMimeType: string | null = null
+  let photoSizeBytes: number | null = null
 
   if (media_type === 'youtube') {
     // YouTube video mode
@@ -1560,13 +1629,23 @@ app.post('/admin/fotoboek/album/:id/foto/add', async (c) => {
     // Store the thumbnail URL as the main url so existing cover-image logic keeps working
     finalPhotoUrl = `https://img.youtube.com/vi/${finalYoutubeId}/hqdefault.jpg`
   } else {
-    // Photo mode: uploaded file or URL
+    // Photo mode: uploaded file (data URL → R2) or external URL
     if (photo_data && String(photo_data).startsWith('data:image/')) {
       const dataStr = String(photo_data)
-      if (dataStr.length > 900000) {
-        return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Foto is te groot (' + Math.round(dataStr.length / 1024) + ' KB). Gebruik een kleinere foto of een URL.'))
+      if (dataStr.length > 35_000_000) {
+        return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Foto is te groot (' + Math.round(dataStr.length / 1024 / 1024) + ' MB). Comprimeer de foto of gebruik een URL.'))
       }
-      finalPhotoUrl = dataStr
+      if (!c.env.R2) {
+        return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('R2 storage niet geconfigureerd'))
+      }
+      const up = await uploadDataUrlToR2(c.env.R2, `photos/${albumId}`, dataStr)
+      if (!up) {
+        return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Foto upload mislukt'))
+      }
+      finalPhotoUrl = up.url
+      photoR2Key = up.key
+      photoMimeType = up.contentType
+      photoSizeBytes = up.size
     } else if (url) {
       finalPhotoUrl = url as string
     }
@@ -1577,8 +1656,8 @@ app.post('/admin/fotoboek/album/:id/foto/add', async (c) => {
 
   try {
     await c.env.DB.prepare(
-      `INSERT INTO photos (album_id, url, caption, fotograaf, upload_door, sorteer_volgorde, media_type, youtube_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO photos (album_id, url, caption, fotograaf, upload_door, sorteer_volgorde, media_type, youtube_id, r2_key, content_type, size_bytes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).bind(
       albumId,
       finalPhotoUrl,
@@ -1587,11 +1666,18 @@ app.post('/admin/fotoboek/album/:id/foto/add', async (c) => {
       user.id,
       sorteer_volgorde || 999,
       finalMediaType,
-      finalYoutubeId
+      finalYoutubeId,
+      photoR2Key,
+      photoMimeType,
+      photoSizeBytes
     ).run()
 
     return c.redirect(`/admin/fotoboek/album/${albumId}`)
   } catch (error: any) {
+    // Rollback nieuwe R2-foto als DB-insert faalde
+    if (photoR2Key && c.env.R2) {
+      try { await deleteFromR2(c.env.R2, photoR2Key) } catch {}
+    }
     if (error.message && error.message.includes('TOOBIG')) {
       return c.redirect(`/admin/fotoboek/album/${albumId}?error=` + encodeURIComponent('Foto is te groot voor de database. Gebruik een kleinere foto of een externe URL.'))
     }
@@ -1604,7 +1690,21 @@ app.post('/admin/fotoboek/foto/:id/delete', async (c) => {
   const photoId = c.req.param('id')
 
   try {
+    // Lees R2-key voordat we de rij verwijderen
+    const photo = await c.env.DB.prepare(
+      `SELECT url, r2_key FROM photos WHERE id = ?`
+    ).bind(photoId).first() as any
+
     await c.env.DB.prepare(`DELETE FROM photos WHERE id = ?`).bind(photoId).run()
+
+    // Ruim R2-object op (best-effort)
+    if (c.env.R2) {
+      const k = photo?.r2_key || r2KeyFromUrl(photo?.url || null)
+      if (k) {
+        try { await deleteFromR2(c.env.R2, k) } catch {}
+      }
+    }
+
     return c.json({ success: true })
   } catch (error: any) {
     return c.json({ error: 'Foto verwijderen mislukt', message: error.message }, 500)

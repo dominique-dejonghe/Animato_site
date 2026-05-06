@@ -5,8 +5,10 @@ import { AdminSidebar } from '../components/AdminSidebar'
 import { requireRole, type SessionUser } from '../middleware/auth'
 import { queryAll, queryOne, execute } from '../utils/db'
 import { verifyToken } from '../utils/auth'
+import type { Bindings } from '../types'
+import { uploadDataUrlToR2, deleteFromR2 } from '../utils/r2-storage'
 
-const app = new Hono()
+const app = new Hono<{ Bindings: Bindings }>()
 
 // Apply admin authentication – scoped to /admin/* and /api/admin/* only
 const adminAuthMiddleware = async (c: any, next: any) => {
@@ -854,11 +856,11 @@ app.get('/admin/bestanden/nieuw', async (c) => {
                     Selecteer Bestand
                   </button>
                   <p class="text-sm text-gray-500 mt-2">
-                    Max <strong>700&nbsp;KB</strong> voor directe upload • PDF, MP3, MP4, ZIP
+                    Max <strong>25&nbsp;MB</strong> per bestand • PDF, MP3, MP4, ZIP
                   </p>
-                  <p class="text-xs text-amber-700 mt-1 bg-amber-50 inline-block px-2 py-1 rounded">
-                    <i class="fas fa-info-circle mr-1"></i>
-                    PDF te groot? Upload naar <strong>Google Drive</strong> (rechts-klik &rarr; Delen &rarr; "Iedereen met link"), kopieer de link en plak hem in het URL-veld hieronder.
+                  <p class="text-xs text-green-700 mt-1 bg-green-50 inline-block px-2 py-1 rounded">
+                    <i class="fas fa-cloud mr-1"></i>
+                    Bestanden worden opgeslagen in <strong>Cloudflare R2</strong> object storage. Geen Google Drive omweg meer nodig.
                   </p>
                   <div id="file_preview" class="hidden mt-4">
                     <div class="bg-gray-50 rounded-lg p-4 inline-block">
@@ -996,19 +998,16 @@ app.get('/admin/bestanden/nieuw', async (c) => {
             const file = event.target.files[0];
             if (!file) return;
 
-            // Validate file size — D1/SQLite limiteert rij-grootte tot ~1 MB.
-            // Base64 voegt 33% bloat toe → veilige limiet = 700 KB ruwe bestandsgrootte.
-            var MAX_BYTES = 700 * 1024;
+            // Validate file size — bestanden worden naar R2 geüpload.
+            // 25 MB is een redelijke bovengrens (Cloudflare Worker request body cap).
+            var MAX_BYTES = 25 * 1024 * 1024;
             if (file.size > MAX_BYTES) {
               var sizeMB = (file.size / 1024 / 1024).toFixed(2);
-              alert('Bestand is te groot voor directe upload (' + sizeMB + ' MB).\\n\\n' +
-                    'Maximaal 700 KB voor directe upload (database-limiet).\\n\\n' +
-                    'Oplossing voor grotere PDFs:\\n' +
-                    '1. Upload je PDF naar Google Drive\\n' +
-                    '2. Rechtsklik → Delen → "Iedereen met de link" → Lezer\\n' +
-                    '3. Kopieer de Drive-link\\n' +
-                    '4. Plak hem in het URL-veld hieronder (geen bestand selecteren)\\n\\n' +
-                    'Voor video: gebruik YouTube/Vimeo links.');
+              alert('Bestand is te groot (' + sizeMB + ' MB).\\n\\n' +
+                    'Maximaal 25 MB per upload.\\n\\n' +
+                    'Voor grotere bestanden:\\n' +
+                    '- Comprimeer eerst (bv. PDF compressor, MP3 lager bitrate)\\n' +
+                    '- Of gebruik een externe link (YouTube voor video, Drive voor PDFs)');
               event.target.value = '';
               return;
             }
@@ -1044,26 +1043,25 @@ app.post('/api/admin/bestanden/create', async (c) => {
   // (D1 ondersteunt geen multi-statement transactions in Workers — manueel).
   let createdWorkId: number | null = null
   let createdPieceId: number | null = null
+  let createdR2Key: string | null = null
 
   try {
-    // VROEGE VALIDATIE: file_data size check (vóór er iets in DB komt)
+    // VROEGE VALIDATIE: file_data size check
+    // R2 heeft geen 1 MB limiet zoals D1, maar we cappen op 25 MB
+    // (Cloudflare Worker request body limit + redelijkheid).
     const earlyFileData = body.file_data ? String(body.file_data) : ''
     if (earlyFileData && earlyFileData.startsWith('data:')) {
-      // Base64-payload: SQLite/D1 limiteert rij-grootte tot ~1 MB.
-      // We willen ruim onder de 1 MB blijven inclusief alle andere kolommen.
-      const MAX_DATA_URL_LEN = 1_000_000 // ~1 MB string-lengte
+      const MAX_DATA_URL_LEN = 35_000_000 // ~25 MB ruwe + base64 bloat
       if (earlyFileData.length > MAX_DATA_URL_LEN) {
-        const approxKB = Math.round(earlyFileData.length * 0.75 / 1024)
+        const approxMB = (earlyFileData.length * 0.75 / 1024 / 1024).toFixed(1)
         return c.html(
           `<html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto">
             <h1 style="color:#dc2626">📦 Bestand te groot</h1>
-            <p>Het geüploade bestand is <strong>${approxKB} KB</strong>, dat past niet in de database (limiet: ~700 KB voor directe upload).</p>
+            <p>Het geüploade bestand is <strong>${approxMB} MB</strong>, dat is groter dan de upload-limiet van 25 MB.</p>
             <p><strong>Oplossing:</strong></p>
             <ol>
-              <li>Upload je PDF naar <strong>Google Drive</strong></li>
-              <li>Rechtsklik → Delen → "Iedereen met de link" → Lezer</li>
-              <li>Kopieer de Drive-link</li>
-              <li>Ga terug en plak de link in het <strong>URL-veld</strong> (selecteer géén bestand)</li>
+              <li>Comprimeer het bestand (bv. <a href="https://www.ilovepdf.com/compress_pdf" target="_blank">PDF compressor</a>, lagere MP3 bitrate)</li>
+              <li>Of gebruik een externe link (YouTube voor video, Drive voor enorme PDFs)</li>
             </ol>
             <p><a href="javascript:history.back()" style="display:inline-block;background:#dc2626;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;margin-top:20px">← Terug naar formulier</a></p>
           </body></html>`,
@@ -1113,11 +1111,12 @@ app.post('/api/admin/bestanden/create', async (c) => {
     let bestandsnaam: string | null = null
     let mimeType: string | null = null
     let grootte: number | null = null
-    
+    let r2Key: string | null = null
+
     // Check if external URL is provided
     const externalUrl = body.external_url ? String(body.external_url).trim() : ''
     const fileData = body.file_data ? String(body.file_data) : ''
-    
+
     if (body.type === 'link' || (externalUrl && !fileData)) {
       // External link (YouTube, Google Drive, etc.)
       if (!externalUrl) {
@@ -1130,19 +1129,21 @@ app.post('/api/admin/bestanden/create', async (c) => {
       finalUrl = externalUrl
       bestandsnaam = null
     } else if (fileData && fileData.startsWith('data:')) {
-      // File upload (base64)
-      finalUrl = fileData
-      
-      // Extract file info from data URL
-      const matches = fileData.match(/^data:([^;]+);base64,(.+)$/)
-      if (matches) {
-        mimeType = matches[1]
-        const base64Data = matches[2]
-        grootte = Math.round(base64Data.length * 0.75) // Approximate file size
+      // File upload → naar R2 ipv base64 in D1
+      if (!c.env.R2) {
+        throw new Error('R2 storage is niet geconfigureerd. Contacteer de admin.')
       }
-      
-      // Get filename from file input (if available)
-      // Note: We can't easily get the original filename from base64, so we'll construct one
+      const uploadResult = await uploadDataUrlToR2(c.env.R2, `materials/${pieceId}`, fileData)
+      if (!uploadResult) {
+        throw new Error('Bestand kon niet ge-upload worden naar R2')
+      }
+      finalUrl = uploadResult.url           // "/r2/materials/<pieceId>/<ts>-<rand>.<ext>"
+      r2Key = uploadResult.key
+      createdR2Key = r2Key                  // tracken voor rollback
+      mimeType = uploadResult.contentType
+      grootte = uploadResult.size
+
+      // Friendly bestandsnaam afgeleid van titel
       const typeExt = {
         'pdf': '.pdf',
         'audio': '.mp3',
@@ -1158,8 +1159,8 @@ app.post('/api/admin/bestanden/create', async (c) => {
     await execute(c.env.DB, `
       INSERT INTO materials (
         piece_id, stem, type, titel, bestandsnaam, url, mime_type,
-        grootte_bytes, beschrijving, zichtbaar_voor, upload_door, page_count
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        grootte_bytes, beschrijving, zichtbaar_voor, upload_door, page_count, r2_key
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       pieceId,
       body.stem,
@@ -1172,7 +1173,8 @@ app.post('/api/admin/bestanden/create', async (c) => {
       body.beschrijving || null,
       body.zichtbaar_voor || 'alle_leden',
       user.id,
-      body.page_count ? parseInt(body.page_count) : 0
+      body.page_count ? parseInt(body.page_count) : 0,
+      r2Key
     ])
 
     // 5. Audit log
@@ -1191,9 +1193,14 @@ app.post('/api/admin/bestanden/create', async (c) => {
     console.error('Error creating material:', error)
 
     // ROLLBACK: D1 ondersteunt geen multi-statement transactions, dus
-    // ruim handmatig op wat we tijdens deze request hebben aangemaakt.
-    // (Werk + Piece kunnen gedeeltelijk in DB staan terwijl material insert faalde.)
+    // ruim handmatig op wat we tijdens deze request hebben aangemaakt:
+    //  - aangemaakt R2-object
+    //  - aangemaakte piece
+    //  - aangemaakt werk (alleen als geen andere stukken eraan hangen)
     try {
+      if (createdR2Key && c.env.R2) {
+        await deleteFromR2(c.env.R2, createdR2Key)
+      }
       if (createdPieceId) {
         await execute(c.env.DB, `DELETE FROM pieces WHERE id = ?`, [createdPieceId])
       }
@@ -1214,23 +1221,12 @@ app.post('/api/admin/bestanden/create', async (c) => {
 
     return c.html(
       `<html><body style="font-family:system-ui;padding:40px;max-width:600px;margin:0 auto">
-        <h1 style="color:#dc2626">${isTooBig ? '📦 Bestand te groot' : '⚠️ Fout bij opslaan'}</h1>
-        ${isTooBig ? `
-          <p>Het bestand past niet in de database. We hebben de aangemaakte werk/stuk-records weer opgeruimd, dus je kunt opnieuw proberen.</p>
-          <p><strong>Oplossing voor grote PDFs:</strong></p>
-          <ol>
-            <li>Upload je PDF naar <strong>Google Drive</strong></li>
-            <li>Rechtsklik → Delen → "Iedereen met de link" → Lezer</li>
-            <li>Kopieer de Drive-link</li>
-            <li>Plak hem in het <strong>URL-veld</strong> (selecteer géén bestand)</li>
-          </ol>
-        ` : `
-          <p>Er is iets misgegaan: <code style="background:#fef2f2;padding:2px 6px;border-radius:4px">${errMsg.replace(/[<>]/g, '')}</code></p>
-          <p>De aangemaakte werk/stuk-records zijn weer opgeruimd, dus je kunt opnieuw proberen.</p>
-        `}
+        <h1 style="color:#dc2626">⚠️ Fout bij opslaan</h1>
+        <p>Er is iets misgegaan: <code style="background:#fef2f2;padding:2px 6px;border-radius:4px">${errMsg.replace(/[<>]/g, '')}</code></p>
+        <p>De aangemaakte records (werk/stuk/bestand) zijn weer opgeruimd, dus je kunt veilig opnieuw proberen.</p>
         <p><a href="javascript:history.back()" style="display:inline-block;background:#dc2626;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;margin-top:20px">← Terug naar formulier</a></p>
       </body></html>`,
-      isTooBig ? 413 : 500
+      500
     )
   }
 })

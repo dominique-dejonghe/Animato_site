@@ -10,6 +10,7 @@ import { requireAuth, requireRole } from '../middleware/auth'
 import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 import { createEventOccurrences, formatRecurrenceRule } from '../utils/recurring-events'
 import { generateICS, generateBulkICS, generateGoogleCalendarURL } from '../utils/ics'
+import { uploadDataUrlToR2, deleteFromR2, isDataUrl, r2KeyFromUrl } from '../utils/r2-storage'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1262,6 +1263,31 @@ app.post('/admin/events/save', async (c) => {
       }
     }
 
+    // === Cover image: upload data:URL → R2, externe URL blijft, geen wijziging = behoud bestaande ===
+    let finalImageUrl: string | null = (image_url as string) || null
+    let oldR2KeyToDelete: string | null = null
+    if (image_url && typeof image_url === 'string' && isDataUrl(image_url)) {
+      if (!c.env.R2) {
+        return c.html('<p>R2 storage niet geconfigureerd</p>', 500)
+      }
+      // Hard-cap (Worker request body)
+      if (image_url.length > 35_000_000) {
+        return c.html(`<p>Cover foto te groot (${Math.round(image_url.length / 1024 / 1024)} MB). Comprimeer of gebruik een URL.</p>`, 413)
+      }
+      const eventIdForKey = id || 'new'
+      const up = await uploadDataUrlToR2(c.env.R2, `covers/events/${eventIdForKey}`, image_url)
+      if (!up) {
+        return c.html('<p>Cover upload naar R2 mislukt</p>', 500)
+      }
+      finalImageUrl = up.url
+      // Bij UPDATE: oude R2-cover (indien aanwezig) opruimen na succesvolle DB-update
+      if (id) {
+        const prev = await queryOne<{ image_url: string | null }>(c.env.DB,
+          `SELECT image_url FROM events WHERE id = ?`, [id]) as any
+        oldR2KeyToDelete = r2KeyFromUrl(prev?.image_url || null)
+      }
+    }
+
     if (id) {
       // UPDATE existing event
       await execute(
@@ -1273,13 +1299,18 @@ app.post('/admin/events/save', async (c) => {
              is_recurring = ?, recurrence_rule = ?, updated_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
         [
-          type, titel, finalSlug, cleanBeschrijving, image_url || null, finalLocatie, finalLocationId,
+          type, titel, finalSlug, cleanBeschrijving, finalImageUrl, finalLocatie, finalLocationId,
           start_at, end_at, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0, doelgroep || 'all',
           zichtbaar_publiek === 'on' ? 1 : 0, toon_op_homepage === 'on' ? 1 : 0,
           is_recurring === 'on' ? 1 : 0, recurrenceRule ? JSON.stringify(recurrenceRule) : null,
           id
         ]
       )
+
+      // Pas na succesvolle UPDATE: oude R2-cover opruimen (best-effort)
+      if (oldR2KeyToDelete && c.env.R2) {
+        try { await deleteFromR2(c.env.R2, oldR2KeyToDelete) } catch {}
+      }
 
       // If recurring was enabled, regenerate occurrences
       if (is_recurring === 'on' && recurrenceRule) {
@@ -1311,7 +1342,7 @@ app.post('/admin/events/save', async (c) => {
           is_recurring, recurrence_rule, created_by)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
-          type, titel, finalSlug, cleanBeschrijving, image_url || null, finalLocatie, finalLocationId,
+          type, titel, finalSlug, cleanBeschrijving, finalImageUrl, finalLocatie, finalLocationId,
           start_at, end_at, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0, doelgroep || 'all',
           isPubliekValue, isPubliekValue, toon_op_homepage === 'on' ? 1 : 0,
           is_recurring === 'on' ? 1 : 0, recurrenceRule ? JSON.stringify(recurrenceRule) : null,
@@ -1746,7 +1777,7 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
                   />
                   <p class="text-xs text-gray-500 mt-1">
                     <i class="fas fa-info-circle mr-1"></i>
-                    Upload een afbeelding (JPG, PNG, max 2MB). Wordt automatisch geconverteerd naar data URL.
+                    Upload een afbeelding (JPG, PNG, max 25 MB). Wordt opgeslagen in R2 cloud-storage.
                   </p>
                 </div>
 
@@ -2368,9 +2399,9 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
             const file = event.target.files[0];
             if (!file) return;
 
-            // Check file size (max 2MB)
-            if (file.size > 2 * 1024 * 1024) {
-              alert('Bestand is te groot! Maximaal 2MB toegestaan.');
+            // Check file size (max 25MB → R2 storage)
+            if (file.size > 25 * 1024 * 1024) {
+              alert('Bestand is te groot! Maximaal 25 MB toegestaan.');
               event.target.value = '';
               return;
             }

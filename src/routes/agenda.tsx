@@ -7,6 +7,16 @@ import type { Bindings } from '../types'
 import { Layout } from '../components/Layout'
 import { optionalAuth } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
+import { processBodyLinks } from '../utils/text'
+
+// Helper: hosts die als 'intern' gelden bij rich-text linkprocessing (#90)
+function siteHosts(url: string): string[] {
+  try {
+    return [new URL(url).hostname, 'animato-live.pages.dev', 'animato.be', 'www.animato.be']
+  } catch {
+    return ['animato-live.pages.dev', 'animato.be', 'www.animato.be']
+  }
+}
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -796,9 +806,23 @@ app.get('/concerten', async (c) => {
   const isAdmin = (user as any)?.role === 'admin'
 
   // Query based on view parameter — admins also see non-public concerts
+  // Belangrijk: NIET 'e.*' gebruiken (kan grote base64-velden bevatten → SQLITE_TOOBIG).
+  // Selecteer enkel de velden die de overzichtspagina écht nodig heeft.
+  // Belangrijk: image_url & poster_url kunnen base64 data-URLs zijn (>200KB).
+  // Meerdere rijen samen → SQLITE_TOOBIG. We selecteren ze NIET rechtstreeks.
+  // In plaats daarvan: voor base64 (data:...) → NULL teruggeven (de UI valt terug op cover_r2_key via /api/events/<id>/cover).
+  // Voor http(s)/r2 paden behouden we de URL.
   let query = `
-    SELECT e.*, c.poster_url, c.programma, c.uitverkocht, c.voorverkoop_start_at, c.ticketing_enabled,
-           COALESCE(c.poster_url, e.image_url) as display_image
+    SELECT e.id, e.titel, e.slug, e.start_at, e.end_at, e.locatie,
+           CASE WHEN e.image_url LIKE 'data:%' THEN NULL ELSE e.image_url END as image_url,
+           e.is_publiek, e.type, e.cover_r2_key,
+           CASE WHEN c.poster_url LIKE 'data:%' THEN NULL ELSE c.poster_url END as poster_url,
+           c.uitverkocht, c.voorverkoop_start_at, c.ticketing_enabled,
+           COALESCE(
+             CASE WHEN c.poster_url LIKE 'data:%' THEN NULL ELSE c.poster_url END,
+             CASE WHEN e.image_url LIKE 'data:%' THEN NULL ELSE e.image_url END,
+             CASE WHEN e.cover_r2_key IS NOT NULL THEN '/r2/' || e.cover_r2_key END
+           ) as display_image
     FROM events e
     LEFT JOIN concerts c ON c.event_id = e.id
     WHERE e.type = 'concert'${isAdmin ? '' : ' AND e.is_publiek = 1'}
@@ -1281,7 +1305,7 @@ app.get('/concerten/:slug', async (c) => {
                   <h2 class="text-2xl font-bold text-gray-900 mb-4">
                     Over dit concert
                   </h2>
-                  <div class="prose prose-lg max-w-none" dangerouslySetInnerHTML={{ __html: concert.beschrijving }} />
+                  <div class="prose prose-lg max-w-none" dangerouslySetInnerHTML={{ __html: processBodyLinks(concert.beschrijving, siteHosts(c.req.url)) }} />
                 </div>
               )}
 
@@ -1292,7 +1316,7 @@ app.get('/concerten/:slug', async (c) => {
                     <img src="/static/images/animato-note.png" alt="" class="h-7 w-auto" />
                     Programma
                   </h2>
-                  <div class="prose prose-lg max-w-none" dangerouslySetInnerHTML={{ __html: concert.programma }} />
+                  <div class="prose prose-lg max-w-none" dangerouslySetInnerHTML={{ __html: processBodyLinks(concert.programma, siteHosts(c.req.url)) }} />
                 </div>
               )}
 
@@ -1888,7 +1912,7 @@ app.get('/agenda/:slug', async (c) => {
               <h2 class="text-2xl font-bold text-gray-900 mb-4">
                 Details
               </h2>
-              <div class="prose prose-lg max-w-none" dangerouslySetInnerHTML={{ __html: event.beschrijving }} />
+              <div class="prose prose-lg max-w-none" dangerouslySetInnerHTML={{ __html: processBodyLinks(event.beschrijving, siteHosts(c.req.url)) }} />
             </div>
           )}
 

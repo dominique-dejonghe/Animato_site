@@ -722,6 +722,16 @@ app.get('/leden/board', async (c) => {
   const categorie = c.req.query('cat') || 'all'
   const search = c.req.query('search') || ''
 
+  // Bouw zichtbaarheidsfilter rolafhankelijk:
+  // - Iedereen: 'leden' + eigen stemgroep
+  // - Admins/bestuursleden: ook 'bestuur'
+  const isStaff = user.role === 'admin' || user.role === 'bestuur' || (user as any).is_bestuurslid === 1
+  const userStemLower = (user.stemgroep || '').toLowerCase()
+  const visibilityValues: string[] = ['leden']
+  if (userStemLower) visibilityValues.push(userStemLower)
+  if (isStaff) visibilityValues.push('bestuur')
+  const visibilityPlaceholders = visibilityValues.map(() => '?').join(',')
+
   // Build query
   let query = `
     SELECT p.id, p.titel, p.slug, p.created_at, p.categorie, p.is_pinned, p.views,
@@ -732,10 +742,10 @@ app.get('/leden/board', async (c) => {
     LEFT JOIN profiles pr ON pr.user_id = u.id
     WHERE p.type = 'board' 
       AND p.is_published = 1
-      AND (p.zichtbaarheid = 'leden' OR p.zichtbaarheid = ?)
+      AND p.zichtbaarheid IN (${visibilityPlaceholders})
   `
 
-  const filters: any[] = [user.stemgroep?.toLowerCase() || 'algemeen']
+  const filters: any[] = [...visibilityValues]
 
   if (categorie !== 'all') {
     query += ` AND p.categorie = ?`
@@ -854,16 +864,20 @@ app.get('/leden/board', async (c) => {
                 >
                   Bas
                 </a>
-                <a
-                  href="/leden/board?cat=bestuur"
-                  class={`px-4 py-2 rounded-lg font-semibold transition ${
-                    categorie === 'bestuur'
-                      ? 'bg-animato-primary text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Bestuur
-                </a>
+                {isStaff && (
+                  <a
+                    href="/leden/board?cat=bestuur"
+                    class={`px-4 py-2 rounded-lg font-semibold transition ${
+                      categorie === 'bestuur'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200'
+                    }`}
+                    title="Alleen zichtbaar voor bestuur en admins"
+                  >
+                    <i class="fas fa-shield-alt mr-1"></i>
+                    Bestuur
+                  </a>
+                )}
               </div>
             </div>
           </div>
@@ -968,8 +982,13 @@ app.get('/leden/board/:id', async (c) => {
     return c.notFound()
   }
 
-  // Check visibility
-  if (thread.zichtbaarheid !== 'leden' && thread.zichtbaarheid !== user.stemgroep?.toLowerCase()) {
+  // Check visibility — admins/bestuur zien alles; leden zien 'leden' + eigen stemgroep + 'bestuur' alleen als ze bestuurslid zijn
+  const isStaff = user.role === 'admin' || user.role === 'bestuur' || user.is_bestuurslid === 1
+  const userStemLower = (user.stemgroep || '').toLowerCase()
+  const allowedVisibilities = ['leden']
+  if (userStemLower) allowedVisibilities.push(userStemLower)
+  if (isStaff) allowedVisibilities.push('bestuur')
+  if (!isStaff && !allowedVisibilities.includes(thread.zichtbaarheid)) {
     return c.json({ error: 'Geen toegang tot dit bericht' }, 403)
   }
 

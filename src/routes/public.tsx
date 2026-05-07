@@ -1025,7 +1025,7 @@ app.get('/contact', async (c) => {
             </h2>
             <div class="w-full h-80 rounded-lg overflow-hidden shadow-lg">
               <iframe
-                src="https://www.openstreetmap.org/export/embed.html?bbox=4.2829,51.0500,4.3229,51.0700&layer=mapnik&marker=51.0600,4.3029"
+                src="https://www.openstreetmap.org/export/embed.html?bbox=4.2349,51.0606,4.2549,51.0706&layer=mapnik&marker=51.0656493,4.2448626"
                 width="100%"
                 height="100%"
                 style="border:0;"
@@ -1037,7 +1037,9 @@ app.get('/contact', async (c) => {
               <i class="fas fa-map-marker-alt text-animato-primary mr-1"></i>
               Zaal De Sopper, Oppuursdorp 15, 2890 Oppuurs
               &nbsp;·&nbsp;
-              <a href="https://www.openstreetmap.org/search?query=Oppuursdorp+15+Oppuurs" target="_blank" rel="noopener" class="text-animato-primary hover:underline">Bekijk op kaart</a>
+              <a href="https://www.openstreetmap.org/?mlat=51.0656493&mlon=4.2448626#map=18/51.0656493/4.2448626" target="_blank" rel="noopener" class="text-animato-primary hover:underline">Bekijk op kaart</a>
+              &nbsp;·&nbsp;
+              <a href="https://www.google.com/maps/dir/?api=1&destination=51.0656493,4.2448626" target="_blank" rel="noopener" class="text-animato-primary hover:underline">Route plannen</a>
             </p>
           </div>
         </div>

@@ -827,8 +827,13 @@ app.get('/admin/events/:id', async (c) => {
                   <i class="fas fa-plus mr-2"></i> Stuk toevoegen
                 </button>
               </div>
-              <p class="text-sm text-gray-500 mb-4">
-                Sleep stukken om de volgorde aan te passen. Leden zien deze lijst op de event-detailpagina (publieke kant) en kunnen daar de partituren downloaden of inline bekijken.
+              <p class="text-sm text-gray-500 mb-2">
+                Sleep stukken om de volgorde aan te passen. Wijzigingen worden automatisch bewaard.
+                <span id="partituren-save-status" class="text-sm ml-3"></span>
+              </p>
+              <p class="text-xs text-gray-400 mb-4">
+                <i class="fas fa-info-circle mr-1"></i>
+                Leden zien deze lijst op de event-detailpagina en kunnen daar de partituren downloaden of inline bekijken.
               </p>
 
               {partituren.length === 0 ? (
@@ -1085,11 +1090,36 @@ app.get('/admin/events/:id', async (c) => {
                     var ids = Array.from(list.querySelectorAll('.partituur-item')).map(function(el) {
                       return parseInt(el.dataset.linkId);
                     });
+                    // Toon feedback aan gebruiker
+                    var statusEl = document.getElementById('partituren-save-status');
+                    if (statusEl) {
+                      statusEl.textContent = '💾 Volgorde opslaan...';
+                      statusEl.className = 'text-sm text-blue-600 ml-3';
+                    }
                     fetch('/api/admin/events/' + eventId + '/pieces/reorder', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ link_ids: ids })
-                    }).catch(function(err) { console.error(err); });
+                      body: JSON.stringify({ ids: ids })
+                    }).then(function(r) { return r.json(); })
+                      .then(function(data) {
+                        if (statusEl) {
+                          if (data.success) {
+                            statusEl.textContent = '✓ Volgorde bewaard';
+                            statusEl.className = 'text-sm text-green-600 ml-3';
+                            setTimeout(function() { statusEl.textContent = ''; }, 2500);
+                          } else {
+                            statusEl.textContent = '✗ Fout: ' + (data.error || 'onbekend');
+                            statusEl.className = 'text-sm text-red-600 ml-3';
+                          }
+                        }
+                      })
+                      .catch(function(err) {
+                        console.error(err);
+                        if (statusEl) {
+                          statusEl.textContent = '✗ Netwerkfout: ' + err.message;
+                          statusEl.className = 'text-sm text-red-600 ml-3';
+                        }
+                      });
                   }
                   return false;
                 });

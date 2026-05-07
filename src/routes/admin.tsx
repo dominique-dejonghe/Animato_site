@@ -1386,9 +1386,13 @@ app.get('/admin/leden', async (c) => {
                   <i class="fas fa-arrow-left mr-2"></i>
                   Terug
                 </a>
-                <a href="/admin/leden/import" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg transition">
+                <a href="/admin/leden/import" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg transition" title="Leden importeren uit Excel/CSV">
                   <i class="fas fa-file-import mr-2"></i>
                   Importeren
+                </a>
+                <a href="/admin/leden/export.csv" class="px-4 py-2 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 rounded-lg transition" title="Download alle leden als CSV (Excel-vriendelijk)">
+                  <i class="fas fa-file-excel mr-2 text-green-600"></i>
+                  Exporteren
                 </a>
                 <a href="/admin/leden/nieuw" class="px-4 py-2 bg-animato-primary text-white hover:bg-animato-secondary rounded-lg transition">
                   <i class="fas fa-user-plus mr-2"></i>
@@ -1961,6 +1965,83 @@ app.get('/admin/leden', async (c) => {
 })
 
 // =====================================================
+// EXPORT MEMBERS AS CSV (#154)
+// =====================================================
+// Download alle leden als CSV — Excel-vriendelijk (UTF-8 BOM + ; separator).
+app.get('/admin/leden/export.csv', async (c) => {
+  const user = c.get('user') as SessionUser
+  if (user.role !== 'admin') {
+    return c.json({ error: 'Alleen voor admins' }, 403)
+  }
+
+  const rows = await queryAll<any>(
+    c.env.DB,
+    `SELECT u.id, u.email, u.role, u.stemgroep, u.status, u.created_at,
+            p.voornaam, p.achternaam, p.telefoon, p.geboortedatum,
+            p.straat, p.huisnummer, p.bus, p.postcode, p.gemeente,
+            p.lid_sinds, p.bio, p.muzikale_ervaring,
+            p.is_bestuurslid, p.bestuurs_functie
+     FROM users u
+     LEFT JOIN profiles p ON p.user_id = u.id
+     WHERE u.role != 'bezoeker'
+     ORDER BY p.achternaam ASC, p.voornaam ASC`
+  )
+
+  // CSV-escape: dubbele quotes verdubbelen, omsluiten met quotes als nodig
+  const esc = (val: any): string => {
+    if (val === null || val === undefined) return ''
+    const s = String(val)
+    if (s.includes(';') || s.includes('"') || s.includes('\n') || s.includes('\r')) {
+      return '"' + s.replace(/"/g, '""') + '"'
+    }
+    return s
+  }
+
+  const headers = [
+    'ID', 'Voornaam', 'Achternaam', 'Email', 'Telefoon', 'Geboortedatum',
+    'Straat', 'Huisnummer', 'Bus', 'Postcode', 'Gemeente',
+    'Rol', 'Stemgroep', 'Status', 'Lid sinds', 'Bestuurslid', 'Bestuurs functie',
+    'Bio', 'Muzikale ervaring', 'Account aangemaakt'
+  ]
+  const lines = [headers.map(esc).join(';')]
+  for (const r of rows) {
+    lines.push([
+      r.id,
+      r.voornaam || '',
+      r.achternaam || '',
+      r.email || '',
+      r.telefoon || '',
+      r.geboortedatum || '',
+      r.straat || '',
+      r.huisnummer || '',
+      r.bus || '',
+      r.postcode || '',
+      r.gemeente || '',
+      r.role || '',
+      r.stemgroep || '',
+      r.status || '',
+      r.lid_sinds || '',
+      r.is_bestuurslid ? 'ja' : 'nee',
+      r.bestuurs_functie || '',
+      (r.bio || '').replace(/<[^>]+>/g, '').slice(0, 500),
+      (r.muzikale_ervaring || '').replace(/<[^>]+>/g, '').slice(0, 500),
+      r.created_at || ''
+    ].map(esc).join(';'))
+  }
+
+  // UTF-8 BOM zodat Excel de encoding correct herkent + scheidingsteken ;
+  const csv = '\uFEFFsep=;\n' + lines.join('\n')
+  const today = new Date().toISOString().slice(0, 10)
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="animato-leden-${today}.csv"`,
+      'Cache-Control': 'no-store'
+    }
+  })
+})
+
+// =====================================================
 // NEW MEMBER PAGE
 // =====================================================
 
@@ -2090,14 +2171,90 @@ app.get('/admin/leden/nieuw', async (c) => {
                   </div>
                 </div>
 
+                {/* Adres — opgesplitst in straat, nummer, bus, postcode, gemeente (analoog aan edit-lid form) */}
+                <div class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-4">
+                  <div class="md:col-span-7">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Straat</label>
+                    <input
+                      type="text"
+                      name="straat"
+                      placeholder="Lange Straat"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    />
+                  </div>
+                  <div class="md:col-span-3">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Huisnummer</label>
+                    <input
+                      type="text"
+                      name="huisnummer"
+                      placeholder="123"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    />
+                  </div>
+                  <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Bus</label>
+                    <input
+                      type="text"
+                      name="bus"
+                      placeholder="A"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    />
+                  </div>
+                  <div class="md:col-span-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Postcode</label>
+                    <input
+                      type="text"
+                      name="postcode"
+                      placeholder="2890"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    />
+                  </div>
+                  <div class="md:col-span-8">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Gemeente</label>
+                    <input
+                      type="text"
+                      name="gemeente"
+                      placeholder="Oppuurs"
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    />
+                  </div>
+                </div>
+
+                {/* Lid sinds */}
                 <div class="mt-4">
                   <label class="block text-sm font-medium text-gray-700 mb-1">
-                    Adres
+                    Lid sinds
+                  </label>
+                  <input
+                    type="date"
+                    name="lid_sinds"
+                    class="w-full md:w-1/2 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  />
+                  <p class="text-xs text-gray-500 mt-1">Datum waarop deze persoon lid werd. Laat leeg voor 'vandaag'.</p>
+                </div>
+
+                {/* Bio */}
+                <div class="mt-4">
+                  <label class="block text-sm font-medium text-gray-700 mb-1">
+                    Korte bio
                   </label>
                   <textarea
-                    name="adres"
+                    name="bio"
                     rows={2}
-                    placeholder="Straat 123, 1000 Brussel"
+                    placeholder="Kort persoonlijk verhaaltje (zichtbaar in smoelenboek)"
+                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  ></textarea>
+                </div>
+
+                {/* Muzikale ervaring */}
+                <div class="mt-4">
+                  <label class="block text-sm font-medium text-gray-700 mb-1">
+                    Muzikale ervaring
+                  </label>
+                  <textarea
+                    name="muzikale_ervaring"
+                    rows={2}
+                    placeholder="Eerdere koorervaring, muziekopleiding..."
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                   ></textarea>
                 </div>
@@ -3143,7 +3300,8 @@ app.post('/api/admin/leden/create', async (c) => {
       huisnummer,
       bus,
       postcode,
-      gemeente
+      gemeente,
+      lid_sinds
     } = body
 
     // Validation
@@ -3180,11 +3338,16 @@ app.post('/api/admin/leden/create', async (c) => {
 
     const newUserId = userResult.meta.last_row_id
 
-    // Insert profile
+    // Insert profile — lid_sinds is gebruiker-instelbaar; fallback = vandaag
     await c.env.DB.prepare(
       `INSERT INTO profiles (user_id, voornaam, achternaam, telefoon, adres, straat, huisnummer, bus, postcode, gemeente, stad, bio, muzikale_ervaring, geboortedatum, lid_sinds)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, DATE('now'))`
-    ).bind(newUserId, voornaam, achternaam, telefoon || null, adres || null, straat || null, huisnummer || null, bus || null, postcode || null, gemeente || null, gemeente || null, bio || null, muzikale_ervaring || null, geboortedatum || null).run()
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, DATE('now')))`
+    ).bind(
+      newUserId, voornaam, achternaam, telefoon || null, adres || null,
+      straat || null, huisnummer || null, bus || null, postcode || null,
+      gemeente || null, gemeente || null, bio || null, muzikale_ervaring || null,
+      geboortedatum || null, lid_sinds || null
+    ).run()
 
     // Audit log
     await c.env.DB.prepare(

@@ -97,23 +97,33 @@
 
   // ========== Process file ==========
   function processFile(file) {
-    var allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (allowedTypes.indexOf(file.type) === -1) {
-      showStatus('Ongeldig bestandstype. Alleen JPG, PNG, GIF en WEBP.', 'text-red-600');
+    // Detect HEIC/HEIF early — iPhone foto's die Safari niet auto-converteert
+    var nameLower = (file.name || '').toLowerCase();
+    var isHeic = file.type === 'image/heic' || file.type === 'image/heif' ||
+                 nameLower.endsWith('.heic') || nameLower.endsWith('.heif');
+    if (isHeic) {
+      showStatus('HEIC niet ondersteund. Op iPhone: ga naar Instellingen → Camera → Formaten → "Meest compatibel" (JPEG).', 'text-red-600');
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      showStatus('Bestand is te groot. Maximum 10MB.', 'text-red-600');
+    // Accepteer alles wat de browser als "image/*" beschouwt
+    if (file.type && file.type.indexOf('image/') !== 0) {
+      showStatus('Ongeldig bestandstype: ' + file.type + '. Alleen afbeeldingen toegestaan.', 'text-red-600');
       return;
     }
 
-    showStatus('Foto verkleinen...', 'text-blue-600');
+    if (file.size > 25 * 1024 * 1024) {
+      showStatus('Bestand is te groot (' + Math.round(file.size/1024/1024) + ' MB). Maximum 25 MB.', 'text-red-600');
+      return;
+    }
+
+    showStatus('Foto inladen... (' + Math.round(file.size/1024) + ' KB)', 'text-blue-600');
 
     var reader = new FileReader();
     reader.onload = function(event) {
       var img = new Image();
       img.onload = function() {
+        showStatus('Foto verkleinen...', 'text-blue-600');
         // Resize client-side
         var resized = resizeImage(img, 400, 400, 0.75);
         
@@ -151,12 +161,12 @@
         });
       };
       img.onerror = function() {
-        showStatus('Kon de afbeelding niet laden. Probeer een ander bestand.', 'text-red-600');
+        showStatus('Kon de afbeelding niet decoderen. Mogelijk een HEIC-bestand? Zet op iPhone: Instellingen → Camera → Formaten → "Meest compatibel".', 'text-red-600');
       };
       img.src = event.target.result;
     };
     reader.onerror = function() {
-      showStatus('Fout bij lezen van bestand.', 'text-red-600');
+      showStatus('Fout bij lezen van bestand: ' + (reader.error && reader.error.message || 'onbekend'), 'text-red-600');
     };
     reader.readAsDataURL(file);
   }

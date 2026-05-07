@@ -2642,7 +2642,7 @@ app.get('/admin/leden/:id', async (c) => {
                 <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 rounded-full flex items-center justify-center transition">
                   <i class="fas fa-camera text-white opacity-0 group-hover:opacity-100 transition"></i>
                 </div>
-                <input type="file" id="foto-file-input" accept="image/jpeg,image/png,image/gif,image/webp" class="hidden" />
+                <input type="file" id="foto-file-input" accept="image/*" class="hidden" />
               </div>
               <div class="ml-6">
                 <h2 class="text-2xl font-bold text-gray-900">

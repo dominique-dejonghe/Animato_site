@@ -501,18 +501,44 @@ app.get('/koor', async (c) => {
             </p>
 
             <h2 class="text-3xl font-bold text-animato-secondary mt-12 mb-6">Dirigent & Begeleiding</h2>
-            <div class="flex flex-col md:flex-row gap-6 items-start mb-4">
+            <div class="flex flex-col md:flex-row gap-6 items-start mb-6">
               <figure class="flex-shrink-0 w-full md:w-56">
                 <img
                   src="/static/images/dirigent.jpg"
-                  alt="Dirigent van Animato"
+                  alt="Anja Holbrechts — Dirigent van Animato"
                   class="w-full rounded-lg shadow-lg object-cover"
                   loading="lazy"
                 />
+                <figcaption class="text-center text-sm text-gray-600 mt-2 italic">
+                  Anja Holbrechts — Dirigent
+                </figcaption>
               </figure>
-              <p class="text-gray-700 flex-1">
-                Onder de bezielende leiding van onze dirigent en met ondersteuning van professionele muzikanten, werken we aan een verfijnde koorklank en muzikale expressie. Regelmatige stemgroeprepeties en workshops zorgen voor continue groei en ontwikkeling.
-              </p>
+              <div class="text-gray-700 flex-1 space-y-3">
+                <blockquote class="border-l-4 border-animato-primary pl-4 italic text-gray-600">
+                  "Zingen is gezond, het kan zelfs zorgen voor een gezonder hart- en vaatstelsel."
+                  <footer class="text-sm not-italic mt-1">— Anja Holbrechts</footer>
+                </blockquote>
+                <p>
+                  Animato staat reeds meer dan <strong>10 jaar</strong> onder de deskundige leiding van <strong>Anja Holbrechts</strong>.
+                  Zij behaalde het diploma <em>"Meester in de muziek"</em> voor trombone in het conservatorium van Gent bij Michel Tilkin.
+                </p>
+                <p>
+                  Anja volgde verder:
+                </p>
+                <ul class="list-disc list-inside space-y-1 ml-2 text-sm">
+                  <li>Orkestdirectie bij Dirk Brossé en Eddy Van Oosthuyse</li>
+                  <li>Euphonium bij Staf DeVolder en Bart Van Neyghem</li>
+                </ul>
+                <p>
+                  Onder haar bezielende leiding en met ondersteuning van professionele muzikanten,
+                  werken we aan een verfijnde koorklank en muzikale expressie. Regelmatige
+                  stemgroeprepeties en workshops zorgen voor continue groei en ontwikkeling.
+                </p>
+                <p class="text-sm text-gray-600">
+                  Anja initieerde ook ambitieuze projecten zoals <em>"The Peacemakers"</em> (Karl Jenkins, 2014)
+                  en <em>"The Armed Man"</em> (Karl Jenkins, 2019, samen met het Mechels Harmonie Orkest).
+                </p>
+              </div>
             </div>
 
             <h2 class="text-3xl font-bold text-animato-secondary mt-12 mb-6">Concerten & Optredens</h2>

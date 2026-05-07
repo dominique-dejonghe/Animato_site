@@ -1309,14 +1309,35 @@ app.get('/concerten/:slug', async (c) => {
                 </div>
               )}
 
-              {/* Program */}
-              {concert.programma && (
-                <div class="bg-white rounded-lg shadow-md p-8 mb-8">
-                  <h2 class="text-2xl font-bold text-gray-900 mb-4 flex items-center gap-3">
+              {/* Program — alleen zichtbaar voor ingelogde leden (#155).
+                  Reden: het concrete repertoire (welke liedjes we zingen) is intern info
+                  en niet bestemd voor het publiek. Voor publiek tonen we een lock-bericht. */}
+              {concert.programma && user && (
+                <div class="bg-white rounded-lg shadow-md p-8 mb-8 border-l-4 border-animato-primary">
+                  <h2 class="text-2xl font-bold text-gray-900 mb-2 flex items-center gap-3">
                     <img src="/static/images/animato-note.png" alt="" class="h-7 w-auto" />
                     Programma
+                    <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+                      <i class="fas fa-lock mr-1"></i>Leden
+                    </span>
                   </h2>
+                  <p class="text-xs text-gray-500 mb-4">
+                    <i class="fas fa-eye-slash mr-1"></i>
+                    Dit programma is alleen zichtbaar voor ingelogde leden — niet voor het publiek.
+                  </p>
                   <div class="prose prose-lg max-w-none" dangerouslySetInnerHTML={{ __html: processBodyLinks(concert.programma, siteHosts(c.req.url)) }} />
+                </div>
+              )}
+              {concert.programma && !user && (
+                <div class="bg-gradient-to-br from-gray-50 to-gray-100 rounded-lg shadow-md p-8 mb-8 border-2 border-dashed border-gray-300">
+                  <h2 class="text-xl font-bold text-gray-700 mb-3 flex items-center gap-3">
+                    <i class="fas fa-lock text-gray-400"></i>
+                    Programma
+                  </h2>
+                  <p class="text-gray-600">
+                    Het concrete repertoire wordt intern met onze leden gedeeld.
+                    <a href="/auth/login" class="text-animato-primary hover:underline font-semibold ml-1">Log in</a> om het programma te bekijken.
+                  </p>
                 </div>
               )}
 

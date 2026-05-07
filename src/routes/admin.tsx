@@ -1774,6 +1774,11 @@ app.get('/admin/leden', async (c) => {
                                       <i class="fas fa-circle text-xs"></i> Online
                                     </span>
                                   )}
+                                  {!lid.last_login_at && lid.role !== 'bezoeker' && (
+                                    <span class="px-1.5 py-0.5 text-xs bg-amber-100 text-amber-800 rounded font-semibold border border-amber-200" title="Deze gebruiker heeft nog nooit ingelogd. Klik op de sleutel-knop om een reset-link te genereren en stuur die door.">
+                                      <i class="fas fa-key mr-0.5"></i>Nooit ingelogd
+                                    </span>
+                                  )}
                                 </div>
                                 {lid.telefoon && (
                                   <div class="text-xs text-gray-500">
@@ -3592,6 +3597,7 @@ app.get('/admin/content', async (c) => {
     // Get posts (nieuws + board)
     let query = `
       SELECT p.id, p.type, p.titel, p.slug, p.is_published, p.zichtbaarheid, p.categorie, p.created_at, p.published_at,
+             p.shared_via_whatsapp, p.shared_via_whatsapp_at,
              u.email as auteur_email, pr.voornaam as auteur_voornaam, pr.achternaam as auteur_achternaam,
              (SELECT COUNT(*) FROM post_replies WHERE post_id = p.id) as reply_count
       FROM posts p
@@ -3837,6 +3843,10 @@ app.get('/admin/content', async (c) => {
                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           Reacties
                         </th>
+                        <th class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider" title="Is dit bericht via WhatsApp gedeeld?">
+                          <i class="fab fa-whatsapp text-green-600 mr-1"></i>
+                          WhatsApp
+                        </th>
                       </>
                     ) : (
                       <>
@@ -3911,6 +3921,22 @@ app.get('/admin/content', async (c) => {
                               <i class="fas fa-comment mr-1"></i>
                               {item.reply_count || 0}
                             </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-center">
+                              {/* #150: WhatsApp-vinkje — klik om aan/uit te zetten */}
+                              <button
+                                type="button"
+                                onclick={`toggleWhatsappShared(${item.id}, this)`}
+                                class={`inline-flex items-center justify-center w-8 h-8 rounded-full transition ${item.shared_via_whatsapp ? 'bg-green-100 hover:bg-green-200 text-green-700' : 'bg-gray-50 hover:bg-gray-100 text-gray-400'}`}
+                                title={item.shared_via_whatsapp ? `Gedeeld via WhatsApp${item.shared_via_whatsapp_at ? ' op ' + new Date(item.shared_via_whatsapp_at).toLocaleDateString('nl-BE') : ''} — klik om uit te vinken` : 'Klik om aan te vinken: gedeeld via WhatsApp'}
+                                data-shared={item.shared_via_whatsapp ? '1' : '0'}
+                              >
+                                {item.shared_via_whatsapp ? (
+                                  <i class="fas fa-check text-base"></i>
+                                ) : (
+                                  <i class="far fa-square text-base"></i>
+                                )}
+                              </button>
+                            </td>
                           </>
                         ) : (
                           <>
@@ -3951,7 +3977,7 @@ app.get('/admin/content', async (c) => {
                     ))
                   ) : (
                     <tr>
-                      <td colspan={tab === 'posts' ? '6' : '6'} class="px-6 py-12 text-center text-gray-500">
+                      <td colspan={tab === 'posts' ? '8' : '6'} class="px-6 py-12 text-center text-gray-500">
                         <i class="fas fa-inbox text-4xl mb-3 block text-gray-300"></i>
                         <p class="text-lg">Geen content gevonden</p>
                         <p class="text-sm mt-1">Pas je zoekfilters aan of voeg nieuwe content toe</p>
@@ -4036,6 +4062,35 @@ app.get('/admin/content', async (c) => {
           closeDeleteModal();
         });
       ` }} />
+
+      {/* #150: WhatsApp toggle script — alleen op deze content-overzicht pagina */}
+      <script dangerouslySetInnerHTML={{ __html: `
+        async function toggleWhatsappShared(postId, btn) {
+          const wasShared = btn.dataset.shared === '1';
+          btn.disabled = true;
+          try {
+            const res = await fetch('/api/admin/content/' + postId + '/toggle-whatsapp', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await res.json();
+            if (data.success) {
+              const isShared = data.shared_via_whatsapp;
+              btn.dataset.shared = isShared ? '1' : '0';
+              btn.className = 'inline-flex items-center justify-center w-8 h-8 rounded-full transition ' + (isShared ? 'bg-green-100 hover:bg-green-200 text-green-700' : 'bg-gray-50 hover:bg-gray-100 text-gray-400');
+              btn.innerHTML = isShared ? '<i class="fas fa-check text-base"></i>' : '<i class="far fa-square text-base"></i>';
+              btn.title = isShared ? 'Gedeeld via WhatsApp — klik om uit te vinken' : 'Klik om aan te vinken: gedeeld via WhatsApp';
+            } else {
+              alert('Fout: ' + (data.error || 'onbekend'));
+            }
+          } catch (e) {
+            alert('Netwerkfout: ' + e.message);
+          } finally {
+            btn.disabled = false;
+          }
+        }
+        window.toggleWhatsappShared = toggleWhatsappShared;
+      ` }} />
     </Layout>
   )
 })
@@ -4069,6 +4124,12 @@ app.get('/admin/content/:id', async (c) => {
       return c.redirect('/admin/content?error=not_found')
     }
   }
+
+  // Bericht-templates ophalen voor inline gebruik in de editor (#151)
+  const messageTemplates = await queryAll<any>(
+    c.env.DB,
+    `SELECT id, title, subject, body, category FROM message_templates ORDER BY category, title`
+  )
 
   const isNew = postId === 'nieuw'
   const pageTitle = isNew ? 'Nieuwe Post' : `Bewerk: ${post.titel}`
@@ -4320,9 +4381,34 @@ app.get('/admin/content/:id', async (c) => {
               </h3>
 
               <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">
-                  Body (hoofdtekst) *
-                </label>
+                <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+                  <label class="block text-sm font-medium text-gray-700">
+                    Body (hoofdtekst) *
+                  </label>
+                  {/* Template-picker (#151) — laat een admin een vooraf gemaakte template inladen */}
+                  {messageTemplates.length > 0 && (
+                    <div class="flex items-center gap-2">
+                      <label class="text-xs text-gray-500" htmlFor="template-picker">
+                        <i class="fas fa-magic mr-1 text-purple-500"></i>
+                        Template inladen:
+                      </label>
+                      <select
+                        id="template-picker"
+                        class="text-sm border border-gray-300 rounded-md px-2 py-1 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      >
+                        <option value="">— Kies een template —</option>
+                        {messageTemplates.map((tpl: any) => (
+                          <option value={tpl.id}>
+                            [{tpl.category}] {tpl.title}
+                          </option>
+                        ))}
+                      </select>
+                      <a href="/admin/communicatie" target="_blank" rel="noopener" class="text-xs text-purple-600 hover:underline" title="Beheer templates in nieuw tabblad">
+                        <i class="fas fa-cog"></i>
+                      </a>
+                    </div>
+                  )}
+                </div>
                 {/* #118 fix: 'required' verwijderd van verborgen textarea — HTML5 validation
                     blokkeerde stilletjes het submitten omdat de textarea display:none was
                     en (initieel) leeg vóór Quill 'text-change' had gesync't. Validatie
@@ -4337,7 +4423,65 @@ app.get('/admin/content/:id', async (c) => {
                 <p class="mt-2 text-xs text-gray-500">
                   <i class="fas fa-info-circle mr-1"></i>
                   Gebruik de editor toolbar voor opmaak. HTML wordt automatisch gegenereerd.
+                  {messageTemplates.length > 0 && ' Of laad een template hierboven om snel te starten.'}
                 </p>
+
+                {/* Hidden data store voor JS — alle templates serialized */}
+                <script
+                  id="message-templates-data"
+                  type="application/json"
+                  dangerouslySetInnerHTML={{ __html: JSON.stringify(messageTemplates) }}
+                />
+                <script dangerouslySetInnerHTML={{ __html: `
+                  (function() {
+                    var picker = document.getElementById('template-picker');
+                    if (!picker) return;
+                    var dataEl = document.getElementById('message-templates-data');
+                    var templates = [];
+                    try { templates = JSON.parse(dataEl.textContent || '[]'); } catch(e) {}
+
+                    picker.addEventListener('change', function(e) {
+                      var id = parseInt(e.target.value, 10);
+                      if (!id) return;
+                      var tpl = templates.find(function(t) { return t.id === id; });
+                      if (!tpl) return;
+
+                      var current = '';
+                      // Try Quill (gebruikt op deze pagina)
+                      var quill = window.bodyQuill;
+                      if (quill && typeof quill.root !== 'undefined') {
+                        current = (quill.root.innerHTML || '').replace(/<p><br><\\/p>/g, '').trim();
+                      } else {
+                        var ta = document.getElementById('body-editor');
+                        current = (ta ? ta.value : '').trim();
+                      }
+
+                      var doInsert = !current || confirm('Huidige inhoud wordt overschreven met de template "' + tpl.title + '". Doorgaan?');
+                      if (!doInsert) {
+                        e.target.value = '';
+                        return;
+                      }
+
+                      // Vul title en subject indien leeg
+                      var titelInput = document.querySelector('input[name="titel"]');
+                      if (titelInput && !titelInput.value && tpl.subject) {
+                        titelInput.value = tpl.subject;
+                      }
+
+                      // Vul de body
+                      if (quill && typeof quill.root !== 'undefined') {
+                        quill.root.innerHTML = tpl.body || '';
+                        quill.update();
+                      } else {
+                        var ta2 = document.getElementById('body-editor');
+                        if (ta2) ta2.value = tpl.body || '';
+                      }
+
+                      // Reset picker zodat dezelfde template opnieuw geselecteerd kan worden
+                      e.target.value = '';
+                    });
+                  })();
+                ` }} />
               </div>
             </div>
 
@@ -4619,6 +4763,9 @@ app.get('/admin/content/:id', async (c) => {
                 quill.on('text-change', function() {
                   textarea.value = quill.root.innerHTML;
                 });
+
+                // Expose voor template-picker (#151)
+                window.bodyQuill = quill;
                 
                 // Sync on form submit + #118 fix: client-side validation voor body
                 const form = textarea.closest('form');
@@ -5061,6 +5208,41 @@ app.post('/api/admin/content/save', async (c) => {
 // =====================================================
 // CONTENT DELETE API
 // =====================================================
+
+// =====================================================
+// TOGGLE WHATSAPP-SHARED FLAG (#150)
+// =====================================================
+app.post('/api/admin/content/:id/toggle-whatsapp', async (c) => {
+  const user = c.get('user') as SessionUser
+  if (user.role !== 'admin') {
+    return c.json({ error: 'Geen toegang' }, 403)
+  }
+  const contentId = c.req.param('id')
+
+  try {
+    const post = await queryOne<any>(
+      c.env.DB,
+      `SELECT id, shared_via_whatsapp FROM posts WHERE id = ?`,
+      [contentId]
+    )
+    if (!post) return c.json({ error: 'Post niet gevonden' }, 404)
+
+    const newValue = post.shared_via_whatsapp ? 0 : 1
+    const now = newValue ? new Date().toISOString() : null
+    await c.env.DB.prepare(
+      `UPDATE posts SET shared_via_whatsapp = ?, shared_via_whatsapp_at = ? WHERE id = ?`
+    ).bind(newValue, now, contentId).run()
+
+    return c.json({
+      success: true,
+      shared_via_whatsapp: newValue === 1,
+      shared_via_whatsapp_at: now
+    })
+  } catch (err: any) {
+    console.error('toggle-whatsapp error:', err)
+    return c.json({ error: err.message || 'Fout bij bijwerken' }, 500)
+  }
+})
 
 app.get('/api/admin/content/:id/delete', async (c) => {
   const user = c.get('user') as SessionUser

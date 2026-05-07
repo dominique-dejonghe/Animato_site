@@ -61,16 +61,17 @@ app.get('/admin/lidgelden', async (c) => {
 
   // Get active users WITHOUT membership for this season (to add them manually or bulk)
   const usersWithoutMembership: any[] = activeSeason ? await queryAll(db, `
-    SELECT u.id, u.email, p.voornaam, p.achternaam
+    SELECT u.id, u.email, u.stemgroep, p.voornaam, p.achternaam
     FROM users u
     LEFT JOIN profiles p ON u.id = p.user_id
-    WHERE u.status = 'actief' 
+    WHERE u.status = 'actief'
+    AND u.role != 'bezoeker'
     AND u.id NOT IN (
-      SELECT um.user_id 
+      SELECT um.user_id
       FROM user_memberships um
       WHERE um.year_id = ?
     )
-    ORDER BY p.achternaam
+    ORDER BY p.achternaam, p.voornaam
   `, [activeSeason.id]) : []
 
   // === Payment Analytics ===
@@ -315,46 +316,69 @@ app.get('/admin/lidgelden', async (c) => {
                   <p class="text-xs text-gray-400 mt-1">Gemiddeld {avgDaysOpen} dagen open</p>
                 </a>
                 <div class="bg-white p-4 rounded shadow border-l-4 border-gray-500 flex flex-col justify-center items-start relative" id="bulkGenerateCard">
-                   <p class="text-gray-500 text-sm mb-1">Actie</p>
-                   {/* #114 — Hover preview van leden die meegenomen worden */}
-                   <form action="/api/admin/lidgelden/generate-bulk" method="POST" onsubmit="return confirm('Weet je zeker dat je lidmaatschappen wilt genereren voor ALLE actieve leden zonder lidmaatschap?');" class="w-full relative">
+                   <div class="flex items-center justify-between w-full mb-1">
+                     <p class="text-gray-500 text-sm">Actie</p>
+                     {/* #114 — Aparte preview-knop voor mobile/tablet (hover werkt niet op touch) */}
+                     {usersWithoutMembership.length > 0 && (
+                       <button
+                         type="button"
+                         onclick="document.getElementById('bulkPreview').classList.toggle('hidden')"
+                         class="text-xs text-gray-500 hover:text-animato-primary"
+                         title="Toon/verberg lijst van leden die gegenereerd worden"
+                       >
+                         <i class="fas fa-eye"></i> Preview
+                       </button>
+                     )}
+                   </div>
+                   <form action="/api/admin/lidgelden/generate-bulk" method="POST" onsubmit="return confirm('Weet je zeker dat je lidmaatschappen wilt genereren voor ALLE actieve leden zonder lidmaatschap? Dit kan niet ongedaan worden gemaakt.');" class="w-full relative">
                       <input type="hidden" name="season_id" value={activeSeason.id} />
                       <button
                         type="submit"
-                        class="text-sm bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 w-full text-center"
+                        class="text-sm bg-gray-800 text-white px-3 py-1 rounded hover:bg-gray-700 w-full text-center disabled:opacity-50 disabled:cursor-not-allowed"
                         disabled={usersWithoutMembership.length === 0}
-                        onmouseenter="document.getElementById('bulkPreview') && (document.getElementById('bulkPreview').style.display = 'block')"
-                        onmouseleave="document.getElementById('bulkPreview') && (document.getElementById('bulkPreview').style.display = 'none')"
-                        onfocus="document.getElementById('bulkPreview') && (document.getElementById('bulkPreview').style.display = 'block')"
-                        onblur="document.getElementById('bulkPreview') && (document.getElementById('bulkPreview').style.display = 'none')"
+                        onmouseenter="document.getElementById('bulkPreview') && document.getElementById('bulkPreview').classList.remove('hidden')"
+                        onfocus="document.getElementById('bulkPreview') && document.getElementById('bulkPreview').classList.remove('hidden')"
                       >
                         <i class="fas fa-magic mr-1"></i> Genereer ({usersWithoutMembership.length})
                       </button>
                       {usersWithoutMembership.length > 0 && (
                         <div
                           id="bulkPreview"
-                          class="absolute right-0 top-full mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-50 hidden"
-                          style="display: none; max-height: 360px; overflow-y: auto;"
+                          class="absolute right-0 top-full mt-2 w-80 max-w-[95vw] bg-white border border-gray-200 rounded-lg shadow-2xl hidden"
+                          style="z-index: 9999; max-height: 360px; overflow-y: auto;"
                         >
-                          <div class="px-4 py-2 bg-gray-50 border-b border-gray-200 sticky top-0">
+                          <div class="px-4 py-2 bg-gray-50 border-b border-gray-200 sticky top-0 flex items-center justify-between">
                             <div class="text-xs font-semibold text-gray-700">
                               <i class="fas fa-users mr-1 text-animato-primary"></i>
                               {usersWithoutMembership.length} lid{usersWithoutMembership.length === 1 ? '' : 'leden'} krijgen een lidmaatschap
                             </div>
-                            <div class="text-[10px] text-gray-500 mt-0.5">
-                              Default = Basis (digitaal). Per lid achteraf aan te passen.
-                            </div>
+                            <button
+                              type="button"
+                              onclick="document.getElementById('bulkPreview').classList.add('hidden')"
+                              class="text-gray-400 hover:text-gray-700 text-sm"
+                              title="Sluiten"
+                            >
+                              <i class="fas fa-times"></i>
+                            </button>
+                          </div>
+                          <div class="px-4 py-1.5 bg-amber-50 border-b border-amber-100 text-[10px] text-amber-800">
+                            <i class="fas fa-info-circle mr-1"></i>
+                            Default type = <strong>Basis (digitaal)</strong>. Per lid achteraf aan te passen.
                           </div>
                           <ul class="divide-y divide-gray-100 text-left">
                             {(usersWithoutMembership as any[]).slice(0, 50).map((u: any) => (
                               <li class="px-4 py-1.5 text-xs hover:bg-gray-50">
-                                <div class="font-medium text-gray-800">{u.voornaam || '?'} {u.achternaam || ''}</div>
-                                <div class="text-[10px] text-gray-500">{u.email}</div>
+                                <div class="font-medium text-gray-800 flex items-center justify-between gap-2">
+                                  <span>{u.voornaam || '?'} {u.achternaam || ''}</span>
+                                  {u.stemgroep && <span class="text-[9px] px-1.5 py-0.5 bg-gray-100 rounded text-gray-600">{u.stemgroep}</span>}
+                                </div>
+                                <div class="text-[10px] text-gray-500 truncate">{u.email}</div>
                               </li>
                             ))}
                             {usersWithoutMembership.length > 50 && (
-                              <li class="px-4 py-2 text-[10px] text-gray-500 italic text-center bg-gray-50">
-                                + {usersWithoutMembership.length - 50} meer…
+                              <li class="px-4 py-2 text-[10px] text-gray-600 italic text-center bg-amber-50 sticky bottom-0 border-t border-amber-100">
+                                <i class="fas fa-ellipsis-h mr-1"></i>
+                                + {usersWithoutMembership.length - 50} meer leden — scroll voor de volledige lijst is uitgeschakeld om de UI vlot te houden
                               </li>
                             )}
                           </ul>

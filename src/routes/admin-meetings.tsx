@@ -644,10 +644,10 @@ app.get('/admin/meetings/:id', async (c) => {
 
                           {/* Auto-template hint: tonen als notulen leeg zijn én er agendapunten bestaan */}
                           {agendaItems.length > 0 && !minutes?.notulen && (
-                            <div class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800 flex items-start gap-2">
-                              <i class="fas fa-info-circle mt-0.5"></i>
+                            <div class="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-sm text-green-800 flex items-start gap-2">
+                              <i class="fas fa-magic mt-0.5"></i>
                               <div>
-                                <strong>Tip:</strong> Klik op <em>"Vul agendapunten in"</em> hierboven om de {agendaItems.length} agendapunt{agendaItems.length === 1 ? '' : 'en'} alvast als structuur in de notulen te plaatsen. Je kunt ze daarna aanvullen tijdens of na de vergadering.
+                                <strong>Automatisch ingevuld:</strong> De {agendaItems.length} agendapunt{agendaItems.length === 1 ? '' : 'en'} {agendaItems.length === 1 ? 'is' : 'zijn'} alvast als structuur in de notulen geplaatst. Vul aan tijdens of na de vergadering en klik op <em>Opslaan</em>. Met de knop <em>Vul agendapunten in</em> kun je de structuur opnieuw genereren als je later agendapunten toevoegt.
                               </div>
                             </div>
                           )}
@@ -655,7 +655,14 @@ app.get('/admin/meetings/:id', async (c) => {
                           <form action="/api/admin/meetings/minutes/save" method="POST">
                              <input type="hidden" name="meeting_id" value={meetingId} />
                              <div class="mb-4">
-                                <textarea id="minutesContent" name="content" rows={20} class="w-full p-4 border border-gray-300 rounded-lg shadow-sm focus:ring-animato-primary focus:border-animato-primary font-mono text-sm leading-relaxed" placeholder="# Notulen van de vergadering...">{minutes?.notulen || ''}</textarea>
+                                <textarea id="minutesContent" name="content" rows={20} class="w-full p-4 border border-gray-300 rounded-lg shadow-sm focus:ring-animato-primary focus:border-animato-primary font-mono text-sm leading-relaxed" placeholder="# Notulen van de vergadering...">{minutes?.notulen || (agendaItems.length > 0 ? agendaItems.map((it: any, idx: number) => {
+                                  const header = `${idx + 1}. ${it.titel}${it.duur_minuten ? ` (${it.duur_minuten} min)` : ''}`
+                                  const sep = '-'.repeat(header.length)
+                                  let block = `${header}\n${sep}\n`
+                                  if (it.beschrijving) block += `\nAchtergrond: ${it.beschrijving}\n`
+                                  block += `\nBespreking: \n\nBeslissing / actiepunten: \n\n`
+                                  return block
+                                }).join('\n') : '')}</textarea>
                              </div>
 
                              {/* Agendapunten template voor JS-injectie */}

@@ -28,6 +28,8 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({
     { id: 'verjaardagen', label: 'Verjaardagslijst', href: '/leden/verjaardagen', icon: 'fas fa-birthday-cake' },
     { id: 'content', label: 'Nieuws & Berichten', href: '/admin/content', icon: 'fas fa-newspaper', adminOnly: true },
     { id: 'ai-news', label: 'AI Nieuwsgenerator', href: '/admin/ai-nieuws', icon: 'fas fa-robot', adminOnly: true },
+    // #151: Bericht-templates terug zichtbaar onder Content-cluster (was eerder verborgen #117)
+    { id: 'communications', label: 'Bericht-templates', href: '/admin/communicatie', icon: 'fas fa-magic', adminOnly: true },
     { id: 'events', label: 'Agenda & Activiteiten', href: '/admin/events', icon: 'fas fa-calendar-alt', adminOnly: true },
     { id: 'tickets', label: 'Ticketbeheer', href: '/admin/tickets', icon: 'fas fa-ticket-alt', adminOnly: true },
     { id: 'attendance', label: 'Aanwezigheid & Streaks', href: '/admin/attendance', icon: 'fas fa-qrcode', adminOnly: true },

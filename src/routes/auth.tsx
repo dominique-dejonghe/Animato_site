@@ -40,11 +40,28 @@ app.get('/login', async (c) => {
             <div class="bg-red-50 border border-red-200 rounded-lg p-4">
               <div class="flex">
                 <i class="fas fa-exclamation-circle text-red-500 mr-3 mt-0.5"></i>
-                <div class="text-sm text-red-800">
-                  {error === 'invalid' && 'Onjuiste email of wachtwoord'}
+                <div class="text-sm text-red-800 flex-1">
+                  {error === 'invalid' && (
+                    <>
+                      <strong>Onjuiste email of wachtwoord.</strong>
+                      <p class="mt-1 text-xs text-red-700">
+                        Nooit eerder een wachtwoord gekozen? Een admin heeft je account misschien aangemaakt
+                        zonder reset-link. Klik op <a href="/auth/forgot-password" class="underline font-semibold">Wachtwoord vergeten?</a> om er één in te stellen,
+                        of neem contact op via <a href="mailto:info@animato.be" class="underline font-semibold">info@animato.be</a>.
+                      </p>
+                    </>
+                  )}
                   {error === 'required' && 'Vul alle velden in'}
                   {error === 'unauthorized' && 'Je moet ingelogd zijn om deze pagina te bekijken'}
-                  {error === 'inactive' && 'Je account is nog niet actief'}
+                  {error === 'inactive' && (
+                    <>
+                      <strong>Je account is nog niet actief.</strong>
+                      <p class="mt-1 text-xs text-red-700">
+                        Stuur een mailtje naar <a href="mailto:info@animato.be" class="underline">info@animato.be</a> zodat we je account activeren.
+                      </p>
+                    </>
+                  )}
+                  {error === 'server' && 'Er ging iets mis aan onze kant. Probeer het later opnieuw.'}
                 </div>
               </div>
             </div>
@@ -396,6 +413,15 @@ app.post('/api/auth/login', async (c) => {
     // Check if user is active
     if (user.status === 'inactief') {
       return c.redirect('/login?error=inactive')
+    }
+
+    // Update last_login_at timestamp (#128) — fire-and-forget, mag niet blokkeren
+    // Voor admin-zicht: zo zien we wie nog nooit ingelogd is en hulp nodig heeft.
+    try {
+      await c.env.DB.prepare(`UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?`)
+        .bind(user.id).run()
+    } catch (e) {
+      console.warn('Could not update last_login_at:', e)
     }
 
     // Create session user

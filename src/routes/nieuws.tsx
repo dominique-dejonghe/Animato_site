@@ -18,26 +18,46 @@ app.use('*', optionalAuth)
 // =====================================================
 
 app.get('/nieuws', async (c) => {
-  const user = c.get('user')
+  const user = c.get('user') as any
   const page = parseInt(c.req.query('page') || '1')
   const search = c.req.query('search') || ''
   const archief = c.req.query('archief') === '1'
   const maandenRecent = 6 // Berichten ouder dan 6 maanden zijn "archief"
 
+  // Bouw zichtbaarheidsfilter op basis van gebruikersrol
+  // - niet ingelogd: enkel 'publiek'
+  // - lid: 'publiek' + 'leden' + eigen stemgroep (sopraan/alt/tenor/bas)
+  // - bestuur/admin: alles
+  const visibilityValues: string[] = ['publiek']
+  if (user) {
+    visibilityValues.push('leden')
+    const stem = (user.stemgroep || '').toLowerCase()
+    if (['sopraan', 'alt', 'tenor', 'bas'].includes(stem)) {
+      visibilityValues.push(stem)
+    }
+    if (user.role === 'admin' || user.role === 'bestuur') {
+      visibilityValues.push('bestuur')
+    }
+  }
+  const visibilityPlaceholders = visibilityValues.map(() => '?').join(',')
+  const visibilityCondition = `p.zichtbaarheid IN (${visibilityPlaceholders})`
+  // Voor count-query (geen alias):
+  const visibilityConditionNoAlias = `zichtbaarheid IN (${visibilityPlaceholders})`
+
   // Build query
   let baseQuery = `
-    SELECT p.id, p.titel, p.slug, p.excerpt, p.published_at, p.views, p.cover_image,
+    SELECT p.id, p.titel, p.slug, p.excerpt, p.published_at, p.views, p.cover_image, p.zichtbaarheid,
            u.id as auteur_id, pr.voornaam as auteur_voornaam, pr.achternaam as auteur_achternaam
     FROM posts p
     LEFT JOIN users u ON u.id = p.auteur_id
     LEFT JOIN profiles pr ON pr.user_id = u.id
     WHERE p.type = 'nieuws' 
       AND p.is_published = 1 
-      AND p.zichtbaarheid = 'publiek'
+      AND ${visibilityCondition}
       AND (p.verloopt_op IS NULL OR p.verloopt_op >= DATE('now'))
   `
 
-  const filters: any[] = []
+  const filters: any[] = [...visibilityValues]
 
   // Archive filter (#69)
   if (archief) {
@@ -63,18 +83,18 @@ app.get('/nieuws', async (c) => {
     FROM posts p
     WHERE p.type = 'nieuws' 
       AND p.is_published = 1 
-      AND p.zichtbaarheid = 'publiek'
+      AND p.${visibilityConditionNoAlias}
       AND (p.verloopt_op IS NULL OR p.verloopt_op >= DATE('now'))
     ${archiveCondition}
     ${search ? ` AND (p.titel LIKE ? OR p.body LIKE ?)` : ''}
   `
 
-  // Paginate
+  // Beide queries gebruiken exact dezelfde filterlijst (visibility + evt. search)
   const result = await paginate(
     c.env.DB,
     baseQuery,
     countQuery,
-    { page, limit: 12, filters: search ? [filters[0], filters[1]] : [] }
+    { page, limit: 12, filters }
   )
 
   return c.html(
@@ -151,6 +171,26 @@ app.get('/nieuws', async (c) => {
                       ) : (
                         <div class="absolute inset-0 flex items-center justify-center">
                           <i class="fas fa-newspaper text-white text-5xl opacity-50"></i>
+                        </div>
+                      )}
+                      {/* Zichtbaarheid-badge */}
+                      {artikel.zichtbaarheid && artikel.zichtbaarheid !== 'publiek' && (
+                        <div class="absolute top-2 right-2">
+                          {artikel.zichtbaarheid === 'leden' && (
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 shadow-sm">
+                              <i class="fas fa-lock mr-1"></i> Leden
+                            </span>
+                          )}
+                          {artikel.zichtbaarheid === 'bestuur' && (
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 shadow-sm">
+                              <i class="fas fa-shield-alt mr-1"></i> Bestuur
+                            </span>
+                          )}
+                          {['sopraan','alt','tenor','bas'].includes(artikel.zichtbaarheid) && (
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 shadow-sm capitalize">
+                              <i class="fas fa-music mr-1"></i> {artikel.zichtbaarheid}
+                            </span>
+                          )}
                         </div>
                       )}
                     </div>

@@ -119,6 +119,7 @@ function renderEditor(c: any, layout: any) {
   var seats = ${seatsData};
   var currentCategory = 'standard';
   var bulkMode = false;
+  var bowMode = false;
   var bulkJustActivated = false;
   var isDraggingAnySeat = false;
   var canvasW = ${canvasWidth};
@@ -134,6 +135,7 @@ function renderEditor(c: any, layout: any) {
   var statTotal    = document.getElementById('statTotal');
   var statWheelchair = document.getElementById('statWheelchair');
   var bulkAddBtn   = document.getElementById('bulkAddBtn');
+  var bowAddBtn    = document.getElementById('bowAddBtn');
 
   // ── Canvas Init ────────────────────────────────────
   function initCanvas() {
@@ -381,6 +383,77 @@ function renderEditor(c: any, layout: any) {
       return;
     }
 
+    if (bowMode) {
+      // Curved (bow-shaped) rows — typical for concert halls
+      // Each row sits on an arc; the first (front) row centre is placed where the user clicks.
+      var bowRows = parseInt(document.getElementById('bulkRows').value) || 1;
+      var bowCols = parseInt(document.getElementById('bulkCols').value) || 1;
+      var angleDeg = parseFloat(document.getElementById('bowAngle').value) || 40;
+      var rowSpacing = parseFloat(document.getElementById('bowSpacing').value) || 44;
+      var concave = document.getElementById('bowConcave').checked; // true = curve naar podium toe (bovenkant)
+      var seatGap = 38; // chord-distance tussen stoelen op de boog
+
+      var labelVal2 = rowInput.value.trim() || 'Rij 1';
+      var rowNum2 = parseInt(labelVal2.replace(/[^0-9]/g, '')) || 1;
+      var rowPfx2 = labelVal2.replace(/[0-9]+$/, '').trim() || 'Rij';
+
+      var totalAngleRad = angleDeg * Math.PI / 180;
+      // Bereken straal zodat de eerste rij van bowCols stoelen met seatGap chord-afstand op de boog past
+      // chord = 2 * R * sin(theta/2), met theta = totalAngleRad / (bowCols - 1) per stoel
+      // Voor numerieke stabiliteit: kies R zodat de TOTALE chord-spanning ~ (bowCols-1)*seatGap is bij hoek totalAngleRad.
+      var R0;
+      if (bowCols <= 1 || totalAngleRad < 0.001) {
+        R0 = 99999; // bijna recht
+      } else {
+        R0 = ((bowCols - 1) * seatGap / 2) / Math.sin(totalAngleRad / 2);
+      }
+
+      // Centrum van de cirkel: als concave (bocht naar podium) ligt centrum BENEDEN klikpunt;
+      // anders boven. y-as is omlaag positief → concave = centerY = clickY + R, convex = clickY - R.
+      var clickX = x + 16; // compenseer de -16 offset hierboven
+      var clickY = y + 16;
+
+      for (var rr = 0; rr < bowRows; rr++) {
+        var R = R0 + rr * rowSpacing * (concave ? 1 : -1) * 0; // R blijft initieel constant
+        // Voor échte concertzaal-look: elke achterliggende rij heeft GROTERE straal én meer stoelen kunnen.
+        // Hier houden we het simpel: zelfde aantal stoelen, straal +rowSpacing per achterliggende rij.
+        var rowR = R0 + rr * rowSpacing;
+        var centerX = clickX;
+        var centerY = concave ? (clickY + R0) : (clickY - R0);
+
+        // Voor elke stoel hoek = -totalAngle/2 + i * (totalAngle/(cols-1))
+        for (var ci = 0; ci < bowCols; ci++) {
+          var t = bowCols === 1 ? 0 : (ci / (bowCols - 1)) - 0.5; // -0.5 ... +0.5
+          var ang = t * totalAngleRad;
+          var sx, sy;
+          if (concave) {
+            // boog opent naar boven → stoelen onder centrum
+            sx = centerX + rowR * Math.sin(ang);
+            sy = centerY - rowR * Math.cos(ang);
+          } else {
+            // boog opent naar onder
+            sx = centerX + rowR * Math.sin(ang);
+            sy = centerY + rowR * Math.cos(ang);
+          }
+          // -16 omdat het seat-element 32px breed is en in renderSeats per +16 wordt gepositioneerd
+          seats.push({
+            x: Math.round(sx - 16),
+            y: Math.round(sy - 16),
+            type: currentCategory,
+            row_label: rowPfx2 + ' ' + (rowNum2 + rr),
+            seat_number: String(ci + 1)
+          });
+        }
+      }
+
+      bowMode = false;
+      wrapper.style.cursor = 'crosshair';
+      document.body.style.cursor = '';
+      updateBowBtn();
+      renderSeats();
+      return;
+    }
+
     // Single seat
     var label = rowInput.value.trim() || 'Rij 1';
     var numInRow = seats.filter(function(s) { return s.row_label === label; }).length + 1;
@@ -407,9 +480,11 @@ function renderEditor(c: any, layout: any) {
       btn.classList.add('bg-blue-50', 'text-blue-800', 'border-blue-200', 'active-tool');
       currentCategory = btn.dataset.cat;
       bulkMode = false;
+      bowMode = false;
       wrapper.style.cursor = 'crosshair';
       document.body.style.cursor = '';
       updateBulkBtn();
+      updateBowBtn();
     });
   });
 
@@ -433,6 +508,8 @@ function renderEditor(c: any, layout: any) {
     e.preventDefault();
     bulkMode = !bulkMode;
     if (bulkMode) {
+      bowMode = false; // mutually exclusive
+      updateBowBtn();
       bulkJustActivated = true;
       wrapper.style.cursor = 'copy';
       document.body.style.cursor = 'copy';
@@ -442,6 +519,41 @@ function renderEditor(c: any, layout: any) {
     }
     updateBulkBtn();
   });
+
+  // ── Bow (curved row) toggle ────────────────────────
+  function updateBowBtn() {
+    if (!bowAddBtn) return;
+    if (bowMode) {
+      bowAddBtn.style.backgroundColor = '#DDD6FE';
+      bowAddBtn.style.borderColor = '#7C3AED';
+      bowAddBtn.style.color = '#5B21B6';
+      bowAddBtn.innerHTML = '<i class="fas fa-crosshairs" style="margin-right:4px"></i> Klik op canvas (midden voorste rij)...';
+    } else {
+      bowAddBtn.style.backgroundColor = '#F5F3FF';
+      bowAddBtn.style.borderColor = '#C4B5FD';
+      bowAddBtn.style.color = '#6D28D9';
+      bowAddBtn.innerHTML = '<i class="fas fa-bezier-curve mr-1"></i> Voeg gebogen rijen toe';
+    }
+  }
+
+  if (bowAddBtn) {
+    bowAddBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      bowMode = !bowMode;
+      if (bowMode) {
+        bulkMode = false; // mutually exclusive
+        updateBulkBtn();
+        bulkJustActivated = true;
+        wrapper.style.cursor = 'copy';
+        document.body.style.cursor = 'copy';
+      } else {
+        wrapper.style.cursor = 'crosshair';
+        document.body.style.cursor = '';
+      }
+      updateBowBtn();
+    });
+  }
 
   // ── Clear ──────────────────────────────────────────
   document.getElementById('clearBtn').addEventListener('click', function(e) {
@@ -573,13 +685,15 @@ function renderEditor(c: any, layout: any) {
     }
   });
 
-  // ── Keyboard: Escape cancels bulk mode ────────────
+  // ── Keyboard: Escape cancels bulk/bow mode ────────
   document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' && bulkMode) {
+    if (e.key === 'Escape' && (bulkMode || bowMode)) {
       bulkMode = false;
+      bowMode = false;
       wrapper.style.cursor = 'crosshair';
       document.body.style.cursor = '';
       updateBulkBtn();
+      updateBowBtn();
     }
   });
 
@@ -688,10 +802,35 @@ function renderEditor(c: any, layout: any) {
                         <input type="number" id="bulkCols" value="10" min="1" class="w-full border rounded p-1 text-sm" />
                       </div>
                     </div>
-                    <button id="bulkAddBtn" class="w-full text-xs py-2 rounded border border-gray-300 bg-gray-100 text-gray-700" style="transition:all .15s">
-                      <i class="fas fa-th mr-1"></i> Voeg Blok Toe
+                    <button id="bulkAddBtn" class="w-full text-xs py-2 rounded border border-gray-300 bg-gray-100 text-gray-700 mb-2" style="transition:all .15s">
+                      <i class="fas fa-th mr-1"></i> Voeg Blok Toe (recht)
                     </button>
-                    <p class="text-xs text-gray-500 mt-1">Klik daarna op het canvas om te plaatsen. <kbd class="bg-gray-100 border px-1 rounded text-xs">Esc</kbd> annuleert.</p>
+
+                    {/* Curved/bow rows */}
+                    <div class="mt-3 pt-3 border-t border-gray-200">
+                      <label class="block text-xs font-semibold mb-2 text-gray-700">
+                        <i class="fas fa-bezier-curve mr-1 text-purple-600"></i> Gebogen rijen
+                      </label>
+                      <div class="grid grid-cols-2 gap-2 mb-2">
+                        <div>
+                          <label class="block text-[11px] text-gray-500 mb-1">Boog (°)</label>
+                          <input type="number" id="bowAngle" value="40" min="10" max="180" step="5" class="w-full border rounded p-1 text-sm" title="Hoek van de boog: 0° = rechte rij, 180° = halve cirkel. Typisch 30-60° voor concertzalen." />
+                        </div>
+                        <div>
+                          <label class="block text-[11px] text-gray-500 mb-1">Rij-afstand</label>
+                          <input type="number" id="bowSpacing" value="44" min="20" max="120" class="w-full border rounded p-1 text-sm" title="Pixels tussen rijen (radiaal)" />
+                        </div>
+                      </div>
+                      <div class="flex items-center gap-1 mb-2">
+                        <input type="checkbox" id="bowConcave" checked class="rounded text-purple-600" />
+                        <label for="bowConcave" class="text-[11px] text-gray-600">Bocht naar het podium toe (concave)</label>
+                      </div>
+                      <button id="bowAddBtn" class="w-full text-xs py-2 rounded border border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100" style="transition:all .15s">
+                        <i class="fas fa-bezier-curve mr-1"></i> Voeg gebogen rijen toe
+                      </button>
+                      <p class="text-xs text-gray-500 mt-1">Klik op het canvas waar het <strong>middelpunt</strong> van de eerste (voorste) rij moet komen.</p>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2"><kbd class="bg-gray-100 border px-1 rounded text-xs">Esc</kbd> annuleert plaatsing.</p>
                   </div>
 
                   <div class="pt-4 mt-4 border-t">
@@ -754,7 +893,7 @@ function renderEditor(c: any, layout: any) {
               </div>
 
               <p class="text-xs text-gray-500 mt-2 text-center">
-                <strong>Klik</strong> = stoel toevoegen &nbsp;|&nbsp; <strong>Blok Toe</strong> → klik op canvas = rijen plaatsen &nbsp;|&nbsp; <strong>Slepen</strong> = verplaatsen &nbsp;|&nbsp; <strong>Shift+klik</strong> = selecteren voor uitlijning &nbsp;|&nbsp; <strong>Rechtermuisknop</strong> = verwijderen
+                <strong>Klik</strong> = stoel toevoegen &nbsp;|&nbsp; <strong>Blok Toe</strong> = rechte rijen &nbsp;|&nbsp; <strong>Gebogen rijen</strong> = concertzaal-opstelling &nbsp;|&nbsp; <strong>Slepen</strong> = verplaatsen &nbsp;|&nbsp; <strong>Shift+klik</strong> = uitlijnen &nbsp;|&nbsp; <strong>Rechtermuisknop</strong> = verwijderen
               </p>
             </div>
           </div>

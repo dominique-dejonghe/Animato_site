@@ -2867,18 +2867,20 @@ app.get('/leden/materiaal', async (c) => {
   const werkFilter = c.req.query('werk') || 'all'
 
   // Get all materials for user's stemgroep WITH view counts
+  // BUGFIX (Dries): voorheen JOIN met (SELECT DISTINCT material_id, id ...) – als 1 user N keer een materiaal opende,
+  // verscheen dat materiaal N× in de lijst. Nu via geaggregeerde subquery → exact één rij per material.
   const materials = await queryAll(
     c.env.DB,
     `SELECT m.id, m.type, m.titel, m.url, m.beschrijving, m.stem, m.created_at,
             pi.titel as stuk_titel, pi.nummer as stuk_nummer,
             w.titel as werk_titel, w.componist, w.id as werk_id,
             COALESCE(vc.view_count, 0) as view_count,
-            CASE WHEN uv.id IS NOT NULL THEN 1 ELSE 0 END as user_viewed
+            COALESCE(uv.has_viewed, 0) as user_viewed
      FROM materials m
      JOIN pieces pi ON pi.id = m.piece_id
      JOIN works w ON w.id = pi.work_id
      LEFT JOIN (SELECT material_id, COUNT(*) as view_count FROM material_views GROUP BY material_id) vc ON vc.material_id = m.id
-     LEFT JOIN (SELECT DISTINCT material_id, id FROM material_views WHERE user_id = ?) uv ON uv.material_id = m.id
+     LEFT JOIN (SELECT material_id, 1 as has_viewed FROM material_views WHERE user_id = ? GROUP BY material_id) uv ON uv.material_id = m.id
      WHERE m.is_actief = 1
        AND (m.stem = ? OR m.stem = 'SATB' OR m.stem = 'algemeen')
        AND (m.zichtbaar_voor = 'alle_leden' OR

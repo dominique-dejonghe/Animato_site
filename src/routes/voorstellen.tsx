@@ -3,6 +3,7 @@ import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { queryAll, queryOne } from '../utils/db'
 import { requireAuth } from '../middleware/auth'
+import { linkifyAndEmbed } from '../utils/text'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -273,6 +274,7 @@ app.get('/leden/voorstellen', async (c) => {
                       </div>
 
                       <p class="text-gray-700 mb-4 line-clamp-3">
+                        {/* In de overzichtskaart: alleen plain tekst — embeds worden pas op de detail-pagina getoond */}
                         {proposal.beschrijving}
                       </p>
 
@@ -388,12 +390,12 @@ app.get('/leden/voorstellen/nieuw', async (c) => {
                   required
                   rows="8"
                   maxlength="2000"
-                  placeholder="Leg je voorstel uit. Waarom vind je dit een goed idee? Wat zijn de voordelen?"
+                  placeholder="Leg je voorstel uit. Waarom vind je dit een goed idee? Wat zijn de voordelen?&#10;&#10;Tip: plak gerust YouTube-, Spotify- of Drive-links — die worden automatisch klikbaar en als preview getoond."
                   class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent resize-none"
                 ></textarea>
                 <p class="text-sm text-gray-500 mt-1">
                   <i class="fas fa-info-circle mr-1"></i>
-                  Maximaal 2000 tekens
+                  Max. 2000 tekens · Links naar YouTube, Vimeo, Spotify, SoundCloud of Google Drive worden automatisch ingebed.
                 </p>
               </div>
 
@@ -625,10 +627,10 @@ app.get('/leden/voorstellen/:id', async (c) => {
 
             <hr class="my-6" />
 
-            {/* Description */}
+            {/* Description — links auto-clickable + media embeds (YouTube, Spotify, Drive, ...) */}
             <div class="prose max-w-none mb-6">
               <h3 class="text-lg font-semibold text-gray-900 mb-3">Beschrijving</h3>
-              <p class="text-gray-700 whitespace-pre-wrap">{proposal.beschrijving}</p>
+              <div class="text-gray-700 break-words" dangerouslySetInnerHTML={{ __html: linkifyAndEmbed(proposal.beschrijving) }} />
             </div>
 
             {/* Vote Comments (#65) */}
@@ -645,7 +647,7 @@ app.get('/leden/voorstellen/:id', async (c) => {
                         <i class={`fas fa-thumbs-${vc.vote_type}`}></i>
                       </span>
                       <div class="flex-1">
-                        <p class="text-sm text-gray-800">{vc.comment}</p>
+                        <div class="text-sm text-gray-800 break-words" dangerouslySetInnerHTML={{ __html: linkifyAndEmbed(vc.comment) }} />
                         <p class="text-xs text-gray-500 mt-1">— {vc.voornaam} {vc.achternaam}</p>
                       </div>
                     </div>

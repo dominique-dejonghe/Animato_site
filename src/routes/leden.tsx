@@ -184,6 +184,112 @@ app.get('/leden', async (c) => {
   // Check if admin is impersonating this user
   const impersonating = !!(c.get('impersonating' as any))
 
+  // ─── Action items / notification list (#116) ───────────────────────────
+  // Build a live "wat staat er voor jou open?" list combining:
+  //   1) ongelezen DB-notificaties (laatste 5)
+  //   2) openstaand lidgeld voor het actieve seizoen
+  //   3) recent nieuws (laatste 7d) dat de user nog niet bekeken heeft
+  //   4) profiel < 60% volledig
+  //
+  // Het idee komt uit feedback #116 — leden moeten bij login meteen zien
+  // wat hun aandacht vraagt, zonder eerst naar /leden/profiel te moeten klikken.
+  const dashboardActions: Array<{
+    icon: string; iconBg: string; iconColor: string;
+    titel: string; body?: string; link?: string; cta?: string;
+    priority: number;
+  }> = []
+
+  // 1) Openstaand lidgeld
+  try {
+    const openMembership = await queryOne<any>(c.env.DB,
+      `SELECT um.id, um.amount, um.status, um.mollie_payment_url, my.season
+       FROM user_memberships um
+       JOIN membership_years my ON my.id = um.year_id
+       WHERE um.user_id = ? AND my.is_active = 1
+         AND (um.status IS NULL OR um.status NOT IN ('paid','waived'))
+       LIMIT 1`,
+      [user.id])
+    if (openMembership) {
+      dashboardActions.push({
+        icon: 'fas fa-euro-sign', iconBg: 'bg-orange-100', iconColor: 'text-orange-600',
+        titel: `Lidgeld ${openMembership.season} nog te betalen`,
+        body: openMembership.amount ? `Bedrag: € ${Number(openMembership.amount).toFixed(2)}` : undefined,
+        link: '/leden/profiel#lidgeld',
+        cta: 'Bekijk',
+        priority: 1
+      })
+    }
+  } catch (e) { /* ignore */ }
+
+  // 2) Recent nieuws (sinds vorige login) — gebruikt previous_login_at; fallback 7d
+  try {
+    const lastLoginRow = await queryOne<any>(c.env.DB,
+      `SELECT previous_login_at FROM users WHERE id = ?`, [user.id])
+    const sinceDate = lastLoginRow?.previous_login_at || null
+    const sinceClause = sinceDate
+      ? `AND datetime(p.published_at) >= datetime(?)`
+      : `AND datetime(p.published_at) >= datetime('now', '-7 days')`
+    const params: any[] = sinceDate ? [sinceDate] : []
+    const recentNieuws = await queryAll<any>(c.env.DB,
+      `SELECT p.id, p.titel, p.slug, p.published_at
+       FROM posts p
+       WHERE p.type = 'nieuws'
+         AND p.is_published = 1
+         AND (p.zichtbaarheid = 'publiek' OR p.zichtbaarheid = 'leden')
+         ${sinceClause}
+       ORDER BY p.published_at DESC
+       LIMIT 3`,
+      params)
+    for (const n of recentNieuws) {
+      dashboardActions.push({
+        icon: 'fas fa-newspaper', iconBg: 'bg-blue-100', iconColor: 'text-blue-600',
+        titel: 'Nieuw bericht: ' + n.titel,
+        link: `/nieuws/${n.slug}`,
+        cta: 'Lees',
+        priority: 3
+      })
+    }
+  } catch (e) { /* ignore */ }
+
+  // 3) Ongelezen notifications (DB) — laad hier specifiek voor het dashboard
+  let dashNotifs: any[] = []
+  try {
+    dashNotifs = await getNotificationsForUser(c.env.DB, user.id, 10, true) // unreadOnly=true
+  } catch (e) { /* ignore */ }
+  const unreadNotifs = dashNotifs.slice(0, 4)
+  for (const n of unreadNotifs) {
+    const style = getNotificationStyle(n.type)
+    dashboardActions.push({
+      icon: style.icon, iconBg: style.bg, iconColor: style.color,
+      titel: n.titel,
+      body: n.body || undefined,
+      link: n.link || undefined,
+      cta: n.link ? 'Bekijk' : undefined,
+      priority: n.type === 'lidgeld' ? 2 : 4
+    })
+  }
+
+  // 4) Profiel onvolledig
+  if (profileCompleteness < 60) {
+    dashboardActions.push({
+      icon: 'fas fa-user-edit', iconBg: 'bg-indigo-100', iconColor: 'text-indigo-600',
+      titel: `Vul je profiel verder aan (${profileCompleteness}% klaar)`,
+      body: 'Foto, telefoon, adres en bio helpen ons om je beter te leren kennen.',
+      link: '/leden/profiel#bewerken',
+      cta: 'Vul aan',
+      priority: 5
+    })
+  }
+
+  // Sort by priority + dedup on titel
+  dashboardActions.sort((a, b) => a.priority - b.priority)
+  const seenTitles = new Set<string>()
+  const dedupedActions = dashboardActions.filter(a => {
+    if (seenTitles.has(a.titel)) return false
+    seenTitles.add(a.titel)
+    return true
+  }).slice(0, 6)
+
   return c.html(
     <Layout title="Ledenportaal" user={user} impersonating={impersonating}>
       <div class="py-12 bg-gray-50">
@@ -202,6 +308,46 @@ app.get('/leden', async (c) => {
                   </p>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* 🔔 Action items / notifications card (#116) — wat staat er voor jou open? */}
+          {dedupedActions.length > 0 && (
+            <div class="mb-8 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+              <div class="bg-gradient-to-r from-animato-primary/10 to-amber-50 px-5 py-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
+                <div class="flex items-center gap-3">
+                  <div class="w-9 h-9 bg-animato-primary text-white rounded-full flex items-center justify-center shadow-sm">
+                    <i class="fas fa-bell"></i>
+                  </div>
+                  <div>
+                    <h2 class="text-lg font-bold text-gray-800" style="font-family: 'Playfair Display', serif;">
+                      Wat staat er voor jou open?
+                    </h2>
+                    <p class="text-xs text-gray-500 mt-0.5">{dedupedActions.length} {dedupedActions.length === 1 ? 'actiepunt' : 'actiepunten'} dat je aandacht vraagt</p>
+                  </div>
+                </div>
+                <a href="/leden/profiel#notificaties" class="text-xs text-animato-primary hover:underline whitespace-nowrap">
+                  Alle notificaties <i class="fas fa-arrow-right ml-0.5 text-[10px]"></i>
+                </a>
+              </div>
+              <ul class="divide-y divide-gray-100">
+                {dedupedActions.map((a, idx) => (
+                  <li class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition">
+                    <div class={`flex-shrink-0 w-9 h-9 rounded-full ${a.iconBg} ${a.iconColor} flex items-center justify-center`}>
+                      <i class={a.icon}></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <p class="text-sm font-medium text-gray-800 truncate">{a.titel}</p>
+                      {a.body && <p class="text-xs text-gray-500 truncate">{a.body}</p>}
+                    </div>
+                    {a.link && (
+                      <a href={a.link} class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-animato-primary hover:bg-animato-primary/10 rounded-lg border border-animato-primary/30 transition">
+                        {a.cta || 'Open'} <i class="fas fa-chevron-right text-[10px]"></i>
+                      </a>
+                    )}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 
@@ -1420,26 +1566,35 @@ app.get('/leden/profiel', async (c) => {
             
             {/* Active Membership Status */}
             {activeMembership && activeMembership.is_active && activeMembership.status === 'pending' ? (
-              <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-6 animate-pulse-slow">
+              <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-6 animate-pulse-slow" id="lidgeld">
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
+                  <div class="flex-1">
                     <div class="flex items-center text-yellow-800 font-bold text-lg mb-2">
                       <i class="fas fa-exclamation-circle mr-2"></i>
                       Lidgeld {activeMembership.season} Openstaand
                     </div>
                     <p class="text-yellow-800 mb-1">
-                      Het lidgeld voor het huidige seizoen ({activeMembership.type === 'full' ? 'Met Partituren' : 'Basis'}) staat nog open.
+                      Huidige formule: <strong>{activeMembership.type === 'full' ? 'Met Papieren Partituren' : 'Basis (digitaal)'}</strong>
+                      {activeMembership.type !== 'full' && (
+                        <span class="text-xs text-yellow-700 italic ml-1">— standaard zonder partituren</span>
+                      )}
                     </p>
-                    <p class="font-bold text-yellow-900 text-xl">
+                    <p class="font-bold text-yellow-900 text-xl mb-2">
                       Te betalen: €{activeMembership.amount.toFixed(2)}
                     </p>
+                    {activeMembership.type !== 'full' && (
+                      <p class="text-xs text-yellow-700 mt-2">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        Wil je toch papieren partituren? Klik op <strong>Nu Betalen</strong> en kies daar de formule "Met Partituren" — je kunt nog upgraden tot je betaalt.
+                      </p>
+                    )}
                   </div>
                   <a 
                     href="/leden/betaling-lidgeld" 
-                    class="inline-flex items-center justify-center px-6 py-3 bg-animato-primary text-white rounded-lg hover:opacity-90 transition font-semibold shadow-lg transform hover:-translate-y-0.5"
+                    class="inline-flex items-center justify-center px-6 py-3 bg-animato-primary text-white rounded-lg hover:opacity-90 transition font-semibold shadow-lg transform hover:-translate-y-0.5 whitespace-nowrap"
                   >
                     <i class="fas fa-credit-card mr-2"></i>
-                    Nu Betalen
+                    Nu Betalen / Wijzigen
                   </a>
                 </div>
               </div>

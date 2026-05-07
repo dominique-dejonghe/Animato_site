@@ -417,9 +417,12 @@ app.post('/api/auth/login', async (c) => {
 
     // Update last_login_at timestamp (#128) — fire-and-forget, mag niet blokkeren
     // Voor admin-zicht: zo zien we wie nog nooit ingelogd is en hulp nodig heeft.
+    // Voor #116: bewaar de vorige login-tijd in previous_login_at zodat het dashboard
+    // "wat is nieuw sinds je laatste bezoek?" correct kan tonen.
     try {
-      await c.env.DB.prepare(`UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?`)
-        .bind(user.id).run()
+      await c.env.DB.prepare(
+        `UPDATE users SET previous_login_at = last_login_at, last_login_at = CURRENT_TIMESTAMP WHERE id = ?`
+      ).bind(user.id).run()
     } catch (e) {
       console.warn('Could not update last_login_at:', e)
     }

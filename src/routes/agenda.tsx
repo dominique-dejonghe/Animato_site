@@ -1732,8 +1732,11 @@ app.get('/concerten/:slug', async (c) => {
                 ) : (
                   <div class="bg-gray-50 rounded-lg p-6 text-center">
                     <i class="fas fa-info-circle text-gray-400 text-3xl mb-3"></i>
-                    <p class="text-gray-700">
-                      Gratis toegang - geen tickets nodig
+                    <p class="text-gray-700 font-medium">
+                      Ticketinfo volgt
+                    </p>
+                    <p class="text-xs text-gray-500 mt-1">
+                      Meer details over toegang en tickets binnenkort beschikbaar
                     </p>
                   </div>
                 )}

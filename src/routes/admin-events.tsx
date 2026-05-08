@@ -1603,10 +1603,10 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
             : ''
 
           // Status bepalen — zelfde logica als publieke pagina
-          let statusLabel = 'Gratis toegang'
+          let statusLabel = 'Ticketinfo volgt'
           let statusColor = 'bg-gray-100 text-gray-700 border-gray-300'
-          let statusIcon = 'fa-ticket-alt'
-          let statusDetail = 'Geen ticketverkoop actief — publieke pagina toont "Gratis toegang".'
+          let statusIcon = 'fa-info-circle'
+          let statusDetail = 'Geen ticketverkoop actief — publieke pagina toont "Ticketinfo volgt".'
           let urgent = false
 
           if (concert.uitverkocht == 1) {

@@ -239,6 +239,37 @@ app.get('/admin/lidgelden', async (c) => {
               Reset geannuleerd: de getypte seizoennaam kwam niet overeen.
             </div>
           )}
+          {/* #111 banners */}
+          {successMsg === 'amount_updated' && (
+            <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 text-sm text-green-800">
+              <i class="fas fa-euro-sign mr-2"></i>
+              Bedrag aangepast. Mollie betaallink werd gereset — bij volgende mailing wordt een nieuwe link gegenereerd.
+            </div>
+          )}
+          {successMsg === 'type_updated' && (
+            <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 text-sm text-green-800">
+              <i class="fas fa-exchange-alt mr-2"></i>
+              Formule (basis/full) aangepast.
+            </div>
+          )}
+          {successMsg === 'deleted' && (
+            <div class="bg-green-50 border border-green-200 rounded-lg p-3 mb-4 text-sm text-green-800">
+              <i class="fas fa-trash mr-2"></i>
+              Lidmaatschap verwijderd.
+            </div>
+          )}
+          {errorMsg === 'invalid_amount' && (
+            <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
+              <i class="fas fa-exclamation-circle mr-2"></i>
+              Ongeldig bedrag — gebruik een getal tussen 0 en 9999.
+            </div>
+          )}
+          {errorMsg === 'already_paid' && (
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-800">
+              <i class="fas fa-lock mr-2"></i>
+              Dit lidmaatschap is al betaald — bedrag kan niet meer gewijzigd worden.
+            </div>
+          )}
 
           {/* Season Selector */}
           <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6 flex items-center justify-between">
@@ -642,7 +673,7 @@ app.get('/admin/lidgelden', async (c) => {
                                 </form>
                               </>
                             )}
-                            {/* #111: switch formule basis ↔ full + delete */}
+                            {/* #111: switch formule basis ↔ full + bedrag aanpassen + delete */}
                             <form action="/api/admin/lidgelden/update-type" method="POST" class="inline">
                               <input type="hidden" name="membership_id" value={m.id} />
                               <input type="hidden" name="type" value={m.type === 'full' ? 'basis' : 'full'} />
@@ -651,6 +682,15 @@ app.get('/admin/lidgelden', async (c) => {
                                 {m.type === 'full' ? '→ Basis' : '→ Full'}
                               </button>
                             </form>
+                            {m.status !== 'paid' && (
+                              <form action="/api/admin/lidgelden/update-amount" method="POST" class="inline" onsubmit={`var v = prompt('Nieuw bedrag in € voor ${(m.voornaam || '') + ' ' + (m.achternaam || '')} (huidig: €${Number(m.amount).toFixed(2)}). Mollie betaallink wordt gereset.', '${Number(m.amount).toFixed(2)}'); if (v === null) return false; this.amount.value = v; return true;`}>
+                                <input type="hidden" name="membership_id" value={m.id} />
+                                <input type="hidden" name="amount" value="" />
+                                <button class="text-indigo-600 hover:text-indigo-800 text-xs font-medium" title="Bedrag aanpassen (korting, bijbetaling, correctie)">
+                                  <i class="fas fa-euro-sign mr-1"></i> Bedrag
+                                </button>
+                              </form>
+                            )}
                             <form action="/api/admin/lidgelden/delete" method="POST" class="inline" onsubmit={`return confirm('Lidmaatschap voor ${m.voornaam || ''} ${m.achternaam || ''} verwijderen?');`}>
                               <input type="hidden" name="membership_id" value={m.id} />
                               <button class="text-red-600 hover:text-red-800 text-xs font-medium" title="Verwijder dit lidmaatschap">
@@ -1051,6 +1091,33 @@ app.post('/api/admin/lidgelden/update-type', async (c) => {
   }
 
   return c.redirect('/admin/lidgelden?season_id=' + membership.year_id + '&success=type_updated')
+})
+
+// #111: Bedrag aanpassen (admin) — bv. korting, bijbetaling, correctie
+app.post('/api/admin/lidgelden/update-amount', async (c) => {
+  const body = await c.req.parseBody()
+  const db = c.env.DB
+  const membershipId = body.membership_id
+  const rawAmount = String(body.amount || '').replace(',', '.')
+  const newAmount = parseFloat(rawAmount)
+
+  if (isNaN(newAmount) || newAmount < 0 || newAmount > 9999) {
+    return c.redirect('/admin/lidgelden?error=invalid_amount')
+  }
+
+  const m = await queryOne<any>(db, `SELECT year_id, status FROM user_memberships WHERE id = ?`, [membershipId])
+  if (!m) return c.redirect('/admin/lidgelden?error=membership_not_found')
+
+  // Reeds betaald → bedrag staat vast, niet meer wijzigen
+  if (m.status === 'paid') {
+    return c.redirect('/admin/lidgelden?season_id=' + m.year_id + '&error=already_paid')
+  }
+
+  await execute(db,
+    `UPDATE user_memberships SET amount = ?, mollie_payment_url = NULL WHERE id = ?`,
+    [newAmount, membershipId])
+
+  return c.redirect('/admin/lidgelden?season_id=' + m.year_id + '&success=amount_updated')
 })
 
 // #111: Verwijder een lidmaatschap (admin)

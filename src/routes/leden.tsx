@@ -2247,15 +2247,15 @@ app.get('/leden/profiel', async (c) => {
                     <input
                       type="number"
                       id="jaren_in_koor"
-                      name="jaren_in_koor"
-                      min="0"
-                      max="99"
-                      value={profile.jaren_in_koor ?? Math.max(0, new Date().getFullYear() - new Date(profile.lid_sinds || profile.created_at).getFullYear())}
-                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                      name="jaren_in_koor_display"
+                      readonly
+                      value={Math.max(0, new Date().getFullYear() - new Date(profile.lid_sinds || profile.created_at).getFullYear())}
+                      class="w-full px-4 py-2 border border-gray-200 bg-gray-50 rounded-lg text-gray-700 cursor-not-allowed"
                     />
                     <p class="mt-1 text-xs text-gray-500">
-                      <i class="fas fa-info-circle mr-1 text-animato-primary"></i>
-                      Standaard berekend op basis van je aansluitingsdatum. Pas aan indien nodig.
+                      <i class="fas fa-lock mr-1 text-gray-400"></i>
+                      Automatisch berekend op basis van je aansluitingsdatum (lid sinds {profile.lid_sinds ? new Date(profile.lid_sinds + 'T00:00:00').toLocaleDateString('nl-BE', { month: 'short', year: 'numeric' }) : new Date(profile.created_at).toLocaleDateString('nl-BE', { month: 'short', year: 'numeric' })}).
+                      Klopt dit niet? Vraag een bestuurslid om je <em>Lid sinds</em>-datum aan te passen.
                     </p>
                   </div>
 
@@ -4478,12 +4478,19 @@ app.post('/api/leden/profiel', async (c) => {
   try {
     const body = await c.req.parseBody()
     const { voornaam, achternaam, telefoon, straat, huisnummer, bus, postcode, gemeente, bio, muzikale_ervaring, profielfoto_url,
-            favoriete_genre, favoriete_componist, favoriete_werk, instrument, jaren_in_koor, zanger_type, geboortedatum } = body
+            favoriete_genre, favoriete_componist, favoriete_werk, instrument, zanger_type, geboortedatum } = body
 
     // Validation
     if (!voornaam || !achternaam) {
       return c.redirect('/leden/profiel?error=required_fields')
     }
+
+    // #24: jaren_in_koor wordt automatisch berekend uit lid_sinds (gewone leden kunnen niet meer overschrijven, alleen admin via /admin/leden)
+    const profileRow = await c.env.DB.prepare(
+      `SELECT p.lid_sinds, u.created_at FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.user_id = ?`
+    ).bind(user.id).first<{ lid_sinds: string | null, created_at: string }>()
+    const lidSinds = profileRow?.lid_sinds ? new Date(profileRow.lid_sinds + 'T00:00:00') : new Date(profileRow?.created_at || new Date())
+    const jaren_in_koor = Math.max(0, new Date().getFullYear() - lidSinds.getFullYear())
 
     // Update profile
     const result = await c.env.DB.prepare(

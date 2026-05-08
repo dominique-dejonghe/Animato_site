@@ -904,36 +904,65 @@ app.get('/admin/meetings/:id', async (c) => {
 
              {/* Right: Sidebar Info */}
              <div class="space-y-6">
-                <div class="bg-white rounded-lg shadow-md p-6">
-                   <h3 class="font-bold text-gray-800 mb-4 border-b pb-2">Aanwezigen</h3>
-                   <div class="max-h-60 overflow-y-auto space-y-2">
-                      {participants.map((p: any) => (
-                         <div class="flex justify-between items-center text-sm">
-                            <span class="text-gray-700">{p.voornaam} {p.achternaam}</span>
-                            <form action="/api/admin/meetings/attendance" method="POST" onchange="this.submit()">
-                               <input type="hidden" name="meeting_id" value={meetingId} />
-                               <input type="hidden" name="user_id" value={p.user_id} />
-                               <select name="status" class={`text-xs border-0 py-0 pl-1 pr-6 rounded ${
-                                  p.status === 'aanwezig' ? 'text-green-600 font-bold' :
-                                  p.status === 'afwezig' ? 'text-red-500' : 'text-gray-500'
-                               }`}>
-                                  <option value="uitgenodigd" selected={p.status === 'uitgenodigd'}>Genodigd</option>
-                                  <option value="aanwezig" selected={p.status === 'aanwezig'}>Aanwezig</option>
-                                  <option value="afwezig" selected={p.status === 'afwezig'}>Afwezig</option>
-                                  <option value="geexcuseerd" selected={p.status === 'geexcuseerd'}>Verontsch.</option>
-                               </select>
-                            </form>
-                            <form id={`delete-participant-${p.user_id}`} action="/api/admin/meetings/participants/remove" method="POST" onsubmit="event.preventDefault(); openDeleteModal(this.id)" class="ml-2">
-                                <input type="hidden" name="meeting_id" value={meetingId} />
-                                <input type="hidden" name="user_id" value={p.user_id} />
-                                <button type="submit" class="text-gray-400 hover:text-red-500"><i class="fas fa-times"></i></button>
-                            </form>
-                         </div>
-                      ))}
+                {/* #47: Compactere bestuursleden-lijst — initialenavatar + statuspill, één rij per persoon, sticky toolbar */}
+                <div class="bg-white rounded-lg shadow-md p-4">
+                   <div class="flex items-center justify-between mb-3 pb-2 border-b">
+                      <h3 class="font-bold text-gray-800 text-sm">Aanwezigen</h3>
+                      <div class="flex items-center gap-1.5 text-[11px]">
+                         <span class="px-1.5 py-0.5 rounded bg-green-50 text-green-700 font-semibold">
+                            {participants.filter((p: any) => p.status === 'aanwezig').length}
+                         </span>
+                         <span class="px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-semibold">
+                            {participants.filter((p: any) => p.status === 'geexcuseerd').length}
+                         </span>
+                         <span class="px-1.5 py-0.5 rounded bg-red-50 text-red-700 font-semibold">
+                            {participants.filter((p: any) => p.status === 'afwezig').length}
+                         </span>
+                         <span class="px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-semibold">
+                            {participants.filter((p: any) => p.status === 'uitgenodigd').length}
+                         </span>
+                      </div>
                    </div>
-                   <div class="mt-4 pt-3 border-t">
-                      <button onclick="document.getElementById('add-participant-modal').classList.remove('hidden')" class="text-sm text-animato-primary hover:underline w-full text-center">
-                         + Deelnemers uitnodigen
+                   <div class="max-h-72 overflow-y-auto -mx-1 px-1 divide-y divide-gray-50">
+                      {participants.map((p: any) => {
+                         const initials = ((p.voornaam || '?')[0] + (p.achternaam || '?')[0]).toUpperCase()
+                         const statusBg =
+                            p.status === 'aanwezig' ? 'bg-green-100 text-green-800 border-green-200' :
+                            p.status === 'afwezig' ? 'bg-red-100 text-red-800 border-red-200' :
+                            p.status === 'geexcuseerd' ? 'bg-amber-100 text-amber-800 border-amber-200' :
+                            'bg-gray-100 text-gray-600 border-gray-200'
+                         return (
+                            <div class="flex items-center gap-2 py-1.5 group">
+                               <div class="w-7 h-7 rounded-full bg-gradient-to-br from-animato-primary/15 to-animato-secondary/15 text-animato-secondary flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                                  {initials}
+                               </div>
+                               <span class="text-sm text-gray-800 truncate flex-1 min-w-0" title={`${p.voornaam} ${p.achternaam}`}>
+                                  {p.voornaam} {p.achternaam}
+                               </span>
+                               <form action="/api/admin/meetings/attendance" method="POST" onchange="this.submit()" class="flex-shrink-0">
+                                  <input type="hidden" name="meeting_id" value={meetingId} />
+                                  <input type="hidden" name="user_id" value={p.user_id} />
+                                  <select name="status" class={`text-[11px] font-semibold border rounded-full pl-2 pr-5 py-0.5 cursor-pointer ${statusBg}`}>
+                                     <option value="uitgenodigd" selected={p.status === 'uitgenodigd'}>Genodigd</option>
+                                     <option value="aanwezig" selected={p.status === 'aanwezig'}>Aanwezig</option>
+                                     <option value="afwezig" selected={p.status === 'afwezig'}>Afwezig</option>
+                                     <option value="geexcuseerd" selected={p.status === 'geexcuseerd'}>Verontsch.</option>
+                                  </select>
+                               </form>
+                               <form id={`delete-participant-${p.user_id}`} action="/api/admin/meetings/participants/remove" method="POST" onsubmit="event.preventDefault(); openDeleteModal(this.id)" class="flex-shrink-0">
+                                   <input type="hidden" name="meeting_id" value={meetingId} />
+                                   <input type="hidden" name="user_id" value={p.user_id} />
+                                   <button type="submit" class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition px-1" title="Verwijderen">
+                                      <i class="fas fa-times text-xs"></i>
+                                   </button>
+                               </form>
+                            </div>
+                         )
+                      })}
+                   </div>
+                   <div class="mt-3 pt-2 border-t">
+                      <button onclick="document.getElementById('add-participant-modal').classList.remove('hidden')" class="text-xs text-animato-primary hover:underline w-full text-center font-medium">
+                         <i class="fas fa-user-plus mr-1"></i> Deelnemers uitnodigen
                       </button>
                    </div>
                 </div>

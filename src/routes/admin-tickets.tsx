@@ -100,7 +100,7 @@ app.get('/admin/tickets', async (c) => {
               Beheer concerten, prijzen en bekijk bestellingen
               {filter !== 'upcoming' && (
                 <span class="ml-2 text-xs bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">
-                  Filter: {filter === 'open' ? 'Verkoop open' : filter === 'announced' ? 'Aangekondigd' : filter === 'soldout' ? 'Uitverkocht' : filter === 'past' ? 'Afgelopen' : filter === 'free' ? 'Gratis toegang' : 'Alle'}
+                  Filter: {filter === 'open' ? 'Verkoop open' : filter === 'announced' ? 'Aangekondigd' : filter === 'soldout' ? 'Uitverkocht' : filter === 'past' ? 'Afgelopen' : filter === 'free' ? 'Geen tickets' : 'Alle'}
                 </span>
               )}
             </p>
@@ -179,7 +179,7 @@ app.get('/admin/tickets', async (c) => {
               { key: 'open', label: 'Verkoop open', icon: 'fa-shopping-cart', count: statusCounts.open, color: 'bg-green-600 text-white', inactive: 'bg-green-50 text-green-700 hover:bg-green-100' },
               { key: 'announced', label: 'Aangekondigd', icon: 'fa-hourglass-half', count: statusCounts.announced, color: 'bg-amber-600 text-white', inactive: 'bg-amber-50 text-amber-800 hover:bg-amber-100' },
               { key: 'soldout', label: 'Uitverkocht', icon: 'fa-ban', count: statusCounts.soldout, color: 'bg-red-600 text-white', inactive: 'bg-red-50 text-red-700 hover:bg-red-100' },
-              { key: 'free', label: 'Gratis toegang', icon: 'fa-gift', count: statusCounts.free, color: 'bg-gray-700 text-white', inactive: 'bg-gray-50 text-gray-600 hover:bg-gray-100' },
+              { key: 'free', label: 'Geen tickets', icon: 'fa-info-circle', count: statusCounts.free, color: 'bg-gray-700 text-white', inactive: 'bg-gray-50 text-gray-600 hover:bg-gray-100' },
               { key: 'past', label: 'Afgelopen', icon: 'fa-history', count: statusCounts.past, color: 'bg-gray-600 text-white', inactive: 'bg-gray-50 text-gray-600 hover:bg-gray-100' },
               { key: 'all', label: 'Alle', icon: 'fa-list', count: statusCounts.all, color: 'bg-gray-800 text-white', inactive: 'bg-gray-100 text-gray-700 hover:bg-gray-200' },
             ].map(tab => (
@@ -281,7 +281,7 @@ app.get('/admin/tickets', async (c) => {
                               </span>
                             ) : (
                               <span class="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-semibold">
-                                <i class="fas fa-gift mr-1"></i>GRATIS TOEGANG
+                                <i class="fas fa-info-circle mr-1"></i>TICKETINFO VOLGT
                               </span>
                             )}
                           </div>

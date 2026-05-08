@@ -5,7 +5,8 @@ import { Hono } from 'hono'
 import type { Bindings } from '../types'
 import { Layout } from '../components/Layout'
 import { optionalAuth } from '../middleware/auth'
-import { queryAll } from '../utils/db'
+import { queryAll, queryOne } from '../utils/db'
+import { processBodyLinks } from '../utils/text'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -473,6 +474,65 @@ app.get('/', async (c) => {
 // =====================================================
 // OVER ONS / KOOR
 // =====================================================
+
+// =====================================================
+// /over — Editeerbare statische pagina (#121)
+// Inhoud komt uit editable_pages tabel; admin bewerkt via /admin/paginas/over
+// =====================================================
+app.get('/over', async (c) => {
+  const user = c.get('user')
+  const page = await queryOne<any>(c.env.DB,
+    `SELECT slug, titel, intro, body, hero_image FROM editable_pages WHERE slug = 'over'`)
+
+  // Fallback als de pagina nog niet aangemaakt is in de DB
+  const titel = page?.titel || 'Over Gemengd Koor Animato'
+  const intro = page?.intro || ''
+  const body = page?.body || '<p>Deze pagina wordt nog ingevuld.</p>'
+
+  // Voor link-targeting: bepaal interne hosts
+  const reqUrl = new URL(c.req.url)
+  const siteHosts = [reqUrl.hostname, 'animato-live.pages.dev', 'animato.be']
+
+  return c.html(
+    <Layout title={titel} user={user} currentPath="/over">
+      <div class="py-16 bg-gradient-to-b from-white to-gray-50">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+
+          {page?.hero_image && (
+            <div class="mb-8 rounded-2xl overflow-hidden shadow-lg">
+              <img src={page.hero_image} alt={titel} class="w-full h-64 sm:h-80 object-cover" />
+            </div>
+          )}
+
+          <h1 class="text-4xl sm:text-5xl font-bold text-animato-secondary mb-4" style="font-family: 'Playfair Display', serif;">
+            {titel}
+          </h1>
+
+          {intro && (
+            <p class="text-xl text-gray-600 mb-10 leading-relaxed italic border-l-4 border-animato-primary pl-4">
+              {intro}
+            </p>
+          )}
+
+          <div
+            class="prose prose-lg max-w-none prose-headings:text-animato-secondary prose-headings:font-serif prose-a:text-animato-primary prose-a:font-medium hover:prose-a:underline"
+            dangerouslySetInnerHTML={{ __html: processBodyLinks(body, siteHosts) }}
+          />
+
+          <div class="mt-16 pt-8 border-t border-gray-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <a href="/koor" class="text-animato-primary hover:underline font-medium">
+              <i class="fas fa-arrow-right mr-2"></i> Lees meer over ons koor en repertoire
+            </a>
+            <a href="/word-lid" class="inline-block bg-animato-primary text-white px-6 py-3 rounded-lg hover:opacity-90 font-semibold shadow">
+              <i class="fas fa-music mr-2"></i> Word lid
+            </a>
+          </div>
+
+        </div>
+      </div>
+    </Layout>
+  )
+})
 
 app.get('/koor', async (c) => {
   const user = c.get('user')

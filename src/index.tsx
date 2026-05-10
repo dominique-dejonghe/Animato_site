@@ -43,6 +43,7 @@ import feedbackRoutes from './routes/feedback'
 import adminFeedbackRoutes from './routes/admin-feedback'
 import adminLedenImportRoutes from './routes/admin-leden-import'
 import adminPagesRoutes from './routes/admin-pages'
+import quizRoutes from './routes/quiz'
 import adminAnalyticsRoutes from './routes/admin-analytics'
 import adminModulesRoutes from './routes/admin-modules'
 import adminWalkthroughRoutes from './routes/admin-walkthrough'
@@ -143,6 +144,7 @@ app.route('/', ledenActivityRoutes)
 app.route('/', adminCommunicationsRoutes) // Added route
 app.route('/', adminFeedbackRoutes)
 app.route('/', adminPagesRoutes)
+app.route('/', quizRoutes)
 // adminLedenImportRoutes en adminAttendanceRoutes zijn verplaatst naar boven (voor adminRoutes)
 app.route('/', adminAnalyticsRoutes)
 app.route('/', adminR2MigrateRoutes)

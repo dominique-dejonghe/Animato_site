@@ -3568,9 +3568,16 @@ app.get('/leden/smoelenboek', async (c) => {
             <h1 class="text-4xl font-bold text-gray-900 mb-4" style="font-family: 'Playfair Display', serif;">
               Onze Zangers
             </h1>
-            <p class="text-xl text-gray-600">
+            <p class="text-xl text-gray-600 mb-5">
               Ontmoet de stemmen van Animato
             </p>
+            {/* Quiz CTA — leer namen kennen */}
+            <a href="/leden/quiz"
+               class="inline-flex items-center gap-2 bg-gradient-to-r from-pink-500 via-purple-500 to-animato-primary text-white px-6 py-3 rounded-full font-semibold shadow-md hover:shadow-lg hover:scale-105 transition">
+              <i class="fas fa-question-circle text-lg"></i>
+              <span>Wie-is-wie quiz</span>
+              <span class="text-xs bg-white/20 px-2 py-0.5 rounded-full ml-1">Test je kennis!</span>
+            </a>
           </div>
 
           {/* 🎂 Birthday banner — always visible, shows this week's birthdays or next upcoming */}

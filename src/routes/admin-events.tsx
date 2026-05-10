@@ -791,6 +791,15 @@ app.get('/admin/events/:id', async (c) => {
     ORDER BY w.componist, w.titel, p.nummer, p.titel
   `, [id]) as any[]
 
+  // Gekoppeld foto-album voor dit event (indien aanwezig) + foto-aantal
+  const eventAlbum = await queryOne<any>(c.env.DB, `
+    SELECT a.id, a.titel, a.slug, a.cover_url, a.is_publiek,
+           (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count
+    FROM albums a
+    WHERE a.event_id = ?
+    LIMIT 1
+  `, [id])
+
   // Disable caching for admin pages
   noCacheHeaders(c)
 
@@ -808,6 +817,70 @@ app.get('/admin/events/:id', async (c) => {
         <AdminSidebar activeSection="events" />
         <div class="flex-1 min-w-0">
           {renderEventForm(event, locations, activity, null, null, concert)}
+
+          {/* ===================================================== */}
+          {/* FOTO-ALBUM — gekoppeld album of nieuw aanmaken         */}
+          {/* ===================================================== */}
+          <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="bg-white rounded-lg shadow-md p-6 mt-4">
+              <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+                <h2 class="text-xl font-bold text-gray-900">
+                  <i class="fas fa-images text-pink-500 mr-2"></i>
+                  Foto-album
+                </h2>
+                {eventAlbum ? (
+                  <span class="text-sm text-gray-500">
+                    {eventAlbum.photo_count} foto{eventAlbum.photo_count === 1 ? '' : "'s"} ·
+                    <span class={`ml-2 px-2 py-0.5 rounded-full text-xs font-semibold ${eventAlbum.is_publiek ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+                      {eventAlbum.is_publiek ? 'Publiek' : 'Leden'}
+                    </span>
+                  </span>
+                ) : null}
+              </div>
+
+              {eventAlbum ? (
+                <div class="flex flex-col sm:flex-row gap-4 items-start">
+                  {eventAlbum.cover_url && (
+                    <img src={eventAlbum.cover_url} alt={eventAlbum.titel}
+                         class="w-32 h-32 object-cover rounded-lg border border-gray-200 flex-shrink-0" />
+                  )}
+                  <div class="flex-1 min-w-0">
+                    <h3 class="font-semibold text-gray-800 text-lg mb-2">{eventAlbum.titel}</h3>
+                    <p class="text-sm text-gray-600 mb-3">
+                      Voeg meerdere foto's tegelijk toe via de <strong>Bulk Upload</strong>-tab in het album.
+                    </p>
+                    <div class="flex flex-wrap gap-2">
+                      <a href={`/admin/fotoboek/album/${eventAlbum.id}`}
+                         class="inline-flex items-center bg-pink-500 hover:bg-pink-600 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">
+                        <i class="fas fa-cloud-upload-alt mr-2"></i> Foto's beheren / bulk upload
+                      </a>
+                      <a href={`/fotoboek/${eventAlbum.slug}`} target="_blank"
+                         class="inline-flex items-center bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition">
+                        <i class="fas fa-external-link-alt mr-2"></i> Bekijk album
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div class="bg-gradient-to-br from-pink-50 to-purple-50 border border-pink-200 rounded-lg p-6 text-center">
+                  <i class="fas fa-camera-retro text-4xl text-pink-300 mb-3"></i>
+                  <p class="text-gray-700 mb-1 font-semibold">Nog geen album gekoppeld aan dit event.</p>
+                  <p class="text-sm text-gray-500 mb-4">
+                    Maak een nieuw album aan om <strong>meerdere foto's tegelijk</strong> te kunnen uploaden.
+                  </p>
+                  <form method="POST" action="/admin/fotoboek/album/create-for-event" class="inline-block">
+                    <input type="hidden" name="event_id" value={id} />
+                    <input type="hidden" name="titel" value={event.titel} />
+                    <input type="hidden" name="datum" value={event.start_datum || ''} />
+                    <button type="submit"
+                            class="inline-flex items-center bg-pink-500 hover:bg-pink-600 text-white px-5 py-2 rounded-lg font-semibold transition shadow-sm">
+                      <i class="fas fa-plus mr-2"></i> Album aanmaken voor dit event
+                    </button>
+                  </form>
+                </div>
+              )}
+            </div>
+          </div>
 
           {/* ===================================================== */}
           {/* PARTITUURLIJST — gekoppelde stukken voor dit event    */}

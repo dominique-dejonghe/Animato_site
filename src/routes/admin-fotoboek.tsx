@@ -845,6 +845,14 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
                   >
                     <i class="fab fa-youtube mr-2 text-red-600"></i>YouTube Video
                   </button>
+                  <button
+                    type="button"
+                    id="photo-bulk-tab-btn"
+                    onclick="switchPhotoMode('bulk')"
+                    class="flex-1 px-4 py-2 border-2 border-purple-300 bg-purple-50 text-purple-800 rounded-lg transition font-medium hover:bg-purple-100"
+                  >
+                    <i class="fas fa-layer-group mr-2"></i>Bulk Upload
+                  </button>
                 </div>
 
                 {/* Upload Section */}
@@ -914,6 +922,61 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
 
                 {/* Hidden field for base64 data */}
                 <input type="hidden" name="photo_data" id="photo_data_input" />
+
+                {/* Bulk Upload Section */}
+                <div id="photo-bulk-section" style="display: none;">
+                  <div class="bg-purple-50 border-2 border-dashed border-purple-300 rounded-lg p-6">
+                    <div class="text-center mb-4">
+                      <i class="fas fa-cloud-upload-alt text-4xl text-purple-400 mb-2"></i>
+                      <p class="font-semibold text-purple-900">Selecteer meerdere foto's tegelijk</p>
+                      <p class="text-xs text-purple-600 mt-1">Tot 50 foto's per keer · automatisch gecomprimeerd · sequentieel geüpload</p>
+                    </div>
+                    <input
+                      type="file"
+                      id="photo_bulk_input"
+                      accept="image/*"
+                      multiple
+                      class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-purple-600 file:text-white hover:file:bg-purple-700 cursor-pointer"
+                    />
+                    <p class="text-xs text-gray-600 mt-2">
+                      <i class="fas fa-info-circle mr-1"></i>
+                      Bijschrift en fotograaf hieronder worden op <strong>elke</strong> foto toegepast.
+                      Volgnummer wordt automatisch ingesteld.
+                    </p>
+                  </div>
+
+                  {/* Bulk Progress */}
+                  <div id="bulk-progress" class="hidden mt-4">
+                    <div class="flex items-center justify-between mb-2 text-sm">
+                      <span class="font-semibold text-purple-900">
+                        <i class="fas fa-spinner fa-spin mr-1"></i>
+                        Upload bezig: <span id="bulk-current">0</span> / <span id="bulk-total">0</span>
+                      </span>
+                      <span id="bulk-percent" class="text-purple-600 font-bold">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+                      <div id="bulk-bar" class="bg-gradient-to-r from-purple-500 to-pink-500 h-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <div id="bulk-current-name" class="text-xs text-gray-500 mt-2 truncate"></div>
+                  </div>
+
+                  {/* Bulk Results */}
+                  <div id="bulk-results" class="hidden mt-4 max-h-48 overflow-y-auto">
+                    <ul id="bulk-results-list" class="space-y-1 text-xs"></ul>
+                  </div>
+
+                  {/* Bulk submit button */}
+                  <button
+                    type="button"
+                    id="bulk-start-btn"
+                    onclick="startBulkUpload()"
+                    disabled
+                    class="hidden mt-4 w-full px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white rounded-lg transition font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <i class="fas fa-rocket mr-2"></i>
+                    <span id="bulk-start-label">Start bulk upload</span>
+                  </button>
+                </div>
               </div>
 
               <div class="mb-4">
@@ -944,7 +1007,7 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
                   class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                 />
               </div>
-              <div class="flex gap-3">
+              <div class="flex gap-3" id="single-submit-row">
                 <button
                   type="submit"
                   class="px-4 py-2 bg-animato-primary text-white hover:bg-animato-secondary rounded-lg transition"
@@ -1199,35 +1262,58 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
             var tabs = {
               upload:  document.getElementById('photo-upload-tab-btn'),
               url:     document.getElementById('photo-url-tab-btn'),
-              youtube: document.getElementById('photo-youtube-tab-btn')
+              youtube: document.getElementById('photo-youtube-tab-btn'),
+              bulk:    document.getElementById('photo-bulk-tab-btn')
             };
             var sections = {
               upload:  document.getElementById('photo-upload-section'),
               url:     document.getElementById('photo-url-section'),
-              youtube: document.getElementById('photo-youtube-section')
+              youtube: document.getElementById('photo-youtube-section'),
+              bulk:    document.getElementById('photo-bulk-section')
             };
             var mediaTypeInput = document.getElementById('media_type_input');
-            
+
             // Reset all tabs to inactive state
             Object.keys(tabs).forEach(function(key) {
               if (!tabs[key]) return;
-              tabs[key].classList.remove('bg-animato-primary', 'text-white', 'border-animato-primary');
-              tabs[key].classList.add('bg-white', 'text-gray-700', 'border-gray-300');
+              if (key === 'bulk') {
+                tabs[key].classList.remove('bg-purple-600', 'text-white', 'border-purple-600');
+                tabs[key].classList.add('bg-purple-50', 'text-purple-800', 'border-purple-300');
+              } else {
+                tabs[key].classList.remove('bg-animato-primary', 'text-white', 'border-animato-primary');
+                tabs[key].classList.add('bg-white', 'text-gray-700', 'border-gray-300');
+              }
               if (sections[key]) sections[key].style.display = 'none';
             });
-            
+
             // Activate selected tab
             if (tabs[mode]) {
-              tabs[mode].classList.add('bg-animato-primary', 'text-white', 'border-animato-primary');
-              tabs[mode].classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
+              if (mode === 'bulk') {
+                tabs[mode].classList.add('bg-purple-600', 'text-white', 'border-purple-600');
+                tabs[mode].classList.remove('bg-purple-50', 'text-purple-800', 'border-purple-300');
+              } else {
+                tabs[mode].classList.add('bg-animato-primary', 'text-white', 'border-animato-primary');
+                tabs[mode].classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
+              }
             }
             if (sections[mode]) sections[mode].style.display = 'block';
-            
+
             // Update media_type hidden field
             if (mediaTypeInput) {
               mediaTypeInput.value = (mode === 'youtube') ? 'youtube' : 'photo';
             }
-            
+
+            // Show/hide single submit row vs. bulk submit
+            var singleRow = document.getElementById('single-submit-row');
+            var bulkBtn = document.getElementById('bulk-start-btn');
+            if (mode === 'bulk') {
+              if (singleRow) singleRow.style.display = 'none';
+              if (bulkBtn) bulkBtn.classList.remove('hidden');
+            } else {
+              if (singleRow) singleRow.style.display = 'flex';
+              if (bulkBtn) bulkBtn.classList.add('hidden');
+            }
+
             // Clean up other fields
             if (mode !== 'upload') clearPhotoFile();
             if (mode !== 'url') { var ui = document.getElementById('photo_url_input'); if (ui) ui.value = ''; }
@@ -1235,6 +1321,160 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
               var yi = document.getElementById('photo_youtube_input'); if (yi) yi.value = '';
               var yp = document.getElementById('youtube_preview'); if (yp) yp.classList.add('hidden');
             }
+            if (mode !== 'bulk') {
+              var bi = document.getElementById('photo_bulk_input'); if (bi) bi.value = '';
+              resetBulkUI();
+            }
+          }
+
+          // ===== Bulk upload =====
+          var bulkFiles = [];
+          var bulkAborted = false;
+
+          function resetBulkUI() {
+            bulkFiles = [];
+            bulkAborted = false;
+            var startBtn = document.getElementById('bulk-start-btn');
+            var startLabel = document.getElementById('bulk-start-label');
+            var prog = document.getElementById('bulk-progress');
+            var res = document.getElementById('bulk-results');
+            var resList = document.getElementById('bulk-results-list');
+            var bar = document.getElementById('bulk-bar');
+            if (startBtn) { startBtn.disabled = true; }
+            if (startLabel) { startLabel.textContent = 'Start bulk upload'; }
+            if (prog) prog.classList.add('hidden');
+            if (res) res.classList.add('hidden');
+            if (resList) resList.innerHTML = '';
+            if (bar) bar.style.width = '0%';
+          }
+
+          // Auto-bind bulk input on DOM ready
+          (function bindBulkInput() {
+            function init() {
+              var inp = document.getElementById('photo_bulk_input');
+              if (!inp) return;
+              inp.addEventListener('change', function(ev) {
+                var files = Array.from(ev.target.files || []);
+                if (files.length === 0) {
+                  resetBulkUI();
+                  return;
+                }
+                if (files.length > 50) {
+                  alert('Maximaal 50 foto\\'s per keer. Je selecteerde er ' + files.length + '. Selecteer minder en upload in batches.');
+                  ev.target.value = '';
+                  return;
+                }
+                // Filter alleen images
+                bulkFiles = files.filter(function(f) { return f.type.startsWith('image/'); });
+                if (bulkFiles.length === 0) {
+                  alert('Geen geldige afbeeldingen geselecteerd.');
+                  ev.target.value = '';
+                  return;
+                }
+                var startBtn = document.getElementById('bulk-start-btn');
+                var startLabel = document.getElementById('bulk-start-label');
+                if (startBtn) startBtn.disabled = false;
+                if (startLabel) startLabel.textContent = 'Upload ' + bulkFiles.length + ' foto' + (bulkFiles.length === 1 ? '' : "'s");
+              });
+            }
+            if (document.readyState === 'loading') {
+              document.addEventListener('DOMContentLoaded', init);
+            } else {
+              init();
+            }
+          })();
+
+          async function startBulkUpload() {
+            if (bulkFiles.length === 0) return;
+            var albumId = window.location.pathname.match(/album\\/(\\d+)/);
+            albumId = albumId ? albumId[1] : null;
+            if (!albumId) { alert('Album ID niet gevonden.'); return; }
+
+            // UI prep
+            var startBtn = document.getElementById('bulk-start-btn');
+            var prog = document.getElementById('bulk-progress');
+            var res = document.getElementById('bulk-results');
+            var resList = document.getElementById('bulk-results-list');
+            var totalEl = document.getElementById('bulk-total');
+            var currentEl = document.getElementById('bulk-current');
+            var pctEl = document.getElementById('bulk-percent');
+            var bar = document.getElementById('bulk-bar');
+            var nameEl = document.getElementById('bulk-current-name');
+
+            startBtn.disabled = true;
+            startBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Bezig...';
+            prog.classList.remove('hidden');
+            res.classList.remove('hidden');
+            resList.innerHTML = '';
+            totalEl.textContent = bulkFiles.length;
+            bulkAborted = false;
+
+            // Common metadata
+            var caption = document.querySelector('#add-photo-form input[name="caption"]').value || '';
+            var fotograaf = document.querySelector('#add-photo-form input[name="fotograaf"]').value || '';
+
+            var success = 0, failed = 0;
+            for (var i = 0; i < bulkFiles.length; i++) {
+              if (bulkAborted) break;
+              var file = bulkFiles[i];
+              currentEl.textContent = (i + 1);
+              nameEl.textContent = file.name + ' (' + formatBytes(file.size) + ')';
+              try {
+                var compressed = await compressImage(file, 1600, 1200, 0.8);
+                var fd = new FormData();
+                fd.append('photo_data', compressed.data);
+                fd.append('caption', caption);
+                fd.append('fotograaf', fotograaf);
+                fd.append('media_type', 'photo');
+                var r = await fetch('/admin/fotoboek/album/' + albumId + '/foto/add-bulk', {
+                  method: 'POST',
+                  body: fd
+                });
+                var d = await r.json();
+                if (d.ok) {
+                  success++;
+                  var li = document.createElement('li');
+                  li.className = 'text-green-700';
+                  li.innerHTML = '<i class="fas fa-check-circle mr-1"></i> ' + escapeHtml(file.name) + ' → ' + formatBytes(compressed.size);
+                  resList.appendChild(li);
+                } else {
+                  failed++;
+                  var li = document.createElement('li');
+                  li.className = 'text-red-700';
+                  li.innerHTML = '<i class="fas fa-times-circle mr-1"></i> ' + escapeHtml(file.name) + ': ' + escapeHtml(d.error || 'onbekende fout');
+                  resList.appendChild(li);
+                }
+              } catch (e) {
+                failed++;
+                var li = document.createElement('li');
+                li.className = 'text-red-700';
+                li.innerHTML = '<i class="fas fa-times-circle mr-1"></i> ' + escapeHtml(file.name) + ': ' + escapeHtml(String(e.message || e));
+                resList.appendChild(li);
+              }
+              var pct = Math.round(((i + 1) / bulkFiles.length) * 100);
+              pctEl.textContent = pct + '%';
+              bar.style.width = pct + '%';
+            }
+
+            // Done
+            nameEl.textContent = '';
+            var summary = document.createElement('li');
+            summary.className = 'pt-2 mt-2 border-t border-gray-200 font-bold ' + (failed === 0 ? 'text-green-800' : (success === 0 ? 'text-red-800' : 'text-amber-800'));
+            summary.innerHTML = '<i class="fas fa-flag-checkered mr-1"></i> Klaar — ' + success + ' geslaagd, ' + failed + ' mislukt' + (success > 0 ? '. <a href="" class="underline">Vernieuw pagina</a> om de foto\\'s te zien.' : '.');
+            resList.appendChild(summary);
+
+            startBtn.innerHTML = '<i class="fas fa-redo mr-2"></i> <span id="bulk-start-label">Upload nog eens</span>';
+            startBtn.disabled = false;
+            // Reset file selection zodat nieuwe upload mogelijk is
+            var inp = document.getElementById('photo_bulk_input');
+            if (inp) inp.value = '';
+            bulkFiles = [];
+          }
+
+          function escapeHtml(s) {
+            return String(s).replace(/[&<>"']/g, function(c) {
+              return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c];
+            });
           }
           
           // ===== YouTube URL helpers =====
@@ -1468,6 +1708,55 @@ app.post('/admin/fotoboek/album/create', async (c) => {
   }
 })
 
+// Create album linked to an event (one-click from event detail page)
+app.post('/admin/fotoboek/album/create-for-event', async (c) => {
+  const user = c.get('user') as SessionUser
+  const body = await c.req.parseBody()
+  const { event_id, titel, datum } = body as any
+
+  if (!event_id) {
+    return c.redirect('/admin/events?error=' + encodeURIComponent('Event ID ontbreekt'))
+  }
+
+  // Check of er al een album bestaat voor dit event → re-use
+  const existing = await c.env.DB.prepare(
+    `SELECT id FROM albums WHERE event_id = ? LIMIT 1`
+  ).bind(event_id).first() as any
+
+  if (existing?.id) {
+    return c.redirect(`/admin/fotoboek/album/${existing.id}`)
+  }
+
+  // Genereer slug uit titel + event_id (uniek)
+  const baseTitel = String(titel || 'Album').trim() || 'Album'
+  const slug = (baseTitel.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'album') + '-' + event_id
+
+  const albumDatum = datum && String(datum).length >= 10
+    ? String(datum).substring(0, 10)
+    : new Date().toISOString().split('T')[0]
+
+  try {
+    const result = await c.env.DB.prepare(
+      `INSERT INTO albums (titel, slug, beschrijving, datum, event_id, is_publiek, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      baseTitel,
+      slug,
+      null,
+      albumDatum,
+      event_id,
+      1,
+      user.id
+    ).run()
+
+    return c.redirect(`/admin/fotoboek/album/${result.meta.last_row_id}`)
+  } catch (error: any) {
+    return c.redirect(`/admin/events/${event_id}?error=` + encodeURIComponent('Album aanmaken mislukt: ' + (error.message || 'onbekende fout')))
+  }
+})
+
 // Update album
 app.post('/admin/fotoboek/album/:id/update', async (c) => {
   const albumId = c.req.param('id')
@@ -1603,6 +1892,83 @@ function extractYoutubeIdServer(input: string): string | null {
   }
   return null
 }
+
+// Bulk add: één foto per request, JSON-response (geen redirect),
+// gebruikt door client-side bulk-upload loop. Sorteer_volgorde wordt
+// automatisch op (max+1) gezet zodat foto's chronologisch achteraan komen.
+app.post('/admin/fotoboek/album/:id/foto/add-bulk', async (c) => {
+  const user = c.get('user') as SessionUser
+  const albumId = c.req.param('id')
+  const body = await c.req.parseBody()
+  const { photo_data, caption, fotograaf } = body as any
+
+  // Validatie: enkel data-URL's (geen YouTube/URL via deze endpoint)
+  if (!photo_data || !String(photo_data).startsWith('data:image/')) {
+    return c.json({ ok: false, error: 'Geen geldige afbeelding ontvangen' }, 400)
+  }
+  const dataStr = String(photo_data)
+  if (dataStr.length > 35_000_000) {
+    return c.json({
+      ok: false,
+      error: 'Foto is te groot (' + Math.round(dataStr.length / 1024 / 1024) + ' MB) — verminder kwaliteit'
+    }, 400)
+  }
+  if (!c.env.R2) {
+    return c.json({ ok: false, error: 'R2 storage niet geconfigureerd' }, 500)
+  }
+
+  // Album bestaat?
+  const album = await c.env.DB.prepare(`SELECT id FROM albums WHERE id = ?`).bind(albumId).first()
+  if (!album) {
+    return c.json({ ok: false, error: 'Album niet gevonden' }, 404)
+  }
+
+  let photoR2Key: string | null = null
+  try {
+    const up = await uploadDataUrlToR2(c.env.R2, `photos/${albumId}`, dataStr)
+    if (!up) {
+      return c.json({ ok: false, error: 'R2 upload mislukt' }, 500)
+    }
+    photoR2Key = up.key
+
+    // Bepaal volgnummer: max + 1 zodat nieuwe foto's chronologisch achteraan komen
+    const maxRow = await c.env.DB.prepare(
+      `SELECT COALESCE(MAX(sorteer_volgorde), 0) as max_order FROM photos WHERE album_id = ?`
+    ).bind(albumId).first<{ max_order: number }>()
+    const nextOrder = (maxRow?.max_order || 0) + 1
+
+    const result = await c.env.DB.prepare(
+      `INSERT INTO photos (album_id, url, caption, fotograaf, upload_door, sorteer_volgorde, media_type, r2_key, content_type, size_bytes)
+       VALUES (?, ?, ?, ?, ?, ?, 'photo', ?, ?, ?)`
+    ).bind(
+      albumId,
+      up.url,
+      caption || null,
+      fotograaf || null,
+      user.id,
+      nextOrder,
+      photoR2Key,
+      up.contentType,
+      up.size
+    ).run()
+
+    return c.json({
+      ok: true,
+      photo_id: Number(result.meta.last_row_id),
+      url: up.url,
+      size: up.size
+    })
+  } catch (error: any) {
+    // Rollback R2 als DB-insert faalde
+    if (photoR2Key && c.env.R2) {
+      try { await deleteFromR2(c.env.R2, photoR2Key) } catch {}
+    }
+    return c.json({
+      ok: false,
+      error: error.message?.includes('TOOBIG') ? 'Foto te groot voor DB' : (error.message || 'Onbekende fout')
+    }, 500)
+  }
+})
 
 // Add photo OR YouTube video to album
 app.post('/admin/fotoboek/album/:id/foto/add', async (c) => {

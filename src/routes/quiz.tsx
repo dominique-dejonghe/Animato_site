@@ -556,6 +556,22 @@ app.get('/admin/quiz', async (c) => {
     LIMIT 10
   `)
 
+  // Alle deelnemers (ook minder dan 5 antwoorden) — chronologisch op laatste activiteit
+  const alleDeelnemers = await queryAll<any>(c.env.DB, `
+    SELECT
+      qa.user_id,
+      p.voornaam, p.achternaam,
+      COUNT(*) as antwoorden,
+      SUM(qa.is_correct) as juist,
+      ROUND(100.0 * SUM(qa.is_correct) / COUNT(*), 1) as accuracy,
+      (SELECT COUNT(*) FROM quiz_sessions s WHERE s.user_id = qa.user_id AND s.ended_at IS NOT NULL) as sessies,
+      MAX(qa.answered_at) as laatste_activiteit
+    FROM quiz_answers qa
+    JOIN profiles p ON p.user_id = qa.user_id
+    GROUP BY qa.user_id, p.voornaam, p.achternaam
+    ORDER BY laatste_activiteit DESC
+  `)
+
   // Niet-deelnemers — actieve leden die nooit een sessie afmaakten
   const nietDeelnemers = await queryAll<any>(c.env.DB, `
     SELECT u.id, p.voornaam, p.achternaam, u.stemgroep
@@ -691,6 +707,62 @@ app.get('/admin/quiz', async (c) => {
           </div>
         </div>
 
+        {/* Alle deelnemers — volledig overzicht met klikbare detailpagina */}
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+          <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
+            <h2 class="font-bold text-gray-900">
+              <i class="fas fa-users text-blue-500 mr-2"></i> Alle deelnemers ({alleDeelnemers.length})
+            </h2>
+            <span class="text-xs text-gray-500">Klik op een naam voor sessies + antwoorden</span>
+          </div>
+          {alleDeelnemers.length === 0 ? (
+            <div class="p-8 text-center text-gray-500">Nog geen deelnemers.</div>
+          ) : (
+            <div class="overflow-x-auto">
+              <table class="min-w-full text-sm">
+                <thead class="bg-gray-50 text-xs uppercase text-gray-500">
+                  <tr>
+                    <th class="px-4 py-2 text-left">Speler</th>
+                    <th class="px-4 py-2 text-right">Sessies</th>
+                    <th class="px-4 py-2 text-right">Antwoorden</th>
+                    <th class="px-4 py-2 text-right">Juist</th>
+                    <th class="px-4 py-2 text-right">Accuracy</th>
+                    <th class="px-4 py-2 text-right">Laatste activiteit</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                  {alleDeelnemers.map((p: any) => (
+                    <tr class="hover:bg-gray-50">
+                      <td class="px-4 py-2 font-medium">
+                        <a href={`/admin/quiz/lid/${p.user_id}`} class="text-animato-primary hover:underline">
+                          {p.voornaam} {p.achternaam}
+                        </a>
+                      </td>
+                      <td class="px-4 py-2 text-right text-gray-600">{p.sessies}</td>
+                      <td class="px-4 py-2 text-right text-gray-600">{p.antwoorden}</td>
+                      <td class="px-4 py-2 text-right text-gray-600">{p.juist}</td>
+                      <td class="px-4 py-2 text-right">
+                        <span class={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                          p.accuracy >= 80 ? 'bg-green-100 text-green-800' :
+                          p.accuracy >= 50 ? 'bg-amber-100 text-amber-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>{p.accuracy}%</span>
+                      </td>
+                      <td class="px-4 py-2 text-right text-xs text-gray-500">
+                        {p.laatste_activiteit
+                          ? new Date(p.laatste_activiteit + 'Z').toLocaleString('nl-BE', {
+                              day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+                            })
+                          : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         {/* Niet-deelnemers */}
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
           <div class="px-6 py-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
@@ -740,6 +812,29 @@ app.get('/admin/quiz/lid/:id', async (c) => {
     ORDER BY started_at DESC LIMIT 50
   `, [memberId])
 
+  // Volledige antwoordhistoriek voor dit lid (per sessie groeperen in de view)
+  // Joint met profielen voor target én chosen → toont volledige naam i.p.v. ID's
+  const answers = await queryAll<any>(c.env.DB, `
+    SELECT
+      qa.id, qa.session_id, qa.is_correct, qa.answered_at,
+      qa.target_user_id, qa.chosen_user_id,
+      tp.voornaam AS target_voornaam, tp.achternaam AS target_achternaam, tp.foto_url AS target_foto,
+      cp.voornaam AS chosen_voornaam, cp.achternaam AS chosen_achternaam
+    FROM quiz_answers qa
+    JOIN profiles tp ON tp.user_id = qa.target_user_id
+    LEFT JOIN profiles cp ON cp.user_id = qa.chosen_user_id
+    WHERE qa.user_id = ?
+    ORDER BY qa.answered_at DESC
+    LIMIT 500
+  `, [memberId])
+
+  // Groepeer antwoorden per session_id voor weergave
+  const answersBySession = new Map<number, any[]>()
+  for (const a of answers) {
+    if (!answersBySession.has(a.session_id)) answersBySession.set(a.session_id, [])
+    answersBySession.get(a.session_id)!.push(a)
+  }
+
   // Welke gezichten dit lid structureel fout heeft
   const blindeVlekken = await queryAll<any>(c.env.DB, `
     SELECT
@@ -773,38 +868,78 @@ app.get('/admin/quiz/lid/:id', async (c) => {
           </div>
         </div>
 
-        <div class="grid lg:grid-cols-2 gap-6">
-          {/* Sessiehistoriek */}
-          <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div class="grid lg:grid-cols-3 gap-6">
+          {/* Sessiehistoriek met uitklapbare details */}
+          <div class="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div class="px-6 py-4 border-b border-gray-100">
-              <h2 class="font-bold text-gray-900"><i class="fas fa-history text-blue-500 mr-2"></i> Sessies</h2>
+              <h2 class="font-bold text-gray-900">
+                <i class="fas fa-history text-blue-500 mr-2"></i> Sessies + antwoorden
+              </h2>
+              <p class="text-xs text-gray-500 mt-1">Klik op een sessie om alle gegeven antwoorden te zien.</p>
             </div>
             {sessions.length === 0 ? (
               <div class="p-8 text-center text-gray-500">Nog geen sessies.</div>
             ) : (
-              <ul class="divide-y divide-gray-100 max-h-96 overflow-y-auto">
+              <div class="divide-y divide-gray-100 max-h-[600px] overflow-y-auto">
                 {sessions.map((s: any) => {
                   const pct = s.total_questions > 0 ? Math.round((s.correct_answers / s.total_questions) * 100) : 0
+                  const sessionAnswers = answersBySession.get(s.id) || []
                   return (
-                    <li class="px-4 py-2 flex justify-between text-sm">
-                      <span class="text-gray-700">
-                        {new Date(s.started_at + 'Z').toLocaleString('nl-BE', {
-                          day: 'numeric', month: 'short', year: 'numeric',
-                          hour: '2-digit', minute: '2-digit'
-                        })}
-                      </span>
-                      <span class={`font-semibold ${pct >= 60 ? 'text-green-600' : pct >= 40 ? 'text-amber-600' : 'text-red-600'}`}>
-                        {s.correct_answers}/{s.total_questions} ({pct}%)
-                      </span>
-                    </li>
+                    <details class="group">
+                      <summary class="px-4 py-3 flex items-center justify-between text-sm cursor-pointer hover:bg-gray-50 list-none">
+                        <span class="flex items-center gap-2 text-gray-700">
+                          <i class="fas fa-chevron-right text-xs text-gray-400 transition-transform group-open:rotate-90"></i>
+                          {new Date(s.started_at + 'Z').toLocaleString('nl-BE', {
+                            day: 'numeric', month: 'short', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit'
+                          })}
+                        </span>
+                        <span class={`font-semibold ${pct >= 60 ? 'text-green-600' : pct >= 40 ? 'text-amber-600' : 'text-red-600'}`}>
+                          {s.correct_answers}/{s.total_questions} ({pct}%)
+                        </span>
+                      </summary>
+                      <div class="px-4 pb-4 pt-1 bg-gray-50">
+                        {sessionAnswers.length === 0 ? (
+                          <div class="text-xs text-gray-400 italic">Geen antwoord-detail beschikbaar (oude sessie?).</div>
+                        ) : (
+                          <ol class="space-y-2">
+                            {sessionAnswers
+                              .sort((a, b) => new Date(a.answered_at).getTime() - new Date(b.answered_at).getTime())
+                              .map((a: any, idx: number) => (
+                                <li class={`flex items-center gap-3 text-sm bg-white p-2 rounded border ${
+                                  a.is_correct ? 'border-green-200' : 'border-red-200'
+                                }`}>
+                                  <span class="text-xs font-semibold text-gray-400 w-5 text-center">{idx + 1}</span>
+                                  {a.target_foto && (
+                                    <img src={a.target_foto} alt="" class="w-10 h-10 rounded-full object-cover border flex-shrink-0" />
+                                  )}
+                                  <div class="flex-1 min-w-0">
+                                    <div class="text-xs text-gray-500">Foto van</div>
+                                    <div class="font-medium text-gray-900 truncate">
+                                      {a.target_voornaam} {a.target_achternaam}
+                                    </div>
+                                  </div>
+                                  <div class="flex-1 min-w-0 text-right">
+                                    <div class="text-xs text-gray-500">Koos</div>
+                                    <div class={`font-medium truncate ${a.is_correct ? 'text-green-700' : 'text-red-700'}`}>
+                                      {a.chosen_voornaam ? `${a.chosen_voornaam} ${a.chosen_achternaam || ''}` : '(onbekend)'}
+                                    </div>
+                                  </div>
+                                  <i class={`fas ${a.is_correct ? 'fa-check text-green-500' : 'fa-times text-red-500'} text-lg`}></i>
+                                </li>
+                              ))}
+                          </ol>
+                        )}
+                      </div>
+                    </details>
                   )
                 })}
-              </ul>
+              </div>
             )}
           </div>
 
           {/* Blinde vlekken */}
-          <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+          <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden h-fit">
             <div class="px-6 py-4 border-b border-gray-100">
               <h2 class="font-bold text-gray-900"><i class="fas fa-eye-slash text-red-500 mr-2"></i> Blinde vlekken</h2>
               <p class="text-xs text-gray-500 mt-1">Gezichten die {member.voornaam} structureel fout raadt.</p>

@@ -1757,6 +1757,76 @@ app.post('/admin/fotoboek/album/create-for-event', async (c) => {
   }
 })
 
+// Link an existing album to an event
+app.post('/admin/fotoboek/album/link-to-event', async (c) => {
+  const body = await c.req.parseBody()
+  const { event_id, album_id } = body as any
+
+  if (!event_id || !album_id) {
+    return c.redirect('/admin/events?error=' + encodeURIComponent('Event of album ontbreekt'))
+  }
+
+  // Veiligheid: album mag nog niet aan een ander event hangen
+  const existing = await c.env.DB.prepare(
+    `SELECT event_id FROM albums WHERE id = ? LIMIT 1`
+  ).bind(album_id).first() as any
+
+  if (!existing) {
+    return c.redirect(`/admin/events/${event_id}?error=` + encodeURIComponent('Album niet gevonden'))
+  }
+  if (existing.event_id && Number(existing.event_id) !== Number(event_id)) {
+    return c.redirect(`/admin/events/${event_id}?error=` + encodeURIComponent('Dit album is al gekoppeld aan een ander event. Koppel het eerst los daar.'))
+  }
+
+  // Veiligheid: event mag nog geen ander album hebben
+  const eventHasAlbum = await c.env.DB.prepare(
+    `SELECT id FROM albums WHERE event_id = ? AND id != ? LIMIT 1`
+  ).bind(event_id, album_id).first() as any
+
+  if (eventHasAlbum) {
+    return c.redirect(`/admin/events/${event_id}?error=` + encodeURIComponent('Dit event heeft al een ander album gekoppeld. Koppel dat eerst los.'))
+  }
+
+  try {
+    await c.env.DB.prepare(
+      `UPDATE albums SET event_id = ? WHERE id = ?`
+    ).bind(event_id, album_id).run()
+
+    return c.redirect(`/admin/events/${event_id}?success=` + encodeURIComponent('Album gekoppeld aan event'))
+  } catch (error: any) {
+    return c.redirect(`/admin/events/${event_id}?error=` + encodeURIComponent('Koppelen mislukt: ' + (error.message || 'onbekende fout')))
+  }
+})
+
+// Unlink an album from an event (album + photos blijven bestaan)
+app.post('/admin/fotoboek/album/:id/unlink-from-event', async (c) => {
+  const albumId = c.req.param('id')
+
+  // Haal event_id op vóór unlink, voor de redirect terug
+  const current = await c.env.DB.prepare(
+    `SELECT event_id FROM albums WHERE id = ? LIMIT 1`
+  ).bind(albumId).first() as any
+
+  if (!current) {
+    return c.redirect('/admin/events?error=' + encodeURIComponent('Album niet gevonden'))
+  }
+
+  const eventId = current.event_id
+
+  try {
+    await c.env.DB.prepare(
+      `UPDATE albums SET event_id = NULL WHERE id = ?`
+    ).bind(albumId).run()
+
+    if (eventId) {
+      return c.redirect(`/admin/events/${eventId}?success=` + encodeURIComponent('Album losgekoppeld'))
+    }
+    return c.redirect(`/admin/fotoboek/album/${albumId}?success=` + encodeURIComponent('Album losgekoppeld van event'))
+  } catch (error: any) {
+    return c.redirect(`/admin/events/${eventId || ''}?error=` + encodeURIComponent('Loskoppelen mislukt: ' + (error.message || 'onbekende fout')))
+  }
+})
+
 // Update album
 app.post('/admin/fotoboek/album/:id/update', async (c) => {
   const albumId = c.req.param('id')

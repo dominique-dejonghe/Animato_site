@@ -800,6 +800,17 @@ app.get('/admin/events/:id', async (c) => {
     LIMIT 1
   `, [id])
 
+  // Beschikbare albums om aan dit event te koppelen (nog niet aan een event gelinkt)
+  // → voorkomt dat je per ongeluk een album van een ander event "steelt"
+  const linkableAlbums = await queryAll<any>(c.env.DB, `
+    SELECT a.id, a.titel, a.datum,
+           (SELECT COUNT(*) FROM photos WHERE album_id = a.id) as photo_count
+    FROM albums a
+    WHERE (a.event_id IS NULL OR a.event_id = 0)
+    ORDER BY a.datum DESC, a.titel ASC
+    LIMIT 200
+  `) as any[]
+
   // Disable caching for admin pages
   noCacheHeaders(c)
 
@@ -858,25 +869,74 @@ app.get('/admin/events/:id', async (c) => {
                          class="inline-flex items-center bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium transition">
                         <i class="fas fa-external-link-alt mr-2"></i> Bekijk album
                       </a>
+                      <form method="POST" action={`/admin/fotoboek/album/${eventAlbum.id}/unlink-from-event`}
+                            onsubmit="return confirm('Album loskoppelen van dit event? Het album zelf en de foto\\'s blijven bestaan.')"
+                            class="inline-block">
+                        <button type="submit"
+                                class="inline-flex items-center bg-white hover:bg-red-50 text-red-600 border border-red-200 px-4 py-2 rounded-lg text-sm font-medium transition">
+                          <i class="fas fa-unlink mr-2"></i> Loskoppelen
+                        </button>
+                      </form>
                     </div>
                   </div>
                 </div>
               ) : (
-                <div class="bg-gradient-to-br from-pink-50 to-purple-50 border border-pink-200 rounded-lg p-6 text-center">
-                  <i class="fas fa-camera-retro text-4xl text-pink-300 mb-3"></i>
-                  <p class="text-gray-700 mb-1 font-semibold">Nog geen album gekoppeld aan dit event.</p>
-                  <p class="text-sm text-gray-500 mb-4">
-                    Maak een nieuw album aan om <strong>meerdere foto's tegelijk</strong> te kunnen uploaden.
-                  </p>
-                  <form method="POST" action="/admin/fotoboek/album/create-for-event" class="inline-block">
-                    <input type="hidden" name="event_id" value={id} />
-                    <input type="hidden" name="titel" value={event.titel} />
-                    <input type="hidden" name="datum" value={event.start_datum || ''} />
-                    <button type="submit"
-                            class="inline-flex items-center bg-pink-500 hover:bg-pink-600 text-white px-5 py-2 rounded-lg font-semibold transition shadow-sm">
-                      <i class="fas fa-plus mr-2"></i> Album aanmaken voor dit event
-                    </button>
-                  </form>
+                <div class="space-y-4">
+                  {/* Optie 1: nieuw album aanmaken */}
+                  <div class="bg-gradient-to-br from-pink-50 to-purple-50 border border-pink-200 rounded-lg p-6 text-center">
+                    <i class="fas fa-camera-retro text-4xl text-pink-300 mb-3"></i>
+                    <p class="text-gray-700 mb-1 font-semibold">Nog geen album gekoppeld aan dit event.</p>
+                    <p class="text-sm text-gray-500 mb-4">
+                      Maak een nieuw album aan om <strong>meerdere foto's tegelijk</strong> te kunnen uploaden.
+                    </p>
+                    <form method="POST" action="/admin/fotoboek/album/create-for-event" class="inline-block">
+                      <input type="hidden" name="event_id" value={id} />
+                      <input type="hidden" name="titel" value={event.titel} />
+                      <input type="hidden" name="datum" value={event.start_datum || ''} />
+                      <button type="submit"
+                              class="inline-flex items-center bg-pink-500 hover:bg-pink-600 text-white px-5 py-2 rounded-lg font-semibold transition shadow-sm">
+                        <i class="fas fa-plus mr-2"></i> Nieuw album aanmaken
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Optie 2: bestaand album koppelen */}
+                  {linkableAlbums.length > 0 && (
+                    <div class="bg-white border border-gray-200 rounded-lg p-6">
+                      <div class="flex items-start gap-3 mb-4">
+                        <i class="fas fa-link text-purple-500 text-lg mt-1"></i>
+                        <div class="flex-1">
+                          <h3 class="font-semibold text-gray-800">Of: bestaand album koppelen</h3>
+                          <p class="text-sm text-gray-500 mt-1">
+                            Heb je al een album waarin je foto's hebt geladen?
+                            Koppel het hier zodat ze automatisch onder dit concert verschijnen.
+                          </p>
+                        </div>
+                      </div>
+                      <form method="POST" action="/admin/fotoboek/album/link-to-event" class="flex flex-col sm:flex-row gap-2">
+                        <input type="hidden" name="event_id" value={id} />
+                        <select name="album_id" required
+                                class="flex-1 border-gray-300 rounded-lg shadow-sm p-2 border focus:ring-purple-500 focus:border-purple-500 text-sm">
+                          <option value="">— Kies een album —</option>
+                          {linkableAlbums.map((a: any) => (
+                            <option value={a.id}>
+                              {a.titel}
+                              {a.datum ? ` (${String(a.datum).substring(0, 10)})` : ''}
+                              {' · ' + a.photo_count + " foto's"}
+                            </option>
+                          ))}
+                        </select>
+                        <button type="submit"
+                                class="inline-flex items-center justify-center bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg font-medium transition text-sm whitespace-nowrap">
+                          <i class="fas fa-link mr-2"></i> Koppelen
+                        </button>
+                      </form>
+                      <p class="text-xs text-gray-400 mt-2">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        Enkel albums die nog niet aan een ander event hangen, worden getoond ({linkableAlbums.length} beschikbaar).
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
             </div>

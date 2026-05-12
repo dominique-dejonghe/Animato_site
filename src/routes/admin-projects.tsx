@@ -446,10 +446,13 @@ app.get('/admin/projects/:id', async (c) => {
     [projectId]
   )
 
-  // Get documents
+  // Get documents — alias kolommen naar wat de view verwacht
+  // (DB-kolommen: titel, url, type ; view-velden: name, file_url, file_type)
   const documents = await queryAll(
     c.env.DB,
-    `SELECT * FROM concert_project_documents WHERE project_id = ? ORDER BY created_at DESC`,
+    `SELECT id, project_id, titel AS name, url AS file_url, type AS file_type,
+            bestandsnaam, grootte_bytes, upload_door, created_at
+     FROM concert_project_documents WHERE project_id = ? ORDER BY created_at DESC`,
     [projectId]
   )
 
@@ -1428,11 +1431,11 @@ app.post('/api/admin/projects/:id/update', async (c) => {
 app.post('/api/admin/projects/documents/create', async (c) => {
   const body = await c.req.parseBody()
   const { project_id, name, file_url, file_type } = body
-  
+
   await c.env.DB.prepare(
-    `INSERT INTO concert_project_documents (project_id, name, file_url, file_type)
+    `INSERT INTO concert_project_documents (project_id, titel, url, type)
      VALUES (?, ?, ?, ?)`
-  ).bind(project_id, name, file_url, file_type).run()
+  ).bind(project_id, name, file_url, file_type || 'link').run()
 
   return c.redirect(`/admin/projects/${project_id}?tab=documents`)
 })
@@ -1452,7 +1455,7 @@ app.post('/api/admin/projects/documents/:id/update', async (c) => {
 
   await c.env.DB.prepare(
     `UPDATE concert_project_documents
-     SET name = ?, file_url = ?, file_type = ?
+     SET titel = ?, url = ?, type = ?
      WHERE id = ?`
   ).bind(name, file_url, file_type || 'link', id).run()
 

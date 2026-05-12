@@ -437,7 +437,7 @@ app.get('/leden', async (c) => {
               { key: 'voorstellen',  href: '/leden/voorstellen',   icon: 'fas fa-lightbulb',    iconBg: 'bg-yellow-100',                    iconColor: 'text-yellow-600 text-xl',      title: 'Voorstellen',    desc: 'Deel je ideeën',                border: '' },
               { key: null,           href: '/leden/streaks',       icon: null,                  iconBg: 'bg-orange-100',                    iconColor: '',                             title: 'Streaks',        desc: 'Aanwezigheid & badges',         border: 'border-2 border-orange-200', emoji: '🔥' },
               { key: 'voice_analyzer', href: '/stem-test',         icon: 'fas fa-microphone',   iconBg: 'bg-purple-100',                    iconColor: 'text-purple-600 text-xl',      title: 'Stem Test',      desc: 'Test je stembereik',            border: '' },
-              { key: null,           href: '/leden/profiel',       icon: 'fas fa-user',         iconBg: 'bg-animato-primary bg-opacity-10', iconColor: 'text-animato-primary text-xl', title: 'Profiel',        desc: 'Mijn gegevens',                 border: '', isProfile: true },
+              { key: null,           href: '/leden/profiel',       icon: 'fas fa-id-card',      iconBg: 'bg-animato-primary bg-opacity-10', iconColor: 'text-animato-primary text-xl', title: 'Mijn profiel',   desc: 'Persoonsgegevens bewerken',     border: '', isProfile: true },
             ]
             // Filter: admin sees everything, members only see enabled modules (null key = always visible)
             const visibleModules = allModules.filter(m => isAdmin || m.key === null || enabledModules.has(m.key))

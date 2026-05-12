@@ -339,6 +339,26 @@ app.get('/nieuws/:slug', async (c) => {
     [artikel.id]
   )
 
+  // Reacties — alleen voor ingelogde gebruikers laden
+  // Joint met profile zodat we de schrijver-naam en foto kunnen tonen
+  const comments = user ? await queryAll<any>(
+    c.env.DB,
+    `SELECT c.id, c.body, c.created_at, c.user_id,
+            p.voornaam, p.achternaam, p.foto_url
+     FROM post_comments c
+     LEFT JOIN profiles p ON p.user_id = c.user_id
+     WHERE c.post_id = ?
+     ORDER BY c.created_at ASC`,
+    [artikel.id]
+  ) : []
+
+  // Voor publieke bezoekers: enkel het aantal reacties tonen (teaser, lokt login uit)
+  const commentCount = !user ? await queryOne<any>(
+    c.env.DB,
+    `SELECT COUNT(*) as n FROM post_comments WHERE post_id = ?`,
+    [artikel.id]
+  ) : null
+
   return c.html(
     <Layout 
       title={artikel.titel} 
@@ -420,6 +440,105 @@ app.get('/nieuws/:slug', async (c) => {
             </div>
           </div>
 
+          {/* =================================================== */}
+          {/* REACTIES — leden kunnen reageren op nieuws          */}
+          {/* =================================================== */}
+          <section id="reacties" class="mb-12 bg-gray-50 rounded-xl p-6 sm:p-8 border border-gray-200">
+            <h2 class="text-2xl font-bold text-gray-900 mb-6 flex items-center" style="font-family: 'Playfair Display', serif;">
+              <i class="fas fa-comments text-animato-primary mr-3"></i>
+              Reacties
+              {user && comments.length > 0 && (
+                <span class="ml-2 text-base font-medium text-gray-500">({comments.length})</span>
+              )}
+            </h2>
+
+            {!user ? (
+              <div class="bg-white border border-gray-200 rounded-lg p-6 text-center">
+                <i class="fas fa-lock text-gray-400 text-3xl mb-3"></i>
+                <p class="text-gray-700 mb-2">
+                  Reacties zijn enkel zichtbaar en plaatsbaar voor <strong>ingelogde leden</strong>.
+                </p>
+                {commentCount && commentCount.n > 0 && (
+                  <p class="text-sm text-gray-500 mb-4">
+                    Er {commentCount.n === 1 ? 'is' : 'zijn'} al {commentCount.n} reactie{commentCount.n === 1 ? '' : 's'} op dit bericht.
+                  </p>
+                )}
+                <a href={`/login?redirect=${encodeURIComponent('/nieuws/' + artikel.slug + '#reacties')}`}
+                   class="inline-flex items-center bg-animato-primary hover:bg-animato-secondary text-white px-5 py-2 rounded-lg font-semibold transition">
+                  <i class="fas fa-sign-in-alt mr-2"></i> Inloggen om te reageren
+                </a>
+              </div>
+            ) : (
+              <>
+                {/* Bestaande reacties */}
+                {comments.length === 0 ? (
+                  <p class="text-gray-500 italic mb-6 text-center py-4">
+                    Nog geen reacties — wees de eerste!
+                  </p>
+                ) : (
+                  <ul class="space-y-4 mb-6">
+                    {comments.map((cm: any) => {
+                      const naam = `${cm.voornaam || ''} ${cm.achternaam || ''}`.trim() || 'Lid'
+                      const initialen = (cm.voornaam?.[0] || '?') + (cm.achternaam?.[0] || '')
+                      const canDelete = user.id === cm.user_id || user.role === 'admin' || user.role === 'moderator'
+                      const dt = new Date((cm.created_at || '').replace(' ', 'T') + 'Z')
+                      const dtStr = dt.toLocaleString('nl-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+                      return (
+                        <li class="bg-white border border-gray-200 rounded-lg p-4 flex gap-3">
+                          {cm.foto_url ? (
+                            <img src={cm.foto_url} alt={naam}
+                                 class="w-10 h-10 rounded-full object-cover border border-gray-200 flex-shrink-0" />
+                          ) : (
+                            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-animato-primary to-animato-secondary text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
+                              {initialen}
+                            </div>
+                          )}
+                          <div class="flex-1 min-w-0">
+                            <div class="flex items-baseline justify-between flex-wrap gap-2 mb-1">
+                              <span class="font-semibold text-gray-900">{naam}</span>
+                              <span class="text-xs text-gray-400">{dtStr}</span>
+                            </div>
+                            <p class="text-gray-700 whitespace-pre-wrap break-words">{cm.body}</p>
+                            {canDelete && (
+                              <form method="POST" action={`/nieuws/${artikel.slug}/reactie/${cm.id}/delete`}
+                                    onsubmit="return confirm('Reactie verwijderen?')"
+                                    class="inline-block mt-2">
+                                <button type="submit" class="text-xs text-red-500 hover:text-red-700 hover:underline">
+                                  <i class="fas fa-trash-alt mr-1"></i> Verwijderen
+                                </button>
+                              </form>
+                            )}
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+
+                {/* Reactie toevoegen */}
+                <form method="POST" action={`/nieuws/${artikel.slug}/reactie`}
+                      class="bg-white border border-gray-200 rounded-lg p-4">
+                  <label for="comment-body" class="block text-sm font-semibold text-gray-700 mb-2">
+                    Plaats een reactie
+                  </label>
+                  <textarea id="comment-body" name="body" required rows={3} maxlength={2000}
+                            placeholder="Schrijf hier je reactie..."
+                            class="w-full border-gray-300 rounded-lg p-3 border focus:ring-animato-primary focus:border-animato-primary text-sm"></textarea>
+                  <div class="flex items-center justify-between mt-3 flex-wrap gap-2">
+                    <p class="text-xs text-gray-400">
+                      <i class="fas fa-info-circle mr-1"></i>
+                      Je naam en foto worden bij de reactie getoond.
+                    </p>
+                    <button type="submit"
+                            class="inline-flex items-center bg-animato-primary hover:bg-animato-secondary text-white px-4 py-2 rounded-lg font-semibold text-sm transition">
+                      <i class="fas fa-paper-plane mr-2"></i> Plaatsen
+                    </button>
+                  </div>
+                </form>
+              </>
+            )}
+          </section>
+
           {/* Related articles */}
           {gerelateerd.length > 0 && (
             <div>
@@ -458,6 +577,81 @@ app.get('/nieuws/:slug', async (c) => {
       </article>
     </Layout>
   )
+})
+
+// =====================================================
+// REACTIES — plaatsen en verwijderen
+// =====================================================
+
+// Plaats een reactie op een nieuwsbericht
+app.post('/nieuws/:slug/reactie', async (c) => {
+  const user = c.get('user') as any
+  const slug = c.req.param('slug')
+
+  if (!user) {
+    return c.redirect(`/login?redirect=${encodeURIComponent('/nieuws/' + slug + '#reacties')}`)
+  }
+
+  const body = await c.req.parseBody()
+  const raw = String(body.body || '').trim()
+
+  if (!raw || raw.length < 1) {
+    return c.redirect(`/nieuws/${slug}#reacties`)
+  }
+  // Hard cap zoals in de UI (max 2000 tekens)
+  const safeBody = raw.length > 2000 ? raw.substring(0, 2000) : raw
+
+  // Bestaat het artikel?
+  const post = await queryOne<any>(
+    c.env.DB,
+    `SELECT id FROM posts WHERE slug = ? AND type = 'nieuws' AND is_published = 1 LIMIT 1`,
+    [slug]
+  )
+  if (!post) return c.notFound()
+
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO post_comments (post_id, user_id, body) VALUES (?, ?, ?)`
+    ).bind(post.id, user.id, safeBody).run()
+  } catch (e: any) {
+    console.warn('Comment insert failed:', e?.message)
+  }
+
+  return c.redirect(`/nieuws/${slug}#reacties`)
+})
+
+// Verwijder een reactie (eigenaar of admin/moderator)
+app.post('/nieuws/:slug/reactie/:id/delete', async (c) => {
+  const user = c.get('user') as any
+  const slug = c.req.param('slug')
+  const commentId = c.req.param('id')
+
+  if (!user) {
+    return c.redirect(`/login?redirect=${encodeURIComponent('/nieuws/' + slug + '#reacties')}`)
+  }
+
+  // Eigenaarscheck — admins/moderators mogen alles verwijderen
+  const comment = await queryOne<any>(
+    c.env.DB,
+    `SELECT user_id FROM post_comments WHERE id = ? LIMIT 1`,
+    [commentId]
+  )
+  if (!comment) return c.redirect(`/nieuws/${slug}#reacties`)
+
+  const isOwner = comment.user_id === user.id
+  const isAdmin = user.role === 'admin' || user.role === 'moderator'
+
+  if (!isOwner && !isAdmin) {
+    return c.redirect(`/nieuws/${slug}#reacties`)
+  }
+
+  try {
+    await c.env.DB.prepare(`DELETE FROM post_comments WHERE id = ?`).bind(commentId).run()
+  } catch (e: any) {
+    console.warn('Comment delete failed:', e?.message)
+  }
+
+  return c.redirect(`/nieuws/${slug}#reacties`)
 })
 
 // =====================================================

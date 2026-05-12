@@ -319,8 +319,8 @@ export const Layout: FC<LayoutProps> = ({
                   )}
                   {/* Leden portal link in mobile menu */}
                   <a href="/leden" class="block text-gray-700 hover:text-animato-primary">
-                    <i class="fas fa-user-circle mr-2"></i>
-                    Mijn Profiel
+                    <i class="fas fa-users mr-2"></i>
+                    Ledenpagina
                   </a>
                   {/* Divider */}
                   <div class="border-t border-gray-300 my-2"></div>

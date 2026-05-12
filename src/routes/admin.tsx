@@ -1705,9 +1705,17 @@ app.get('/admin/leden', async (c) => {
                         'pianist': 'bg-purple-100 text-purple-800'
                       }
                       
-                      const lastLogin = lid.last_login_at 
-                        ? new Date(lid.last_login_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })
+                      // last_login_at is UTC zonder timezone-suffix → expliciet 'Z' toevoegen
+                      // anders interpreteert iOS Safari de string verkeerd (datum kan een dag verschuiven).
+                      const lastLoginDate = lid.last_login_at
+                        ? new Date(lid.last_login_at.replace(' ', 'T') + 'Z')
+                        : null
+                      const lastLogin = lastLoginDate
+                        ? lastLoginDate.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short', year: 'numeric' })
                         : 'Nooit'
+                      const lastLoginTime = lastLoginDate
+                        ? lastLoginDate.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })
+                        : null
                       // Inactivity tracking — bereken dagen sinds laatste login
                       let inactiveDays: number | null = null
                       let inactiveBadge: { label: string; cls: string } | null = null
@@ -1824,6 +1832,9 @@ app.get('/admin/leden', async (c) => {
                           </td>
                           <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                             <div>{lastLogin}</div>
+                            {lastLoginTime && (
+                              <div class="text-xs text-gray-400">{lastLoginTime}</div>
+                            )}
                             {inactiveBadge && (
                               <span class={`inline-block mt-1 px-2 py-0.5 text-[10px] font-semibold rounded-full ${inactiveBadge.cls}`} title="Aantal dagen sinds laatste login">
                                 <i class="fas fa-moon mr-1"></i>{inactiveBadge.label}
@@ -2637,8 +2648,14 @@ app.get('/admin/leden/:id', async (c) => {
                   if (diffH < 24) return `${diffH} u geleden`;
                   const diffD = Math.floor(diffH / 24);
                   if (diffD < 7) return `${diffD} dag${diffD === 1 ? '' : 'en'} geleden`;
-                  if (diffD < 30) return `${Math.floor(diffD / 7)} week${diffD < 14 ? '' : 'en'} geleden`;
-                  if (diffD < 365) return `${Math.floor(diffD / 30)} maand${diffD < 60 ? '' : 'en'} geleden`;
+                  if (diffD < 30) {
+                    const w = Math.floor(diffD / 7);
+                    return `${w} ${w === 1 ? 'week' : 'weken'} geleden`;
+                  }
+                  if (diffD < 365) {
+                    const m = Math.floor(diffD / 30);
+                    return `${m} ${m === 1 ? 'maand' : 'maanden'} geleden`;
+                  }
                   return `${Math.floor(diffD / 365)} jaar geleden`;
                 };
 

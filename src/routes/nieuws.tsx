@@ -367,6 +367,18 @@ app.get('/nieuws/:slug', async (c) => {
     >
       <article class="py-12">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Hero cover image (indien aanwezig) */}
+          {artikel.cover_image && (
+            <div class="mb-8 rounded-2xl overflow-hidden shadow-lg bg-gray-100">
+              <img
+                src={artikel.cover_image}
+                alt={artikel.titel}
+                class="w-full h-auto max-h-[500px] object-cover"
+                loading="eager"
+              />
+            </div>
+          )}
+
           {/* Header */}
           <header class="mb-8">
             <div class="text-center mb-6">

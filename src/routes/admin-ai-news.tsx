@@ -95,24 +95,74 @@ async function callLLM(env: any, systemPrompt: string, userPrompt: string): Prom
 }
 
 /**
- * Genereer een afbeelding via Cloudflare Workers AI (Stable Diffusion).
- * Returns een data-URL of null bij falen.
+ * Convert ArrayBuffer to base64 string, chunked to avoid stack overflow
+ * on large buffers (String.fromCharCode(...arr) blows up around ~100KB).
  */
-async function generateImage(env: any, prompt: string): Promise<string | null> {
-  if (!env.AI) return null
-  try {
-    const result = await env.AI.run('@cf/stabilityai/stable-diffusion-xl-base-1.0', {
-      prompt: prompt + ', high quality, professional photography, vibrant colors',
-      num_steps: 20
-    })
-    // De response is een ReadableStream van PNG-bytes
-    const buffer = await new Response(result as any).arrayBuffer()
-    const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)))
-    return `data:image/png;base64,${base64}`
-  } catch (e: any) {
-    console.warn('Image generation failed:', e?.message)
-    return null
+function bufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const chunkSize = 0x8000 // 32KB chunks
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize)
+    binary += String.fromCharCode.apply(null, chunk as any)
   }
+  return btoa(binary)
+}
+
+/**
+ * Genereer een afbeelding via Cloudflare Workers AI.
+ * Returns een data-URL, of throwt met een duidelijke foutmelding.
+ */
+async function generateImage(env: any, prompt: string): Promise<string> {
+  if (!env.AI) {
+    throw new Error('Cloudflare AI binding (env.AI) niet beschikbaar — check wrangler.json')
+  }
+
+  // Try multiple models in order of preference.
+  // SDXL Lightning is the fastest and most reliable on Cloudflare Workers AI.
+  const models = [
+    '@cf/bytedance/stable-diffusion-xl-lightning',
+    '@cf/stabilityai/stable-diffusion-xl-base-1.0',
+    '@cf/lykon/dreamshaper-8-lcm',
+  ]
+
+  const enrichedPrompt = prompt + ', high quality, professional photography, warm lighting, choir performance, vibrant colors'
+
+  const errors: string[] = []
+  for (const model of models) {
+    try {
+      const result: any = await env.AI.run(model, {
+        prompt: enrichedPrompt,
+        num_steps: model.includes('lightning') ? 4 : 20,
+      })
+
+      // Cloudflare AI returns either:
+      //   - a ReadableStream of raw PNG bytes (older models)
+      //   - an object { image: "<base64>" } (newer models)
+      //   - an ArrayBuffer / Uint8Array
+      let dataUrl: string | null = null
+
+      if (result && typeof result === 'object' && typeof result.image === 'string') {
+        // Already base64-encoded
+        dataUrl = `data:image/png;base64,${result.image}`
+      } else if (result instanceof ReadableStream || (result && typeof (result as any).getReader === 'function')) {
+        const buf = await new Response(result as any).arrayBuffer()
+        dataUrl = `data:image/png;base64,${bufferToBase64(buf)}`
+      } else if (result instanceof ArrayBuffer) {
+        dataUrl = `data:image/png;base64,${bufferToBase64(result)}`
+      } else if (result && (result as any).buffer instanceof ArrayBuffer) {
+        dataUrl = `data:image/png;base64,${bufferToBase64((result as any).buffer)}`
+      }
+
+      if (dataUrl) return dataUrl
+      errors.push(`${model}: onbekend response-formaat (${typeof result})`)
+    } catch (e: any) {
+      errors.push(`${model}: ${e?.message || e}`)
+      console.warn(`Image gen failed on ${model}:`, e?.message || e)
+    }
+  }
+
+  throw new Error('Alle beeldmodellen faalden. Details: ' + errors.join(' | '))
 }
 
 // =====================================================
@@ -257,13 +307,11 @@ app.post('/api/admin/ai-news/image', async (c) => {
     if (!prompt) return c.json({ error: 'Prompt is verplicht' }, 400)
 
     const imageUrl = await generateImage(c.env, prompt)
-    if (!imageUrl) {
-      return c.json({ error: 'Afbeeldingsgeneratie mislukt. Cloudflare AI niet beschikbaar?' }, 500)
-    }
-
     return c.json({ ok: true, image: imageUrl })
   } catch (e: any) {
-    return c.json({ error: e?.message || 'Onbekende fout bij beeld' }, 500)
+    const msg = e?.message || String(e) || 'Onbekende fout bij beeldgeneratie'
+    console.error('Image generation error:', msg)
+    return c.json({ error: msg }, 500)
   }
 })
 

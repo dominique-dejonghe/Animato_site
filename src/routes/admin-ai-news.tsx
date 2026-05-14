@@ -1,1368 +1,729 @@
-// Admin AI News Generator
-// Zoek naar koor-gerelateerd nieuws via AI web search en genereer artikels met AI + afbeeldingen
+// =====================================================
+// AI-schrijfassistent voor nieuwsberichten — v2
+// =====================================================
+// Doel: laat het bestuur snel mooie nieuwsberichten genereren
+// op basis van enkele feiten/steekwoorden. Geen websearch,
+// geen externe scraping — gewoon: jij geeft de input,
+// AI maakt er proza van, jij reviewt, één klik publiceren.
+//
+// Templates:
+//   1. Aankondiging      → upcoming concert/event
+//   2. Terugblik         → past concert/event
+//   3. Lid-in-de-kijker  → nieuws over een individueel lid
+//   4. Vrije vorm        → eigen instructie + steekwoorden
+//
+// Beeld: optioneel AI-gegenereerd via Cloudflare AI (Stable Diffusion)
+//
+// Publicatie: schrijft direct in de posts-tabel (type='nieuws')
 
 import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
-import { execute, queryOne, queryAll } from '../utils/db'
+import { requireAdmin } from '../middleware/auth'
+import { execute } from '../utils/db'
+import { uploadDataUrlToR2 } from '../utils/r2-storage'
 
 const app = new Hono<{ Bindings: Bindings }>()
+
+app.use('/admin/ai-nieuws', requireAdmin)
+app.use('/admin/ai-nieuws/*', requireAdmin)
+app.use('/api/admin/ai-news/*', requireAdmin)
 
 // =====================================================
 // HELPERS
 // =====================================================
 
-/** Call AI - uses Cloudflare Workers AI (free, no API key needed) with fallback to external LLM.
- *  Probeert achtereenvolgens:
- *   1. Cloudflare Workers AI (gratis, via AI binding)
- *   2. Externe OpenAI-compatible API (als OPENAI_API_KEY gezet is)
- *  Gooit een duidelijke error met details van beide pogingen als alles faalt.
- */
-async function callAI(
-  env: any,
-  messages: Array<{ role: string; content: string }>,
-  opts: { temperature?: number; max_tokens?: number } = {}
-): Promise<string> {
-  const attempts: string[] = []
+function slugify(s: string): string {
+  return s.toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // remove accents
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .substring(0, 80) || 'nieuws-' + Date.now()
+}
 
-  // Strategy 1: Cloudflare Workers AI (free, no key needed)
+/**
+ * Roep de LLM aan. Probeert eerst Cloudflare Workers AI (gratis tier),
+ * valt terug op OpenAI als CF AI niet beschikbaar/faalt.
+ */
+async function callLLM(env: any, systemPrompt: string, userPrompt: string): Promise<string> {
+  // Probeer Cloudflare Workers AI eerst (geen extra kosten)
   if (env.AI) {
     try {
       const result: any = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
-        messages,
-        temperature: opts.temperature ?? 0.7,
-        max_tokens: opts.max_tokens || 4000,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 1500,
+        temperature: 0.7
       })
-      if (result?.response) return result.response
-      attempts.push('Workers AI: leeg antwoord')
+      const text = result?.response || result?.result?.response || ''
+      if (text && text.length > 50) return text
     } catch (e: any) {
-      const msg = e?.message || String(e)
-      console.error('Workers AI error, trying fallback:', msg)
-      attempts.push(`Workers AI: ${msg}`)
+      console.warn('Cloudflare AI failed, falling back to OpenAI:', e?.message)
     }
-  } else {
-    attempts.push('Workers AI: binding niet beschikbaar (env.AI ontbreekt)')
   }
 
-  // Strategy 2: External OpenAI-compatible API (if configured)
-  const apiKey = env.OPENAI_API_KEY
-  const baseUrl = env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1'
-
-  if (apiKey) {
-    try {
-      const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-5-mini',
-          messages,
-          temperature: opts.temperature ?? 0.7,
-          max_tokens: opts.max_tokens || 4000,
-        }),
-      })
-
-      if (!response.ok) {
-        const errText = (await response.text()).substring(0, 300)
-        attempts.push(`OpenAI-proxy: HTTP ${response.status} — ${errText}`)
-      } else {
-        const data = await response.json() as any
-        const content = data.choices?.[0]?.message?.content
-        if (content) return content
-        attempts.push('OpenAI-proxy: leeg antwoord')
-      }
-    } catch (e: any) {
-      attempts.push(`OpenAI-proxy: ${e?.message || String(e)}`)
-    }
-  } else {
-    attempts.push('OpenAI-proxy: OPENAI_API_KEY niet geconfigureerd')
-  }
-
-  throw new Error(
-    `Geen AI strategie werkte. Probeer de "Diagnose" knop bovenaan. Details:\n- ${attempts.join('\n- ')}`
-  )
-}
-
-/** Parse JSON from LLM response, handling markdown code blocks */
-function parseLLMJson<T = any>(content: string): T {
-  let cleaned = content
-    .replace(/```json\s*/g, '')
-    .replace(/```\s*/g, '')
-    .trim()
-  // Sometimes LLM adds text before/after JSON - try to extract it
-  const jsonStart = cleaned.indexOf('[') !== -1 ? cleaned.indexOf('[') : cleaned.indexOf('{')
-  const jsonEndBracket = cleaned.lastIndexOf(']') !== -1 ? cleaned.lastIndexOf(']') : cleaned.lastIndexOf('}')
-  if (jsonStart !== -1 && jsonEndBracket !== -1) {
-    cleaned = cleaned.substring(jsonStart, jsonEndBracket + 1)
-  }
-  return JSON.parse(cleaned)
-}
-
-type SearchResult = { title: string; snippet: string; url: string; source: string; date?: string }
-
-/** Clean HTML entities and tags */
-function cleanHtml(html: string): string {
-  return html.replace(/<[^>]+>/g, '')
-    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim()
-}
-
-/** Source 1: Google News RSS (most reliable from CF Workers — no JS required) */
-async function searchGoogleNewsRSS(query: string, numResults: number = 10): Promise<SearchResult[]> {
-  const results: SearchResult[] = []
-  try {
-    const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=nl&gl=BE&ceid=BE:nl`
-    const response = await fetch(rssUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; AnimatoBot/1.0)' }
-    })
-    if (!response.ok) throw new Error(`Google News RSS HTTP ${response.status}`)
-    const xml = await response.text()
-
-    // Parse RSS items
-    const items = xml.match(/<item>([\s\S]*?)<\/item>/g) || []
-    for (const item of items.slice(0, numResults)) {
-      const titleMatch = item.match(/<title><!\[CDATA\[(.*?)\]\]><\/title>/) || item.match(/<title>(.*?)<\/title>/)
-      const linkMatch = item.match(/<link>(.*?)<\/link>/)
-      const sourceMatch = item.match(/<source[^>]*>(.*?)<\/source>/)
-      const pubDateMatch = item.match(/<pubDate>(.*?)<\/pubDate>/)
-      const descMatch = item.match(/<description><!\[CDATA\[(.*?)\]\]><\/description>/) || item.match(/<description>(.*?)<\/description>/s)
-      
-      if (titleMatch && linkMatch) {
-        const rawTitle = cleanHtml(titleMatch[1])
-        // Google News often appends " - Source" to titles
-        const title = rawTitle.replace(/\s*-\s*[^-]+$/, '').trim() || rawTitle
-        const source = sourceMatch ? cleanHtml(sourceMatch[1]) : 'Google News'
-        let snippet = descMatch ? cleanHtml(descMatch[1]) : ''
-        // Limit snippet length
-        if (snippet.length > 300) snippet = snippet.substring(0, 297) + '...'
-        
-        results.push({
-          title,
-          snippet: snippet || `Nieuwsbericht van ${source}`,
-          url: linkMatch[1].trim(),
-          source,
-          date: pubDateMatch ? pubDateMatch[1] : undefined
-        })
-      }
-    }
-    console.log(`Google News RSS: ${results.length} results for "${query}"`)
-  } catch (e: any) {
-    console.error('Google News RSS error:', e.message)
-  }
-  return results
-}
-
-/** Source 2: DuckDuckGo HTML search (may be blocked from CF Worker IPs) */
-async function searchDuckDuckGo(query: string, numResults: number = 8): Promise<SearchResult[]> {
-  const results: SearchResult[] = []
-  try {
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 8000) // 8s timeout
-    
-    const response = await fetch('https://html.duckduckgo.com/html/', {
+  // Fallback: OpenAI
+  if (env.OPENAI_API_KEY) {
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'nl-BE,nl;q=0.9',
-        'Content-Type': 'application/x-www-form-urlencoded'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${env.OPENAI_API_KEY}`
       },
-      body: `q=${encodeURIComponent(query)}`,
-      signal: controller.signal
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        max_tokens: 1500,
+        temperature: 0.7
+      })
     })
-    clearTimeout(timeoutId)
-    
-    if (!response.ok) throw new Error(`DDG HTTP ${response.status}`)
-    const html = await response.text()
-    
-    // Check for CAPTCHA/block
-    if (html.includes('Please try again') || html.includes('robot') || !html.includes('result__a')) {
-      console.log('DuckDuckGo: blocked or CAPTCHA detected')
-      return results
+    if (!r.ok) {
+      const err = await r.text()
+      throw new Error(`OpenAI fout (${r.status}): ${err.substring(0, 200)}`)
     }
-    
-    const blocks = html.split('class="result results_links')
-    for (const block of blocks.slice(1)) {
-      if (results.length >= numResults) break
-      
-      const urlMatch = block.match(/uddg=(https?[^&"]+)/)
-      const titleMatch = block.match(/class="result__a"[^>]*>(.*?)<\/a>/s)
-      const snippetMatch = block.match(/class="result__snippet"[^>]*>(.*?)<\/(?:a|span)/s)
-      
-      if (urlMatch && titleMatch) {
-        let url = urlMatch[1]
-        try { url = decodeURIComponent(url) } catch(e) {
-          url = url.replace(/%3A/g, ':').replace(/%2F/g, '/').replace(/%2D/g, '-').replace(/%2E/g, '.').replace(/%3F/g, '?').replace(/%3D/g, '=').replace(/%26/g, '&')
-        }
-        const title = cleanHtml(titleMatch[1])
-        const snippet = snippetMatch ? cleanHtml(snippetMatch[1]) : ''
-        const srcMatch = url.match(/https?:\/\/(?:www\.)?([^\/]+)/)
-        
-        if (title && url.startsWith('http')) {
-          results.push({ title, snippet: snippet || 'Klik door voor meer informatie.', url, source: srcMatch ? srcMatch[1] : 'Onbekend' })
-        }
+    const data: any = await r.json()
+    return data?.choices?.[0]?.message?.content || ''
+  }
+
+  throw new Error('Geen AI-provider beschikbaar (noch Cloudflare AI, noch OpenAI_API_KEY)')
+}
+
+/**
+ * Genereer een afbeelding via Cloudflare Workers AI (Stable Diffusion).
+ * Returns een data-URL of null bij falen.
+ */
+async function generateImage(env: any, prompt: string): Promise<string | null> {
+  if (!env.AI) return null
+  try {
+    const result = await env.AI.run('@cf/stabilityai/stable-diffusion-xl-base-1.0', {
+      prompt: prompt + ', high quality, professional photography, vibrant colors',
+      num_steps: 20
+    })
+    // De response is een ReadableStream van PNG-bytes
+    const buffer = await new Response(result as any).arrayBuffer()
+    const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)))
+    return `data:image/png;base64,${base64}`
+  } catch (e: any) {
+    console.warn('Image generation failed:', e?.message)
+    return null
+  }
+}
+
+// =====================================================
+// PROMPT-BUILDERS PER TEMPLATE
+// =====================================================
+
+const SYSTEM_PROMPT = `Je bent de communicatieverantwoordelijke van Gemengd Koor Animato, een enthousiast amateurkoor uit Oppuurs (Klein-Brabant, België) onder leiding van dirigent Frank. Het koor zingt een breed repertoire van klassiek tot pop.
+
+Je schrijft nieuwsberichten voor de Animato-website. Stijl:
+- Vlaams Nederlands (geen Hollandse woorden zoals "leuk", "lekker", "snel even")
+- Warm en persoonlijk, maar professioneel
+- Korte alinea's (max 3-4 zinnen per alinea)
+- Geen overdreven emoji's of uitroeptekens
+- Spreek de lezer aan als "u" (in nieuwsberichten over het koor zelf)
+
+Output formaat:
+- Geef ALLEEN het artikel terug, geen meta-commentaar
+- Begin met een pakkende inleidende zin (geen titel — die geven we apart)
+- Gebruik HTML voor structuur: <p> voor alinea's, eventueel <h3> voor tussenkoppen, <strong> voor nadruk
+- Geen <html>, <body> of <h1> tags — alleen content
+- Geen markdown (geen ##, geen **)`
+
+function buildAankondigingPrompt(data: any): string {
+  return `Schrijf een aankondiging voor:
+
+Wat: ${data.wat || '(niet opgegeven)'}
+Wanneer: ${data.wanneer || '(niet opgegeven)'}
+Waar: ${data.waar || '(niet opgegeven)'}
+Programma/inhoud: ${data.programma || '(niet opgegeven)'}
+Tickets/inschrijving: ${data.tickets || '(niet opgegeven)'}
+Bijzonderheden: ${data.bijzonderheden || '(geen)'}
+
+Schrijf een wervend maar professioneel bericht van 3-4 alinea's. Eindig met een duidelijke call-to-action (kom kijken, schrijf in, ...). Lengte: 200-350 woorden.`
+}
+
+function buildTerugblikPrompt(data: any): string {
+  return `Schrijf een warme terugblik op:
+
+Wat was het: ${data.wat || '(niet opgegeven)'}
+Wanneer: ${data.wanneer || '(niet opgegeven)'}
+Waar: ${data.waar || '(niet opgegeven)'}
+Hoeveel mensen kwamen: ${data.publiek || '(niet opgegeven)'}
+Hoogtepunten/sfeer: ${data.hoogtepunten || '(niet opgegeven)'}
+Quotes of reacties: ${data.quotes || '(geen)'}
+Bedankjes: ${data.bedankjes || '(geen)'}
+
+Schrijf een nostalgische, dankbare terugblik van 3-4 alinea's. Maak de lezer trots op het koor. Lengte: 250-400 woorden.`
+}
+
+function buildLidInDeKijkerPrompt(data: any): string {
+  return `Schrijf een persoonlijk nieuwsbericht over een lid van het koor:
+
+Naam: ${data.naam || '(niet opgegeven)'}
+Stemgroep: ${data.stemgroep || '(niet opgegeven)'}
+Aanleiding: ${data.aanleiding || '(niet opgegeven)'}
+Details: ${data.details || '(niet opgegeven)'}
+Wat wil het koor uitspreken: ${data.boodschap || '(niet opgegeven)'}
+
+Schrijf een warm, persoonlijk bericht van 2-3 alinea's waarmee het koor zijn betrokkenheid toont bij het lid. Vermijd kleffe taal. Lengte: 150-250 woorden.`
+}
+
+function buildVrijeVormPrompt(data: any): string {
+  return `Schrijf een nieuwsbericht over:
+
+Onderwerp: ${data.onderwerp || '(niet opgegeven)'}
+Steekwoorden/feiten:
+${data.feiten || '(niet opgegeven)'}
+
+Toon: ${data.toon || 'informatief'}
+Doelgroep: ${data.doelgroep || 'leden en publiek'}
+
+Schrijf een afgewerkt nieuwsbericht. Lengte: passend bij het onderwerp (150-400 woorden).`
+}
+
+// =====================================================
+// API: GENERATE ARTICLE
+// =====================================================
+
+app.post('/api/admin/ai-news/generate', async (c) => {
+  try {
+    const body = await c.req.json() as any
+    const { template, data, titel_idee } = body
+
+    if (!template || !data) {
+      return c.json({ error: 'Template en data zijn verplicht' }, 400)
+    }
+
+    let userPrompt: string
+    switch (template) {
+      case 'aankondiging': userPrompt = buildAankondigingPrompt(data); break
+      case 'terugblik':    userPrompt = buildTerugblikPrompt(data); break
+      case 'lid':          userPrompt = buildLidInDeKijkerPrompt(data); break
+      case 'vrij':         userPrompt = buildVrijeVormPrompt(data); break
+      default: return c.json({ error: 'Onbekend template: ' + template }, 400)
+    }
+
+    const articleBody = await callLLM(c.env, SYSTEM_PROMPT, userPrompt)
+
+    if (!articleBody || articleBody.length < 80) {
+      return c.json({ error: 'AI gaf een te kort antwoord — probeer opnieuw met meer details.' }, 500)
+    }
+
+    // Maak een titel-suggestie (apart, korte LLM-call)
+    let titelSuggestie = titel_idee || ''
+    if (!titelSuggestie) {
+      try {
+        const titelText = await callLLM(c.env,
+          'Je bent een redactionele kop-schrijver. Geef ÉÉN pakkende, korte titel (max 8 woorden, geen punt op het einde, geen aanhalingstekens) voor dit nieuwsbericht. Geef ALLEEN de titel terug, niets anders.',
+          articleBody.substring(0, 1000)
+        )
+        titelSuggestie = titelText.replace(/^["']|["']$/g, '').replace(/[.]$/, '').trim().split('\n')[0]
+      } catch {
+        titelSuggestie = 'Nieuw bericht van Animato'
       }
     }
-    console.log(`DuckDuckGo: ${results.length} results for "${query}"`)
+
+    // Maak een excerpt-suggestie (eerste zin uit body, max 200 chars)
+    const plainBody = articleBody.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+    const excerpt = plainBody.length > 200
+      ? plainBody.substring(0, 197) + '...'
+      : plainBody
+
+    return c.json({
+      ok: true,
+      titel: titelSuggestie,
+      body: articleBody,
+      excerpt
+    })
   } catch (e: any) {
-    console.error('DuckDuckGo error:', e.message)
+    console.error('Generate error:', e)
+    return c.json({ error: e?.message || 'Onbekende fout bij genereren' }, 500)
   }
-  return results
-}
+})
 
-/** Multi-source web search with automatic fallback */
-async function webSearch(query: string, numResults: number = 10): Promise<SearchResult[]> {
-  // Strategy: run Google News + DuckDuckGo in parallel, merge & deduplicate
-  const [googleResults, ddgResults] = await Promise.allSettled([
-    searchGoogleNewsRSS(query, numResults),
-    searchDuckDuckGo(query, numResults)
-  ])
-  
-  const google = googleResults.status === 'fulfilled' ? googleResults.value : []
-  const ddg = ddgResults.status === 'fulfilled' ? ddgResults.value : []
-  
-  console.log(`Search totals — Google News: ${google.length}, DDG: ${ddg.length}`)
-  
-  // Merge: prioritize Google News (more reliable from Workers), then DDG
-  const seen = new Set<string>()
-  const merged: SearchResult[] = []
-  
-  for (const r of [...google, ...ddg]) {
-    // Deduplicate by domain+title similarity
-    const key = r.source.toLowerCase() + '|' + r.title.toLowerCase().substring(0, 40)
-    if (!seen.has(key) && merged.length < numResults) {
-      seen.add(key)
-      merged.push(r)
+// =====================================================
+// API: GENERATE IMAGE
+// =====================================================
+
+app.post('/api/admin/ai-news/image', async (c) => {
+  try {
+    const { prompt } = await c.req.json() as any
+    if (!prompt) return c.json({ error: 'Prompt is verplicht' }, 400)
+
+    const imageUrl = await generateImage(c.env, prompt)
+    if (!imageUrl) {
+      return c.json({ error: 'Afbeeldingsgeneratie mislukt. Cloudflare AI niet beschikbaar?' }, 500)
     }
+
+    return c.json({ ok: true, image: imageUrl })
+  } catch (e: any) {
+    return c.json({ error: e?.message || 'Onbekende fout bij beeld' }, 500)
   }
-  
-  return merged
-}
+})
 
 // =====================================================
-// ADMIN PAGE: AI Nieuws Generator
+// API: PUBLISH
 // =====================================================
+
+app.post('/api/admin/ai-news/publish', async (c) => {
+  const user = c.get('user') as SessionUser
+  try {
+    const { titel, body, excerpt, cover_data, zichtbaarheid, is_published } = await c.req.json() as any
+
+    if (!titel || !body) {
+      return c.json({ error: 'Titel en inhoud zijn verplicht' }, 400)
+    }
+
+    // Upload cover image naar R2 als data-URL meegegeven
+    let coverUrl: string | null = null
+    if (cover_data && String(cover_data).startsWith('data:image/') && c.env.R2) {
+      try {
+        const up = await uploadDataUrlToR2(c.env.R2, 'nieuws-covers', String(cover_data))
+        if (up?.url) coverUrl = up.url
+      } catch (e: any) {
+        console.warn('Cover upload failed:', e?.message)
+      }
+    }
+
+    // Genereer unieke slug
+    let baseSlug = slugify(titel)
+    let slug = baseSlug
+    let suffix = 1
+    while (true) {
+      const existing: any = await c.env.DB.prepare(
+        `SELECT id FROM posts WHERE slug = ? LIMIT 1`
+      ).bind(slug).first()
+      if (!existing) break
+      suffix++
+      slug = `${baseSlug}-${suffix}`
+      if (suffix > 20) { slug = baseSlug + '-' + Date.now(); break }
+    }
+
+    const publishNow = is_published ? 1 : 0
+    const vis = (zichtbaarheid === 'leden' || zichtbaarheid === 'bestuur') ? zichtbaarheid : 'publiek'
+
+    const result = await c.env.DB.prepare(
+      `INSERT INTO posts (titel, slug, body, excerpt, auteur_id, type, zichtbaarheid, is_published, cover_image, published_at)
+       VALUES (?, ?, ?, ?, ?, 'nieuws', ?, ?, ?, ${publishNow ? 'CURRENT_TIMESTAMP' : 'NULL'})`
+    ).bind(titel, slug, body, excerpt || null, user.id, vis, publishNow, coverUrl).run()
+
+    return c.json({
+      ok: true,
+      id: result.meta.last_row_id,
+      slug,
+      url: publishNow ? `/nieuws/${slug}` : `/admin/nieuws/${result.meta.last_row_id}`
+    })
+  } catch (e: any) {
+    console.error('Publish error:', e)
+    return c.json({ error: e?.message || 'Publiceren mislukt' }, 500)
+  }
+})
+
+// =====================================================
+// UI: /admin/ai-nieuws
+// =====================================================
+
 app.get('/admin/ai-nieuws', async (c) => {
   const user = c.get('user') as SessionUser
 
-  // Get recent AI-generated posts for history
-  const recentAiPosts = await queryAll(c.env.DB,
-    `SELECT p.id, p.titel, p.is_published, p.created_at, p.excerpt
-     FROM posts p 
-     WHERE p.auteur_id = ? AND p.body LIKE '%Dit artikel werd gegenereerd met behulp van AI%'
-     ORDER BY p.created_at DESC LIMIT 10`,
-    [user.id]
-  )
-
   return c.html(
-    <Layout title="AI Nieuwsgenerator" user={user}>
+    <Layout title="AI-schrijfassistent" user={user} currentPath="/admin/ai-nieuws">
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="ai-news" />
-        <main class="flex-1 p-8">
-          <div class="max-w-5xl mx-auto">
+        <AdminSidebar activeSection="nieuws" />
+        <div class="flex-1 min-w-0">
 
-            {/* Header */}
+          <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <div class="mb-8">
-              <div class="flex items-center justify-between">
-                <div>
-                  <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
-                    <i class="fas fa-robot text-purple-600 mr-3"></i>
-                    AI Nieuwsgenerator
-                  </h1>
-                  <p class="mt-2 text-gray-600">
-                    Zoek op het internet naar nieuws over amateurkoren en genereer publiceerbare artikels met AI
-                  </p>
-                </div>
-                <div class="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onclick="runAIDiagnostic()"
-                    class="text-sm bg-purple-100 hover:bg-purple-200 text-purple-800 px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition"
-                    title="Test of AI & websearch werken"
-                  >
-                    <i class="fas fa-stethoscope"></i> Diagnose
-                  </button>
-                  <a href="/admin/content" class="text-sm text-animato-primary hover:underline flex items-center gap-1">
-                    <i class="fas fa-arrow-left"></i> Terug naar Nieuws
-                  </a>
-                </div>
-              </div>
+              <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+                <i class="fas fa-wand-magic-sparkles text-purple-500 mr-3"></i>
+                AI-schrijfassistent
+              </h1>
+              <p class="text-gray-600 mt-2">Geef de feiten, AI maakt er een afgewerkt nieuwsbericht van — in drie stappen.</p>
             </div>
 
-            {/* Diagnostic result panel (verborgen tot gebruiker op knop klikt) */}
-            <div id="ai-diagnostic-panel" class="hidden mb-6 bg-white border-2 border-purple-200 rounded-xl p-5">
-              <div class="flex items-center justify-between mb-3">
-                <h3 class="font-bold text-purple-900 flex items-center gap-2">
-                  <i class="fas fa-stethoscope text-purple-600"></i>
-                  AI Diagnostiek
-                </h3>
-                <button type="button" onclick="document.getElementById('ai-diagnostic-panel').classList.add('hidden')" class="text-gray-400 hover:text-gray-700">
-                  <i class="fas fa-times"></i>
-                </button>
-              </div>
-              <div id="ai-diagnostic-content" class="text-sm text-gray-700">
-                <div class="animate-pulse">Diagnose wordt uitgevoerd...</div>
-              </div>
-            </div>
-
-            {/* How it works info */}
-            <div class="mb-6 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-5">
-              <h3 class="font-bold text-purple-900 mb-2 flex items-center gap-2">
-                <i class="fas fa-lightbulb text-purple-600"></i>
-                Hoe werkt het?
-              </h3>
-              <div class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm text-purple-800">
-                <div class="flex items-start gap-2">
-                  <span class="w-6 h-6 bg-purple-600 text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">1</span>
-                  <span>Voer een zoekterm in (bijv. "koorfestival België 2026")</span>
-                </div>
-                <div class="flex items-start gap-2">
-                  <span class="w-6 h-6 bg-blue-600 text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">2</span>
-                  <span>AI doorzoekt het internet en toont relevante resultaten</span>
-                </div>
-                <div class="flex items-start gap-2">
-                  <span class="w-6 h-6 bg-green-600 text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">3</span>
-                  <span>Selecteer bronnen en laat AI een artikel schrijven met foto</span>
-                </div>
-                <div class="flex items-start gap-2">
-                  <span class="w-6 h-6 bg-amber-600 text-white rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">4</span>
-                  <span>Bewerk, review en publiceer het artikel</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Step 1: Search */}
-            <div class="bg-white rounded-xl shadow-md p-6 mb-6" id="step-search">
-              <h2 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <span class="w-8 h-8 bg-purple-600 text-white rounded-full flex items-center justify-center text-sm font-bold">1</span>
-                Zoek naar nieuws op het internet
+            {/* STAP 1: KIES TEMPLATE */}
+            <div id="step-1" class="mb-8">
+              <h2 class="text-lg font-semibold text-gray-800 mb-3">
+                <span class="inline-flex items-center justify-center w-7 h-7 bg-purple-100 text-purple-700 rounded-full text-sm font-bold mr-2">1</span>
+                Wat wil je schrijven?
               </h2>
-              <p class="text-sm text-gray-500 mb-4">
-                AI doorzoekt het web naar actuele informatie over amateurkoren, koorfestivals, koormuziek en meer.
-              </p>
-              <div class="flex gap-3">
-                <input 
-                  type="text" 
-                  id="searchQuery" 
-                  placeholder="bijv. amateurkoor Vlaanderen, koorfestival 2026, koorwedstrijd..."
-                  class="flex-1 px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent text-lg"
-                  value=""
-                />
-                <button 
-                  onclick="searchNews()"
-                  id="searchBtn"
-                  class="px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition font-medium flex items-center gap-2"
-                >
-                  <i class="fas fa-search"></i> Zoeken
+              <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <button type="button" data-tpl="aankondiging" class="tpl-btn bg-white border-2 border-gray-200 hover:border-purple-400 rounded-xl p-5 text-left transition shadow-sm hover:shadow">
+                  <i class="fas fa-bullhorn text-3xl text-blue-500 mb-3"></i>
+                  <h3 class="font-bold text-gray-900 mb-1">Aankondiging</h3>
+                  <p class="text-xs text-gray-500">Komend concert, repetitie, optreden</p>
                 </button>
-              </div>
-              <div class="mt-3 flex flex-wrap gap-2">
-                <span class="text-xs text-gray-400">Suggesties:</span>
-                {[
-                  'amateurkoor België nieuws',
-                  'koorfestival 2026', 
-                  'koorcompetitie Vlaanderen', 
-                  'gemengd koor concert België',
-                  'World Choir Games 2026',
-                  'koormuziek trends',
-                  'subsidies amateurkunsten Vlaanderen',
-                  'Koor&Stem magazine'
-                ].map(s => (
-                  <button 
-                    onclick={`document.getElementById('searchQuery').value='${s}'; searchNews()`}
-                    class="text-xs px-3 py-1 bg-gray-100 text-gray-600 rounded-full hover:bg-purple-100 hover:text-purple-700 transition cursor-pointer"
-                  >
-                    {s}
-                  </button>
-                ))}
+                <button type="button" data-tpl="terugblik" class="tpl-btn bg-white border-2 border-gray-200 hover:border-purple-400 rounded-xl p-5 text-left transition shadow-sm hover:shadow">
+                  <i class="fas fa-camera-retro text-3xl text-amber-500 mb-3"></i>
+                  <h3 class="font-bold text-gray-900 mb-1">Terugblik</h3>
+                  <p class="text-xs text-gray-500">Verslag van een voorbij event</p>
+                </button>
+                <button type="button" data-tpl="lid" class="tpl-btn bg-white border-2 border-gray-200 hover:border-purple-400 rounded-xl p-5 text-left transition shadow-sm hover:shadow">
+                  <i class="fas fa-user-music text-3xl text-pink-500 mb-3"></i>
+                  <h3 class="font-bold text-gray-900 mb-1">Lid-in-de-kijker</h3>
+                  <p class="text-xs text-gray-500">Persoonlijk nieuws over een lid</p>
+                </button>
+                <button type="button" data-tpl="vrij" class="tpl-btn bg-white border-2 border-gray-200 hover:border-purple-400 rounded-xl p-5 text-left transition shadow-sm hover:shadow">
+                  <i class="fas fa-feather-pointed text-3xl text-purple-500 mb-3"></i>
+                  <h3 class="font-bold text-gray-900 mb-1">Vrije vorm</h3>
+                  <p class="text-xs text-gray-500">Eigen onderwerp + steekwoorden</p>
+                </button>
               </div>
             </div>
 
-            {/* Search Results */}
-            <div id="searchResults" class="hidden mb-6">
-              <div class="bg-white rounded-xl shadow-md p-6">
-                <div class="flex items-center justify-between mb-4">
-                  <h2 class="text-xl font-bold text-gray-900 flex items-center gap-2">
-                    <span class="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center text-sm font-bold">2</span>
-                    Gevonden op het internet
-                    <span id="resultCount" class="text-sm font-normal text-gray-500 ml-2"></span>
-                  </h2>
-                  <div class="flex gap-2">
-                    <button onclick="selectAllSources(true)" class="text-xs px-3 py-1 bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition">
-                      <i class="fas fa-check-double mr-1"></i> Alles selecteren
-                    </button>
-                    <button onclick="selectAllSources(false)" class="text-xs px-3 py-1 bg-gray-100 text-gray-600 rounded-full hover:bg-gray-200 transition">
-                      Deselecteren
+            {/* STAP 2: VUL DE FEITEN IN — wordt dynamisch ingevuld */}
+            <div id="step-2" class="hidden mb-8">
+              <h2 class="text-lg font-semibold text-gray-800 mb-3">
+                <span class="inline-flex items-center justify-center w-7 h-7 bg-purple-100 text-purple-700 rounded-full text-sm font-bold mr-2">2</span>
+                Geef de feiten
+              </h2>
+              <div id="form-container" class="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                {/* JS vult dit dynamisch */}
+              </div>
+              <div class="mt-4 flex flex-wrap gap-3 items-center">
+                <button id="generate-btn" type="button"
+                        class="inline-flex items-center bg-purple-600 hover:bg-purple-700 text-white font-semibold px-6 py-3 rounded-lg shadow transition disabled:opacity-50">
+                  <i class="fas fa-sparkles mr-2"></i>
+                  <span id="generate-label">Schrijf het artikel</span>
+                </button>
+                <button id="back-btn" type="button"
+                        class="text-gray-500 hover:text-gray-700 text-sm">
+                  <i class="fas fa-arrow-left mr-1"></i> Ander template
+                </button>
+                <span id="generate-status" class="text-sm text-gray-500"></span>
+              </div>
+            </div>
+
+            {/* STAP 3: REVIEW + PUBLICEER */}
+            <div id="step-3" class="hidden mb-8">
+              <h2 class="text-lg font-semibold text-gray-800 mb-3">
+                <span class="inline-flex items-center justify-center w-7 h-7 bg-purple-100 text-purple-700 rounded-full text-sm font-bold mr-2">3</span>
+                Review, polish en publiceer
+              </h2>
+
+              <div class="bg-white border border-gray-200 rounded-xl p-6 shadow-sm">
+                <div class="mb-4">
+                  <label class="block text-sm font-semibold text-gray-700 mb-1">Titel</label>
+                  <input type="text" id="result-titel"
+                         class="w-full border-gray-300 rounded-lg p-3 border focus:ring-purple-500 focus:border-purple-500 text-lg font-semibold" />
+                </div>
+
+                <div class="mb-4">
+                  <label class="block text-sm font-semibold text-gray-700 mb-1">Korte intro (excerpt)</label>
+                  <textarea id="result-excerpt" rows={2}
+                            class="w-full border-gray-300 rounded-lg p-3 border focus:ring-purple-500 focus:border-purple-500 text-sm"></textarea>
+                </div>
+
+                <div class="mb-4">
+                  <label class="block text-sm font-semibold text-gray-700 mb-1">
+                    Inhoud (HTML toegestaan)
+                    <span class="text-xs font-normal text-gray-400 ml-1">— je kan hier vrij bewerken</span>
+                  </label>
+                  <textarea id="result-body" rows={16}
+                            class="w-full border-gray-300 rounded-lg p-3 border focus:ring-purple-500 focus:border-purple-500 text-sm font-mono"></textarea>
+                </div>
+
+                {/* Beeldgeneratie */}
+                <div class="mb-4 bg-purple-50 border border-purple-200 rounded-lg p-4">
+                  <h3 class="font-semibold text-gray-800 mb-2">
+                    <i class="fas fa-image text-purple-500 mr-2"></i> Cover-afbeelding
+                  </h3>
+                  <p class="text-xs text-gray-600 mb-3">Laat AI een passend beeld genereren (Stable Diffusion), of laat leeg en upload later via de gewone nieuws-editor.</p>
+                  <div class="flex flex-wrap gap-2 mb-3">
+                    <input type="text" id="image-prompt" placeholder="bv. choir singing on stage, warm lights, audience"
+                           class="flex-1 min-w-[200px] border-gray-300 rounded-lg p-2 border text-sm" />
+                    <button id="image-btn" type="button"
+                            class="inline-flex items-center bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-semibold">
+                      <i class="fas fa-paintbrush mr-2"></i> Genereer beeld
                     </button>
                   </div>
+                  <div id="image-status" class="text-sm text-gray-500"></div>
+                  <div id="image-preview" class="mt-3"></div>
                 </div>
-                <div id="resultsList" class="space-y-3"></div>
-              </div>
-            </div>
 
-            {/* Step 3: Generate Article */}
-            <div id="step-generate" class="hidden mb-6">
-              <div class="bg-white rounded-xl shadow-md p-6">
-                <h2 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                  <span class="w-8 h-8 bg-green-600 text-white rounded-full flex items-center justify-center text-sm font-bold">3</span>
-                  Artikel genereren met AI
-                </h2>
-                <div class="space-y-4">
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-1">Toon / Stijl</label>
-                      <select id="articleTone" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
-                        <option value="informatief">📰 Informatief (standaard nieuwsbericht)</option>
-                        <option value="enthousiast">🎉 Enthousiast (feestelijk, wervend)</option>
-                        <option value="formeel">📋 Formeel (officieel, zakelijk)</option>
-                        <option value="persoonlijk">💬 Persoonlijk (column-stijl, warm)</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700 mb-1">Doelgroep / Zichtbaarheid</label>
-                      <select id="targetAudience" class="w-full px-4 py-2 border border-gray-300 rounded-lg">
-                        <option value="publiek">🌍 Publiek (zichtbaar voor iedereen)</option>
-                        <option value="leden">🔒 Enkel leden</option>
-                      </select>
-                    </div>
+                <div class="mb-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Zichtbaarheid</label>
+                    <select id="result-zichtbaarheid" class="w-full border-gray-300 rounded-lg p-2 border">
+                      <option value="publiek">Publiek (iedereen)</option>
+                      <option value="leden">Alleen leden</option>
+                      <option value="bestuur">Alleen bestuur</option>
+                    </select>
                   </div>
                   <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Extra instructies (optioneel)</label>
-                    <textarea 
-                      id="extraInstructions" 
-                      rows={2}
-                      placeholder="bijv. Maak het relevant voor ons koor Animato, voeg een oproep toe om lid te worden, focus op het competitie-aspect..."
-                      class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
-                    ></textarea>
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">Status</label>
+                    <select id="result-published" class="w-full border-gray-300 rounded-lg p-2 border">
+                      <option value="1">Direct publiceren</option>
+                      <option value="0">Bewaren als concept</option>
+                    </select>
                   </div>
-                  <div class="flex items-center gap-3">
-                    <label class="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" id="generateImage" checked class="w-4 h-4 text-green-600 rounded" />
-                      <span class="text-sm text-gray-700">🖼️ Genereer een AI-afbeelding bij het artikel</span>
-                    </label>
-                  </div>
-                  <button 
-                    onclick="generateArticle()"
-                    id="generateBtn"
-                    class="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-bold flex items-center justify-center gap-2 text-lg"
-                  >
-                    <i class="fas fa-magic"></i> Genereer Nieuwsbericht
+                </div>
+
+                <div class="flex flex-wrap gap-3 items-center">
+                  <button id="publish-btn" type="button"
+                          class="inline-flex items-center bg-green-600 hover:bg-green-700 text-white font-semibold px-6 py-3 rounded-lg shadow transition">
+                    <i class="fas fa-paper-plane mr-2"></i>
+                    <span id="publish-label">Publiceren</span>
                   </button>
+                  <button id="regenerate-btn" type="button"
+                          class="inline-flex items-center bg-amber-100 hover:bg-amber-200 text-amber-800 font-medium px-4 py-3 rounded-lg text-sm">
+                    <i class="fas fa-rotate mr-2"></i> Opnieuw genereren
+                  </button>
+                  <button id="restart-btn" type="button"
+                          class="text-gray-500 hover:text-gray-700 text-sm">
+                    <i class="fas fa-trash mr-1"></i> Begin opnieuw
+                  </button>
+                  <span id="publish-status" class="text-sm"></span>
                 </div>
               </div>
             </div>
-
-            {/* Loading State */}
-            <div id="loadingState" class="hidden mb-6">
-              <div class="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-xl p-8 text-center">
-                <div class="animate-spin w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full mx-auto mb-4"></div>
-                <p class="text-lg font-bold text-gray-900" id="loadingText">Even geduld, AI is aan het nadenken...</p>
-                <p class="text-sm text-gray-500 mt-1" id="loadingSubtext">Dit kan tot 30 seconden duren</p>
-                <div class="mt-4 w-full bg-gray-200 rounded-full h-2 max-w-md mx-auto">
-                  <div id="loadingBar" class="bg-purple-600 h-2 rounded-full transition-all duration-1000" style="width: 10%"></div>
-                </div>
-              </div>
-            </div>
-
-            {/* Step 4: Preview & Edit */}
-            <div id="step-preview" class="hidden mb-6">
-              <div class="bg-white rounded-xl shadow-md overflow-hidden">
-                <div class="bg-gradient-to-r from-green-600 to-emerald-600 text-white px-6 py-4 flex items-center justify-between">
-                  <h2 class="text-xl font-bold flex items-center gap-2">
-                    <span class="w-8 h-8 bg-white text-green-600 rounded-full flex items-center justify-center text-sm font-bold">4</span>
-                    Review & Publiceer
-                  </h2>
-                  <div class="flex gap-2">
-                    <button onclick="regenerateArticle()" class="px-4 py-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg transition text-sm font-medium">
-                      <i class="fas fa-redo mr-1"></i> Opnieuw genereren
-                    </button>
-                    <button onclick="regenerateImage()" class="px-4 py-2 bg-white bg-opacity-20 hover:bg-opacity-30 rounded-lg transition text-sm font-medium">
-                      <i class="fas fa-image mr-1"></i> Nieuwe foto
-                    </button>
-                  </div>
-                </div>
-                <div class="p-6">
-                  {/* Live Preview Toggle */}
-                  <div class="flex gap-2 mb-4">
-                    <button onclick="togglePreviewMode('edit')" id="editModeBtn" class="px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium">
-                      <i class="fas fa-edit mr-1"></i> Bewerken
-                    </button>
-                    <button onclick="togglePreviewMode('preview')" id="previewModeBtn" class="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium">
-                      <i class="fas fa-eye mr-1"></i> Voorbeeld
-                    </button>
-                  </div>
-
-                  {/* Edit Mode */}
-                  <div id="editMode">
-                    {/* Editable Title */}
-                    <div class="mb-4">
-                      <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Titel</label>
-                      <input 
-                        type="text" 
-                        id="previewTitle" 
-                        class="w-full text-2xl font-bold text-gray-900 border border-gray-200 rounded-lg px-4 py-2 focus:ring-2 focus:ring-green-500"
-                        style="font-family: 'Playfair Display', serif;"
-                      />
-                    </div>
-
-                    {/* Editable Excerpt */}
-                    <div class="mb-4">
-                      <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Samenvatting (verschijnt op overzichtspagina)</label>
-                      <textarea 
-                        id="previewExcerpt" 
-                        rows={2}
-                        class="w-full text-gray-600 border border-gray-200 rounded-lg px-4 py-2 focus:ring-2 focus:ring-green-500"
-                      ></textarea>
-                    </div>
-
-                    {/* Generated Image */}
-                    <div class="mb-4" id="imageContainer">
-                      <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Afbeelding</label>
-                      <div id="imagePreview" class="w-full h-72 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 overflow-hidden relative">
-                        <div class="text-center">
-                          <i class="fas fa-image text-4xl mb-2"></i>
-                          <p class="text-sm">Klik op "Genereer" om een afbeelding te maken</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Editable Body (HTML) */}
-                    <div class="mb-6">
-                      <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Inhoud (HTML)</label>
-                      <textarea 
-                        id="previewBody" 
-                        rows={15}
-                        class="w-full text-gray-700 leading-relaxed border border-gray-200 rounded-lg px-4 py-3 focus:ring-2 focus:ring-green-500 font-mono text-sm"
-                      ></textarea>
-                    </div>
-                  </div>
-
-                  {/* Preview Mode */}
-                  <div id="previewMode" class="hidden">
-                    <div id="livePreviewContent" class="prose prose-lg max-w-none"></div>
-                  </div>
-
-                  {/* Source attribution */}
-                  <div id="sourcesBlock" class="mb-6 p-4 bg-gray-50 rounded-lg">
-                    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-                      <i class="fas fa-link mr-1"></i> Bronvermelding
-                    </p>
-                    <div id="sourcesList" class="text-sm text-gray-600 space-y-1"></div>
-                  </div>
-
-                  {/* Tags */}
-                  <div class="mb-4">
-                    <label class="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Tags</label>
-                    <input 
-                      type="text" 
-                      id="previewTags" 
-                      placeholder="bijv. koorfestival, Vlaanderen, amateurkoren (kommagescheiden)"
-                      class="w-full px-4 py-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-green-500 text-sm"
-                    />
-                  </div>
-
-                  {/* Save Actions */}
-                  <div class="flex gap-3 pt-4 border-t border-gray-200">
-                    <button 
-                      onclick="saveAsDraft()"
-                      id="saveDraftBtn"
-                      class="flex-1 px-6 py-3 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition font-bold flex items-center justify-center gap-2"
-                    >
-                      <i class="fas fa-save"></i> Opslaan als Concept
-                    </button>
-                    <button 
-                      onclick="saveAndPublish()"
-                      id="publishBtn"
-                      class="flex-1 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-bold flex items-center justify-center gap-2"
-                    >
-                      <i class="fas fa-paper-plane"></i> Direct Publiceren
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Recent AI Articles */}
-            {recentAiPosts.length > 0 && (
-              <div class="bg-white rounded-xl shadow-md p-6">
-                <h3 class="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2">
-                  <i class="fas fa-history text-gray-500"></i>
-                  Recente AI-artikels
-                </h3>
-                <div class="space-y-2">
-                  {recentAiPosts.map((post: any) => (
-                    <a href={`/admin/content/${post.id}?type=posts`} class="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 transition group">
-                      <div class="flex items-center gap-3 min-w-0">
-                        <i class="fas fa-robot text-purple-400 text-sm"></i>
-                        <span class="text-sm font-medium text-gray-900 truncate">{post.titel}</span>
-                        <span class={`text-xs px-2 py-0.5 rounded-full ${post.is_published ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                          {post.is_published ? 'Gepubliceerd' : 'Concept'}
-                        </span>
-                      </div>
-                      <span class="text-xs text-gray-400 flex-shrink-0">
-                        {new Date(post.created_at).toLocaleDateString('nl-BE')}
-                      </span>
-                    </a>
-                  ))}
-                </div>
-              </div>
-            )}
-
           </div>
-        </main>
+        </div>
       </div>
 
+      {/* ===================================================== */}
+      {/* CLIENT-SIDE LOGIC                                     */}
+      {/* ===================================================== */}
       <script dangerouslySetInnerHTML={{__html: `
-        let searchResultsData = [];
-        let generatedImageUrl = '';
-        let currentImagePrompt = '';
-        let loadingInterval = null;
-
-        function handleImageError(img) {
-          img.parentElement.innerHTML = '<div class="text-center text-red-400 py-8"><i class="fas fa-exclamation-triangle text-2xl mb-2"></i><p class="text-sm">Afbeelding kon niet geladen worden</p></div>';
-        }
-
-        // ===== LOADING ANIMATION =====
-        function showLoading(text, subtext) {
-          document.getElementById('loadingState').classList.remove('hidden');
-          document.getElementById('loadingText').textContent = text || 'Even geduld...';
-          document.getElementById('loadingSubtext').textContent = subtext || 'Dit kan tot 30 seconden duren';
-          
-          let progress = 10;
-          const bar = document.getElementById('loadingBar');
-          clearInterval(loadingInterval);
-          bar.style.width = '10%';
-          loadingInterval = setInterval(() => {
-            progress = Math.min(progress + Math.random() * 8, 90);
-            bar.style.width = progress + '%';
-          }, 800);
-        }
-
-        function hideLoading() {
-          clearInterval(loadingInterval);
-          const bar = document.getElementById('loadingBar');
-          bar.style.width = '100%';
-          setTimeout(() => {
-            document.getElementById('loadingState').classList.add('hidden');
-            bar.style.width = '10%';
-          }, 400);
-        }
-
-        // ===== STEP 1: SEARCH =====
-        async function searchNews() {
-          const query = document.getElementById('searchQuery').value.trim();
-          if (!query) {
-            alert('Voer een zoekterm in.');
-            return;
-          }
-
-          const btn = document.getElementById('searchBtn');
-          btn.disabled = true;
-          btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Zoeken...';
-
-          // Hide previous results
-          document.getElementById('searchResults').classList.add('hidden');
-          document.getElementById('step-generate').classList.add('hidden');
-          document.getElementById('step-preview').classList.add('hidden');
-
-          showLoading('AI doorzoekt het internet...', 'Relevante bronnen over "' + query + '" worden gezocht');
-
-          try {
-            const res = await fetch('/api/admin/ai-news/search', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({ query })
-            });
-            const data = await res.json();
-
-            if (data.error) {
-              alert('Fout bij zoeken: ' + data.error);
-              return;
+        (function() {
+          // Veld-definities per template
+          const TEMPLATES = {
+            aankondiging: {
+              label: 'Aankondiging',
+              fields: [
+                { name: 'wat', label: 'Wat is het?', placeholder: 'bv. Lenteconcert, repetitiedag, optreden in WZC', required: true },
+                { name: 'wanneer', label: 'Wanneer?', placeholder: 'bv. zaterdag 21 maart 2026, 20u', required: true },
+                { name: 'waar', label: 'Waar?', placeholder: 'bv. Sint-Pieterskerk Oppuurs', required: true },
+                { name: 'programma', label: 'Programma / inhoud', type: 'textarea', placeholder: 'bv. We brengen werken van Mozart, Brahms en eigentijdse pop-arrangementen.' },
+                { name: 'tickets', label: 'Tickets / inschrijving', placeholder: 'bv. €15 aan de kassa, vvk €12 via animato.be/tickets' },
+                { name: 'bijzonderheden', label: 'Bijzonderheden', type: 'textarea', placeholder: 'Speciale gasten, samenwerking, eerste keer iets, ...' }
+              ]
+            },
+            terugblik: {
+              label: 'Terugblik',
+              fields: [
+                { name: 'wat', label: 'Wat was het?', placeholder: 'bv. Lenteconcert 2026', required: true },
+                { name: 'wanneer', label: 'Wanneer?', placeholder: 'bv. zaterdag 21 maart 2026' },
+                { name: 'waar', label: 'Waar?', placeholder: 'bv. Sint-Pieterskerk Oppuurs' },
+                { name: 'publiek', label: 'Aantal toeschouwers / sfeer publiek', placeholder: 'bv. 250 enthousiaste mensen, volle zaal' },
+                { name: 'hoogtepunten', label: 'Hoogtepunten en sfeer', type: 'textarea', placeholder: 'bv. Bisnummer Halleluja, staande ovatie bij Pavane, samenzingen met publiek' },
+                { name: 'quotes', label: 'Quotes of reacties', type: 'textarea', placeholder: 'bv. "Het mooiste concert dat ik ooit hoorde" — Jan uit Oppuurs' },
+                { name: 'bedankjes', label: 'Bedankjes', placeholder: 'bv. dank aan vrijwilligers, technici, sponsors...' }
+              ]
+            },
+            lid: {
+              label: 'Lid-in-de-kijker',
+              fields: [
+                { name: 'naam', label: 'Naam van het lid', placeholder: 'bv. Emma Janssens', required: true },
+                { name: 'stemgroep', label: 'Stemgroep', placeholder: 'bv. sopraan, alt, tenor, bas' },
+                { name: 'aanleiding', label: 'Wat is de aanleiding?', placeholder: 'bv. Emma is mama geworden, 25 jaar in het koor, prijs gewonnen', required: true },
+                { name: 'details', label: 'Details', type: 'textarea', placeholder: 'bv. Dochter Lina, geboren op 5 maart. Mama en kindje stellen het goed.' },
+                { name: 'boodschap', label: 'Wat wil het koor uitspreken?', type: 'textarea', placeholder: 'bv. Onze hartelijke gelukwensen, we kijken uit naar haar terugkeer' }
+              ]
+            },
+            vrij: {
+              label: 'Vrije vorm',
+              fields: [
+                { name: 'onderwerp', label: 'Wat is het onderwerp?', placeholder: 'bv. We zoeken nieuwe leden', required: true },
+                { name: 'feiten', label: 'Steekwoorden / feiten', type: 'textarea', rows: 6, placeholder: 'Lijst alles op wat in het bericht moet komen:\\n- Open repetitie elke maandag 20u\\n- Iedereen welkom, geen voorkennis nodig\\n- Contact via info@animato.be', required: true },
+                { name: 'toon', label: 'Toon', type: 'select', options: ['informatief', 'enthousiast', 'formeel', 'persoonlijk'] },
+                { name: 'doelgroep', label: 'Doelgroep', placeholder: 'bv. potentiële nieuwe leden, ouders, publiek' }
+              ]
             }
+          };
 
-            searchResultsData = data.results || [];
-            renderResults(searchResultsData);
-          } catch (e) {
-            alert('Fout bij zoeken: ' + e.message);
-          } finally {
-            hideLoading();
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-search"></i> Zoeken';
-          }
-        }
+          let currentTpl = null;
+          let lastInput = null;
 
-        function renderResults(results) {
-          const container = document.getElementById('resultsList');
-          const countEl = document.getElementById('resultCount');
-          const panel = document.getElementById('searchResults');
-
-          if (results.length === 0) {
-            container.innerHTML = '<div class="text-center py-8">' +
-              '<i class="fas fa-search text-4xl text-gray-300 mb-3"></i>' +
-              '<p class="text-gray-600 font-medium mb-2">Geen resultaten gevonden</p>' +
-              '<p class="text-gray-500 text-sm max-w-md mx-auto">Probeer andere zoektermen. Tips: gebruik specifieke termen, namen van festivals, steden of organisaties.</p>' +
-              '<div class="mt-4 flex flex-wrap gap-2 justify-center">' +
-                ['koor België 2026', 'koorfestival Vlaanderen', 'World Choir Games', 'amateurkoor concert'].map(s =>
-                  '<button onclick="document.getElementById(\'searchQuery\').value=\'' + s + '\';searchNews()" class="text-xs px-3 py-1.5 bg-purple-50 text-purple-700 rounded-full hover:bg-purple-100 transition">🔍 ' + s + '</button>'
-                ).join('') +
-              '</div>' +
-            '</div>';
-            countEl.textContent = '';
-            panel.classList.remove('hidden');
-            return;
-          }
-
-          countEl.textContent = '(' + results.length + ' bronnen gevonden)';
-
-          container.innerHTML = results.map((r, idx) => {
-            const domain = r.url ? new URL(r.url).hostname.replace('www.', '') : '';
-            return '<label class="flex items-start gap-3 p-4 border rounded-lg hover:bg-blue-50 transition cursor-pointer border-blue-100" for="src-' + idx + '">' +
-              '<input type="checkbox" id="src-' + idx + '" class="source-checkbox mt-1 w-4 h-4 text-blue-600 rounded" data-idx="' + idx + '" checked />' +
-              '<div class="flex-1 min-w-0">' +
-                '<div class="font-semibold text-gray-900 text-sm">' + escapeHtml(r.title) + '</div>' +
-                '<p class="text-sm text-gray-600 mt-1">' + escapeHtml(r.snippet || '') + '</p>' +
-                '<div class="flex items-center gap-2 mt-2 flex-wrap">' +
-                  '<span class="text-xs px-2 py-0.5 bg-gray-100 text-gray-500 rounded">' + escapeHtml(r.source || domain) + '</span>' +
-                  (r.date ? '<span class="text-xs text-gray-400"><i class="far fa-clock mr-1"></i>' + new Date(r.date).toLocaleDateString('nl-BE', {day:'numeric',month:'short',year:'numeric'}) + '</span>' : '') +
-                  (r.url ? '<a href="' + escapeHtml(r.url) + '" target="_blank" rel="noopener" class="text-xs text-blue-500 hover:underline"><i class="fas fa-external-link-alt mr-1"></i>Bekijk bron</a>' : '') +
-                '</div>' +
-              '</div>' +
-            '</label>';
-          }).join('');
-
-          panel.classList.remove('hidden');
-          document.getElementById('step-generate').classList.remove('hidden');
-
-          // Scroll to results
-          panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-
-        function selectAllSources(select) {
-          document.querySelectorAll('.source-checkbox').forEach(cb => {
-            cb.checked = select;
+          // STAP 1 → STAP 2
+          document.querySelectorAll('.tpl-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+              currentTpl = btn.dataset.tpl;
+              renderForm(currentTpl);
+              document.getElementById('step-2').classList.remove('hidden');
+              document.getElementById('step-3').classList.add('hidden');
+              document.querySelectorAll('.tpl-btn').forEach(b => b.classList.remove('border-purple-500', 'bg-purple-50'));
+              btn.classList.add('border-purple-500', 'bg-purple-50');
+              document.getElementById('step-2').scrollIntoView({ behavior: 'smooth', block: 'start' });
+            });
           });
-        }
 
-        function escapeHtml(text) {
-          const div = document.createElement('div');
-          div.textContent = text || '';
-          return div.innerHTML;
-        }
-
-        // ===== STEP 3: GENERATE ARTICLE =====
-        async function generateArticle() {
-          const checkedBoxes = document.querySelectorAll('.source-checkbox:checked');
-          if (checkedBoxes.length === 0) {
-            alert('Selecteer minstens één bron om een artikel te genereren.');
-            return;
-          }
-
-          const sources = Array.from(checkedBoxes).map(cb => {
-            const idx = parseInt(cb.dataset.idx);
-            return searchResultsData[idx];
-          }).filter(Boolean);
-
-          const extra = document.getElementById('extraInstructions').value;
-          const audience = document.getElementById('targetAudience').value;
-          const tone = document.getElementById('articleTone').value;
-          const wantImage = document.getElementById('generateImage').checked;
-          const query = document.getElementById('searchQuery').value;
-
-          document.getElementById('step-generate').classList.add('hidden');
-          showLoading('AI schrijft het artikel...', 'Bezig met het analyseren van ' + sources.length + ' bron(nen)');
-
-          try {
-            const res = await fetch('/api/admin/ai-news/generate', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({ sources, extra, audience, tone, query })
-            });
-            const data = await res.json();
-
-            if (data.error) {
-              alert('Fout bij genereren: ' + data.error);
-              document.getElementById('step-generate').classList.remove('hidden');
-              return;
-            }
-
-            // Fill preview
-            document.getElementById('previewTitle').value = data.title || '';
-            document.getElementById('previewExcerpt').value = data.excerpt || '';
-            document.getElementById('previewBody').value = data.body || '';
-            document.getElementById('previewTags').value = (data.tags || []).join(', ');
-            currentImagePrompt = data.imagePrompt || '';
-            
-            // Sources
-            const sourcesList = document.getElementById('sourcesList');
-            sourcesList.innerHTML = sources.map(s => 
-              '<div class="flex items-center gap-2">' +
-                '<i class="fas fa-link text-gray-400 text-xs"></i>' +
-                (s.url ? '<a href="' + escapeHtml(s.url) + '" target="_blank" class="text-blue-600 hover:underline">' + escapeHtml(s.title) + '</a>' : '<span>' + escapeHtml(s.title) + '</span>') +
-              '</div>'
-            ).join('');
-
-            hideLoading();
-            document.getElementById('step-generate').classList.remove('hidden');
-            document.getElementById('step-preview').classList.remove('hidden');
-
-            // Scroll to preview
-            document.getElementById('step-preview').scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-            // Generate image in background if wanted
-            if (wantImage && currentImagePrompt) {
-              generateImage(data.title, currentImagePrompt);
-            }
-
-          } catch (e) {
-            hideLoading();
-            alert('Fout: ' + e.message);
-            document.getElementById('step-generate').classList.remove('hidden');
-          }
-        }
-
-        // ===== IMAGE GENERATION =====
-        async function generateImage(title, imagePrompt) {
-          const preview = document.getElementById('imagePreview');
-          preview.innerHTML = '<div class="text-center py-8"><div class="animate-spin w-10 h-10 border-4 border-purple-200 border-t-purple-600 rounded-full mx-auto mb-3"></div><p class="text-sm text-gray-500 font-medium">AI genereert een afbeelding...</p><p class="text-xs text-gray-400 mt-1">Dit kan 15-30 seconden duren</p></div>';
-
-          try {
-            const res = await fetch('/api/admin/ai-news/image', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({ title, imagePrompt })
-            });
-            const data = await res.json();
-
-            if (data.imageUrl) {
-              generatedImageUrl = data.imageUrl;
-              preview.innerHTML = '<img src="' + data.imageUrl + '" class="w-full h-full object-cover rounded-lg" alt="AI-gegenereerde afbeelding" onerror="handleImageError(this)" />' +
-                '<div class="absolute bottom-2 right-2 bg-black bg-opacity-50 text-white text-xs px-2 py-1 rounded"><i class="fas fa-robot mr-1"></i>AI Generated</div>';
-            } else {
-              preview.innerHTML = '<div class="text-center text-gray-400 py-8"><i class="fas fa-image text-3xl mb-2"></i><p class="text-sm">' + (data.error || 'Geen afbeelding gegenereerd') + '</p><button onclick="regenerateImage()" class="mt-2 text-purple-600 hover:underline text-sm">Opnieuw proberen</button></div>';
-            }
-          } catch (e) {
-            preview.innerHTML = '<div class="text-center text-red-400 py-8"><i class="fas fa-exclamation-triangle text-2xl mb-2"></i><p class="text-sm">Afbeelding generatie mislukt: ' + escapeHtml(e.message) + '</p><button onclick="regenerateImage()" class="mt-2 text-purple-600 hover:underline text-sm">Opnieuw proberen</button></div>';
-          }
-        }
-
-        function regenerateImage() {
-          const title = document.getElementById('previewTitle').value;
-          generateImage(title, currentImagePrompt || title);
-        }
-
-        function regenerateArticle() {
-          document.getElementById('step-preview').classList.add('hidden');
-          generateArticle();
-        }
-
-        // ===== PREVIEW MODE =====
-        function togglePreviewMode(mode) {
-          const editMode = document.getElementById('editMode');
-          const previewMode = document.getElementById('previewMode');
-          const editBtn = document.getElementById('editModeBtn');
-          const previewBtn = document.getElementById('previewModeBtn');
-
-          if (mode === 'preview') {
-            editMode.classList.add('hidden');
-            previewMode.classList.remove('hidden');
-            editBtn.className = 'px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium';
-            previewBtn.className = 'px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium';
-
-            // Render preview
-            const title = document.getElementById('previewTitle').value;
-            const excerpt = document.getElementById('previewExcerpt').value;
-            const body = document.getElementById('previewBody').value;
-            const img = generatedImageUrl ? '<img src="' + generatedImageUrl + '" class="w-full rounded-xl mb-6 shadow-lg" alt="" />' : '';
-            
-            document.getElementById('livePreviewContent').innerHTML = 
-              '<h1 style="font-family: Playfair Display, serif;" class="text-3xl font-bold mb-4">' + escapeHtml(title) + '</h1>' +
-              '<p class="text-lg text-gray-500 italic mb-6">' + escapeHtml(excerpt) + '</p>' +
-              img +
-              '<div class="prose-content">' + body + '</div>';
-          } else {
-            editMode.classList.remove('hidden');
-            previewMode.classList.add('hidden');
-            editBtn.className = 'px-4 py-2 bg-gray-900 text-white rounded-lg text-sm font-medium';
-            previewBtn.className = 'px-4 py-2 bg-gray-200 text-gray-700 rounded-lg text-sm font-medium';
-          }
-        }
-
-        // ===== STEP 4: SAVE =====
-        async function saveAsDraft() { await saveArticle(false); }
-        async function saveAndPublish() { await saveArticle(true); }
-
-        async function saveArticle(publish) {
-          const title = document.getElementById('previewTitle').value;
-          const excerpt = document.getElementById('previewExcerpt').value;
-          const body = document.getElementById('previewBody').value;
-          const audience = document.getElementById('targetAudience').value;
-          const tags = document.getElementById('previewTags').value;
-
-          if (!title || !body) {
-            alert('Titel en inhoud zijn verplicht.');
-            return;
-          }
-
-          const btn = publish ? document.getElementById('publishBtn') : document.getElementById('saveDraftBtn');
-          const originalHtml = btn.innerHTML;
-          btn.disabled = true;
-          btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Opslaan...';
-
-          try {
-            const res = await fetch('/api/admin/ai-news/save', {
-              method: 'POST',
-              headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({ title, excerpt, body, audience, publish, imageUrl: generatedImageUrl, tags })
-            });
-            const data = await res.json();
-
-            if (data.error) {
-              alert('Fout bij opslaan: ' + data.error);
-              return;
-            }
-
-            // Success notification
-            const msg = publish ? 'Artikel is gepubliceerd!' : 'Artikel is opgeslagen als concept.';
-            if (confirm(msg + '\\n\\nWil je het artikel bekijken?')) {
-              window.location.href = '/admin/content/' + data.postId + '?success=' + (publish ? 'published' : 'created') + '&type=posts';
-            }
-          } catch (e) {
-            alert('Fout: ' + e.message);
-          } finally {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
-          }
-        }
-
-        // Enter key on search
-        document.getElementById('searchQuery').addEventListener('keypress', function(e) {
-          if (e.key === 'Enter') searchNews();
-        });
-
-        // AI Diagnostic
-        async function runAIDiagnostic() {
-          const panel = document.getElementById('ai-diagnostic-panel');
-          const content = document.getElementById('ai-diagnostic-content');
-          panel.classList.remove('hidden');
-          content.innerHTML = '<div class="animate-pulse text-gray-500"><i class="fas fa-spinner fa-spin mr-2"></i>Diagnose wordt uitgevoerd (5-10 sec)...</div>';
-          try {
-            const r = await fetch('/api/admin/ai-news/diagnostic', { credentials: 'include' });
-            let d;
-            try { d = await r.json(); } catch (_) { d = null; }
-            if (!r.ok || !d) {
-              content.innerHTML = '<div class="text-red-600"><i class="fas fa-exclamation-circle mr-2"></i>Diagnose endpoint faalde (HTTP ' + r.status + '). ' + (d && d.error ? d.error : 'Probeer opnieuw aan te melden.') + '</div>';
-              return;
-            }
-            const checkIcon = (ok) => ok
-              ? '<i class="fas fa-check-circle text-green-600"></i>'
-              : '<i class="fas fa-times-circle text-red-500"></i>';
-            const warnIcon = '<i class="fas fa-exclamation-triangle text-amber-500"></i>';
-            let html = '';
-            // Summary
-            const summaryClass = d.verdict.canGenerate
-              ? 'bg-green-50 border border-green-200'
-              : 'bg-red-50 border border-red-200';
-            html += '<div class="mb-4 p-3 rounded-lg ' + summaryClass + '"><strong>' + d.verdict.summary + '</strong></div>';
-            // Details
-            html += '<table class="w-full text-sm"><tbody>';
-            html += '<tr class="border-b"><td class="py-2 font-semibold align-top">Cloudflare Workers AI<br><span class="text-xs font-normal text-gray-500">(gratis, ingebakken)</span></td><td class="py-2">' + checkIcon(d.workersAI.ok);
-            if (d.workersAI.ok) html += ' werkt — antwoord: "' + (d.workersAI.response||'').replace(/</g,'&lt;') + '"';
-            else if (d.workersAI.error) html += ' <span class="text-red-600 text-xs block mt-1">' + d.workersAI.error.replace(/</g,'&lt;') + '</span>';
-            else if (!d.workersAI.available) html += ' <span class="text-amber-600 text-xs">AI binding niet beschikbaar — voeg toe in Cloudflare Pages → Settings → Functions → AI bindings</span>';
-            html += '</td></tr>';
-            html += '<tr class="border-b"><td class="py-2 font-semibold align-top">OpenAI fallback<br><span class="text-xs font-normal text-gray-500">(via GenSpark LLM proxy)</span></td><td class="py-2">';
-            if (!d.openai.configured) html += warnIcon + ' <span class="text-amber-700">OPENAI_API_KEY niet geconfigureerd<br><span class="text-xs text-gray-600">Voeg toe via: <code class="bg-gray-100 px-1 py-0.5 rounded">npx wrangler pages secret put OPENAI_API_KEY --project-name animato-live</code></span></span>';
-            else html += checkIcon(d.openai.ok) + (d.openai.ok ? ' werkt' : (' <span class="text-red-600 text-xs">' + (d.openai.error||'status ' + d.openai.status) + '</span>'));
-            html += '</td></tr>';
-            html += '<tr class="border-b"><td class="py-2 font-semibold">Websearch — Google News RSS</td><td class="py-2">' + (d.webSearch.googleNews > 0 ? checkIcon(true) + ' ' + d.webSearch.googleNews + ' resultaten' : '<span class="text-amber-600">' + warnIcon + ' 0 resultaten</span>') + '</td></tr>';
-            html += '<tr><td class="py-2 font-semibold">Websearch — DuckDuckGo</td><td class="py-2">' + (d.webSearch.duckDuckGo > 0 ? checkIcon(true) + ' ' + d.webSearch.duckDuckGo + ' resultaten' : '<span class="text-amber-600">' + warnIcon + ' 0 resultaten (mogelijk geblokkeerd vanuit Cloudflare)</span>') + '</td></tr>';
-            html += '</tbody></table>';
-            // Actionable next steps if broken
-            if (!d.verdict.canGenerate) {
-              html += '<div class="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg text-sm">';
-              html += '<div class="font-bold text-blue-900 mb-2"><i class="fas fa-tools mr-1"></i> Wat te doen?</div>';
-              html += '<ol class="list-decimal list-inside space-y-1 text-blue-800">';
-              if (!d.workersAI.ok) {
-                html += '<li><strong>Workers AI activeren</strong>: ga naar Cloudflare dashboard → Pages → animato-live → Settings → Functions → AI bindings. Voeg een binding toe met naam <code>AI</code>.</li>';
+          // RENDER DYNAMIC FORM
+          function renderForm(tpl) {
+            const def = TEMPLATES[tpl];
+            const container = document.getElementById('form-container');
+            const parts = [];
+            for (const f of def.fields) {
+              const reqMark = f.required ? '<span class="text-red-500">*</span>' : '';
+              const placeholder = (f.placeholder || '').replace(/"/g, '&quot;');
+              if (f.type === 'textarea') {
+                parts.push(\`
+                  <div class="mb-4">
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">\${f.label} \${reqMark}</label>
+                    <textarea name="\${f.name}" rows="\${f.rows || 3}" placeholder="\${placeholder}"
+                              class="w-full border-gray-300 rounded-lg p-2 border focus:ring-purple-500 focus:border-purple-500 text-sm"></textarea>
+                  </div>\`);
+              } else if (f.type === 'select') {
+                const opts = (f.options || []).map(o => \`<option value="\${o}">\${o}</option>\`).join('');
+                parts.push(\`
+                  <div class="mb-4">
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">\${f.label}</label>
+                    <select name="\${f.name}" class="w-full border-gray-300 rounded-lg p-2 border">\${opts}</select>
+                  </div>\`);
+              } else {
+                parts.push(\`
+                  <div class="mb-4">
+                    <label class="block text-sm font-semibold text-gray-700 mb-1">\${f.label} \${reqMark}</label>
+                    <input type="text" name="\${f.name}" placeholder="\${placeholder}"
+                           class="w-full border-gray-300 rounded-lg p-2 border focus:ring-purple-500 focus:border-purple-500 text-sm" />
+                  </div>\`);
               }
-              if (!d.openai.configured) {
-                html += '<li><strong>Of een OpenAI-compatible key</strong> toevoegen als Pages secret. Draai in sandbox: <code class="bg-white px-1 py-0.5 rounded">npx wrangler pages secret put OPENAI_API_KEY --project-name animato-live</code> en plak je GenSpark LLM key.</li>';
-              }
-              html += '<li>Na configuratie: redeploy de site (of wacht 1-2 min) en klik opnieuw op Diagnose.</li>';
-              html += '</ol></div>';
             }
-            // Show raw JSON (collapsible)
-            html += '<details class="mt-4 text-xs text-gray-500"><summary class="cursor-pointer">Toon ruwe diagnostische data</summary><pre class="mt-2 bg-gray-50 p-3 rounded overflow-x-auto">' + JSON.stringify(d, null, 2) + '</pre></details>';
-            content.innerHTML = html;
-          } catch (e) {
-            content.innerHTML = '<div class="text-red-600"><i class="fas fa-exclamation-circle mr-2"></i>Diagnose mislukt: ' + e.message + '</div>';
+            container.innerHTML = parts.join('');
           }
-        }
-        window.runAIDiagnostic = runAIDiagnostic;
+
+          // BACK BUTTON
+          document.getElementById('back-btn').addEventListener('click', () => {
+            document.getElementById('step-2').classList.add('hidden');
+            document.getElementById('step-3').classList.add('hidden');
+            document.querySelectorAll('.tpl-btn').forEach(b => b.classList.remove('border-purple-500', 'bg-purple-50'));
+          });
+
+          // GENERATE
+          async function doGenerate() {
+            if (!currentTpl) return;
+            const def = TEMPLATES[currentTpl];
+            const data = {};
+            for (const f of def.fields) {
+              const el = document.querySelector('[name="' + f.name + '"]');
+              if (el) data[f.name] = el.value.trim();
+              if (f.required && !data[f.name]) {
+                alert('Vul minstens "' + f.label + '" in.');
+                el && el.focus();
+                return;
+              }
+            }
+            lastInput = { template: currentTpl, data };
+
+            const btn = document.getElementById('generate-btn');
+            const label = document.getElementById('generate-label');
+            const status = document.getElementById('generate-status');
+            btn.disabled = true;
+            label.textContent = 'AI denkt na...';
+            status.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Dit duurt 5-15 seconden';
+
+            try {
+              const r = await fetch('/api/admin/ai-news/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(lastInput)
+              });
+              const result = await r.json();
+              if (!r.ok || !result.ok) {
+                throw new Error(result.error || 'Onbekende fout');
+              }
+
+              document.getElementById('result-titel').value = result.titel || '';
+              document.getElementById('result-excerpt').value = result.excerpt || '';
+              document.getElementById('result-body').value = result.body || '';
+              // Suggestie voor image prompt op basis van titel
+              document.getElementById('image-prompt').value = result.titel ? ('Animato choir — ' + result.titel) : '';
+
+              document.getElementById('step-3').classList.remove('hidden');
+              document.getElementById('step-3').scrollIntoView({ behavior: 'smooth', block: 'start' });
+              status.innerHTML = '<span class="text-green-600"><i class="fas fa-check mr-1"></i> Klaar! Review hieronder.</span>';
+            } catch (e) {
+              status.innerHTML = '<span class="text-red-600"><i class="fas fa-exclamation-triangle mr-1"></i> ' + (e.message || 'Fout') + '</span>';
+            } finally {
+              btn.disabled = false;
+              label.textContent = 'Schrijf het artikel';
+            }
+          }
+          document.getElementById('generate-btn').addEventListener('click', doGenerate);
+          document.getElementById('regenerate-btn').addEventListener('click', doGenerate);
+
+          // RESTART
+          document.getElementById('restart-btn').addEventListener('click', () => {
+            if (!confirm('Alles wegdoen en opnieuw beginnen?')) return;
+            document.getElementById('step-2').classList.add('hidden');
+            document.getElementById('step-3').classList.add('hidden');
+            document.querySelectorAll('.tpl-btn').forEach(b => b.classList.remove('border-purple-500', 'bg-purple-50'));
+            currentTpl = null; lastInput = null;
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          });
+
+          // IMAGE GENERATION
+          let generatedImageData = null;
+          document.getElementById('image-btn').addEventListener('click', async () => {
+            const prompt = document.getElementById('image-prompt').value.trim();
+            if (!prompt) { alert('Geef eerst een omschrijving van het beeld.'); return; }
+            const status = document.getElementById('image-status');
+            const preview = document.getElementById('image-preview');
+            const btn = document.getElementById('image-btn');
+            btn.disabled = true;
+            status.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Beeld wordt gemaakt (10-30 sec)...';
+            preview.innerHTML = '';
+            try {
+              const r = await fetch('/api/admin/ai-news/image', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ prompt })
+              });
+              const result = await r.json();
+              if (!r.ok || !result.ok) throw new Error(result.error || 'Beeld mislukt');
+              generatedImageData = result.image;
+              preview.innerHTML = '<img src="' + result.image + '" class="rounded-lg max-w-full max-h-96 border" />' +
+                '<p class="text-xs text-gray-500 mt-2"><i class="fas fa-check text-green-500 mr-1"></i> Beeld wordt mee gepubliceerd als cover.</p>';
+              status.innerHTML = '<span class="text-green-600"><i class="fas fa-check mr-1"></i> Klaar.</span>';
+            } catch (e) {
+              status.innerHTML = '<span class="text-red-600"><i class="fas fa-exclamation-triangle mr-1"></i> ' + (e.message || 'Fout') + '</span>';
+            } finally {
+              btn.disabled = false;
+            }
+          });
+
+          // PUBLISH
+          document.getElementById('publish-btn').addEventListener('click', async () => {
+            const titel = document.getElementById('result-titel').value.trim();
+            const body = document.getElementById('result-body').value.trim();
+            const excerpt = document.getElementById('result-excerpt').value.trim();
+            const zichtbaarheid = document.getElementById('result-zichtbaarheid').value;
+            const is_published = document.getElementById('result-published').value === '1';
+            if (!titel || !body) { alert('Titel en inhoud zijn verplicht.'); return; }
+
+            const btn = document.getElementById('publish-btn');
+            const label = document.getElementById('publish-label');
+            const status = document.getElementById('publish-status');
+            btn.disabled = true;
+            label.textContent = 'Bezig...';
+            status.innerHTML = '<i class="fas fa-spinner fa-spin mr-1 text-gray-400"></i>';
+
+            try {
+              const r = await fetch('/api/admin/ai-news/publish', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ titel, body, excerpt, cover_data: generatedImageData, zichtbaarheid, is_published })
+              });
+              const result = await r.json();
+              if (!r.ok || !result.ok) throw new Error(result.error || 'Publiceren mislukt');
+              status.innerHTML = '<span class="text-green-600"><i class="fas fa-check-circle mr-1"></i> Gepubliceerd! <a href="' + result.url + '" class="underline">Open</a></span>';
+              label.textContent = 'Gepubliceerd ✓';
+            } catch (e) {
+              status.innerHTML = '<span class="text-red-600"><i class="fas fa-exclamation-triangle mr-1"></i> ' + (e.message || 'Fout') + '</span>';
+              btn.disabled = false;
+              label.textContent = 'Publiceren';
+            }
+          });
+        })();
       `}} />
     </Layout>
   )
-})
-
-// =====================================================
-// API: Search for news using AI with web search grounding
-// =====================================================
-app.post('/api/admin/ai-news/search', async (c) => {
-  const user = c.get('user') as SessionUser
-  const { query } = await c.req.json()
-
-  if (!query) return c.json({ error: 'Zoekterm is verplicht' }, 400)
-
-  try {
-    // Step 1: Search with enriched query (koor context)
-    const enrichedQuery = `${query} koor muziek`
-    const results = await webSearch(enrichedQuery, 12)
-
-    if (results.length >= 3) {
-      return c.json({ results, sources: ['Google News RSS', 'DuckDuckGo'] })
-    }
-
-    // Step 2: If too few results, try original query without enrichment  
-    console.log(`Only ${results.length} results with enriched query, trying original...`)
-    const fallbackResults = await webSearch(query, 12)
-    
-    // Merge both sets
-    const seen = new Set(results.map(r => r.url))
-    for (const r of fallbackResults) {
-      if (!seen.has(r.url)) {
-        results.push(r)
-        seen.add(r.url)
-      }
-    }
-
-    if (results.length === 0) {
-      // Step 3: Last resort — try broader Google News search (no DDG)
-      const broadResults = await searchGoogleNewsRSS(query, 12)
-      if (broadResults.length > 0) {
-        return c.json({ results: broadResults, sources: ['Google News RSS'] })
-      }
-      return c.json({ results: [], error: 'Geen resultaten gevonden. Probeer andere zoektermen.' })
-    }
-
-    return c.json({ results, sources: ['Google News RSS', 'DuckDuckGo'] })
-  } catch (e: any) {
-    console.error('Search error:', e)
-    return c.json({ error: e.message || 'Onbekende fout bij zoeken' }, 500)
-  }
-})
-
-// =====================================================
-// API: Generate article from sources using AI
-// =====================================================
-app.post('/api/admin/ai-news/generate', async (c) => {
-  const user = c.get('user') as SessionUser
-  const { sources, extra, audience, tone, query } = await c.req.json()
-
-  if (!sources || sources.length === 0) return c.json({ error: 'Geen bronnen geselecteerd' }, 400)
-
-  try {
-    const sourceSummary = sources.map((s: any, i: number) =>
-      `Bron ${i + 1}: "${s.title}" — ${s.snippet} (${s.url || 'geen URL'})`
-    ).join('\n')
-
-    const toneInstructions: Record<string, string> = {
-      informatief: 'Schrijf in een informatieve, nieuwswaardige toon. Objectief maar toegankelijk.',
-      enthousiast: 'Schrijf enthousiast en wervend. Gebruik een feestelijke, positieve toon die mensen inspireert.',
-      formeel: 'Schrijf formeel en zakelijk. Geschikt voor officiële communicatie.',
-      persoonlijk: 'Schrijf in een warme, persoonlijke column-stijl. Alsof je direct tegen de lezer praat.'
-    }
-
-    const prompt = `Je bent de communicatieverantwoordelijke van Gemengd Koor Animato, een enthousiast amateurkoor gevestigd in Oppuurs (Klein-Brabant), België. Het koor zingt een breed repertoire van klassiek tot pop onder leiding van dirigent Frank.
-
-OPDRACHT: Schrijf een professioneel nieuwsbericht voor de website van het koor op basis van deze bronnen:
-
-${sourceSummary}
-
-OORSPRONKELIJKE ZOEKTERM: "${query}"
-
-STIJL: ${toneInstructions[tone || 'informatief'] || toneInstructions.informatief}
-
-RICHTLIJNEN:
-- Schrijf in het Nederlands (Belgisch/Vlaams)
-- Lengte: 400-600 woorden
-- Structuur: pakkende inleiding, kern (2-3 alinea's met inhoud), afsluiting met call-to-action
-- Maak het relevant voor koorleden en koormuziekliefhebbers
-- Verwijs waar passend naar hoe dit relevant is voor Animato of amateurkoren in het algemeen
-- Voeg eventueel een quote of pakkende zin toe
-- ${audience === 'leden' ? 'Dit bericht is voor leden — je mag interne referenties maken naar repetities, stemgroepen, etc.' : 'Dit is een publiek bericht — ook voor niet-leden leesbaar. Vermeld kort wie Animato is.'}
-${extra ? `\nEXTRA INSTRUCTIES VAN DE REDACTIE: ${extra}` : ''}
-
-FORMAAT VAN JE ANTWOORD (pure JSON, geen markdown):
-{
-  "title": "Pakkende, informatieve titel (max 80 karakters)",
-  "excerpt": "Korte samenvatting in 1-2 zinnen voor de overzichtspagina",
-  "body": "Het volledige artikel als HTML. Gebruik: <p>, <h3>, <strong>, <em>, <a href=''>, <blockquote>, <ul>, <li>. Geen <h1> of <h2> (die komen automatisch van de titel).",
-  "tags": ["tag1", "tag2", "tag3"],
-  "imagePrompt": "Gedetailleerde Engelstalige beschrijving voor AI image generation. Beschrijf een sfeervolle, warme foto die past bij dit artikel. Denk aan: koor dat zingt, concertzaal, muzieknoten, repetitielokaal, dirigent, etc. Stijl: warm, professioneel, editorial photography."
-}`
-
-    const content = await callAI(c.env, [
-      { role: 'system', content: 'Je bent een professionele Nederlandstalige contentschrijver voor een Belgisch amateurkoor. Antwoord uitsluitend in pure JSON zonder markdown formatting.' },
-      { role: 'user', content: prompt }
-    ], { temperature: 0.7, max_tokens: 4000 })
-
-    let article: any = {}
-    try {
-      article = parseLLMJson(content)
-    } catch (e) {
-      console.error('JSON parse error for article:', content)
-      return c.json({ error: 'AI gaf een ongeldig antwoord. Probeer opnieuw.' }, 500)
-    }
-
-    return c.json(article)
-  } catch (e: any) {
-    console.error('Generate error:', e)
-    return c.json({ error: e.message || 'Onbekende fout bij genereren' }, 500)
-  }
-})
-
-// =====================================================
-// API: Generate image for article using AI
-// =====================================================
-app.post('/api/admin/ai-news/image', async (c) => {
-  const user = c.get('user') as SessionUser
-  const { title, imagePrompt } = await c.req.json()
-
-  try {
-    const prompt = imagePrompt || `A warm, professional editorial photo related to: ${title}. Amateur choir, singing, music, concert hall.`
-
-    // Try Cloudflare Workers AI image generation (free)
-    if (c.env.AI) {
-      try {
-        const result = await c.env.AI.run('@cf/stabilityai/stable-diffusion-xl-base-1.0', {
-          prompt: `Professional editorial photograph, warm lighting, high quality: ${prompt}. Style: realistic photography, not illustration.`,
-          num_steps: 20
-        })
-        
-        if (result) {
-          // Workers AI returns raw image bytes - convert to base64 data URL
-          const base64 = btoa(String.fromCharCode(...new Uint8Array(result)))
-          return c.json({ imageUrl: `data:image/png;base64,${base64}` })
-        }
-      } catch (imgErr: any) {
-        console.error('Workers AI image generation failed:', imgErr.message)
-      }
-    }
-
-    // Fallback: Use curated Unsplash images based on search query
-    const searchTerms = (title || 'choir music').replace(/[^a-zA-Z0-9\s]/g, '').split(' ').slice(0, 3).join('+')
-    const unsplashImages = [
-      'photo-1507838153414-b4b713384a76', // choir/music
-      'photo-1514320291840-2e0a9bf2a9ae', // concert hall
-      'photo-1493225457124-a3eb161ffa5f', // audience
-      'photo-1460723237483-7a6dc9d0b212', // piano/music
-      'photo-1511671782779-c97d3d27a1d4', // singing/music
-    ]
-    const idx = Math.floor(Math.random() * unsplashImages.length)
-    const fallbackUrl = `https://images.unsplash.com/${unsplashImages[idx]}?w=800&h=400&fit=crop&auto=format`
-
-    return c.json({ imageUrl: fallbackUrl, fallback: true })
-  } catch (e: any) {
-    console.error('Image error:', e)
-    return c.json({ error: e.message || 'Afbeelding generatie mislukt' }, 500)
-  }
-})
-
-// =====================================================
-// API: Save generated article as post
-// =====================================================
-app.post('/api/admin/ai-news/save', async (c) => {
-  const user = c.get('user') as SessionUser
-  const { title, excerpt, body, audience, publish, imageUrl, tags } = await c.req.json()
-
-  if (!title || !body) return c.json({ error: 'Titel en inhoud zijn verplicht' }, 400)
-
-  try {
-    // Generate slug
-    const slug = title.toString().toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-|-$/g, '')
-      + '-' + Date.now().toString(36)
-
-    const now = new Date().toISOString()
-    const publishedValue = publish ? 1 : 0
-
-    // Prepend image if available
-    let finalBody = body
-    if (imageUrl) {
-      finalBody = `<figure class="mb-6"><img src="${imageUrl}" alt="${title.replace(/"/g, '&quot;')}" class="w-full rounded-lg shadow-md" /><figcaption class="text-xs text-gray-400 mt-1 text-center"><i class="fas fa-robot mr-1"></i>AI-gegenereerde afbeelding</figcaption></figure>\n\n${body}`
-    }
-
-    // Add AI-generated badge at bottom
-    finalBody += '\n\n<p class="text-xs text-gray-400 italic mt-8 pt-4 border-t border-gray-200"><i class="fas fa-robot mr-1"></i> Dit artikel werd gegenereerd met behulp van AI en geredigeerd door de redactie van Animato.</p>'
-
-    // Parse tags
-    let tagsJson: string | null = null
-    if (tags) {
-      const tagList = typeof tags === 'string' 
-        ? tags.split(',').map((t: string) => t.trim()).filter(Boolean)
-        : Array.isArray(tags) ? tags : []
-      if (tagList.length > 0) {
-        tagsJson = JSON.stringify(tagList)
-      }
-    }
-
-    const result = await c.env.DB.prepare(
-      `INSERT INTO posts (
-        type, categorie, titel, slug, excerpt, body, tags, zichtbaarheid, 
-        is_published, is_pinned, auteur_id, created_at, published_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).bind(
-      'nieuws',
-      'algemeen',
-      title,
-      slug,
-      excerpt || null,
-      finalBody,
-      tagsJson,
-      audience || 'publiek',
-      publishedValue,
-      0,
-      user.id,
-      now,
-      publishedValue === 1 ? now : null
-    ).run()
-
-    // Audit log
-    try {
-      await c.env.DB.prepare(
-        `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
-         VALUES (?, 'ai_news_create', 'post', ?, ?)`
-      ).bind(user.id, result.meta.last_row_id, JSON.stringify({ 
-        title, 
-        ai_generated: true, 
-        published: publish,
-        audience 
-      })).run()
-    } catch (auditErr) {
-      console.error('Audit log error (non-fatal):', auditErr)
-    }
-
-    return c.json({ postId: result.meta.last_row_id, success: true })
-  } catch (e: any) {
-    console.error('Save error:', e)
-    return c.json({ error: e.message || 'Opslaan mislukt' }, 500)
-  }
-})
-
-// =====================================================
-// DIAGNOSTIC: test welke AI strategieën werken
-// Handig om te zien waarom de generator faalt.
-// Resultaat:
-//  - workersAI.ok = true → Cloudflare Workers AI werkt (gratis)
-//  - openai.configured = true → OPENAI_API_KEY is gezet
-//  - openai.ok = true → externe LLM proxy antwoordt
-//  - webSearch.totalResults > 0 → zoekmachine levert bronnen
-// =====================================================
-app.get('/api/admin/ai-news/diagnostic', async (c) => {
-  const user = c.get('user') as SessionUser
-  // Alleen admins mogen de diagnostic uitvoeren
-  if (user.role !== 'admin') {
-    return c.json({ error: 'Alleen admins' }, 403)
-  }
-
-  const diag: any = {
-    timestamp: new Date().toISOString(),
-    workersAI: { available: !!c.env.AI, ok: false, error: null as any, response: null as any },
-    openai: {
-      configured: !!c.env.OPENAI_API_KEY,
-      baseUrl: c.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1',
-      ok: false,
-      error: null as any,
-    },
-    webSearch: { googleNews: 0, duckDuckGo: 0, totalResults: 0, error: null as any },
-  }
-
-  // Test 1: Cloudflare Workers AI
-  if (c.env.AI) {
-    try {
-      const result: any = await c.env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
-        messages: [
-          { role: 'system', content: 'Antwoord uitsluitend met het woord: OK' },
-          { role: 'user', content: 'Test' }
-        ],
-        max_tokens: 10,
-      })
-      diag.workersAI.ok = !!result?.response
-      diag.workersAI.response = result?.response?.substring(0, 100) || '(leeg)'
-    } catch (e: any) {
-      diag.workersAI.error = e.message || String(e)
-    }
-  }
-
-  // Test 2: OpenAI fallback
-  if (c.env.OPENAI_API_KEY) {
-    try {
-      const baseUrl = c.env.OPENAI_BASE_URL || 'https://www.genspark.ai/api/llm_proxy/v1'
-      const r = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${c.env.OPENAI_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model: 'gpt-5-mini',
-          messages: [
-            { role: 'system', content: 'Antwoord uitsluitend met: OK' },
-            { role: 'user', content: 'Test' },
-          ],
-          // Note: gpt-5 models use reasoning tokens internally, need ample budget
-          max_tokens: 200,
-        }),
-      })
-      diag.openai.status = r.status
-      diag.openai.ok = r.ok
-      if (!r.ok) {
-        diag.openai.error = (await r.text()).substring(0, 300)
-      } else {
-        const j: any = await r.json()
-        diag.openai.response = j?.choices?.[0]?.message?.content?.substring(0, 100) || '(leeg, maar HTTP OK)'
-        diag.openai.model = j?.model
-      }
-    } catch (e: any) {
-      diag.openai.error = e.message || String(e)
-    }
-  }
-
-  // Test 3: web search
-  try {
-    const [gn, ddg] = await Promise.allSettled([
-      searchGoogleNewsRSS('koor', 5),
-      searchDuckDuckGo('koor', 5),
-    ])
-    diag.webSearch.googleNews = gn.status === 'fulfilled' ? gn.value.length : 0
-    diag.webSearch.duckDuckGo = ddg.status === 'fulfilled' ? ddg.value.length : 0
-    diag.webSearch.totalResults = diag.webSearch.googleNews + diag.webSearch.duckDuckGo
-    if (gn.status === 'rejected') diag.webSearch.googleError = String(gn.reason).substring(0, 200)
-    if (ddg.status === 'rejected') diag.webSearch.ddgError = String(ddg.reason).substring(0, 200)
-  } catch (e: any) {
-    diag.webSearch.error = e.message || String(e)
-  }
-
-  // Verdict
-  diag.verdict = {
-    canGenerate: diag.workersAI.ok || diag.openai.ok,
-    canSearch: diag.webSearch.totalResults > 0,
-    summary:
-      (diag.workersAI.ok || diag.openai.ok)
-        ? (diag.webSearch.totalResults > 0
-            ? 'Alles werkt: AI én websearch beschikbaar.'
-            : '⚠️ AI werkt, maar websearch levert geen resultaten. Probeer handmatig bronnen toe te voegen.')
-        : '❌ Geen enkele AI-strategie werkt. Controleer de AI binding (wrangler.json) of voeg OPENAI_API_KEY toe als secret.',
-  }
-
-  return c.json(diag)
 })
 
 export default app

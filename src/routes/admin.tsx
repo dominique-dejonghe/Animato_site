@@ -4208,20 +4208,38 @@ app.get('/admin/content/:id', async (c) => {
                     Gebruik /posts/:slug voor type='posts'/'board'/etc., /nieuws/:slug enkel voor type='nieuws'.
                     Dit werkt voor àlle post-types via de universele post-detail route. */}
                 {post && post.is_published === 1 && contentType === 'posts' && post.slug && (() => {
+                  const baseUrl = 'https://animato-live.pages.dev'
                   const detailPath = post.type === 'nieuws' ? `/nieuws/${post.slug}` : `/posts/${post.slug}`
-                  const shareUrl = `https://animato-live.pages.dev${detailPath}`
-                  const shareText = `${post.titel} — ${shareUrl}`
+                  const detailUrl = `${baseUrl}${detailPath}`
                   const isPublicShare = post.public_share === 1
-                  const needsLogin = !isPublicShare && (post.zichtbaarheid === 'leden' || post.zichtbaarheid === 'bestuur')
+                  const isPubliclyAccessible = post.zichtbaarheid === 'publiek' || isPublicShare
+                  // Voor leden-only: deel de /preview/:slug link zodat WhatsApp's bot wél OG-tags krijgt
+                  // (zonder dat we de inhoud lekken — preview toont alleen titel, excerpt en cover)
+                  const shareUrl = isPubliclyAccessible ? detailUrl : `${baseUrl}/preview/${post.slug}`
+                  const needsLogin = !isPubliclyAccessible
+
+                  // Nette share-tekst: titel in WhatsApp-bold + lege regel + excerpt + lege regel + URL.
+                  // GEEN emojis (Dominique: "anders slordig" — bv. squares in oudere fonts).
+                  // De rich preview-kaart (cover + samenvatting) komt automatisch via de OG-tags op de pagina.
+                  const titelEscaped = post.titel.replace(/\*/g, '')   // dubbele asterisks in titel slopen WhatsApp bold
+                  const excerptClean = (post.excerpt || '').trim()
+                  const shareLines = [`*${titelEscaped}*`]
+                  if (excerptClean) shareLines.push('', excerptClean)
+                  shareLines.push('', shareUrl)
+                  const shareText = shareLines.join('\n')
+                  // Voor "Kopieer link" — gewoon URL, geen markdown
+                  const copyText = `${post.titel} — ${shareUrl}`
+                  const copyTextEscaped = copyText.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n')
+
                   return (
-                    <div class="flex flex-col items-end gap-1">
+                    <div class="flex flex-col items-end gap-2">
                       <div class="flex items-center gap-2 flex-wrap">
                         <a
                           href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
                           target="_blank"
                           rel="noopener noreferrer"
                           class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition shadow-sm"
-                          title="Open WhatsApp om dit bericht in een groep of contact te delen"
+                          title="Open WhatsApp om dit bericht te delen — de cover en samenvatting verschijnen automatisch als preview-kaart"
                         >
                           <i class="fab fa-whatsapp mr-2 text-base"></i>
                           Deel via WhatsApp
@@ -4238,7 +4256,7 @@ app.get('/admin/content/:id', async (c) => {
                         </a>
                         <button
                           type="button"
-                          onclick={`navigator.clipboard.writeText('${post.titel.replace(/'/g, "\\'")} — ${shareUrl}'); this.innerHTML='<i class=\\'fas fa-check mr-1\\'></i> Gekopieerd!'; setTimeout(()=>{this.innerHTML='<i class=\\'fas fa-copy mr-1\\'></i> Kopieer link'}, 2000);`}
+                          onclick={`navigator.clipboard.writeText('${copyTextEscaped}'); this.innerHTML='<i class=\\'fas fa-check mr-1\\'></i> Gekopieerd!'; setTimeout(()=>{this.innerHTML='<i class=\\'fas fa-copy mr-1\\'></i> Kopieer link'}, 2000);`}
                           class="inline-flex items-center px-3 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm transition"
                           title="Kopieer link + titel voor andere kanalen"
                         >
@@ -4246,16 +4264,30 @@ app.get('/admin/content/:id', async (c) => {
                           Kopieer link
                         </button>
                       </div>
+
+                      {/* Live preview van de WhatsApp share-tekst, zodat admin weet wat ontvangers zien */}
+                      <details class="w-full max-w-md">
+                        <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-700 select-none">
+                          <i class="fas fa-eye mr-1"></i>Voorbeeld van de WhatsApp-tekst
+                        </summary>
+                        <div class="mt-2 bg-white border border-gray-200 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap font-mono leading-relaxed shadow-inner">
+                          {shareText}
+                        </div>
+                        <div class="mt-1 text-[11px] text-gray-400">
+                          <i class="fas fa-image mr-1"></i>Cover + samenvatting komen er automatisch bij als kaartje (OpenGraph).
+                        </div>
+                      </details>
+
                       {/* Status-indicator: openbaar of leden-only */}
                       {isPublicShare ? (
                         <div class="text-xs text-green-700 font-medium">
                           <i class="fas fa-share-alt mr-1"></i>
-                          🔓 Publiek deelbaar — ontvangers hoeven niet in te loggen
+                          Publiek deelbaar — ontvangers hoeven niet in te loggen
                         </div>
                       ) : needsLogin ? (
                         <div class="text-xs text-amber-700 font-medium">
                           <i class="fas fa-info-circle mr-1"></i>
-                          🔒 Ontvangers moeten inloggen (alleen leden). Vink "🔓 Maak publiek deelbaar" aan voor breed delen.
+                          Leden-only — preview-kaart is publiek, volledige inhoud vereist login. Vink "Maak publiek deelbaar" aan voor open delen.
                         </div>
                       ) : (
                         <div class="text-xs text-gray-500">

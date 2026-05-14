@@ -359,11 +359,51 @@ app.get('/nieuws/:slug', async (c) => {
     [artikel.id]
   ) : null
 
+  // === Social share metadata ===
+  // OG image: cover_image (absolute URL), of fallback naar logo
+  const baseUrl = 'https://animato-live.pages.dev'
+  const articleUrl = `${baseUrl}/nieuws/${artikel.slug}`
+  // Voor leden-only artikelen: gebruik publieke /preview/:slug route zodat WhatsApp's bot
+  // niet via login geredirect wordt en alsnog een rijke preview kan tonen.
+  const ogPageUrl = artikel.zichtbaarheid === 'publiek' ? articleUrl : `${baseUrl}/preview/${artikel.slug}`
+  // og:image moet een ECHTE absolute HTTP(S) URL zijn — geen data: URLs (die zijn megabytes lang
+  // en worden door WhatsApp/Facebook genegeerd). Als de cover een data-URL is, gebruiken we de fallback.
+  const isHttpUrl = (s: string) => /^https?:\/\//i.test(s)
+  const ogImage = artikel.cover_image && isHttpUrl(artikel.cover_image)
+    ? artikel.cover_image
+    : (artikel.cover_image && artikel.cover_image.startsWith('/') ? `${baseUrl}${artikel.cover_image}` : undefined)
+  // Korte description voor preview-kaart — max ~200 tekens
+  // Tiny inline stripper — geen DOMparser in Workers; behoud alleen platte tekst voor preview
+  const stripHtmlInline = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+  const ogDescription = (artikel.excerpt || stripHtmlInline(artikel.body || '').slice(0, 180)).trim() || 'Lees het laatste nieuws van Gemengd Koor Animato'
+
+  // === Share-tekst voor WhatsApp / e-mail / etc. ===
+  // Bewust GEEN emojis — die renderen niet altijd (zie Dominique's screenshot met vierkantjes).
+  // Format: TITEL (vetjes via *...* in WhatsApp markdown) op regel 1, blank, excerpt, blank, URL.
+  // Resultaat: WhatsApp toont de URL als rich preview-kaart (cover image + titel) DANKZIJ de OG tags hierboven.
+  const shareTitleLine = `*${artikel.titel}*`
+  const shareExcerpt = (artikel.excerpt || '').trim()
+  const shareTextLines = [shareTitleLine]
+  if (shareExcerpt) shareTextLines.push('', shareExcerpt)
+  shareTextLines.push('', articleUrl)
+  const whatsappShareText = shareTextLines.join('\n')
+  const whatsappShareUrl = `https://wa.me/?text=${encodeURIComponent(whatsappShareText)}`
+  // Email
+  const emailSubject = encodeURIComponent(artikel.titel)
+  const emailBody = encodeURIComponent(`${shareExcerpt ? shareExcerpt + '\n\n' : ''}Lees verder: ${articleUrl}\n\n— Gemengd Koor Animato`)
+  const emailShareUrl = `mailto:?subject=${emailSubject}&body=${emailBody}`
+  // Facebook / LinkedIn — die halen automatisch titel + OG image op uit de pagina
+  const facebookShareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(articleUrl)}`
+  const linkedinShareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(articleUrl)}`
+
   return c.html(
     <Layout 
       title={artikel.titel} 
-      description={artikel.excerpt}
+      description={ogDescription}
       user={user}
+      ogImage={ogImage}
+      ogUrl={ogPageUrl}
+      ogType="article"
     >
       <article class="py-12">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -433,22 +473,55 @@ app.get('/nieuws/:slug', async (c) => {
             ]) }}
           />
 
-          {/* Share buttons */}
+          {/* Share buttons — netjes opgemaakte share-tekst, WhatsApp toont rich preview met cover dankzij OG tags */}
           <div class="border-t border-b border-gray-200 py-6 mb-12">
-            <div class="flex items-center justify-center space-x-4">
+            <div class="flex flex-col sm:flex-row items-center justify-center gap-4">
               <span class="text-gray-600 font-medium">Deel dit artikel:</span>
-              <a href="#" class="text-gray-600 hover:text-animato-primary transition">
-                <i class="fab fa-facebook text-xl"></i>
-              </a>
-              <a href="#" class="text-gray-600 hover:text-animato-primary transition">
-                <i class="fab fa-twitter text-xl"></i>
-              </a>
-              <a href="#" class="text-gray-600 hover:text-animato-primary transition">
-                <i class="fab fa-linkedin text-xl"></i>
-              </a>
-              <a href="#" class="text-gray-600 hover:text-animato-primary transition">
-                <i class="fas fa-envelope text-xl"></i>
-              </a>
+              <div class="flex items-center gap-3 flex-wrap justify-center">
+                <a
+                  href={whatsappShareUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition"
+                  title="Deel via WhatsApp"
+                >
+                  <i class="fab fa-whatsapp text-lg"></i>
+                  <span>WhatsApp</span>
+                </a>
+                <a
+                  href={facebookShareUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 text-white transition"
+                  title="Deel via Facebook"
+                >
+                  <i class="fab fa-facebook-f"></i>
+                </a>
+                <a
+                  href={linkedinShareUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-sky-700 hover:bg-sky-800 text-white transition"
+                  title="Deel via LinkedIn"
+                >
+                  <i class="fab fa-linkedin-in"></i>
+                </a>
+                <a
+                  href={emailShareUrl}
+                  class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-gray-600 hover:bg-gray-700 text-white transition"
+                  title="Deel via e-mail"
+                >
+                  <i class="fas fa-envelope"></i>
+                </a>
+                <button
+                  type="button"
+                  onclick={`navigator.clipboard.writeText(${JSON.stringify(articleUrl)}).then(()=>{this.innerHTML='<i class=\\'fas fa-check\\'></i>'; setTimeout(()=>{this.innerHTML='<i class=\\'fas fa-link\\'></i>';},1500)})`}
+                  class="inline-flex items-center justify-center w-10 h-10 rounded-full bg-gray-200 hover:bg-gray-300 text-gray-700 transition"
+                  title="Kopieer link"
+                >
+                  <i class="fas fa-link"></i>
+                </button>
+              </div>
             </div>
           </div>
 
@@ -737,8 +810,28 @@ const postDetailHandler = async (c: any) => {
   }
   const typeName = typeLabel[post.type] || 'Bericht'
 
+  // === OG metadata voor WhatsApp / social previews ===
+  const baseUrl = 'https://animato-live.pages.dev'
+  const postUrl = `${baseUrl}/posts/${post.slug}`
+  // Voor leden-only (zonder public_share): laat OG-tag verwijzen naar /preview/:slug zodat WhatsApp's bot
+  // niet via login-redirect een lege/foute preview krijgt.
+  const ogPageUrl = (post.zichtbaarheid === 'publiek' || isPubliclyShared) ? postUrl : `${baseUrl}/preview/${post.slug}`
+  const isHttpUrl2 = (s: string) => /^https?:\/\//i.test(s)
+  const ogImage = post.cover_image && isHttpUrl2(post.cover_image)
+    ? post.cover_image
+    : (post.cover_image && post.cover_image.startsWith('/') ? `${baseUrl}${post.cover_image}` : undefined)
+  const stripHtmlInline = (html: string) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+  const ogDescription = ((post.excerpt || '') || stripHtmlInline(post.body || '').slice(0, 180)).trim() || 'Een bericht van Gemengd Koor Animato'
+
   return c.html(
-    <Layout title={post.titel} description={post.excerpt} user={user}>
+    <Layout
+      title={post.titel}
+      description={ogDescription}
+      user={user}
+      ogImage={ogImage}
+      ogUrl={ogPageUrl}
+      ogType="article"
+    >
       <article class="py-12 bg-gray-50 min-h-screen">
         <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
           <div class="bg-white rounded-xl shadow-md overflow-hidden">
@@ -795,14 +888,24 @@ const postDetailHandler = async (c: any) => {
 
               {/* Footer actions */}
               <div class="mt-10 pt-6 border-t border-gray-200 flex flex-wrap items-center gap-3">
-                <a
-                  href={`https://wa.me/?text=${encodeURIComponent(`${post.titel} — https://animato-live.pages.dev/posts/${post.slug}`)}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition"
-                >
-                  <i class="fab fa-whatsapp mr-2"></i>Deel via WhatsApp
-                </a>
+                {(() => {
+                  // Nette share-tekst, geen emojis — WhatsApp toont rich preview via OG tags
+                  const postUrl = `https://animato-live.pages.dev/posts/${post.slug}`
+                  const postExcerpt = (post.excerpt || '').trim()
+                  const lines = [`*${post.titel}*`]
+                  if (postExcerpt) lines.push('', postExcerpt)
+                  lines.push('', postUrl)
+                  return (
+                    <a
+                      href={`https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition"
+                    >
+                      <i class="fab fa-whatsapp mr-2"></i>Deel via WhatsApp
+                    </a>
+                  )
+                })()}
                 <a href={user ? '/dashboard' : '/'} class="inline-flex items-center px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-semibold transition">
                   <i class="fas fa-arrow-left mr-2"></i>{user ? 'Naar dashboard' : 'Terug naar home'}
                 </a>
@@ -817,5 +920,105 @@ const postDetailHandler = async (c: any) => {
 
 app.get('/posts/:slug', postDetailHandler)
 app.get('/berichten/:slug', postDetailHandler)
+
+// =====================================================
+// PUBLIEKE PREVIEW ROUTE
+// =====================================================
+// Doel: WhatsApp / Facebook / LinkedIn bots kunnen ALTIJD een rich preview ophalen,
+// ook voor leden-only artikelen die normaal naar /login redirecten.
+// Deze route serveert enkel titel + excerpt + cover image + OG meta tags.
+// De inhoud van het artikel is NIET zichtbaar — gebruikers moeten doorklikken
+// naar de eigenlijke /nieuws/:slug of /posts/:slug pagina (waar login wel wordt afgedwongen).
+// Resultaat: WhatsApp toont een mooie kaart, bezoekers zien een teaser + login-knop.
+app.get('/preview/:slug', async (c) => {
+  const user = c.get('user')
+  const slug = c.req.param('slug')
+
+  const post = await queryOne<any>(
+    c.env.DB,
+    `SELECT id, slug, type, titel, excerpt, cover_image, zichtbaarheid, public_share, published_at
+     FROM posts WHERE slug = ? AND is_published = 1 LIMIT 1`,
+    [slug]
+  )
+
+  if (!post) return c.notFound()
+
+  // Als artikel publiek is — gewoon doorsturen naar de echte pagina (geen reden voor preview)
+  const isPubliclyAccessible = post.zichtbaarheid === 'publiek' || post.public_share === 1
+  const realDetailPath = post.type === 'nieuws' ? `/nieuws/${post.slug}` : `/posts/${post.slug}`
+  if (isPubliclyAccessible) {
+    return c.redirect(realDetailPath, 302)
+  }
+
+  // Voor ingelogde leden: direct doorsturen naar het echte artikel
+  if (user) {
+    return c.redirect(realDetailPath, 302)
+  }
+
+  // Niet ingelogde bezoeker (of bot): toon de publieke preview met OG-tags
+  const baseUrl = 'https://animato-live.pages.dev'
+  const previewUrl = `${baseUrl}/preview/${post.slug}`
+  const isHttpUrl3 = (s: string) => /^https?:\/\//i.test(s)
+  const ogImage = post.cover_image && isHttpUrl3(post.cover_image)
+    ? post.cover_image
+    : (post.cover_image && post.cover_image.startsWith('/') ? `${baseUrl}${post.cover_image}` : undefined)
+  const description = (post.excerpt || 'Een artikel van Gemengd Koor Animato — log in om verder te lezen.').trim()
+  const dateStr = post.published_at
+    ? new Date(post.published_at).toLocaleDateString('nl-BE', { day: 'numeric', month: 'long', year: 'numeric' })
+    : ''
+
+  return c.html(
+    <Layout
+      title={post.titel}
+      description={description}
+      user={null}
+      ogImage={ogImage}
+      ogUrl={previewUrl}
+      ogType="article"
+    >
+      <article class="py-12 bg-gray-50 min-h-screen">
+        <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="bg-white rounded-xl shadow-md overflow-hidden">
+            {post.cover_image && (
+              <img src={post.cover_image} alt={post.titel} class="w-full max-h-[400px] object-cover" />
+            )}
+            <div class="p-6 sm:p-10">
+              <div class="text-sm text-animato-primary font-semibold mb-2">
+                <i class="fas fa-newspaper mr-2"></i>
+                {post.type === 'nieuws' ? 'Nieuws' : 'Bericht'}{dateStr ? ` • ${dateStr}` : ''}
+              </div>
+              <h1 class="text-3xl md:text-4xl font-bold text-gray-900 mb-4" style="font-family: 'Playfair Display', serif;">
+                {post.titel}
+              </h1>
+              {post.excerpt && (
+                <p class="text-lg text-gray-700 leading-relaxed mb-8 italic">
+                  {post.excerpt}
+                </p>
+              )}
+              <div class="bg-animato-primary bg-opacity-10 border border-animato-primary rounded-lg p-5 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                <i class="fas fa-lock text-animato-primary text-2xl"></i>
+                <div class="flex-1">
+                  <div class="font-semibold text-gray-900">Dit artikel is alleen voor leden</div>
+                  <div class="text-sm text-gray-600">Log in om het volledige bericht te lezen.</div>
+                </div>
+                <a
+                  href={`/login?redirect=${encodeURIComponent(realDetailPath)}`}
+                  class="inline-flex items-center px-5 py-2.5 bg-animato-primary hover:bg-animato-secondary text-white rounded-lg font-semibold transition whitespace-nowrap"
+                >
+                  <i class="fas fa-sign-in-alt mr-2"></i>Inloggen
+                </a>
+              </div>
+              <div class="mt-6 text-center">
+                <a href="/" class="text-sm text-gray-500 hover:text-animato-primary transition">
+                  <i class="fas fa-arrow-left mr-1"></i>Terug naar Animato.be
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+    </Layout>
+  )
+})
 
 export default app

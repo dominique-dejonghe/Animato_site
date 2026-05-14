@@ -10,6 +10,11 @@ interface LayoutProps {
   user?: { voornaam: string; achternaam: string; role: string } | null
   currentPath?: string
   impersonating?: boolean
+  // OpenGraph / social-share metadata — gebruikt voor mooie WhatsApp / Facebook / LinkedIn preview-kaarten
+  ogImage?: string         // absolute URL naar cover image (1200x630 ideaal)
+  ogUrl?: string           // canonical URL van deze pagina
+  ogType?: string          // 'article' voor nieuwsposts, anders 'website'
+  ogSiteName?: string      // standaard 'Gemengd Koor Animato'
 }
 
 export const Layout: FC<LayoutProps> = ({ 
@@ -18,9 +23,15 @@ export const Layout: FC<LayoutProps> = ({
   children,
   user = null,
   currentPath = '/',
-  impersonating = false
+  impersonating = false,
+  ogImage,
+  ogUrl,
+  ogType = 'website',
+  ogSiteName = 'Gemengd Koor Animato'
 }) => {
   const fullTitle = title === 'Gemengd Koor Animato' ? title : `${title} | Gemengd Koor Animato`
+  // Default OG-image = Animato logo (kleine fallback, dan toont WhatsApp tenminste iets visueel)
+  const finalOgImage = ogImage || 'https://animato-live.pages.dev/static/images/animato-logo-full.png'
 
   return (
     <html lang="nl">
@@ -29,7 +40,24 @@ export const Layout: FC<LayoutProps> = ({
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>{fullTitle}</title>
         <meta name="description" content={description} />
-        
+
+        {/* OpenGraph tags — voor WhatsApp / Facebook / LinkedIn link-previews */}
+        <meta property="og:title" content={fullTitle} />
+        <meta property="og:description" content={description} />
+        <meta property="og:type" content={ogType} />
+        <meta property="og:image" content={finalOgImage} />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:site_name" content={ogSiteName} />
+        <meta property="og:locale" content="nl_BE" />
+        {ogUrl && <meta property="og:url" content={ogUrl} />}
+
+        {/* Twitter Card — zelfde info, ander formaat (oa ook gebruikt door iMessage) */}
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={fullTitle} />
+        <meta name="twitter:description" content={description} />
+        <meta name="twitter:image" content={finalOgImage} />
+
         {/* Animato branding colors */}
         <meta name="theme-color" content="#00A9CE" />
         

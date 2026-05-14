@@ -469,6 +469,10 @@ app.get('/admin', async (c) => {
                 <i class="fas fa-chart-line text-2xl text-animato-accent mb-2"></i>
                 <span class="text-sm font-medium text-animato-accent font-semibold">Activiteit</span>
               </a>
+              <a href="/admin/leeftijden" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-animato-primary hover:bg-gray-50 transition">
+                <i class="fas fa-birthday-cake text-2xl text-pink-500 mb-2"></i>
+                <span class="text-sm font-medium text-gray-700">Leeftijden</span>
+              </a>
               <a href="/admin/bestanden/nieuw" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-animato-primary hover:bg-gray-50 transition">
                 <i class="fas fa-upload text-2xl text-amber-600 mb-2"></i>
                 <span class="text-sm font-medium text-gray-700">Upload Bestand</span>
@@ -4930,25 +4934,31 @@ app.get('/admin/content/:id', async (c) => {
         }
 
         document.getElementById('confirmDeleteBtn').addEventListener('click', async function() {
-          if (deleteUrl) {
-            this.disabled = true;
-            this.innerText = 'Verwijderen...';
-            try {
-              const res = await fetch(deleteUrl, { method: 'POST' });
-              if (res.ok) {
-                closeDeleteModal();
-                window.location.reload();
-              } else {
-                alert('Verwijderen mislukt. Probeer opnieuw.');
-                this.disabled = false;
-                this.innerText = 'Verwijderen';
-              }
-            } catch(e) {
-              // Fallback: navigate directly
-              window.location.href = deleteUrl;
+          if (!deleteUrl) { closeDeleteModal(); return; }
+          this.disabled = true;
+          this.innerText = 'Verwijderen...';
+          try {
+            const res = await fetch(deleteUrl, {
+              method: 'POST',
+              headers: { 'Accept': 'application/json' }
+            });
+            let data = null;
+            try { data = await res.json(); } catch (_) {}
+            if (res.ok && (!data || data.ok !== false)) {
+              // De huidige edit-pagina toont een record dat niet meer bestaat.
+              // Redirect naar de content-lijst (server kan een specifiek tab teruggeven).
+              const target = (data && data.redirect) || '/admin/content';
+              window.location.href = target;
+              return;
             }
+            const msg = (data && data.error) || ('Verwijderen mislukt (HTTP ' + res.status + ')');
+            alert(msg);
+            this.disabled = false;
+            this.innerText = 'Verwijderen';
+          } catch(e) {
+            // Fallback bij netwerkfout: navigeer direct naar de GET-versie
+            window.location.href = deleteUrl;
           }
-          closeDeleteModal();
         });
       ` }} />
     </Layout>
@@ -5261,44 +5271,89 @@ app.post('/api/admin/content/:id/toggle-whatsapp', async (c) => {
   }
 })
 
-app.get('/api/admin/content/:id/delete', async (c) => {
+// Shared handler — content (post/event) delete.
+// Accepts both GET (legacy direct-link) and POST (fetch from edit-page modal).
+// Returns JSON for fetch requests, redirect for browser navigation.
+const handleContentDelete = async (c: any) => {
   const user = c.get('user') as SessionUser
   const contentId = c.req.param('id')
   const contentType = c.req.query('type') || 'posts'
 
+  // Did the client send via fetch (expects JSON) or via direct link/form (expects redirect)?
+  const accept = c.req.header('accept') || ''
+  const wantsJson = accept.includes('application/json') || c.req.method === 'POST'
+
   try {
+    let deletedTitle: string | null = null
+
     if (contentType === 'posts') {
+      // Capture title for audit + nicer UX
+      const postRow: any = await c.env.DB.prepare(
+        `SELECT titel, cover_image FROM posts WHERE id = ?`
+      ).bind(contentId).first()
+      if (!postRow) {
+        const msg = 'Bericht niet gevonden (mogelijk al verwijderd).'
+        if (wantsJson) return c.json({ ok: false, error: msg }, 404)
+        return c.redirect(`/admin/content?tab=${contentType}&error=not_found`)
+      }
+      deletedTitle = postRow.titel || null
+
       // Audit log
       await c.env.DB.prepare(
         `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
          VALUES (?, 'post_delete', 'post', ?, ?)`
-      ).bind(user.id, contentId, JSON.stringify({ deleted_by: 'admin' })).run()
+      ).bind(user.id, contentId, JSON.stringify({ deleted_by: 'admin', titel: deletedTitle })).run()
 
-      // Delete replies first
-      await c.env.DB.prepare('DELETE FROM post_replies WHERE post_id = ?').bind(contentId).run()
+      // Cleanup related rows (best-effort; tables may not exist on older deploys)
+      try { await c.env.DB.prepare('DELETE FROM post_replies WHERE post_id = ?').bind(contentId).run() } catch (e) {}
+      try { await c.env.DB.prepare('DELETE FROM post_comments WHERE post_id = ?').bind(contentId).run() } catch (e) {}
+      try { await c.env.DB.prepare('DELETE FROM post_reactions WHERE post_id = ?').bind(contentId).run() } catch (e) {}
 
-      // Delete post
+      // Optional: delete R2 cover if it's an R2-served URL
+      try {
+        if (postRow.cover_image && typeof postRow.cover_image === 'string') {
+          const m = postRow.cover_image.match(/^\/r2\/(.+)$/)
+          if (m && c.env.R2) await c.env.R2.delete(m[1])
+        }
+      } catch (e) { console.warn('R2 cover cleanup failed:', e) }
+
+      // Delete the post itself
       await c.env.DB.prepare('DELETE FROM posts WHERE id = ?').bind(contentId).run()
     } else if (contentType === 'events') {
+      const evtRow: any = await c.env.DB.prepare(`SELECT titel FROM events WHERE id = ?`).bind(contentId).first()
+      if (!evtRow) {
+        const msg = 'Event niet gevonden (mogelijk al verwijderd).'
+        if (wantsJson) return c.json({ ok: false, error: msg }, 404)
+        return c.redirect(`/admin/content?tab=${contentType}&error=not_found`)
+      }
+      deletedTitle = evtRow.titel || null
+
       // Audit log
       await c.env.DB.prepare(
         `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
          VALUES (?, 'event_delete', 'event', ?, ?)`
-      ).bind(user.id, contentId, JSON.stringify({ deleted_by: 'admin' })).run()
+      ).bind(user.id, contentId, JSON.stringify({ deleted_by: 'admin', titel: deletedTitle })).run()
 
-      // Delete concert data if exists
-      await c.env.DB.prepare('DELETE FROM concerts WHERE event_id = ?').bind(contentId).run()
+      // Cleanup linked tables
+      try { await c.env.DB.prepare('DELETE FROM concerts WHERE event_id = ?').bind(contentId).run() } catch (e) {}
+      try { await c.env.DB.prepare('DELETE FROM event_rsvps WHERE event_id = ?').bind(contentId).run() } catch (e) {}
 
-      // Delete event
       await c.env.DB.prepare('DELETE FROM events WHERE id = ?').bind(contentId).run()
     }
 
-    return c.redirect(`/admin/content?tab=${contentType}&success=deleted`)
-  } catch (error) {
+    const redirectUrl = `/admin/content?tab=${contentType}&success=deleted`
+    if (wantsJson) return c.json({ ok: true, id: contentId, type: contentType, redirect: redirectUrl })
+    return c.redirect(redirectUrl)
+  } catch (error: any) {
     console.error('Content delete error:', error)
+    const msg = error?.message || 'Verwijderen mislukt'
+    if (wantsJson) return c.json({ ok: false, error: msg }, 500)
     return c.redirect(`/admin/content?tab=${contentType}&error=delete_failed`)
   }
-})
+}
+
+app.get('/api/admin/content/:id/delete', handleContentDelete)
+app.post('/api/admin/content/:id/delete', handleContentDelete)
 
 // =====================================================
 // AUDIT LOGS
@@ -5724,5 +5779,516 @@ app.post('/admin/impersonate/:userId', async (c) => {
 })
 
 // Note: /leden/stop-impersonate is in leden.tsx (uses /leden/ path to bypass admin role check)
+
+// =====================================================
+// /admin/leeftijden — Live leeftijdsoverzicht
+// =====================================================
+// Toont gemiddelde leeftijd per stemgroep en geslacht, leeftijdscategorieën,
+// en lijst van leden zonder geboortedatum (om aan te porren).
+// Geslacht is afgeleid uit stemgroep (S/A=vrouw, T/B=man).
+//
+// Schrijft ook lazy maandelijkse snapshots in member_stats_snapshots
+// zodat we evolutie over de tijd kunnen plotten (geen aparte cron nodig).
+app.get('/admin/leeftijden', async (c) => {
+  const user = c.get('user') as SessionUser
+  noCacheHeaders(c)
+
+  // Algemene metrics + ontbrekende geboortedata
+  const overall = await queryOne<any>(c.env.DB, `
+    SELECT 
+      COUNT(*) as totaal,
+      SUM(CASE WHEN p.geboortedatum IS NOT NULL AND p.geboortedatum != '' THEN 1 ELSE 0 END) as met_dob
+    FROM users u 
+    JOIN profiles p ON p.user_id = u.id 
+    WHERE u.status = 'actief' AND u.is_test_account = 0
+  `)
+
+  const avgRow = await queryOne<any>(c.env.DB, `
+    SELECT 
+      ROUND(AVG((julianday('now') - julianday(p.geboortedatum)) / 365.25), 1) as gem,
+      MIN(CAST((julianday('now') - julianday(p.geboortedatum)) / 365.25 AS INTEGER)) as jongste,
+      MAX(CAST((julianday('now') - julianday(p.geboortedatum)) / 365.25 AS INTEGER)) as oudste,
+      COUNT(*) as n
+    FROM users u 
+    JOIN profiles p ON p.user_id = u.id 
+    WHERE u.status = 'actief' AND u.is_test_account = 0
+      AND p.geboortedatum IS NOT NULL AND p.geboortedatum != ''
+  `)
+
+  // Per stemgroep
+  const perStem = await queryAll<any>(c.env.DB, `
+    SELECT 
+      COALESCE(u.stemgroep, 'X') as stemgroep,
+      COUNT(*) as aantal,
+      ROUND(AVG((julianday('now') - julianday(p.geboortedatum)) / 365.25), 1) as gem,
+      MIN(CAST((julianday('now') - julianday(p.geboortedatum)) / 365.25 AS INTEGER)) as jongste,
+      MAX(CAST((julianday('now') - julianday(p.geboortedatum)) / 365.25 AS INTEGER)) as oudste
+    FROM users u 
+    JOIN profiles p ON p.user_id = u.id 
+    WHERE u.status = 'actief' AND u.is_test_account = 0
+      AND p.geboortedatum IS NOT NULL AND p.geboortedatum != ''
+    GROUP BY u.stemgroep
+    ORDER BY 
+      CASE COALESCE(u.stemgroep, 'X')
+        WHEN 'S' THEN 1 WHEN 'A' THEN 2
+        WHEN 'T' THEN 3 WHEN 'B' THEN 4
+        ELSE 5 END
+  `)
+
+  // Per geslacht (afgeleid)
+  const perGender = await queryAll<any>(c.env.DB, `
+    WITH base AS (
+      SELECT
+        CASE 
+          WHEN u.stemgroep IN ('S','A') THEN 'F'
+          WHEN u.stemgroep IN ('T','B') THEN 'M'
+          ELSE 'X'
+        END as g,
+        (julianday('now') - julianday(p.geboortedatum)) / 365.25 as leeftijd
+      FROM users u JOIN profiles p ON p.user_id = u.id
+      WHERE u.status = 'actief' AND u.is_test_account = 0
+        AND p.geboortedatum IS NOT NULL AND p.geboortedatum != ''
+    )
+    SELECT g, COUNT(*) as aantal, ROUND(AVG(leeftijd),1) as gem,
+           MIN(CAST(leeftijd AS INT)) as jongste, MAX(CAST(leeftijd AS INT)) as oudste
+    FROM base GROUP BY g
+  `)
+  const genderMap = new Map(perGender.map((r: any) => [r.g, r]))
+  const femaleRow = genderMap.get('F') || { aantal: 0, gem: 0, jongste: 0, oudste: 0 }
+  const maleRow   = genderMap.get('M') || { aantal: 0, gem: 0, jongste: 0, oudste: 0 }
+  const unknownRow= genderMap.get('X') || { aantal: 0, gem: 0, jongste: 0, oudste: 0 }
+
+  // Histogram (leeftijdscategorieën)
+  const hist = await queryOne<any>(c.env.DB, `
+    WITH base AS (
+      SELECT (julianday('now') - julianday(p.geboortedatum)) / 365.25 as leeftijd
+      FROM users u JOIN profiles p ON p.user_id = u.id
+      WHERE u.status = 'actief' AND u.is_test_account = 0
+        AND p.geboortedatum IS NOT NULL AND p.geboortedatum != ''
+    )
+    SELECT
+      SUM(CASE WHEN leeftijd < 30 THEN 1 ELSE 0 END) as b1,
+      SUM(CASE WHEN leeftijd >= 30 AND leeftijd < 40 THEN 1 ELSE 0 END) as b2,
+      SUM(CASE WHEN leeftijd >= 40 AND leeftijd < 50 THEN 1 ELSE 0 END) as b3,
+      SUM(CASE WHEN leeftijd >= 50 AND leeftijd < 60 THEN 1 ELSE 0 END) as b4,
+      SUM(CASE WHEN leeftijd >= 60 AND leeftijd < 70 THEN 1 ELSE 0 END) as b5,
+      SUM(CASE WHEN leeftijd >= 70 THEN 1 ELSE 0 END) as b6
+    FROM base
+  `)
+  const buckets = [
+    { label: 'Onder 30',  n: hist?.b1 || 0 },
+    { label: '30 – 39',   n: hist?.b2 || 0 },
+    { label: '40 – 49',   n: hist?.b3 || 0 },
+    { label: '50 – 59',   n: hist?.b4 || 0 },
+    { label: '60 – 69',   n: hist?.b5 || 0 },
+    { label: '70 +',      n: hist?.b6 || 0 },
+  ]
+  const maxBucket = Math.max(1, ...buckets.map(b => b.n))
+  const totaalMetDob = avgRow?.n || 0
+
+  // Leden zonder geboortedatum (om aan te porren)
+  const zonderDob = await queryAll<any>(c.env.DB, `
+    SELECT u.id, u.email, u.stemgroep, p.voornaam, p.achternaam
+    FROM users u JOIN profiles p ON p.user_id = u.id
+    WHERE u.status = 'actief' AND u.is_test_account = 0
+      AND (p.geboortedatum IS NULL OR p.geboortedatum = '')
+    ORDER BY p.voornaam, p.achternaam
+  `)
+
+  const stemLabel = (s: string) => {
+    const m: any = { S: 'Sopraan', A: 'Alt', T: 'Tenor', B: 'Bas', X: 'Onbekend' }
+    return m[s] || s
+  }
+  const stemBadge = (s: string) => {
+    const m: any = {
+      S: 'bg-pink-100 text-pink-700',
+      A: 'bg-pink-200 text-pink-800',
+      T: 'bg-blue-100 text-blue-700',
+      B: 'bg-indigo-100 text-indigo-700',
+      X: 'bg-gray-200 text-gray-600'
+    }
+    return m[s] || 'bg-gray-100 text-gray-700'
+  }
+
+  // =============================================================
+  // LAZY SNAPSHOT — schrijf een nieuwe snapshot als de laatste
+  // ouder is dan 25 dagen (of nog niet bestaat). Stille fout-afhandeling:
+  // als de snapshot mislukt, blijft de pagina gewoon werken.
+  // =============================================================
+  try {
+    const lastSnap = await queryOne<any>(c.env.DB, `
+      SELECT snapshot_date FROM member_stats_snapshots
+      ORDER BY snapshot_date DESC LIMIT 1
+    `)
+    const daysSince = lastSnap
+      ? Math.floor((Date.now() - new Date(lastSnap.snapshot_date).getTime()) / 86400000)
+      : 9999
+
+    if (daysSince >= 25) {
+      const today = new Date().toISOString().split('T')[0]
+      // Bouw details JSON
+      const stemMap: any = {}
+      perStem.forEach((r: any) => {
+        stemMap[r.stemgroep] = { n: r.aantal, avg: r.gem, min: r.jongste, max: r.oudste }
+      })
+      const details = JSON.stringify({
+        stemgroepen: stemMap,
+        buckets: {
+          u30: hist?.b1 || 0, d30: hist?.b2 || 0, d40: hist?.b3 || 0,
+          d50: hist?.b4 || 0, d60: hist?.b5 || 0, d70p: hist?.b6 || 0
+        }
+      })
+      await c.env.DB.prepare(`
+        INSERT OR IGNORE INTO member_stats_snapshots
+          (snapshot_date, total_active, with_dob, avg_age, min_age, max_age,
+           female_count, male_count, female_avg, male_avg, details_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(
+        today,
+        overall?.totaal || 0,
+        avgRow?.n || 0,
+        avgRow?.gem || null,
+        avgRow?.jongste || null,
+        avgRow?.oudste || null,
+        femaleRow.aantal,
+        maleRow.aantal,
+        femaleRow.gem || null,
+        maleRow.gem || null,
+        details
+      ).run()
+    }
+  } catch (e) {
+    console.warn('Snapshot write failed (non-fatal):', e)
+  }
+
+  // Trendgegevens — laatste 24 snapshots (≈ 2 jaar)
+  const trends = await queryAll<any>(c.env.DB, `
+    SELECT snapshot_date, total_active, with_dob, avg_age, female_count, male_count, female_avg, male_avg
+    FROM member_stats_snapshots
+    ORDER BY snapshot_date ASC
+    LIMIT 24
+  `)
+  const hasTrend = trends.length >= 2
+
+  return c.html(
+    <Layout title="Leeftijdsoverzicht" user={user}
+      breadcrumbs={[{label: 'Admin', href: '/admin'}, {label: 'Leeftijdsoverzicht', href: '/admin/leeftijden'}]}>
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h1 class="text-3xl font-bold text-gray-900" style="font-family: 'Playfair Display', serif;">
+              <i class="fas fa-birthday-cake text-pink-500 mr-2"></i>
+              Leeftijdsoverzicht
+            </h1>
+            <p class="text-sm text-gray-500 mt-1">
+              Live cijfers — automatisch bijgewerkt op basis van de huidige profielgegevens.
+            </p>
+          </div>
+          <a href="/admin" class="text-sm text-gray-600 hover:text-animato-primary">
+            <i class="fas fa-arrow-left mr-1"></i> Terug naar admin
+          </a>
+        </div>
+
+        {/* Hero */}
+        <div class="bg-gradient-to-br from-purple-600 to-pink-500 text-white rounded-2xl shadow-lg p-8 mb-8">
+          <div class="text-sm uppercase tracking-widest opacity-80">Gemiddelde leeftijd</div>
+          <div class="text-7xl font-extrabold leading-none my-2">
+            {avgRow?.gem ?? '—'}
+          </div>
+          <div class="text-base opacity-90">
+            jaar · gebaseerd op <strong>{avgRow?.n || 0}</strong> van de <strong>{overall?.totaal || 0}</strong> actieve leden
+            ({Math.round(((avgRow?.n || 0) / Math.max(1, (overall?.totaal || 1))) * 100)}% dekking)
+          </div>
+        </div>
+
+        {/* 3 cards */}
+        <div class="grid grid-cols-3 gap-4 mb-8">
+          <div class="bg-white rounded-xl border border-gray-200 p-5 text-center">
+            <div class="text-xs uppercase tracking-wide text-gray-500 mb-1">Jongste lid</div>
+            <div class="text-3xl font-bold text-gray-900">{avgRow?.jongste ?? '—'}</div>
+            <div class="text-xs text-gray-400 mt-1">jaar</div>
+          </div>
+          <div class="bg-white rounded-xl border border-gray-200 p-5 text-center">
+            <div class="text-xs uppercase tracking-wide text-gray-500 mb-1">Oudste lid</div>
+            <div class="text-3xl font-bold text-gray-900">{avgRow?.oudste ?? '—'}</div>
+            <div class="text-xs text-gray-400 mt-1">jaar</div>
+          </div>
+          <div class="bg-white rounded-xl border border-gray-200 p-5 text-center">
+            <div class="text-xs uppercase tracking-wide text-gray-500 mb-1">Spreiding</div>
+            <div class="text-3xl font-bold text-gray-900">
+              {avgRow?.oudste && avgRow?.jongste ? (avgRow.oudste - avgRow.jongste) : '—'}
+            </div>
+            <div class="text-xs text-gray-400 mt-1">jaar tussen jongste en oudste</div>
+          </div>
+        </div>
+
+        {/* Per geslacht */}
+        <h2 class="text-lg font-bold text-gray-900 mb-4">
+          <i class="fas fa-venus-mars text-purple-500 mr-2"></i>
+          Per geslacht <span class="text-xs font-normal text-gray-500">(afgeleid uit stemgroep)</span>
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+          <div class="bg-gradient-to-br from-pink-500 to-rose-500 text-white rounded-xl p-6 relative overflow-hidden">
+            <i class="fas fa-venus absolute right-5 top-4 text-5xl opacity-20"></i>
+            <div class="text-xs uppercase tracking-widest opacity-85">Vrouwen (sopraan + alt)</div>
+            <div class="text-4xl font-bold my-2">{femaleRow.aantal}</div>
+            <div class="text-sm opacity-95">
+              Gem. leeftijd <strong class="text-xl">{femaleRow.gem}</strong> jaar · bereik {femaleRow.jongste} – {femaleRow.oudste}
+            </div>
+          </div>
+          <div class="bg-gradient-to-br from-blue-500 to-indigo-600 text-white rounded-xl p-6 relative overflow-hidden">
+            <i class="fas fa-mars absolute right-5 top-4 text-5xl opacity-20"></i>
+            <div class="text-xs uppercase tracking-widest opacity-85">Mannen (tenor + bas)</div>
+            <div class="text-4xl font-bold my-2">{maleRow.aantal}</div>
+            <div class="text-sm opacity-95">
+              Gem. leeftijd <strong class="text-xl">{maleRow.gem}</strong> jaar · bereik {maleRow.jongste} – {maleRow.oudste}
+            </div>
+          </div>
+        </div>
+        {unknownRow.aantal > 0 && (
+          <div class="bg-gray-100 border border-gray-200 rounded-lg px-4 py-3 mb-8 text-sm text-gray-600">
+            <i class="fas fa-info-circle mr-1"></i>
+            {unknownRow.aantal} lid (leden) zonder ingestelde stemgroep, gemiddelde {unknownRow.gem} jaar.
+          </div>
+        )}
+
+        {/* Per stemgroep */}
+        <h2 class="text-lg font-bold text-gray-900 mb-4">
+          <i class="fas fa-music text-animato-primary mr-2"></i>
+          Per stemgroep
+        </h2>
+        <div class="bg-white rounded-xl border border-gray-200 overflow-hidden mb-8">
+          <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-gray-600 uppercase text-xs tracking-wide">
+              <tr>
+                <th class="text-left px-4 py-3">Stemgroep</th>
+                <th class="text-right px-4 py-3">Aantal</th>
+                <th class="text-right px-4 py-3">Gem. leeftijd</th>
+                <th class="text-right px-4 py-3">Jongste</th>
+                <th class="text-right px-4 py-3">Oudste</th>
+                <th class="text-right px-4 py-3">Spreiding</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+              {perStem.map((row: any) => (
+                <tr class="hover:bg-gray-50">
+                  <td class="px-4 py-3">
+                    <span class={`inline-block px-3 py-1 rounded-full font-semibold ${stemBadge(row.stemgroep)}`}>
+                      {stemLabel(row.stemgroep)}
+                    </span>
+                  </td>
+                  <td class="px-4 py-3 text-right tabular-nums">{row.aantal}</td>
+                  <td class="px-4 py-3 text-right tabular-nums font-bold text-gray-900">{row.gem}</td>
+                  <td class="px-4 py-3 text-right tabular-nums">{row.jongste}</td>
+                  <td class="px-4 py-3 text-right tabular-nums">{row.oudste}</td>
+                  <td class="px-4 py-3 text-right tabular-nums text-gray-500">{row.oudste - row.jongste} j</td>
+                </tr>
+              ))}
+              <tr class="bg-gray-50 font-semibold">
+                <td class="px-4 py-3">Totaal</td>
+                <td class="px-4 py-3 text-right tabular-nums">{avgRow?.n || 0}</td>
+                <td class="px-4 py-3 text-right tabular-nums">{avgRow?.gem ?? '—'}</td>
+                <td class="px-4 py-3 text-right tabular-nums">{avgRow?.jongste ?? '—'}</td>
+                <td class="px-4 py-3 text-right tabular-nums">{avgRow?.oudste ?? '—'}</td>
+                <td class="px-4 py-3 text-right tabular-nums text-gray-500">
+                  {avgRow?.oudste && avgRow?.jongste ? `${avgRow.oudste - avgRow.jongste} j` : '—'}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {/* Histogram */}
+        <h2 class="text-lg font-bold text-gray-900 mb-4">
+          <i class="fas fa-chart-bar text-amber-500 mr-2"></i>
+          Verdeling per leeftijdscategorie
+        </h2>
+        <div class="bg-white rounded-xl border border-gray-200 p-6 mb-8">
+          {buckets.map(b => {
+            const widthPct = Math.round((b.n / maxBucket) * 100)
+            const pctOfTotal = totaalMetDob > 0 ? Math.round((b.n / totaalMetDob) * 1000) / 10 : 0
+            return (
+              <div class="grid grid-cols-[110px_1fr_60px] items-center gap-3 mb-2">
+                <div class="text-sm font-medium text-gray-700">{b.label}</div>
+                <div class="bg-gray-100 h-6 rounded-md overflow-hidden">
+                  <div
+                    class="h-full bg-gradient-to-r from-purple-600 to-pink-500 rounded-md flex items-center justify-end pr-2 text-white text-xs font-semibold"
+                    style={`width: ${widthPct}%`}
+                  >
+                    {b.n > 0 && b.n}
+                  </div>
+                </div>
+                <div class="text-sm text-gray-500 text-right tabular-nums">{pctOfTotal}%</div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Trend grafiek — alleen tonen als we minstens 2 snapshots hebben */}
+        {hasTrend && (
+          <>
+            <h2 class="text-lg font-bold text-gray-900 mb-4">
+              <i class="fas fa-chart-line text-emerald-500 mr-2"></i>
+              Evolutie over de tijd
+              <span class="text-xs font-normal text-gray-500 ml-2">
+                ({trends.length} maandelijkse snapshots — gem. leeftijd vs. ledental)
+              </span>
+            </h2>
+            <div class="bg-white rounded-xl border border-gray-200 p-6 mb-8">
+              <div class="relative" style="height: 280px;">
+                <canvas id="trendChart"></canvas>
+              </div>
+              <details class="mt-4 text-xs text-gray-500">
+                <summary class="cursor-pointer hover:text-gray-700">Bekijk ruwe data ({trends.length} snapshots)</summary>
+                <table class="w-full mt-3 text-xs">
+                  <thead class="bg-gray-50">
+                    <tr>
+                      <th class="text-left px-2 py-1">Datum</th>
+                      <th class="text-right px-2 py-1">Leden</th>
+                      <th class="text-right px-2 py-1">Met geboortedat.</th>
+                      <th class="text-right px-2 py-1">Gem. leeftijd</th>
+                      <th class="text-right px-2 py-1">♀ aantal</th>
+                      <th class="text-right px-2 py-1">♂ aantal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trends.map((t: any) => (
+                      <tr class="border-t">
+                        <td class="px-2 py-1">{t.snapshot_date}</td>
+                        <td class="px-2 py-1 text-right tabular-nums">{t.total_active}</td>
+                        <td class="px-2 py-1 text-right tabular-nums">{t.with_dob}</td>
+                        <td class="px-2 py-1 text-right tabular-nums font-medium">{t.avg_age}</td>
+                        <td class="px-2 py-1 text-right tabular-nums">{t.female_count}</td>
+                        <td class="px-2 py-1 text-right tabular-nums">{t.male_count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </details>
+            </div>
+            <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+            <script dangerouslySetInnerHTML={{ __html: `
+              (function() {
+                const data = ${JSON.stringify(trends.map((t: any) => ({
+                  d: t.snapshot_date,
+                  avg: t.avg_age,
+                  n: t.total_active,
+                  f: t.female_count,
+                  m: t.male_count
+                })))};
+                if (!data || data.length < 2) return;
+                const ctx = document.getElementById('trendChart');
+                if (!ctx || typeof Chart === 'undefined') return;
+                new Chart(ctx, {
+                  type: 'line',
+                  data: {
+                    labels: data.map(d => d.d),
+                    datasets: [
+                      {
+                        label: 'Gem. leeftijd',
+                        data: data.map(d => d.avg),
+                        borderColor: 'rgb(124, 58, 237)',
+                        backgroundColor: 'rgba(124, 58, 237, 0.1)',
+                        yAxisID: 'y',
+                        tension: 0.3,
+                        borderWidth: 3,
+                        pointRadius: 4
+                      },
+                      {
+                        label: 'Aantal leden',
+                        data: data.map(d => d.n),
+                        borderColor: 'rgb(236, 72, 153)',
+                        backgroundColor: 'rgba(236, 72, 153, 0.1)',
+                        yAxisID: 'y1',
+                        tension: 0.3,
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        pointRadius: 3
+                      }
+                    ]
+                  },
+                  options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                      legend: { position: 'bottom' },
+                      tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.95)' }
+                    },
+                    scales: {
+                      y: {
+                        type: 'linear',
+                        position: 'left',
+                        title: { display: true, text: 'Gem. leeftijd (jaar)' },
+                        grid: { color: 'rgba(0,0,0,0.05)' }
+                      },
+                      y1: {
+                        type: 'linear',
+                        position: 'right',
+                        title: { display: true, text: 'Aantal leden' },
+                        grid: { display: false },
+                        beginAtZero: true
+                      }
+                    }
+                  }
+                });
+              })();
+            ` }} />
+          </>
+        )}
+
+        {!hasTrend && (
+          <div class="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-8 text-sm text-blue-800">
+            <i class="fas fa-info-circle mr-2"></i>
+            <strong>Trend-tracking is gestart.</strong> Elke maand wordt automatisch een snapshot
+            opgeslagen wanneer iemand deze pagina bezoekt. Binnen enkele maanden verschijnt hier
+            een grafiek met de evolutie van de gemiddelde leeftijd en het ledental.
+            {trends.length === 1 && (
+              <span class="block mt-1 text-xs text-blue-700">
+                Eerste snapshot opgeslagen op {trends[0].snapshot_date}.
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Ontbrekende geboortedata */}
+        {zonderDob.length > 0 && (
+          <div class="bg-amber-50 border-l-4 border-amber-400 rounded-xl p-6 mb-6">
+            <h2 class="text-lg font-bold text-amber-900 mb-2">
+              <i class="fas fa-exclamation-triangle mr-2"></i>
+              {zonderDob.length} actieve leden zonder geboortedatum
+            </h2>
+            <p class="text-sm text-amber-800 mb-4">
+              Deze leden tellen niet mee in de gemiddelden. Een korte herinnering om hun profiel
+              te vervolledigen verbetert de cijfers.
+            </p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {zonderDob.map((l: any) => (
+                <a href={`/admin/leden/${l.id}`}
+                   class="flex items-center justify-between bg-white border border-amber-200 rounded-lg px-3 py-2 hover:border-amber-400 hover:shadow-sm transition">
+                  <div class="flex items-center gap-2 min-w-0">
+                    <span class={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${stemBadge(l.stemgroep || 'X')}`}>
+                      {l.stemgroep || '–'}
+                    </span>
+                    <span class="text-sm font-medium text-gray-900 truncate">
+                      {l.voornaam} {l.achternaam}
+                    </span>
+                  </div>
+                  <i class="fas fa-chevron-right text-gray-400 text-xs"></i>
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div class="text-xs text-gray-400 text-center py-4">
+          Live data — vernieuw deze pagina om de meest recente cijfers te zien.
+          Geslacht wordt afgeleid uit stemgroep (S/A → vrouw, T/B → man).
+        </div>
+      </div>
+    </Layout>
+  )
+})
 
 export default app

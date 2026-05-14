@@ -387,10 +387,33 @@ app.get('/api/leden/quiz/question', async (c) => {
   const pool = await getQuizPool(c.env.DB, user.id)
   if (pool.length < 3) return c.json({ error: 'pool_too_small' }, 400)
 
-  // Weighted target selectie:
-  // - bereken voor elke kandidaat: hoe vaak ooit gezien & hoe vaak fout
-  // - score = (totale_keren_gezien_door_user × 1) - (aantal_fouten_door_user × 2)
-  // - lager = liever kiezen → omgekeerd weight = 1 / (1 + score)
+  // Helper: leid geslacht af uit stemgroep
+  //   S (sopraan) / A (alt) -> vrouw
+  //   T (tenor)  / B (bas)  -> man
+  //   anders                 -> null (onbekend)
+  // Gebruikt voor het kiezen van geslachts-consistente alternatieven.
+  const genderOf = (stem: string | null | undefined): 'F' | 'M' | null => {
+    if (!stem) return null
+    const s = String(stem).toUpperCase().trim()
+    if (s.startsWith('S') || s.startsWith('A')) return 'F'
+    if (s.startsWith('T') || s.startsWith('B')) return 'M'
+    return null
+  }
+
+  // Weighted target selectie — doel: alle leden komen over sessies heen
+  // ongeveer gelijk aan bod, met lichte voorrang voor wie de speler nog
+  // niet of vaker fout had.
+  //
+  // Per kandidaat halen we 'seen' (totaal gezien door deze speler) en
+  // 'wrong' (aantal foute antwoorden) op.
+  //
+  // Selectie in twee stappen:
+  //   1. NOOIT-GEZIEN bucket: kandidaten met seen=0 krijgen ALTIJD voorrang.
+  //      Pas als die bucket leeg is, gaan we naar de gewone weighted pool.
+  //      Dit garandeert dat een speler eerst alle leden minstens 1× ziet
+  //      voor er herhaling komt.
+  //   2. Binnen de gewone pool: weight = 1 / (1 + seen - 2*wrong)
+  //      Minder gezien of vaker fout = hogere kans.
   const seenStats = await queryAll<any>(c.env.DB, `
     SELECT target_user_id, COUNT(*) as seen, SUM(CASE WHEN is_correct=0 THEN 1 ELSE 0 END) as wrong
     FROM quiz_answers WHERE user_id = ?
@@ -406,33 +429,63 @@ app.get('/api/leden/quiz/question', async (c) => {
   let candidates = pool.filter(p => !alreadyInSession.has(p.id))
   if (candidates.length === 0) candidates = pool // fallback als pool kleiner is dan 5
 
-  // Bereken weights
-  const weighted = candidates.map(p => {
-    const s = seenMap.get(p.id) || { seen: 0, wrong: 0 }
-    // hoge prioriteit: nooit gezien (seen=0) of recent fout (wrong>0)
-    const score = s.seen - s.wrong * 2
-    const weight = 1 / (1 + Math.max(0, score))
-    return { person: p, weight }
-  })
-  const totalWeight = weighted.reduce((sum, w) => sum + w.weight, 0)
-  let r = Math.random() * totalWeight
-  let target = weighted[0].person
-  for (const w of weighted) {
-    r -= w.weight
-    if (r <= 0) { target = w.person; break }
+  // Stap 1: bucket "nog nooit gezien door deze speler"
+  const neverSeen = candidates.filter(p => !seenMap.has(p.id))
+
+  let target: any
+  if (neverSeen.length > 0) {
+    // Pure random uit de nog-nooit-geziene leden — gegarandeerde spreiding
+    target = shuffle(neverSeen)[0]
+  } else {
+    // Stap 2: alle leden zijn al eens voorgekomen → weighted fallback
+    const weighted = candidates.map(p => {
+      const s = seenMap.get(p.id) || { seen: 0, wrong: 0 }
+      const score = s.seen - s.wrong * 2
+      const weight = 1 / (1 + Math.max(0, score))
+      return { person: p, weight }
+    })
+    const totalWeight = weighted.reduce((sum, w) => sum + w.weight, 0)
+    let r = Math.random() * totalWeight
+    target = weighted[0].person
+    for (const w of weighted) {
+      r -= w.weight
+      if (r <= 0) { target = w.person; break }
+    }
   }
 
-  // Distractors: minstens 1 uit zelfde stemgroep (indien mogelijk), 1 random uit rest
+  // ===== DISTRACTORS =====
+  // Regel: enkel leden van hetzelfde geslacht als target (afgeleid uit stemgroep).
+  // Een vrouwelijke foto met als afleider een mannelijke naam is een gratis hint —
+  // dat ondermijnt de quiz. Als er onvoldoende same-gender kandidaten zijn,
+  // valt de logica terug op de hele pool (eerlijke graceful degradation).
+  const targetGender = genderOf(target.stemgroep)
   const others = pool.filter(p => p.id !== target.id)
-  const sameStem = others.filter(p => p.stemgroep && p.stemgroep === target.stemgroep)
-  const otherStem = others.filter(p => !p.stemgroep || p.stemgroep !== target.stemgroep)
 
-  let distractors: any[] = []
+  const sameGender = targetGender
+    ? others.filter(p => genderOf(p.stemgroep) === targetGender)
+    : others
+
+  // We hebben minstens 2 distractors nodig. Als same-gender pool te klein is,
+  // vullen we aan met "onbekend geslacht" (stemgroep null), nooit met de andere sekse.
+  // Pas als ook dat ontoereikend is, gebruiken we de volledige pool.
+  let distractorPool = sameGender
+  if (distractorPool.length < 2 && targetGender) {
+    const unknownGender = others.filter(p => genderOf(p.stemgroep) === null)
+    distractorPool = [...sameGender, ...unknownGender]
+  }
+  if (distractorPool.length < 2) {
+    distractorPool = others // ultieme fallback
+  }
+
+  // Binnen die pool: minstens 1 uit zelfde stemgroep indien mogelijk
+  const sameStem = distractorPool.filter(p => p.stemgroep && p.stemgroep === target.stemgroep)
+
+  const distractors: any[] = []
   if (sameStem.length > 0) {
     distractors.push(shuffle(sameStem)[0])
   }
   // Vul aan tot 2 distractors
-  const remaining = others.filter(p => !distractors.find(d => d.id === p.id))
+  const remaining = distractorPool.filter(p => !distractors.find(d => d.id === p.id))
   const extra = shuffle(remaining).slice(0, 2 - distractors.length)
   distractors.push(...extra)
 

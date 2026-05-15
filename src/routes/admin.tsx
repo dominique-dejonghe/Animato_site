@@ -3617,7 +3617,8 @@ app.get('/admin/content', async (c) => {
   if (tab === 'posts') {
     // Get posts (nieuws + board)
     let query = `
-      SELECT p.id, p.type, p.titel, p.slug, p.is_published, p.zichtbaarheid, p.categorie, p.created_at, p.published_at,
+      SELECT p.id, p.type, p.titel, p.slug, p.excerpt, p.public_share,
+             p.is_published, p.zichtbaarheid, p.categorie, p.created_at, p.published_at,
              p.shared_via_whatsapp, p.shared_via_whatsapp_at,
              u.email as auteur_email, pr.voornaam as auteur_voornaam, pr.achternaam as auteur_achternaam,
              (SELECT COUNT(*) FROM post_replies WHERE post_id = p.id) as reply_count
@@ -3981,15 +3982,43 @@ app.get('/admin/content', async (c) => {
                           </>
                         )}
                         <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          {/* Snelle WhatsApp share — enkel voor gepubliceerde posts met slug */}
+                          {tab === 'posts' && item.is_published === 1 && item.slug && (() => {
+                            const baseUrl = 'https://animato-live.pages.dev'
+                            const detailPath = item.type === 'nieuws' ? `/nieuws/${item.slug}` : `/posts/${item.slug}`
+                            const isPubliclyAccessible = item.zichtbaarheid === 'publiek' || item.public_share === 1
+                            // Voor leden-only: gebruik /preview/:slug zodat WhatsApp's bot wel OG-tags kan scrapen
+                            const shareUrl = isPubliclyAccessible ? `${baseUrl}${detailPath}` : `${baseUrl}/preview/${item.slug}`
+                            const titelSafe = (item.titel || '').replace(/\*/g, '')
+                            const excerptClean = (item.excerpt || '').trim()
+                            const lines = [`*${titelSafe}*`]
+                            if (excerptClean) lines.push('', excerptClean)
+                            lines.push('', shareUrl)
+                            const shareText = lines.join('\n')
+                            return (
+                              <a
+                                href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onclick={`event.stopPropagation(); markWhatsappShared(${item.id})`}
+                                class="text-green-600 hover:text-green-800 mr-3"
+                                title={isPubliclyAccessible ? 'Deel direct via WhatsApp (publiek)' : 'Deel via WhatsApp — leden-only, ontvangers zien preview-kaart'}
+                              >
+                                <i class="fab fa-whatsapp text-base"></i>
+                              </a>
+                            )
+                          })()}
                           <a 
                             href={`/admin/content/${item.id}?type=${tab}`} 
                             class="text-animato-primary hover:text-animato-secondary mr-3"
+                            title="Bewerken"
                           >
                             <i class="fas fa-edit"></i>
                           </a>
                           <button
                             onclick={`openDeleteModal('/api/admin/content/${item.id}/delete?type=${tab}')`}
                             class="text-red-600 hover:text-red-900"
+                            title="Verwijderen"
                           >
                             <i class="fas fa-trash"></i>
                           </button>
@@ -4111,6 +4140,38 @@ app.get('/admin/content', async (c) => {
           }
         }
         window.toggleWhatsappShared = toggleWhatsappShared;
+
+        // Markeer als "gedeeld" wanneer admin op de directe WhatsApp share-knop in de actie-kolom klikt.
+        // Anders dan toggle: dit ZET het vinkje aan (idempotent — als al aan, niets doen).
+        async function markWhatsappShared(postId) {
+          // Zoek het toggle-knopje in dezelfde rij
+          const row = document.querySelector('button[onclick*="toggleWhatsappShared(' + postId + ','][data-shared]');
+          if (row && row.dataset.shared === '1') return; // al aangevinkt
+          try {
+            const res = await fetch('/api/admin/content/' + postId + '/toggle-whatsapp', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await res.json();
+            if (data.success && row) {
+              const isShared = data.shared_via_whatsapp;
+              // Als de toggle "uitvinkte" (omdat hij al stond), zet hem terug aan
+              if (!isShared) {
+                await fetch('/api/admin/content/' + postId + '/toggle-whatsapp', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' }
+                });
+              }
+              row.dataset.shared = '1';
+              row.className = 'inline-flex items-center justify-center w-8 h-8 rounded-full transition bg-green-100 hover:bg-green-200 text-green-700';
+              row.innerHTML = '<i class="fas fa-check text-base"></i>';
+              row.title = 'Gedeeld via WhatsApp — klik om uit te vinken';
+            }
+          } catch (e) {
+            // Stil falen — gebruiker zit al in WhatsApp tegen die tijd
+            console.warn('markWhatsappShared:', e);
+          }
+        }
+        window.markWhatsappShared = markWhatsappShared;
       ` }} />
     </Layout>
   )

@@ -4196,111 +4196,157 @@ app.get('/admin/content/:id', async (c) => {
           {/* Success/Error Messages */}
           {success && (
             <div class="mb-6 bg-green-50 border border-green-200 rounded-lg p-4">
-              <div class="flex items-start justify-between flex-wrap gap-3">
-                <div class="flex items-center">
-                  <i class="fas fa-check-circle text-green-500 mr-3"></i>
-                  <div class="text-sm text-green-800">
-                    {success === 'created' && 'Post succesvol aangemaakt'}
-                    {success === 'updated' && 'Post succesvol bijgewerkt'}
-                  </div>
+              <div class="flex items-center">
+                <i class="fas fa-check-circle text-green-500 mr-3"></i>
+                <div class="text-sm text-green-800">
+                  {success === 'created' && 'Post succesvol aangemaakt'}
+                  {success === 'updated' && 'Post succesvol bijgewerkt'}
                 </div>
-                {/* #119 — Deel via WhatsApp wanneer post gepubliceerd is.
-                    Gebruik /posts/:slug voor type='posts'/'board'/etc., /nieuws/:slug enkel voor type='nieuws'.
-                    Dit werkt voor àlle post-types via de universele post-detail route. */}
-                {post && post.is_published === 1 && contentType === 'posts' && post.slug && (() => {
-                  const baseUrl = 'https://animato-live.pages.dev'
-                  const detailPath = post.type === 'nieuws' ? `/nieuws/${post.slug}` : `/posts/${post.slug}`
-                  const detailUrl = `${baseUrl}${detailPath}`
-                  const isPublicShare = post.public_share === 1
-                  const isPubliclyAccessible = post.zichtbaarheid === 'publiek' || isPublicShare
-                  // Voor leden-only: deel de /preview/:slug link zodat WhatsApp's bot wél OG-tags krijgt
-                  // (zonder dat we de inhoud lekken — preview toont alleen titel, excerpt en cover)
-                  const shareUrl = isPubliclyAccessible ? detailUrl : `${baseUrl}/preview/${post.slug}`
-                  const needsLogin = !isPubliclyAccessible
-
-                  // Nette share-tekst: titel in WhatsApp-bold + lege regel + excerpt + lege regel + URL.
-                  // GEEN emojis (Dominique: "anders slordig" — bv. squares in oudere fonts).
-                  // De rich preview-kaart (cover + samenvatting) komt automatisch via de OG-tags op de pagina.
-                  const titelEscaped = post.titel.replace(/\*/g, '')   // dubbele asterisks in titel slopen WhatsApp bold
-                  const excerptClean = (post.excerpt || '').trim()
-                  const shareLines = [`*${titelEscaped}*`]
-                  if (excerptClean) shareLines.push('', excerptClean)
-                  shareLines.push('', shareUrl)
-                  const shareText = shareLines.join('\n')
-                  // Voor "Kopieer link" — gewoon URL, geen markdown
-                  const copyText = `${post.titel} — ${shareUrl}`
-                  const copyTextEscaped = copyText.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n')
-
-                  return (
-                    <div class="flex flex-col items-end gap-2">
-                      <div class="flex items-center gap-2 flex-wrap">
-                        <a
-                          href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition shadow-sm"
-                          title="Open WhatsApp om dit bericht te delen — de cover en samenvatting verschijnen automatisch als preview-kaart"
-                        >
-                          <i class="fab fa-whatsapp mr-2 text-base"></i>
-                          Deel via WhatsApp
-                        </a>
-                        <a
-                          href={detailPath}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          class="inline-flex items-center px-3 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm transition"
-                          title="Open het publieke bericht in een nieuw tabblad"
-                        >
-                          <i class="fas fa-external-link-alt mr-1"></i>
-                          Bekijk
-                        </a>
-                        <button
-                          type="button"
-                          onclick={`navigator.clipboard.writeText('${copyTextEscaped}'); this.innerHTML='<i class=\\'fas fa-check mr-1\\'></i> Gekopieerd!'; setTimeout(()=>{this.innerHTML='<i class=\\'fas fa-copy mr-1\\'></i> Kopieer link'}, 2000);`}
-                          class="inline-flex items-center px-3 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm transition"
-                          title="Kopieer link + titel voor andere kanalen"
-                        >
-                          <i class="fas fa-copy mr-1"></i>
-                          Kopieer link
-                        </button>
-                      </div>
-
-                      {/* Live preview van de WhatsApp share-tekst, zodat admin weet wat ontvangers zien */}
-                      <details class="w-full max-w-md">
-                        <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-700 select-none">
-                          <i class="fas fa-eye mr-1"></i>Voorbeeld van de WhatsApp-tekst
-                        </summary>
-                        <div class="mt-2 bg-white border border-gray-200 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap font-mono leading-relaxed shadow-inner">
-                          {shareText}
-                        </div>
-                        <div class="mt-1 text-[11px] text-gray-400">
-                          <i class="fas fa-image mr-1"></i>Cover + samenvatting komen er automatisch bij als kaartje (OpenGraph).
-                        </div>
-                      </details>
-
-                      {/* Status-indicator: openbaar of leden-only */}
-                      {isPublicShare ? (
-                        <div class="text-xs text-green-700 font-medium">
-                          <i class="fas fa-share-alt mr-1"></i>
-                          Publiek deelbaar — ontvangers hoeven niet in te loggen
-                        </div>
-                      ) : needsLogin ? (
-                        <div class="text-xs text-amber-700 font-medium">
-                          <i class="fas fa-info-circle mr-1"></i>
-                          Leden-only — preview-kaart is publiek, volledige inhoud vereist login. Vink "Maak publiek deelbaar" aan voor open delen.
-                        </div>
-                      ) : (
-                        <div class="text-xs text-gray-500">
-                          <i class="fas fa-globe mr-1"></i>
-                          Publieke post — werkt zonder login
-                        </div>
-                      )}
-                    </div>
-                  )
-                })()}
               </div>
             </div>
           )}
+
+          {/* #119 / #150 — PERMANENTE DEEL-KAART
+              Toont WhatsApp/Facebook/LinkedIn/Email-share knoppen telkens als je een
+              gepubliceerd bericht bekijkt of bewerkt — niet enkel direct na save.
+              Voorwaarden: gepubliceerde post, post-type (geen events), en een slug. */}
+          {post && post.is_published === 1 && contentType === 'posts' && post.slug && (() => {
+            const baseUrl = 'https://animato-live.pages.dev'
+            const detailPath = post.type === 'nieuws' ? `/nieuws/${post.slug}` : `/posts/${post.slug}`
+            const detailUrl = `${baseUrl}${detailPath}`
+            const isPublicShare = post.public_share === 1
+            const isPubliclyAccessible = post.zichtbaarheid === 'publiek' || isPublicShare
+            // Voor leden-only: deel de /preview/:slug link zodat WhatsApp's bot wél OG-tags krijgt
+            // (zonder dat we de inhoud lekken — preview toont alleen titel, excerpt en cover)
+            const shareUrl = isPubliclyAccessible ? detailUrl : `${baseUrl}/preview/${post.slug}`
+            const needsLogin = !isPubliclyAccessible
+
+            // Nette share-tekst: titel in WhatsApp-bold + lege regel + excerpt + lege regel + URL.
+            // GEEN emojis (Dominique: "anders slordig" — bv. squares in oudere fonts).
+            const titelEscaped = post.titel.replace(/\*/g, '')   // dubbele asterisks in titel slopen WhatsApp bold
+            const excerptClean = (post.excerpt || '').trim()
+            const shareLines = [`*${titelEscaped}*`]
+            if (excerptClean) shareLines.push('', excerptClean)
+            shareLines.push('', shareUrl)
+            const shareText = shareLines.join('\n')
+            // Voor "Kopieer link" — gewoon URL, geen markdown
+            const copyText = `${post.titel} — ${shareUrl}`
+            const copyTextEscaped = copyText.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n')
+            // Facebook / LinkedIn / Email
+            const fbUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`
+            const liUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`
+            const mailSubj = encodeURIComponent(post.titel)
+            const mailBody = encodeURIComponent(`${excerptClean ? excerptClean + '\n\n' : ''}Lees verder: ${shareUrl}\n\n— Gemengd Koor Animato`)
+            const mailUrl = `mailto:?subject=${mailSubj}&body=${mailBody}`
+
+            return (
+              <div class="mb-6 bg-white border-2 border-animato-primary/20 rounded-xl shadow-sm overflow-hidden">
+                <div class="bg-gradient-to-r from-animato-primary/10 to-animato-secondary/10 px-5 py-3 border-b border-animato-primary/10 flex items-center justify-between flex-wrap gap-2">
+                  <div class="flex items-center gap-2">
+                    <i class="fas fa-share-nodes text-animato-primary"></i>
+                    <h3 class="font-semibold text-gray-800 text-sm">Deel dit bericht</h3>
+                  </div>
+                  {/* Status-indicator: openbaar of leden-only */}
+                  {isPublicShare ? (
+                    <span class="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-full bg-green-100 text-green-700">
+                      <i class="fas fa-share-alt mr-1.5"></i>
+                      Publiek deelbaar
+                    </span>
+                  ) : needsLogin ? (
+                    <span class="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-full bg-amber-100 text-amber-700" title="Volledige inhoud vereist login; preview-kaart is wel publiek">
+                      <i class="fas fa-lock mr-1.5"></i>
+                      Leden-only (met publieke preview)
+                    </span>
+                  ) : (
+                    <span class="inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">
+                      <i class="fas fa-globe mr-1.5"></i>
+                      Publieke post
+                    </span>
+                  )}
+                </div>
+
+                <div class="p-5 flex flex-col gap-3">
+                  {/* Primaire actie + alternatieven */}
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <a
+                      href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-flex items-center px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold transition shadow-sm"
+                      title="Open WhatsApp om dit bericht te delen — de cover en samenvatting verschijnen automatisch als preview-kaart"
+                    >
+                      <i class="fab fa-whatsapp mr-2 text-base"></i>
+                      Deel via WhatsApp
+                    </a>
+                    <a
+                      href={fbUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-flex items-center justify-center w-9 h-9 rounded-full bg-blue-600 hover:bg-blue-700 text-white transition"
+                      title="Deel via Facebook"
+                    >
+                      <i class="fab fa-facebook-f text-sm"></i>
+                    </a>
+                    <a
+                      href={liUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-flex items-center justify-center w-9 h-9 rounded-full bg-sky-700 hover:bg-sky-800 text-white transition"
+                      title="Deel via LinkedIn"
+                    >
+                      <i class="fab fa-linkedin-in text-sm"></i>
+                    </a>
+                    <a
+                      href={mailUrl}
+                      class="inline-flex items-center justify-center w-9 h-9 rounded-full bg-gray-600 hover:bg-gray-700 text-white transition"
+                      title="Deel via e-mail"
+                    >
+                      <i class="fas fa-envelope text-sm"></i>
+                    </a>
+                    <a
+                      href={detailPath}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="inline-flex items-center px-3 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm transition"
+                      title="Open het publieke bericht in een nieuw tabblad"
+                    >
+                      <i class="fas fa-external-link-alt mr-1.5"></i>
+                      Bekijk
+                    </a>
+                    <button
+                      type="button"
+                      onclick={`navigator.clipboard.writeText('${copyTextEscaped}'); this.innerHTML='<i class=\\'fas fa-check mr-1.5\\'></i> Gekopieerd!'; setTimeout(()=>{this.innerHTML='<i class=\\'fas fa-copy mr-1.5\\'></i> Kopieer link'}, 2000);`}
+                      class="inline-flex items-center px-3 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm transition"
+                      title="Kopieer link + titel voor andere kanalen"
+                    >
+                      <i class="fas fa-copy mr-1.5"></i>
+                      Kopieer link
+                    </button>
+                  </div>
+
+                  {/* Live preview van de WhatsApp share-tekst */}
+                  <details class="w-full">
+                    <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-700 select-none">
+                      <i class="fas fa-eye mr-1"></i>Voorbeeld van de WhatsApp-tekst
+                    </summary>
+                    <div class="mt-2 bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap font-mono leading-relaxed">
+                      {shareText}
+                    </div>
+                    <div class="mt-1 text-[11px] text-gray-400">
+                      <i class="fas fa-image mr-1"></i>Cover + samenvatting komen er automatisch bij als kaartje (OpenGraph).
+                    </div>
+                  </details>
+
+                  {needsLogin && (
+                    <div class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                      <i class="fas fa-info-circle mr-1"></i>
+                      Tip: vink <strong>"Maak publiek deelbaar"</strong> aan in de zichtbaarheidsopties om de volledige inhoud direct toegankelijk te maken voor iedereen die de link ontvangt.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )
+          })()}
 
           {error && (
             <div class="mb-6 bg-red-50 border-l-4 border-red-400 rounded-lg p-4 shadow-sm">

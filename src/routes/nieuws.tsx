@@ -359,6 +359,24 @@ app.get('/nieuws/:slug', async (c) => {
     [artikel.id]
   ) : null
 
+  // === Emoji-reacties op het bericht ===
+  // Aggregaat per type (voor de telling), én de eigen reactie van de gebruiker
+  // (om te tonen welke al gekozen is). Publieke bezoekers zien enkel de tellingen.
+  const reactionCountsRaw = await queryAll<any>(
+    c.env.DB,
+    `SELECT type, COUNT(*) as n FROM post_reactions WHERE post_id = ? GROUP BY type`,
+    [artikel.id]
+  )
+  const reactionCounts: Record<string, number> = {}
+  for (const row of reactionCountsRaw) reactionCounts[row.type] = row.n
+
+  const myReaction = user ? await queryOne<any>(
+    c.env.DB,
+    `SELECT type FROM post_reactions WHERE post_id = ? AND user_id = ? LIMIT 1`,
+    [artikel.id, user.id]
+  ) : null
+  const myReactionType: string | null = myReaction?.type || null
+
   // === Social share metadata ===
   // OG image: cover_image (absolute URL), of fallback naar logo
   const baseUrl = 'https://animato-live.pages.dev'
@@ -526,6 +544,68 @@ app.get('/nieuws/:slug', async (c) => {
           </div>
 
           {/* =================================================== */}
+          {/* EMOJI-REACTIES — duim/hartje/etc. (snel, geen typen) */}
+          {/* =================================================== */}
+          {(() => {
+            const reactionTypes = [
+              { key: 'like',  emoji: '👍', label: 'Duim' },
+              { key: 'love',  emoji: '❤️', label: 'Hartje' },
+              { key: 'laugh', emoji: '😄', label: 'Lachen' },
+              { key: 'wow',   emoji: '😮', label: 'Wow' },
+              { key: 'sad',   emoji: '😢', label: 'Verdrietig' },
+            ]
+            const totalReactions = Object.values(reactionCounts).reduce((a, b) => a + b, 0)
+            return (
+              <section id="reacties-emoji" class="mb-6">
+                <div class="bg-white border border-gray-200 rounded-xl p-4 sm:p-5">
+                  <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+                    <h3 class="text-sm font-semibold text-gray-700 flex items-center">
+                      <i class="fas fa-smile-beam text-animato-primary mr-2"></i>
+                      Hoe vond je dit bericht?
+                    </h3>
+                    {totalReactions > 0 && (
+                      <span class="text-xs text-gray-500">
+                        {totalReactions} reactie{totalReactions === 1 ? '' : 's'}
+                      </span>
+                    )}
+                  </div>
+                  <div class="flex flex-wrap gap-2" id="emoji-reactions-bar" data-slug={artikel.slug} data-logged-in={user ? '1' : '0'}>
+                    {reactionTypes.map(rt => {
+                      const count = reactionCounts[rt.key] || 0
+                      const isMine = myReactionType === rt.key
+                      return (
+                        <button
+                          type="button"
+                          data-reaction-type={rt.key}
+                          class={`emoji-reaction-btn inline-flex items-center gap-1.5 px-3 py-2 rounded-full border-2 transition text-sm font-medium ${
+                            isMine
+                              ? 'bg-animato-primary/10 border-animato-primary text-animato-primary'
+                              : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100 hover:border-gray-300'
+                          }`}
+                          title={user ? rt.label : 'Inloggen om te reageren'}
+                          aria-pressed={isMine ? 'true' : 'false'}
+                        >
+                          <span class="text-base leading-none" aria-hidden="true">{rt.emoji}</span>
+                          <span class="emoji-count tabular-nums">{count}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {!user && (
+                    <p class="text-xs text-gray-500 mt-3">
+                      <i class="fas fa-info-circle mr-1"></i>
+                      <a href={`/login?redirect=${encodeURIComponent('/nieuws/' + artikel.slug + '#reacties-emoji')}`}
+                         class="text-animato-primary hover:underline font-semibold">
+                        Log in
+                      </a> om zelf een reactie achter te laten.
+                    </p>
+                  )}
+                </div>
+              </section>
+            )
+          })()}
+
+          {/* =================================================== */}
           {/* REACTIES — leden kunnen reageren op nieuws          */}
           {/* =================================================== */}
           <section id="reacties" class="mb-12 bg-gray-50 rounded-xl p-6 sm:p-8 border border-gray-200">
@@ -660,6 +740,73 @@ app.get('/nieuws/:slug', async (c) => {
           </div>
         </div>
       </article>
+
+      {/* ========================================================== */}
+      {/* CLIENT-SIDE JS — emoji-reacties (toggle, switch, count)     */}
+      {/* ========================================================== */}
+      <script dangerouslySetInnerHTML={{ __html: `
+        (function() {
+          var bar = document.getElementById('emoji-reactions-bar');
+          if (!bar) return;
+          var slug = bar.dataset.slug;
+          var loggedIn = bar.dataset.loggedIn === '1';
+
+          bar.addEventListener('click', function(e) {
+            var btn = e.target.closest('.emoji-reaction-btn');
+            if (!btn) return;
+            e.preventDefault();
+
+            if (!loggedIn) {
+              window.location.href = '/login?redirect=' + encodeURIComponent('/nieuws/' + slug + '#reacties-emoji');
+              return;
+            }
+
+            var type = btn.dataset.reactionType;
+            // Visueel optimistisch updaten — server-bevestiging volgt
+            btn.disabled = true;
+            btn.style.opacity = '0.6';
+
+            fetch('/nieuws/' + encodeURIComponent(slug) + '/reactie-emoji', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({ type: type }),
+              credentials: 'same-origin'
+            })
+            .then(function(r) {
+              if (!r.ok) throw new Error('HTTP ' + r.status);
+              return r.json();
+            })
+            .then(function(data) {
+              // data = { counts: {like: 3, love: 1, ...}, myReaction: 'like' | null }
+              var allBtns = bar.querySelectorAll('.emoji-reaction-btn');
+              allBtns.forEach(function(b) {
+                var t = b.dataset.reactionType;
+                var n = (data.counts && data.counts[t]) || 0;
+                var countEl = b.querySelector('.emoji-count');
+                if (countEl) countEl.textContent = n;
+
+                if (data.myReaction === t) {
+                  b.classList.remove('bg-gray-50', 'border-gray-200', 'text-gray-700', 'hover:bg-gray-100', 'hover:border-gray-300');
+                  b.classList.add('bg-animato-primary/10', 'border-animato-primary', 'text-animato-primary');
+                  b.setAttribute('aria-pressed', 'true');
+                } else {
+                  b.classList.remove('bg-animato-primary/10', 'border-animato-primary', 'text-animato-primary');
+                  b.classList.add('bg-gray-50', 'border-gray-200', 'text-gray-700', 'hover:bg-gray-100', 'hover:border-gray-300');
+                  b.setAttribute('aria-pressed', 'false');
+                }
+              });
+            })
+            .catch(function(err) {
+              console.warn('Reactie opslaan mislukt:', err);
+              // Bij fout: niets veranderen
+            })
+            .finally(function() {
+              btn.disabled = false;
+              btn.style.opacity = '1';
+            });
+          });
+        })();
+      ` }} />
     </Layout>
   )
 })
@@ -737,6 +884,90 @@ app.post('/nieuws/:slug/reactie/:id/delete', async (c) => {
   }
 
   return c.redirect(`/nieuws/${slug}#reacties`)
+})
+
+// =====================================================
+// EMOJI-REACTIES — like / love / laugh / wow / sad
+// API: POST /nieuws/:slug/reactie-emoji  body: {type}
+// Logica:
+//   - geen bestaande reactie + valid type  -> insert
+//   - bestaande reactie van zelfde type    -> delete (toggle off)
+//   - bestaande reactie van ander type     -> update (switch)
+// Response: { counts: {like, love, ...}, myReaction: type|null }
+// =====================================================
+const VALID_REACTION_TYPES = ['like', 'love', 'laugh', 'wow', 'sad']
+
+app.post('/nieuws/:slug/reactie-emoji', async (c) => {
+  const user = c.get('user') as any
+  const slug = c.req.param('slug')
+
+  if (!user) {
+    return c.json({ error: 'Niet ingelogd' }, 401)
+  }
+
+  let body: any
+  try { body = await c.req.json() } catch { body = {} }
+  const type = String(body?.type || '').trim()
+
+  if (!VALID_REACTION_TYPES.includes(type)) {
+    return c.json({ error: 'Ongeldig type' }, 400)
+  }
+
+  // Vind de post (nieuws OF andere types, zodat we later makkelijk kunnen uitbreiden)
+  const post = await queryOne<any>(
+    c.env.DB,
+    `SELECT id FROM posts WHERE slug = ? AND is_published = 1 LIMIT 1`,
+    [slug]
+  )
+  if (!post) return c.json({ error: 'Bericht niet gevonden' }, 404)
+
+  // Bestaande reactie van deze user op deze post?
+  const existing = await queryOne<any>(
+    c.env.DB,
+    `SELECT id, type FROM post_reactions WHERE post_id = ? AND user_id = ? LIMIT 1`,
+    [post.id, user.id]
+  )
+
+  try {
+    if (!existing) {
+      await c.env.DB.prepare(
+        `INSERT INTO post_reactions (post_id, user_id, type) VALUES (?, ?, ?)`
+      ).bind(post.id, user.id, type).run()
+    } else if (existing.type === type) {
+      // Zelfde reactie nog eens klikken → wegnemen
+      await c.env.DB.prepare(
+        `DELETE FROM post_reactions WHERE id = ?`
+      ).bind(existing.id).run()
+    } else {
+      // Andere reactie → switch
+      await c.env.DB.prepare(
+        `UPDATE post_reactions SET type = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?`
+      ).bind(type, existing.id).run()
+    }
+  } catch (e: any) {
+    console.warn('Reactie opslaan mislukt:', e?.message)
+    return c.json({ error: 'Opslaan mislukt' }, 500)
+  }
+
+  // Verse aggregaten + eigen reactie ophalen
+  const countsRaw = await queryAll<any>(
+    c.env.DB,
+    `SELECT type, COUNT(*) as n FROM post_reactions WHERE post_id = ? GROUP BY type`,
+    [post.id]
+  )
+  const counts: Record<string, number> = {}
+  for (const row of countsRaw) counts[row.type] = row.n
+
+  const mine = await queryOne<any>(
+    c.env.DB,
+    `SELECT type FROM post_reactions WHERE post_id = ? AND user_id = ? LIMIT 1`,
+    [post.id, user.id]
+  )
+
+  return c.json({
+    counts,
+    myReaction: mine?.type || null
+  })
 })
 
 // =====================================================

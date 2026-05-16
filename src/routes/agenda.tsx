@@ -1167,6 +1167,22 @@ app.get('/concerten/:slug', async (c) => {
     }
   }
 
+  // ── Gekoppelde fotoboeken ──────────────────────────────────────
+  // Publieke bezoekers zien enkel publieke albums; ingelogde leden zien álle albums.
+  // We tellen ook het aantal foto's per album voor een mooiere teaser.
+  const albumsQuery = user
+    ? `SELECT a.id, a.titel, a.slug, a.cover_url, a.beschrijving, a.is_publiek,
+              (SELECT COUNT(*) FROM photos p WHERE p.album_id = a.id) as foto_count
+       FROM albums a
+       WHERE a.event_id = ?
+       ORDER BY a.sorteer_volgorde ASC, a.created_at DESC`
+    : `SELECT a.id, a.titel, a.slug, a.cover_url, a.beschrijving, a.is_publiek,
+              (SELECT COUNT(*) FROM photos p WHERE p.album_id = a.id) as foto_count
+       FROM albums a
+       WHERE a.event_id = ? AND a.is_publiek = 1
+       ORDER BY a.sorteer_volgorde ASC, a.created_at DESC`
+  const concertAlbums = await queryAll<any>(c.env.DB, albumsQuery, [(concert as any).id])
+
   // Ticket-status logica
   // Prioriteit: uitverkocht > (aangekondigd OR datum in toekomst) > verkoop open > gratis
   const voorverkoopStart = concert.voorverkoop_start_at ? new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')) : null
@@ -1338,6 +1354,74 @@ app.get('/concerten/:slug', async (c) => {
                     Het concrete repertoire wordt intern met onze leden gedeeld.
                     <a href="/auth/login" class="text-animato-primary hover:underline font-semibold ml-1">Log in</a> om het programma te bekijken.
                   </p>
+                </div>
+              )}
+
+              {/* ─────────────────────────────────────────────────────── */}
+              {/* Gekoppelde fotoboeken — zichtbaar als er albums zijn   */}
+              {/* gelinkt aan dit concert/event                          */}
+              {/* ─────────────────────────────────────────────────────── */}
+              {concertAlbums.length > 0 && (
+                <div class="bg-white rounded-lg shadow-md p-6 sm:p-8 mb-8 border-l-4 border-animato-primary">
+                  <div class="flex items-start justify-between flex-wrap gap-3 mb-4">
+                    <h2 class="text-2xl font-bold text-gray-900 flex items-center gap-3">
+                      <i class="fas fa-camera-retro text-animato-primary"></i>
+                      Foto{concertAlbums.length === 1 ? "'s" : "boeken"}
+                      <span class="text-base font-medium text-gray-500">
+                        ({concertAlbums.length} album{concertAlbums.length === 1 ? '' : 's'})
+                      </span>
+                    </h2>
+                    <a href="/fotoboek" class="text-sm text-gray-500 hover:text-animato-primary font-medium inline-flex items-center gap-1">
+                      Volledig fotoboek <i class="fas fa-arrow-right text-xs"></i>
+                    </a>
+                  </div>
+                  <p class="text-sm text-gray-600 mb-5">
+                    Beleef dit concert opnieuw — klik op een album om alle foto's te bekijken.
+                  </p>
+                  <div class={`grid gap-4 ${
+                    concertAlbums.length === 1 ? 'grid-cols-1 max-w-md' :
+                    concertAlbums.length === 2 ? 'grid-cols-1 sm:grid-cols-2' :
+                    'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3'
+                  }`}>
+                    {concertAlbums.map((album: any) => (
+                      <a href={`/fotoboek/${album.slug}`}
+                         class="group relative block rounded-lg overflow-hidden border border-gray-200 hover:border-animato-primary hover:shadow-lg transition">
+                        <div class="relative aspect-[4/3] bg-gradient-to-br from-gray-100 to-gray-200 overflow-hidden">
+                          {album.cover_url ? (
+                            <img src={album.cover_url} alt={album.titel}
+                                 loading="lazy"
+                                 class="w-full h-full object-cover group-hover:scale-105 transition duration-500" />
+                          ) : (
+                            <div class="w-full h-full flex items-center justify-center">
+                              <i class="fas fa-images text-gray-300 text-5xl"></i>
+                            </div>
+                          )}
+                          {/* Hover overlay */}
+                          <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/0 to-black/0 opacity-0 group-hover:opacity-100 transition"></div>
+                          {/* Foto-counter badge */}
+                          {album.foto_count > 0 && (
+                            <span class="absolute top-2 right-2 bg-white/90 backdrop-blur text-gray-800 text-xs font-bold px-2 py-1 rounded-full shadow">
+                              <i class="fas fa-camera mr-1"></i>{album.foto_count}
+                            </span>
+                          )}
+                          {/* Privacy-badge — alleen voor leden zichtbaar (publiek ziet enkel publieke albums) */}
+                          {user && !album.is_publiek && (
+                            <span class="absolute top-2 left-2 bg-amber-500 text-white text-[10px] font-bold px-2 py-1 rounded-full shadow">
+                              <i class="fas fa-lock mr-1"></i>Leden
+                            </span>
+                          )}
+                        </div>
+                        <div class="p-3">
+                          <h3 class="font-semibold text-gray-900 group-hover:text-animato-primary transition line-clamp-1">
+                            {album.titel}
+                          </h3>
+                          {album.beschrijving && (
+                            <p class="text-xs text-gray-500 mt-1 line-clamp-2">{album.beschrijving}</p>
+                          )}
+                        </div>
+                      </a>
+                    ))}
+                  </div>
                 </div>
               )}
 

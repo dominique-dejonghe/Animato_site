@@ -1159,6 +1159,23 @@ app.get('/leden/board/:id', async (c) => {
     [threadId]
   )
 
+  // === Emoji-reacties op het board-bericht ===
+  // Aggregaat per type én de eigen reactie van de gebruiker (om te tonen welke al gekozen is)
+  const reactionCountsRaw = await queryAll<any>(
+    c.env.DB,
+    `SELECT type, COUNT(*) as n FROM post_reactions WHERE post_id = ? GROUP BY type`,
+    [threadId]
+  )
+  const reactionCounts: Record<string, number> = {}
+  for (const row of reactionCountsRaw) reactionCounts[row.type] = row.n
+
+  const myReaction = await queryOne<any>(
+    c.env.DB,
+    `SELECT type FROM post_reactions WHERE post_id = ? AND user_id = ? LIMIT 1`,
+    [threadId, user.id]
+  )
+  const myReactionType: string | null = myReaction?.type || null
+
   return c.html(
     <Layout title={thread.titel} user={user} impersonating={!!(c.get('impersonating' as any))}>
       <div class="py-12 bg-gray-50">
@@ -1222,58 +1239,337 @@ app.get('/leden/board/:id', async (c) => {
             />
           </div>
 
+          {/* ======================================================== */}
+          {/* EMOJI-REACTIES — duim/hartje/etc. op het board-bericht    */}
+          {/* ======================================================== */}
+          {(() => {
+            const reactionTypes = [
+              { key: 'like',  emoji: '👍', label: 'Duim' },
+              { key: 'love',  emoji: '❤️', label: 'Hartje' },
+              { key: 'laugh', emoji: '😄', label: 'Lachen' },
+              { key: 'wow',   emoji: '😮', label: 'Wow' },
+              { key: 'sad',   emoji: '😢', label: 'Verdrietig' },
+            ]
+            const totalReactions = Object.values(reactionCounts).reduce((a, b) => a + b, 0)
+            return (
+              <div class="bg-white rounded-lg shadow-md p-5 mb-6">
+                <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
+                  <h3 class="text-sm font-semibold text-gray-700 flex items-center">
+                    <i class="fas fa-smile-beam text-animato-primary mr-2"></i>
+                    Hoe vind je dit bericht?
+                  </h3>
+                  {totalReactions > 0 && (
+                    <span class="text-xs text-gray-500">
+                      {totalReactions} reactie{totalReactions === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </div>
+                <div class="flex flex-wrap gap-2" id="emoji-reactions-bar" data-thread-id={threadId}>
+                  {reactionTypes.map(rt => {
+                    const count = reactionCounts[rt.key] || 0
+                    const isMine = myReactionType === rt.key
+                    return (
+                      <button
+                        type="button"
+                        data-reaction-type={rt.key}
+                        class={`emoji-reaction-btn inline-flex items-center gap-1.5 px-3 py-2 rounded-full border-2 transition text-sm font-medium ${
+                          isMine
+                            ? 'bg-animato-primary/10 border-animato-primary text-animato-primary'
+                            : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100 hover:border-gray-300'
+                        }`}
+                        title={rt.label}
+                        aria-pressed={isMine ? 'true' : 'false'}
+                      >
+                        <span class="text-base leading-none" aria-hidden="true">{rt.emoji}</span>
+                        <span class="emoji-count tabular-nums">{count}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
+
           {/* Replies */}
           <div class="space-y-4">
             <h2 class="text-2xl font-bold text-gray-900">
               {replies.length} Reacties
             </h2>
 
-            {replies.map((reply: any) => (
-              <div class="bg-white rounded-lg shadow-md p-6">
-                <div class="flex items-start gap-4">
-                  <div class="w-10 h-10 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center flex-shrink-0">
-                    <i class="fas fa-user text-animato-primary"></i>
-                  </div>
-                  <div class="flex-1">
-                    <div class="flex items-center justify-between mb-2">
-                      <div>
-                        <div class="font-semibold text-gray-900">
-                          {reply.auteur_voornaam} {reply.auteur_achternaam}
-                        </div>
-                        <div class="text-xs text-gray-600">
-                          {new Date(reply.created_at).toLocaleDateString('nl-BE', {
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit'
-                          })}
-                        </div>
+            {replies.map((reply: any) => {
+              const canDelete = user.id === reply.auteur_id || user.role === 'admin' || user.role === 'moderator' || user.is_bestuurslid === 1
+              const initialen = (reply.auteur_voornaam?.[0] || '?') + (reply.auteur_achternaam?.[0] || '')
+              return (
+                <div class="bg-white rounded-lg shadow-md p-6">
+                  <div class="flex items-start gap-4">
+                    {reply.auteur_foto ? (
+                      <img src={reply.auteur_foto}
+                           alt={`${reply.auteur_voornaam} ${reply.auteur_achternaam}`}
+                           class="w-10 h-10 rounded-full object-cover border border-gray-200 flex-shrink-0" />
+                    ) : (
+                      <div class="w-10 h-10 rounded-full bg-gradient-to-br from-animato-primary to-animato-secondary text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
+                        {initialen}
                       </div>
+                    )}
+                    <div class="flex-1 min-w-0">
+                      <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                        <div>
+                          <div class="font-semibold text-gray-900">
+                            {reply.auteur_voornaam} {reply.auteur_achternaam}
+                          </div>
+                          <div class="text-xs text-gray-600">
+                            {new Date(reply.created_at).toLocaleDateString('nl-BE', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit'
+                            })}
+                          </div>
+                        </div>
+                        {canDelete && (
+                          <form method="POST" action={`/leden/board/${threadId}/reply/${reply.id}/delete`}
+                                onsubmit="return confirm('Reactie verwijderen?')"
+                                class="inline-block">
+                            <button type="submit" class="text-xs text-red-500 hover:text-red-700 hover:underline">
+                              <i class="fas fa-trash-alt mr-1"></i> Verwijderen
+                            </button>
+                          </form>
+                        )}
+                      </div>
+                      <div class="prose" dangerouslySetInnerHTML={{ __html: processBodyLinks(reply.body, [new URL(c.req.url).hostname, 'animato-live.pages.dev', 'animato.be']) }} />
                     </div>
-                    <div class="prose" dangerouslySetInnerHTML={{ __html: processBodyLinks(reply.body, [new URL(c.req.url).hostname, 'animato-live.pages.dev', 'animato.be']) }} />
                   </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
 
-            {/* Reply form placeholder */}
-            <div class="bg-white rounded-lg shadow-md p-6">
+            {/* Reactie toevoegen */}
+            <form method="POST" action={`/leden/board/${threadId}/reply`}
+                  class="bg-white rounded-lg shadow-md p-6">
               <h3 class="text-lg font-semibold text-gray-900 mb-4">
                 Plaats een reactie
               </h3>
-              <div class="bg-gray-50 rounded-lg p-8 text-center">
-                <i class="fas fa-comment-dots text-gray-300 text-4xl mb-3"></i>
-                <p class="text-gray-600">
-                  Reactiefunctionaliteit komt binnenkort beschikbaar!
+              <textarea name="body" required rows={4} maxlength={5000}
+                        placeholder="Schrijf hier je reactie..."
+                        class="w-full border-gray-300 rounded-lg p-3 border focus:ring-animato-primary focus:border-animato-primary text-sm"></textarea>
+              <div class="flex items-center justify-between mt-3 flex-wrap gap-2">
+                <p class="text-xs text-gray-400">
+                  <i class="fas fa-info-circle mr-1"></i>
+                  Je naam en foto worden bij de reactie getoond.
                 </p>
+                <button type="submit"
+                        class="inline-flex items-center bg-animato-primary hover:bg-animato-secondary text-white px-4 py-2 rounded-lg font-semibold text-sm transition">
+                  <i class="fas fa-paper-plane mr-2"></i> Plaatsen
+                </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       </div>
+
+      {/* ========================================================== */}
+      {/* CLIENT-SIDE JS — emoji-reacties (toggle, switch, count)     */}
+      {/* ========================================================== */}
+      <script dangerouslySetInnerHTML={{ __html: `
+        (function() {
+          var bar = document.getElementById('emoji-reactions-bar');
+          if (!bar) return;
+          var threadId = bar.dataset.threadId;
+          var draggedCard = null;
+
+          bar.addEventListener('click', function(e) {
+            var btn = e.target.closest('.emoji-reaction-btn');
+            if (!btn) return;
+            e.preventDefault();
+
+            var type = btn.dataset.reactionType;
+            btn.disabled = true;
+            btn.style.opacity = '0.6';
+
+            fetch('/leden/board/' + encodeURIComponent(threadId) + '/reactie-emoji', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+              body: JSON.stringify({ type: type }),
+              credentials: 'same-origin'
+            })
+            .then(function(r) {
+              if (!r.ok) throw new Error('HTTP ' + r.status);
+              return r.json();
+            })
+            .then(function(data) {
+              var allBtns = bar.querySelectorAll('.emoji-reaction-btn');
+              allBtns.forEach(function(b) {
+                var t = b.dataset.reactionType;
+                var n = (data.counts && data.counts[t]) || 0;
+                var countEl = b.querySelector('.emoji-count');
+                if (countEl) countEl.textContent = n;
+
+                if (data.myReaction === t) {
+                  b.classList.remove('bg-gray-50', 'border-gray-200', 'text-gray-700', 'hover:bg-gray-100', 'hover:border-gray-300');
+                  b.classList.add('bg-animato-primary/10', 'border-animato-primary', 'text-animato-primary');
+                  b.setAttribute('aria-pressed', 'true');
+                } else {
+                  b.classList.remove('bg-animato-primary/10', 'border-animato-primary', 'text-animato-primary');
+                  b.classList.add('bg-gray-50', 'border-gray-200', 'text-gray-700', 'hover:bg-gray-100', 'hover:border-gray-300');
+                  b.setAttribute('aria-pressed', 'false');
+                }
+              });
+            })
+            .catch(function(err) {
+              console.warn('Reactie opslaan mislukt:', err);
+            })
+            .finally(function() {
+              btn.disabled = false;
+              btn.style.opacity = '1';
+            });
+          });
+        })();
+      ` }} />
     </Layout>
   )
+})
+
+// =====================================================
+// BOARD — Reply POST + Delete + Emoji-reactie endpoints
+// =====================================================
+
+// Plaats een reactie op een board-thread
+app.post('/leden/board/:id/reply', async (c) => {
+  const user = c.get('user') as SessionUser
+  const threadId = parseInt(c.req.param('id'))
+  const body = await c.req.parseBody()
+  const raw = String(body.body || '').trim()
+
+  if (!raw || !threadId) {
+    return c.redirect(`/leden/board/${threadId}`)
+  }
+  const safeBody = raw.length > 5000 ? raw.substring(0, 5000) : raw
+
+  // Verifieer dat de thread bestaat en dat user toegang heeft (zelfde check als de detail-page)
+  const thread = await queryOne<any>(
+    c.env.DB,
+    `SELECT id, zichtbaarheid FROM posts WHERE id = ? AND type = 'board' LIMIT 1`,
+    [threadId]
+  )
+  if (!thread) return c.notFound()
+
+  const isStaff = user.role === 'admin' || user.role === 'bestuur' || user.is_bestuurslid === 1
+  const userStemLower = (user.stemgroep || '').toLowerCase()
+  const allowedVisibilities = ['leden']
+  if (userStemLower) allowedVisibilities.push(userStemLower)
+  if (isStaff) allowedVisibilities.push('bestuur')
+  if (!isStaff && !allowedVisibilities.includes(thread.zichtbaarheid)) {
+    return c.json({ error: 'Geen toegang tot dit bericht' }, 403)
+  }
+
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO post_replies (post_id, auteur_id, body) VALUES (?, ?, ?)`
+    ).bind(threadId, user.id, safeBody).run()
+  } catch (e: any) {
+    console.warn('Board reply insert failed:', e?.message)
+  }
+
+  return c.redirect(`/leden/board/${threadId}`)
+})
+
+// Verwijder een reactie (eigenaar of admin/moderator/bestuur)
+app.post('/leden/board/:id/reply/:replyId/delete', async (c) => {
+  const user = c.get('user') as SessionUser
+  const threadId = c.req.param('id')
+  const replyId = c.req.param('replyId')
+
+  const reply = await queryOne<any>(
+    c.env.DB,
+    `SELECT auteur_id FROM post_replies WHERE id = ? LIMIT 1`,
+    [replyId]
+  )
+  if (!reply) return c.redirect(`/leden/board/${threadId}`)
+
+  const isOwner = reply.auteur_id === user.id
+  const isStaff = user.role === 'admin' || user.role === 'moderator' || user.role === 'bestuur' || user.is_bestuurslid === 1
+  if (!isOwner && !isStaff) {
+    return c.redirect(`/leden/board/${threadId}`)
+  }
+
+  try {
+    // Soft delete — behoudt thread-history
+    await c.env.DB.prepare(
+      `UPDATE post_replies SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+    ).bind(replyId).run()
+  } catch (e: any) {
+    console.warn('Board reply delete failed:', e?.message)
+  }
+
+  return c.redirect(`/leden/board/${threadId}`)
+})
+
+// Emoji-reactie op een board-thread (toggle/switch)
+const BOARD_REACTION_TYPES = ['like', 'love', 'laugh', 'wow', 'sad']
+app.post('/leden/board/:id/reactie-emoji', async (c) => {
+  const user = c.get('user') as SessionUser
+  const threadId = parseInt(c.req.param('id'))
+
+  let body: any
+  try { body = await c.req.json() } catch { body = {} }
+  const type = String(body?.type || '').trim()
+  if (!BOARD_REACTION_TYPES.includes(type)) {
+    return c.json({ error: 'Ongeldig type' }, 400)
+  }
+
+  // Verifieer dat de board-thread bestaat
+  const thread = await queryOne<any>(
+    c.env.DB,
+    `SELECT id FROM posts WHERE id = ? AND type = 'board' LIMIT 1`,
+    [threadId]
+  )
+  if (!thread) return c.json({ error: 'Bericht niet gevonden' }, 404)
+
+  // Bestaande reactie?
+  const existing = await queryOne<any>(
+    c.env.DB,
+    `SELECT id, type FROM post_reactions WHERE post_id = ? AND user_id = ? LIMIT 1`,
+    [threadId, user.id]
+  )
+
+  try {
+    if (!existing) {
+      await c.env.DB.prepare(
+        `INSERT INTO post_reactions (post_id, user_id, type) VALUES (?, ?, ?)`
+      ).bind(threadId, user.id, type).run()
+    } else if (existing.type === type) {
+      await c.env.DB.prepare(
+        `DELETE FROM post_reactions WHERE id = ?`
+      ).bind(existing.id).run()
+    } else {
+      await c.env.DB.prepare(
+        `UPDATE post_reactions SET type = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?`
+      ).bind(type, existing.id).run()
+    }
+  } catch (e: any) {
+    console.warn('Board reactie mislukt:', e?.message)
+    return c.json({ error: 'Opslaan mislukt' }, 500)
+  }
+
+  const countsRaw = await queryAll<any>(
+    c.env.DB,
+    `SELECT type, COUNT(*) as n FROM post_reactions WHERE post_id = ? GROUP BY type`,
+    [threadId]
+  )
+  const counts: Record<string, number> = {}
+  for (const row of countsRaw) counts[row.type] = row.n
+
+  const mine = await queryOne<any>(
+    c.env.DB,
+    `SELECT type FROM post_reactions WHERE post_id = ? AND user_id = ? LIMIT 1`,
+    [threadId, user.id]
+  )
+
+  return c.json({
+    counts,
+    myReaction: mine?.type || null
+  })
 })
 
 // =====================================================

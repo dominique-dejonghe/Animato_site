@@ -407,8 +407,9 @@ app.get('/admin/projects/:id', async (c) => {
     'prioriteit': `CASE t.prioriteit WHEN 'urgent' THEN 1 WHEN 'hoog' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END ${sortDir}, t.deadline ASC`,
     'wie':        `LOWER(COALESCE(p.voornaam, '~')) ${sortDir}, LOWER(COALESCE(p.achternaam, '~')) ${sortDir}`,
     'created':    `t.created_at ${sortDir}`,
+    'manual':     `t.sort_order ASC, t.id ASC`,  // Handmatige volgorde via ▲▼-knoppen
   }
-  const orderBy = sortMap[sortKey] || sortMap['status']
+  const orderBy = sortMap[sortKey] || sortMap['manual']
 
   // Get project info — use REALTIME SUM from concert_budget_items as source of truth
   // (cumulative columns op concert_projects bleven historisch uit sync lopen na delete/edit)
@@ -492,6 +493,12 @@ app.get('/admin/projects/:id', async (c) => {
             </a>
             <a href={`/admin/projects/${projectId}?tab=tasks`} class={`block py-2 px-4 rounded ${tab === 'tasks' ? 'bg-white bg-opacity-20 font-semibold' : 'hover:bg-white hover:bg-opacity-10'}`}>
               <i class="fas fa-check-double mr-2"></i>Taken
+            </a>
+            <a href={`/admin/projects/${projectId}?tab=kanban`} class={`block py-2 px-4 rounded ${tab === 'kanban' ? 'bg-white bg-opacity-20 font-semibold' : 'hover:bg-white hover:bg-opacity-10'}`}>
+              <i class="fas fa-columns mr-2"></i>Kanban
+            </a>
+            <a href={`/admin/projects/${projectId}?tab=gantt`} class={`block py-2 px-4 rounded ${tab === 'gantt' ? 'bg-white bg-opacity-20 font-semibold' : 'hover:bg-white hover:bg-opacity-10'}`}>
+              <i class="fas fa-stream mr-2"></i>Gantt
             </a>
             <a href={`/admin/projects/${projectId}?tab=budget`} class={`block py-2 px-4 rounded ${tab === 'budget' ? 'bg-white bg-opacity-20 font-semibold' : 'hover:bg-white hover:bg-opacity-10'}`}>
               <i class="fas fa-euro-sign mr-2"></i>Budget
@@ -802,7 +809,26 @@ app.get('/admin/projects/:id', async (c) => {
                                      </select>
                                   </form>
                                </td>
-                               <td class="px-6 py-4 text-right text-sm">
+                               <td class="px-6 py-4 text-right text-sm whitespace-nowrap">
+                                  {/* Pijltjes — alleen relevant bij handmatige volgorde (default) */}
+                                  {(sortKey === 'manual' || !sortMap[sortKey]) && (
+                                    <>
+                                      <button
+                                        onclick={`moveTask(${task.id}, 'up', ${projectId})`}
+                                        class="text-gray-400 hover:text-animato-primary mr-1"
+                                        title="Omhoog verplaatsen"
+                                      >
+                                        <i class="fas fa-arrow-up"></i>
+                                      </button>
+                                      <button
+                                        onclick={`moveTask(${task.id}, 'down', ${projectId})`}
+                                        class="text-gray-400 hover:text-animato-primary mr-3"
+                                        title="Omlaag verplaatsen"
+                                      >
+                                        <i class="fas fa-arrow-down"></i>
+                                      </button>
+                                    </>
+                                  )}
                                   <button
                                     data-task-id={task.id}
                                     data-task-titel={task.titel || ''}
@@ -933,6 +959,339 @@ app.get('/admin/projects/:id', async (c) => {
                  </div>
              </div>
           )}
+
+          {/* ========================================================== */}
+          {/* KANBAN TAB — drag-and-drop bord met 4 kolommen              */}
+          {/* ========================================================== */}
+          {tab === 'kanban' && (() => {
+            const columns = [
+              { key: 'todo',        label: 'Te doen',     icon: 'fa-circle',            color: 'gray',    bgHeader: 'bg-gray-100',    textHeader: 'text-gray-700' },
+              { key: 'in_progress', label: 'Bezig',       icon: 'fa-spinner',           color: 'blue',    bgHeader: 'bg-blue-100',    textHeader: 'text-blue-700' },
+              { key: 'blocked',     label: 'Wachtend',    icon: 'fa-pause-circle',      color: 'amber',   bgHeader: 'bg-amber-100',   textHeader: 'text-amber-700' },
+              { key: 'done',        label: 'Klaar',       icon: 'fa-check-circle',      color: 'green',   bgHeader: 'bg-green-100',   textHeader: 'text-green-700' },
+            ]
+            return (
+              <div class="space-y-6">
+                <div class="flex justify-between items-center bg-white p-4 rounded-lg shadow">
+                  <div>
+                    <h3 class="text-lg font-bold">Kanban Bord</h3>
+                    <p class="text-xs text-gray-500">Sleep taken tussen kolommen om de status te wijzigen</p>
+                  </div>
+                  <button onclick="document.getElementById('add-task-modal').classList.remove('hidden')" class="bg-animato-primary text-white px-4 py-2 rounded hover:bg-animato-secondary text-sm">
+                    <i class="fas fa-plus mr-2"></i>Taak Toevoegen
+                  </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" id="kanban-board" data-project-id={projectId}>
+                  {columns.map(col => {
+                    const colTasks = tasks.filter((t: any) => t.status === col.key)
+                    return (
+                      <div class="bg-gray-50 rounded-lg flex flex-col min-h-[400px]"
+                           data-kanban-col={col.key}>
+                        <div class={`${col.bgHeader} ${col.textHeader} px-4 py-3 rounded-t-lg flex items-center justify-between border-b-2 border-${col.color}-300`}>
+                          <h4 class="font-bold text-sm flex items-center">
+                            <i class={`fas ${col.icon} mr-2`}></i>
+                            {col.label}
+                          </h4>
+                          <span class="bg-white bg-opacity-70 text-xs font-bold px-2 py-0.5 rounded-full">
+                            {colTasks.length}
+                          </span>
+                        </div>
+                        <div class="p-3 space-y-3 flex-1 kanban-drop-zone" data-status={col.key}>
+                          {colTasks.length === 0 ? (
+                            <p class="text-xs text-gray-400 italic text-center py-6">Geen taken</p>
+                          ) : (
+                            colTasks.map((task: any) => {
+                              const initials = task.voornaam ? `${task.voornaam[0]}${task.achternaam?.[0] || ''}` : '?'
+                              const prioColors: Record<string, string> = {
+                                urgent: 'bg-red-100 text-red-700 border-red-200',
+                                hoog:   'bg-orange-100 text-orange-700 border-orange-200',
+                                medium: 'bg-blue-100 text-blue-700 border-blue-200',
+                                laag:   'bg-gray-100 text-gray-600 border-gray-200',
+                              }
+                              const overdue = task.deadline && task.status !== 'done' && new Date(task.deadline) < new Date()
+                              return (
+                                <div class="bg-white p-3 rounded-lg shadow-sm border border-gray-200 cursor-grab hover:shadow-md transition kanban-card"
+                                     draggable="true"
+                                     data-task-id={task.id}>
+                                  <div class="flex items-start justify-between gap-2 mb-2">
+                                    <h5 class="text-sm font-semibold text-gray-900 flex-1">{task.titel}</h5>
+                                    <span class={`text-[10px] px-1.5 py-0.5 rounded border ${prioColors[task.prioriteit] || prioColors.medium}`}>
+                                      {task.prioriteit}
+                                    </span>
+                                  </div>
+                                  {task.beschrijving && (
+                                    <p class="text-xs text-gray-500 mb-2 line-clamp-2">{task.beschrijving}</p>
+                                  )}
+                                  <div class="flex items-center justify-between text-xs">
+                                    {task.voornaam ? (
+                                      <div class="flex items-center gap-1.5">
+                                        <div class="w-5 h-5 rounded-full bg-animato-primary text-white flex items-center justify-center text-[10px] font-bold">
+                                          {initials}
+                                        </div>
+                                        <span class="text-gray-600">{task.voornaam}</span>
+                                      </div>
+                                    ) : <span class="text-gray-400 italic">niet toegewezen</span>}
+                                    {task.deadline && (
+                                      <span class={`flex items-center gap-1 ${overdue ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
+                                        <i class="far fa-calendar"></i>
+                                        {new Date(task.deadline).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Drag-and-drop script */}
+                <script dangerouslySetInnerHTML={{ __html: `
+                  (function() {
+                    var board = document.getElementById('kanban-board');
+                    if (!board) return;
+                    var projectId = board.dataset.projectId;
+                    var draggedCard = null;
+
+                    board.addEventListener('dragstart', function(e) {
+                      var card = e.target.closest('.kanban-card');
+                      if (!card) return;
+                      draggedCard = card;
+                      card.style.opacity = '0.4';
+                      e.dataTransfer.effectAllowed = 'move';
+                    });
+
+                    board.addEventListener('dragend', function(e) {
+                      if (draggedCard) draggedCard.style.opacity = '1';
+                      draggedCard = null;
+                      document.querySelectorAll('.kanban-drop-zone').forEach(function(z) {
+                        z.classList.remove('bg-blue-50', 'ring-2', 'ring-blue-300');
+                      });
+                    });
+
+                    document.querySelectorAll('.kanban-drop-zone').forEach(function(zone) {
+                      zone.addEventListener('dragover', function(e) {
+                        if (!draggedCard) return;
+                        e.preventDefault();
+                        zone.classList.add('bg-blue-50', 'ring-2', 'ring-blue-300');
+                      });
+                      zone.addEventListener('dragleave', function(e) {
+                        if (e.target === zone) zone.classList.remove('bg-blue-50', 'ring-2', 'ring-blue-300');
+                      });
+                      zone.addEventListener('drop', function(e) {
+                        if (!draggedCard) return;
+                        e.preventDefault();
+                        var newStatus = zone.dataset.status;
+                        var taskId = draggedCard.dataset.taskId;
+
+                        // Optimistic UI: meteen verplaatsen
+                        zone.appendChild(draggedCard);
+                        var emptyMsg = zone.querySelector('p.italic');
+                        if (emptyMsg) emptyMsg.remove();
+
+                        // Update counts
+                        document.querySelectorAll('[data-kanban-col]').forEach(function(c) {
+                          var cnt = c.querySelectorAll('.kanban-card').length;
+                          var badge = c.querySelector('.bg-white.bg-opacity-70');
+                          if (badge) badge.textContent = cnt;
+                        });
+
+                        // Server sync via FormData (zelfde endpoint als de dropdown)
+                        var fd = new FormData();
+                        fd.append('task_id', taskId);
+                        fd.append('project_id', projectId);
+                        fd.append('status', newStatus);
+                        fd.append('_ajax', '1');  // hint voor server: geen redirect
+                        fetch('/api/admin/projects/tasks/status', {
+                          method: 'POST',
+                          body: fd,
+                          credentials: 'same-origin'
+                        }).catch(function(err) {
+                          console.warn('Status update mislukt:', err);
+                          alert('Kon status niet opslaan — pagina wordt herladen');
+                          window.location.reload();
+                        });
+                      });
+                    });
+                  })();
+                ` }} />
+              </div>
+            )
+          })()}
+
+          {/* ========================================================== */}
+          {/* GANTT TAB — tijdlijn van taken op basis van deadlines       */}
+          {/* ========================================================== */}
+          {tab === 'gantt' && (() => {
+            // Bepaal date-range op basis van bestaande deadlines + created_at
+            const tasksWithDates = tasks.filter((t: any) => t.deadline)
+            if (tasksWithDates.length === 0) {
+              return (
+                <div class="bg-white rounded-lg shadow p-12 text-center">
+                  <i class="fas fa-stream text-gray-300 text-5xl mb-4"></i>
+                  <h3 class="text-lg font-bold text-gray-700 mb-2">Geen taken met deadline</h3>
+                  <p class="text-gray-500 mb-6">Voeg deadlines toe aan taken om ze in het Gantt-overzicht te zien.</p>
+                  <a href={`/admin/projects/${projectId}?tab=tasks`} class="inline-flex items-center bg-animato-primary text-white px-4 py-2 rounded hover:bg-animato-secondary text-sm">
+                    <i class="fas fa-arrow-left mr-2"></i>Terug naar takenlijst
+                  </a>
+                </div>
+              )
+            }
+
+            // Min/max datum bepalen
+            const dates = tasksWithDates.map((t: any) => new Date(t.deadline).getTime())
+            const createdDates = tasks.map((t: any) => new Date(t.created_at).getTime())
+            const minDate = new Date(Math.min(...dates, ...createdDates))
+            const maxDate = new Date(Math.max(...dates))
+            // Pad met 3 dagen aan elke kant
+            minDate.setDate(minDate.getDate() - 3)
+            maxDate.setDate(maxDate.getDate() + 3)
+            const totalDays = Math.max(1, Math.ceil((maxDate.getTime() - minDate.getTime()) / 86400000))
+            const dayWidth = 32  // pixels per dag
+            const totalWidth = totalDays * dayWidth
+            const today = new Date()
+            today.setHours(0, 0, 0, 0)
+            const todayOffset = Math.floor((today.getTime() - minDate.getTime()) / 86400000)
+
+            // Helper: build maand-headers
+            const monthHeaders: Array<{ label: string, startDay: number, days: number }> = []
+            let cursor = new Date(minDate)
+            cursor.setDate(1)
+            while (cursor < maxDate) {
+              const monthEnd = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 0)
+              const startDay = Math.max(0, Math.floor((cursor.getTime() - minDate.getTime()) / 86400000))
+              const endDay = Math.min(totalDays, Math.floor((monthEnd.getTime() - minDate.getTime()) / 86400000) + 1)
+              const days = endDay - startDay
+              if (days > 0) {
+                monthHeaders.push({
+                  label: cursor.toLocaleDateString('nl-BE', { month: 'long', year: 'numeric' }),
+                  startDay,
+                  days
+                })
+              }
+              cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1)
+            }
+
+            // Statuskleuren voor de balken
+            const barColors: Record<string, string> = {
+              todo:        'bg-gray-400',
+              in_progress: 'bg-blue-500',
+              blocked:     'bg-amber-500',
+              done:        'bg-green-500',
+            }
+
+            const labelWidth = 240  // px voor de taak-naam-kolom links
+
+            return (
+              <div class="space-y-4">
+                <div class="bg-white p-4 rounded-lg shadow flex items-center justify-between flex-wrap gap-3">
+                  <div>
+                    <h3 class="text-lg font-bold">Gantt Tijdlijn</h3>
+                    <p class="text-xs text-gray-500">{tasksWithDates.length} taken met deadline — {totalDays} dagen overspannend</p>
+                  </div>
+                  <div class="flex items-center gap-3 text-xs flex-wrap">
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-gray-400"></span> Te doen</span>
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-blue-500"></span> Bezig</span>
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-amber-500"></span> Wachtend</span>
+                    <span class="flex items-center gap-1.5"><span class="w-3 h-3 rounded bg-green-500"></span> Klaar</span>
+                  </div>
+                </div>
+
+                <div class="bg-white rounded-lg shadow overflow-hidden">
+                  <div class="overflow-x-auto">
+                    <div style={`min-width: ${labelWidth + totalWidth}px; position: relative;`}>
+                      {/* MAAND-HEADER */}
+                      <div class="flex border-b border-gray-300 bg-gray-50 sticky top-0 z-10">
+                        <div class="flex-shrink-0 bg-gray-100 border-r border-gray-300 px-3 py-2 text-xs font-bold text-gray-700" style={`width: ${labelWidth}px;`}>
+                          Taak
+                        </div>
+                        <div class="flex" style={`width: ${totalWidth}px;`}>
+                          {monthHeaders.map(mh => (
+                            <div class="border-r border-gray-300 px-2 py-2 text-xs font-bold text-gray-700 capitalize text-center"
+                                 style={`width: ${mh.days * dayWidth}px;`}>
+                              {mh.label}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* DAGEN-HEADER */}
+                      <div class="flex border-b border-gray-200 bg-white">
+                        <div class="flex-shrink-0 bg-gray-50 border-r border-gray-300" style={`width: ${labelWidth}px;`}></div>
+                        <div class="flex relative" style={`width: ${totalWidth}px;`}>
+                          {Array.from({ length: totalDays }).map((_, i) => {
+                            const d = new Date(minDate)
+                            d.setDate(d.getDate() + i)
+                            const isWeekend = d.getDay() === 0 || d.getDay() === 6
+                            const isToday = i === todayOffset
+                            return (
+                              <div class={`flex-shrink-0 text-[10px] text-center border-r border-gray-100 py-1 ${
+                                isToday ? 'bg-animato-primary text-white font-bold' :
+                                isWeekend ? 'bg-gray-50 text-gray-400' : 'text-gray-600'
+                              }`} style={`width: ${dayWidth}px;`}>
+                                {d.getDate()}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+
+                      {/* TAKEN-RIJEN */}
+                      {tasksWithDates.map((task: any) => {
+                        const deadline = new Date(task.deadline)
+                        deadline.setHours(0, 0, 0, 0)
+                        const created = new Date(task.created_at)
+                        created.setHours(0, 0, 0, 0)
+                        // Balk: van created_at (of een redelijke start) tot deadline
+                        const startOffset = Math.max(0, Math.floor((Math.max(created.getTime(), minDate.getTime()) - minDate.getTime()) / 86400000))
+                        const endOffset = Math.floor((deadline.getTime() - minDate.getTime()) / 86400000) + 1
+                        const barWidth = Math.max(dayWidth, (endOffset - startOffset) * dayWidth)
+                        const barColor = barColors[task.status] || 'bg-gray-400'
+                        const overdue = task.status !== 'done' && deadline < today
+                        return (
+                          <div class="flex border-b border-gray-100 hover:bg-gray-50 transition">
+                            <div class="flex-shrink-0 border-r border-gray-300 px-3 py-2 text-xs" style={`width: ${labelWidth}px;`}>
+                              <div class="font-medium text-gray-900 truncate" title={task.titel}>{task.titel}</div>
+                              <div class="text-gray-500 truncate">
+                                {task.voornaam ? `${task.voornaam}` : 'niet toegewezen'}
+                                {' · '}
+                                {deadline.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })}
+                              </div>
+                            </div>
+                            <div class="relative" style={`width: ${totalWidth}px; height: 44px;`}>
+                              {/* Weekend / today markers (lichte achtergrond) */}
+                              {Array.from({ length: totalDays }).map((_, i) => {
+                                const d = new Date(minDate)
+                                d.setDate(d.getDate() + i)
+                                const isWeekend = d.getDay() === 0 || d.getDay() === 6
+                                const isToday = i === todayOffset
+                                return (
+                                  <div class={`absolute top-0 bottom-0 ${
+                                    isToday ? 'bg-animato-primary bg-opacity-10 border-l border-animato-primary' :
+                                    isWeekend ? 'bg-gray-50' : ''
+                                  }`} style={`left: ${i * dayWidth}px; width: ${dayWidth}px;`}></div>
+                                )
+                              })}
+                              {/* De balk zelf */}
+                              <div class={`absolute top-1/2 -translate-y-1/2 ${barColor} text-white text-[10px] font-medium px-2 rounded shadow-sm flex items-center ${overdue ? 'ring-2 ring-red-500' : ''}`}
+                                   style={`left: ${startOffset * dayWidth}px; width: ${barWidth}px; height: 22px; min-width: 30px;`}
+                                   title={`${task.titel} — deadline ${deadline.toLocaleDateString('nl-BE')}`}>
+                                <span class="truncate">{task.titel}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* BUDGET TAB */}
           {tab === 'budget' && (
@@ -1357,6 +1716,28 @@ app.get('/admin/projects/:id', async (c) => {
               openEditTaskModal(task);
             }
 
+            // Move task up/down — fetcht endpoint en herlaadt pagina (eenvoud > optimistic)
+            function moveTask(taskId, direction, projectId) {
+              const fd = new FormData();
+              fd.append('direction', direction);
+              fd.append('project_id', projectId);
+              fd.append('_ajax', '1');
+              fetch('/api/admin/projects/tasks/' + taskId + '/move', {
+                method: 'POST',
+                body: fd,
+                credentials: 'same-origin'
+              })
+              .then(r => r.json())
+              .then(() => {
+                // Behoud de huidige tab + sort-querystring na reload
+                window.location.reload();
+              })
+              .catch(err => {
+                console.warn('Verplaatsen mislukt:', err);
+                alert('Kon taak niet verplaatsen — probeer opnieuw.');
+              });
+            }
+
             function openEditBudgetModal(item) {
               document.getElementById('edit-budget-form').action = '/api/admin/projects/budget/' + item.id + '/update';
               document.getElementById('edit-budget-type').value = item.type;
@@ -1469,11 +1850,19 @@ app.post('/api/admin/projects/documents/:id/update', async (c) => {
 app.post('/api/admin/projects/tasks/create', async (c) => {
   const body = await c.req.parseBody()
   const { project_id, titel, beschrijving, deadline, verantwoordelijke_id, prioriteit } = body
-  
+
+  // Bereken volgende sort_order zodat nieuwe taken onderaan terechtkomen
+  const maxOrder = await queryOne<any>(
+    c.env.DB,
+    `SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM concert_project_tasks WHERE project_id = ?`,
+    [project_id]
+  )
+  const nextOrder = maxOrder?.next_order ?? 0
+
   await c.env.DB.prepare(
-    `INSERT INTO concert_project_tasks (project_id, titel, beschrijving, deadline, verantwoordelijke_id, prioriteit)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).bind(project_id, titel, beschrijving || null, deadline || null, verantwoordelijke_id || null, prioriteit).run()
+    `INSERT INTO concert_project_tasks (project_id, titel, beschrijving, deadline, verantwoordelijke_id, prioriteit, sort_order)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).bind(project_id, titel, beschrijving || null, deadline || null, verantwoordelijke_id || null, prioriteit, nextOrder).run()
 
   return c.redirect(`/admin/projects/${project_id}?tab=tasks`)
 })
@@ -1481,12 +1870,71 @@ app.post('/api/admin/projects/tasks/create', async (c) => {
 app.post('/api/admin/projects/tasks/status', async (c) => {
   const body = await c.req.parseBody()
   const { task_id, project_id, status } = body
-  
+  const isAjax = body._ajax === '1' || c.req.header('X-Requested-With') === 'fetch'
+
+  // Wanneer status -> 'done': vul completed_at; bij andere status -> NULL
+  const completedExpr = status === 'done' ? 'CURRENT_TIMESTAMP' : 'NULL'
+
   await c.env.DB.prepare(
-    `UPDATE concert_project_tasks SET status = ? WHERE id = ?`
+    `UPDATE concert_project_tasks
+     SET status = ?, completed_at = ${completedExpr}, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`
   ).bind(status, task_id).run()
 
+  if (isAjax) return c.json({ ok: true })
   return c.redirect(`/admin/projects/${project_id}?tab=tasks`)
+})
+
+// =====================================================
+// MOVE TASK UP/DOWN — handmatige sortering via pijltjes
+// =====================================================
+app.post('/api/admin/projects/tasks/:id/move', async (c) => {
+  const id = parseInt(c.req.param('id'))
+  const body = await c.req.parseBody()
+  const direction = String(body.direction || '').toLowerCase()
+  const projectId = parseInt(String(body.project_id))
+  const isAjax = body._ajax === '1'
+
+  if (!['up', 'down'].includes(direction) || !id || !projectId) {
+    if (isAjax) return c.json({ error: 'bad request' }, 400)
+    return c.redirect(`/admin/projects/${projectId}?tab=tasks`)
+  }
+
+  // Haal de taak op
+  const current = await queryOne<any>(
+    c.env.DB,
+    `SELECT id, sort_order FROM concert_project_tasks WHERE id = ? AND project_id = ?`,
+    [id, projectId]
+  )
+  if (!current) {
+    if (isAjax) return c.json({ error: 'not found' }, 404)
+    return c.redirect(`/admin/projects/${projectId}?tab=tasks`)
+  }
+
+  // Vind de buurtaak (in de gewenste richting)
+  const neighbor = await queryOne<any>(
+    c.env.DB,
+    direction === 'up'
+      ? `SELECT id, sort_order FROM concert_project_tasks
+         WHERE project_id = ? AND sort_order < ?
+         ORDER BY sort_order DESC, id DESC LIMIT 1`
+      : `SELECT id, sort_order FROM concert_project_tasks
+         WHERE project_id = ? AND sort_order > ?
+         ORDER BY sort_order ASC, id ASC LIMIT 1`,
+    [projectId, current.sort_order]
+  )
+
+  if (neighbor) {
+    // Swap sort_orders — via tussenwaarde om UNIQUE constraint te omzeilen (we hebben geen UNIQUE, maar nette aanpak)
+    await c.env.DB.batch([
+      c.env.DB.prepare(`UPDATE concert_project_tasks SET sort_order = ? WHERE id = ?`).bind(neighbor.sort_order, current.id),
+      c.env.DB.prepare(`UPDATE concert_project_tasks SET sort_order = ? WHERE id = ?`).bind(current.sort_order, neighbor.id),
+    ])
+  }
+  // Als er geen buur is, doen we niets (al boven/onder)
+
+  if (isAjax) return c.json({ ok: true })
+  return c.redirect(`/admin/projects/${projectId}?tab=tasks`)
 })
 
 app.post('/api/admin/projects/budget/create', async (c) => {

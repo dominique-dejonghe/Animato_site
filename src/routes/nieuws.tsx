@@ -348,6 +348,7 @@ app.get('/nieuws/:slug', async (c) => {
      FROM post_comments c
      LEFT JOIN profiles p ON p.user_id = c.user_id
      WHERE c.post_id = ?
+       AND COALESCE(c.is_deleted, 0) = 0
      ORDER BY c.created_at ASC`,
     [artikel.id]
   ) : []
@@ -355,7 +356,7 @@ app.get('/nieuws/:slug', async (c) => {
   // Voor publieke bezoekers: enkel het aantal reacties tonen (teaser, lokt login uit)
   const commentCount = !user ? await queryOne<any>(
     c.env.DB,
-    `SELECT COUNT(*) as n FROM post_comments WHERE post_id = ?`,
+    `SELECT COUNT(*) as n FROM post_comments WHERE post_id = ? AND COALESCE(is_deleted, 0) = 0`,
     [artikel.id]
   ) : null
 
@@ -878,9 +879,12 @@ app.post('/nieuws/:slug/reactie/:id/delete', async (c) => {
   }
 
   try {
-    await c.env.DB.prepare(`DELETE FROM post_comments WHERE id = ?`).bind(commentId).run()
+    // Soft-delete: forensisch bewijs blijft bewaard, admin kan herstellen of purgen via /admin/comments
+    await c.env.DB.prepare(
+      `UPDATE post_comments SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+    ).bind(commentId).run()
   } catch (e: any) {
-    console.warn('Comment delete failed:', e?.message)
+    console.warn('Comment soft-delete failed:', e?.message)
   }
 
   return c.redirect(`/nieuws/${slug}#reacties`)

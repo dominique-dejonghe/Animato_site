@@ -36,6 +36,7 @@ import adminMeetingsRoutes from './routes/admin-meetings'
 import adminSettingsRoutes from './routes/admin-settings'
 import adminFinanceRoutes from './routes/admin-finance'
 import adminPrintsRoutes from './routes/admin-prints'
+import adminCommentsRoutes from './routes/admin-comments'
 import adminSeatingRoutes from './routes/admin-seating'
 import ledenActivityRoutes from './routes/leden-activity'
 import adminCommunicationsRoutes from './routes/admin-communications' // Imported
@@ -136,6 +137,7 @@ app.route('/', adminMeetingsRoutes)
 app.route('/', adminSettingsRoutes)
 app.route('/', adminFinanceRoutes)
 app.route('/', adminPrintsRoutes)
+app.route('/', adminCommentsRoutes)
 app.route('/', adminSeatingRoutes)
 app.route('/', adminModulesRoutes)
 app.route('/', adminWalkthroughRoutes)

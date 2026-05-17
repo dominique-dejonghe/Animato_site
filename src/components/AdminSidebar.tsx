@@ -47,6 +47,7 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({
     { id: 'modules', label: 'Module Beheer', href: '/admin/modules', icon: 'fas fa-toggle-on', adminOnly: true },
     { id: 'analytics', label: 'Analytics & Statistieken', href: '/admin/analytics', icon: 'fas fa-chart-bar', adminOnly: true },
     { id: 'feedback', label: 'Beta Feedback', href: '/admin/feedback', icon: 'fas fa-bug', adminOnly: true },
+    { id: 'comments', label: 'Comments & Moderatie', href: '/admin/comments', icon: 'fas fa-comments', adminOnly: true },
     { id: 'walkthrough', label: 'Walkthrough Tours', href: '/admin/walkthrough', icon: 'fas fa-route', adminOnly: true },
     { id: 'settings', label: 'Instellingen', href: '/admin/settings', icon: 'fas fa-cogs', adminOnly: true },
   ]

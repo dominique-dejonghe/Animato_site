@@ -647,6 +647,10 @@ app.get('/leden', async (c) => {
           </div>
         </div>
       </div>
+
+      {/* Nieuwe-lid aankondiging popup \u2014 fetcht /api/leden/new-members, toont
+          confetti-modal als er ongelezen nieuwe leden zijn van laatste 14 dagen */}
+      <script src="/static/js/new-members-popup.js" defer></script>
     </Layout>
   )
 })

@@ -42,6 +42,7 @@ import editablePagesRoutes from './routes/editable-pages'
 import adminSeatingRoutes from './routes/admin-seating'
 import ledenActivityRoutes from './routes/leden-activity'
 import welkomRoutes from './routes/welkom'
+import newMembersRoutes from './routes/new-members'
 import adminCommunicationsRoutes from './routes/admin-communications' // Imported
 import feedbackRoutes from './routes/feedback'
 import adminFeedbackRoutes from './routes/admin-feedback'
@@ -140,6 +141,10 @@ app.route('/', editablePagesRoutes)
 // Welkom-splash voor nieuwe koorleden — MOET voor ledenRoutes, want
 // /leden/welkom zou anders door de wildcard van ledenRoutes worden gevangen
 app.route('/', welkomRoutes)
+
+// Nieuwe-lid aankondigingen API (popup "Welkom Rudy!" voor alle bestaande leden)
+// MOET voor ledenRoutes om dezelfde reden
+app.route('/', newMembersRoutes)
 
 // Leden portal routes
 app.route('/', ledenRoutes)

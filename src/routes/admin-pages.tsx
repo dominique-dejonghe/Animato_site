@@ -23,7 +23,7 @@ app.get('/admin/paginas', async (c) => {
   const success = c.req.query('success')
 
   const pages = await queryAll<any>(c.env.DB,
-    `SELECT p.slug, p.titel, p.intro, p.updated_at,
+    `SELECT p.slug, p.titel, p.intro, p.updated_at, p.show_in_breadcrumb,
             pr.voornaam as updater_voornaam, pr.achternaam as updater_achternaam
      FROM editable_pages p
      LEFT JOIN profiles pr ON pr.user_id = p.updated_by
@@ -82,7 +82,18 @@ app.get('/admin/paginas', async (c) => {
                     </a>
                   </td>
                   <td class="px-6 py-4">
-                    <div class="font-medium text-gray-900">{p.titel}</div>
+                    <div class="font-medium text-gray-900 flex items-center gap-2">
+                      <span>{p.titel}</span>
+                      {p.show_in_breadcrumb === 1 ? (
+                        <span title="Zichtbaar in breadcrumb" class="text-green-600 text-xs">
+                          <i class="fas fa-eye"></i>
+                        </span>
+                      ) : (
+                        <span title="Verborgen in breadcrumb" class="text-gray-400 text-xs">
+                          <i class="fas fa-eye-slash"></i>
+                        </span>
+                      )}
+                    </div>
                     {p.intro && <div class="text-xs text-gray-500 line-clamp-1 mt-0.5">{p.intro}</div>}
                   </td>
                   <td class="px-6 py-4 text-sm text-gray-500 hidden sm:table-cell">
@@ -126,6 +137,12 @@ app.get('/admin/paginas', async (c) => {
                 <label class="block text-sm font-medium text-gray-700 mb-1">Titel <span class="text-red-500">*</span></label>
                 <input type="text" name="titel" required class="w-full border border-gray-300 rounded-lg px-3 py-2" />
               </div>
+              <div>
+                <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input type="checkbox" name="show_in_breadcrumb" value="1" checked class="rounded border-gray-300 text-animato-primary focus:ring-animato-primary" />
+                  <span>Toon deze pagina in de breadcrumb-navigatie</span>
+                </label>
+              </div>
               <div class="flex justify-end gap-2 pt-2">
                 <button type="button" onclick="document.getElementById('newPageModal').classList.add('hidden')" class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg">
                   Annuleer
@@ -150,7 +167,7 @@ app.get('/admin/paginas/:slug', async (c) => {
   const slug = c.req.param('slug')
 
   const page = await queryOne<any>(c.env.DB,
-    `SELECT slug, titel, intro, body, hero_image FROM editable_pages WHERE slug = ?`,
+    `SELECT slug, titel, intro, body, hero_image, show_in_breadcrumb FROM editable_pages WHERE slug = ?`,
     [slug])
 
   if (!page) {
@@ -202,6 +219,25 @@ app.get('/admin/paginas/:slug', async (c) => {
             <label class="block text-sm font-medium text-gray-700 mb-1">Intro-tekst</label>
             <textarea name="intro" rows={2} class="w-full border border-gray-300 rounded-lg px-3 py-2">{page.intro || ''}</textarea>
             <p class="text-xs text-gray-500 mt-1">Korte tagline die direct onder de titel komt.</p>
+          </div>
+
+          <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+            <label class="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                name="show_in_breadcrumb"
+                value="1"
+                checked={page.show_in_breadcrumb === 1}
+                class="mt-1 rounded border-gray-300 text-animato-primary focus:ring-animato-primary"
+              />
+              <div>
+                <span class="text-sm font-medium text-gray-700">Toon in breadcrumb-navigatie</span>
+                <p class="text-xs text-gray-500 mt-0.5">
+                  Wanneer aangevinkt verschijnt er een breadcrumb-balkje bovenaan de pagina (<i>Home &gt; {page.titel}</i>).
+                  Zet uit voor landingspagina's of pagina's waar je geen broodkruimels wil tonen.
+                </p>
+              </div>
+            </label>
           </div>
 
           <div>
@@ -262,6 +298,7 @@ app.post('/api/admin/paginas/create', async (c) => {
   const body = await c.req.parseBody()
   const slug = String(body.slug || '').toLowerCase().trim().replace(/[^a-z0-9-]/g, '')
   const titel = String(body.titel || '').trim()
+  const showInBreadcrumb = body.show_in_breadcrumb ? 1 : 0
 
   if (!slug || !titel) {
     return c.redirect('/admin/paginas?error=missing_fields')
@@ -274,8 +311,8 @@ app.post('/api/admin/paginas/create', async (c) => {
   }
 
   await execute(c.env.DB,
-    `INSERT INTO editable_pages (slug, titel, body, updated_by) VALUES (?, ?, ?, ?)`,
-    [slug, titel, '<p>Nieuwe pagina — vul hier je inhoud in.</p>', user.id])
+    `INSERT INTO editable_pages (slug, titel, body, show_in_breadcrumb, updated_by) VALUES (?, ?, ?, ?, ?)`,
+    [slug, titel, '<p>Nieuwe pagina — vul hier je inhoud in.</p>', showInBreadcrumb, user.id])
 
   return c.redirect(`/admin/paginas/${slug}`)
 })
@@ -288,6 +325,8 @@ app.post('/api/admin/paginas/save', async (c) => {
   const intro = String(body.intro || '').trim() || null
   const heroImage = String(body.hero_image || '').trim() || null
   const content = String(body.body || '').trim()
+  // Checkbox: aanwezig in body = aangevinkt; afwezig = niet aangevinkt
+  const showInBreadcrumb = body.show_in_breadcrumb ? 1 : 0
 
   if (!slug || !titel) {
     return c.redirect('/admin/paginas?error=missing_fields')
@@ -295,10 +334,10 @@ app.post('/api/admin/paginas/save', async (c) => {
 
   await execute(c.env.DB, `
     UPDATE editable_pages
-    SET titel = ?, intro = ?, body = ?, hero_image = ?,
+    SET titel = ?, intro = ?, body = ?, hero_image = ?, show_in_breadcrumb = ?,
         updated_at = CURRENT_TIMESTAMP, updated_by = ?
     WHERE slug = ?
-  `, [titel, intro, content, heroImage, user.id, slug])
+  `, [titel, intro, content, heroImage, showInBreadcrumb, user.id, slug])
 
   return c.redirect('/admin/paginas?success=saved')
 })

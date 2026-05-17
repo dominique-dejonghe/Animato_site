@@ -254,7 +254,7 @@ export const Layout: FC<LayoutProps> = ({
                 <a href="/" class={`hover:text-animato-primary transition ${currentPath === '/' ? 'text-animato-primary font-semibold' : 'text-gray-700'}`}>
                   Home
                 </a>
-                <a href="/koor" class={`hover:text-animato-primary transition ${currentPath === '/koor' ? 'text-animato-primary font-semibold' : 'text-gray-700'}`}>
+                <a href="/over" class={`hover:text-animato-primary transition ${currentPath === '/over' || currentPath === '/koor' ? 'text-animato-primary font-semibold' : 'text-gray-700'}`}>
                   Over Ons
                 </a>
                 <a href="/nieuws" class={`hover:text-animato-primary transition ${currentPath === '/nieuws' ? 'text-animato-primary font-semibold' : 'text-gray-700'}`}>
@@ -329,7 +329,7 @@ export const Layout: FC<LayoutProps> = ({
           <div id="mobile-menu" class="hidden md:hidden border-t border-gray-200">
             <div class="px-4 py-4 space-y-3">
               <a href="/" class="block text-gray-700 hover:text-animato-primary">Home</a>
-              <a href="/koor" class="block text-gray-700 hover:text-animato-primary">Over Ons</a>
+              <a href="/over" class="block text-gray-700 hover:text-animato-primary">Over Ons</a>
               <a href="/nieuws" class="block text-gray-700 hover:text-animato-primary">Nieuws</a>
               <a href="/agenda" class="block text-gray-700 hover:text-animato-primary">Agenda</a>
               <a href="/concerten" class="block text-gray-700 hover:text-animato-primary">Concerten</a>

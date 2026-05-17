@@ -472,160 +472,20 @@ app.get('/', async (c) => {
 })
 
 // =====================================================
-// OVER ONS / KOOR
+// OVER ONS — verwijderd
 // =====================================================
+//
+// De /over route had een eigen handler hier, maar /koor had óók een eigen
+// hardcoded "Over ons" pagina. Dat gaf drie verschillende varianten van
+// dezelfde info (admin CMS bewerkte alleen één ervan).
+//
+// /over wordt nu door de generieke editable-pages.tsx handler gerenderd,
+// die content uit editable_pages.over haalt. /koor redirect naar /over.
+// Zie commits "merge over+koor" voor de migratie.
 
-// =====================================================
-// /over — Editeerbare statische pagina (#121)
-// Inhoud komt uit editable_pages tabel; admin bewerkt via /admin/paginas/over
-// =====================================================
-app.get('/over', async (c) => {
-  const user = c.get('user')
-  const page = await queryOne<any>(c.env.DB,
-    `SELECT slug, titel, intro, body, hero_image FROM editable_pages WHERE slug = 'over'`)
-
-  // Fallback als de pagina nog niet aangemaakt is in de DB
-  const titel = page?.titel || 'Over Gemengd Koor Animato'
-  const intro = page?.intro || ''
-  const body = page?.body || '<p>Deze pagina wordt nog ingevuld.</p>'
-
-  // Voor link-targeting: bepaal interne hosts
-  const reqUrl = new URL(c.req.url)
-  const siteHosts = [reqUrl.hostname, 'animato-live.pages.dev', 'animato.be']
-
-  return c.html(
-    <Layout title={titel} user={user} currentPath="/over">
-      <div class="py-16 bg-gradient-to-b from-white to-gray-50">
-        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-
-          {page?.hero_image && (
-            <div class="mb-8 rounded-2xl overflow-hidden shadow-lg">
-              <img src={page.hero_image} alt={titel} class="w-full h-64 sm:h-80 object-cover" />
-            </div>
-          )}
-
-          <h1 class="text-4xl sm:text-5xl font-bold text-animato-secondary mb-4" style="font-family: 'Playfair Display', serif;">
-            {titel}
-          </h1>
-
-          {intro && (
-            <p class="text-xl text-gray-600 mb-10 leading-relaxed italic border-l-4 border-animato-primary pl-4">
-              {intro}
-            </p>
-          )}
-
-          <div
-            class="prose prose-lg max-w-none prose-headings:text-animato-secondary prose-headings:font-serif prose-a:text-animato-primary prose-a:font-medium hover:prose-a:underline"
-            dangerouslySetInnerHTML={{ __html: processBodyLinks(body, siteHosts) }}
-          />
-
-          <div class="mt-16 pt-8 border-t border-gray-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <a href="/koor" class="text-animato-primary hover:underline font-medium">
-              <i class="fas fa-arrow-right mr-2"></i> Lees meer over ons koor en repertoire
-            </a>
-            <a href="/word-lid" class="inline-block bg-animato-primary text-white px-6 py-3 rounded-lg hover:opacity-90 font-semibold shadow">
-              <i class="fas fa-music mr-2"></i> Word lid
-            </a>
-          </div>
-
-        </div>
-      </div>
-    </Layout>
-  )
-})
-
-app.get('/koor', async (c) => {
-  const user = c.get('user')
-
-  return c.html(
-    <Layout title="Over Ons" user={user} currentPath="/koor">
-      <div class="py-16">
-        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h1 class="text-5xl font-bold text-animato-secondary mb-8" style="font-family: 'Playfair Display', serif;">
-            Over Gemengd Koor Animato
-          </h1>
-          
-          <div class="prose prose-lg max-w-none">
-            <p class="text-xl text-gray-700 mb-6 leading-relaxed">
-              Sinds 1985 brengt Gemengd Koor Animato muziek tot leven met passie, vakmanschap en toewijding. Ons koor bestaat uit ongeveer 70 enthousiaste zangers en zangeressen die wekelijks samenkomen om te repeteren en te groeien als muzikaal ensemble.
-            </p>
-
-            <h2 class="text-3xl font-bold text-animato-secondary mt-12 mb-6">Onze Missie</h2>
-            <p class="text-gray-700 mb-4">
-              Bij Animato geloven we in de kracht van samen musiceren. Onze missie is om hoogwaardige koormuziek te brengen, van klassieke meesterwerken tot moderne composities, en om tegelijkertijd een warme, inclusieve gemeenschap te creëren waar iedereen welkom is.
-            </p>
-
-            <h2 class="text-3xl font-bold text-animato-secondary mt-12 mb-6">Repertoire</h2>
-            <p class="text-gray-700 mb-4">
-              Ons repertoire is veelzijdig en uitdagend. We brengen werken van componisten zoals Mozart, Fauré, Rutter, Poulenc en vele anderen. Van renaissance-polyfonie tot hedendaagse muziek, van geestelijke muziek tot wereldlijke liederen - onze programmering is altijd verrassend en boeiend.
-            </p>
-
-            <h2 class="text-3xl font-bold text-animato-secondary mt-12 mb-6">Dirigent & Begeleiding</h2>
-            <div class="flex flex-col md:flex-row gap-6 items-start mb-6">
-              <figure class="flex-shrink-0 w-full md:w-56">
-                <img
-                  src="/static/images/dirigent.jpg"
-                  alt="Anja Holbrechts — Dirigent van Animato"
-                  class="w-full rounded-lg shadow-lg object-cover"
-                  loading="lazy"
-                />
-                <figcaption class="text-center text-sm text-gray-600 mt-2 italic">
-                  Anja Holbrechts — Dirigent
-                </figcaption>
-              </figure>
-              <div class="text-gray-700 flex-1 space-y-3">
-                <blockquote class="border-l-4 border-animato-primary pl-4 italic text-gray-600">
-                  "Zingen is gezond, het kan zelfs zorgen voor een gezonder hart- en vaatstelsel."
-                  <footer class="text-sm not-italic mt-1">— Anja Holbrechts</footer>
-                </blockquote>
-                <p>
-                  Animato staat reeds meer dan <strong>10 jaar</strong> onder de deskundige leiding van <strong>Anja Holbrechts</strong>.
-                  Zij behaalde het diploma <em>"Meester in de muziek"</em> voor trombone in het conservatorium van Gent bij Michel Tilkin.
-                </p>
-                <p>
-                  Anja volgde verder:
-                </p>
-                <ul class="list-disc list-inside space-y-1 ml-2 text-sm">
-                  <li>Orkestdirectie bij Dirk Brossé en Eddy Van Oosthuyse</li>
-                  <li>Euphonium bij Staf DeVolder en Bart Van Neyghem</li>
-                </ul>
-                <p>
-                  Onder haar bezielende leiding en met ondersteuning van professionele muzikanten,
-                  werken we aan een verfijnde koorklank en muzikale expressie. Regelmatige
-                  stemgroeprepeties en workshops zorgen voor continue groei en ontwikkeling.
-                </p>
-                <p class="text-sm text-gray-600">
-                  Anja initieerde ook ambitieuze projecten zoals <em>"The Peacemakers"</em> (Karl Jenkins, 2014)
-                  en <em>"The Armed Man"</em> (Karl Jenkins, 2019, samen met het Mechels Harmonie Orkest).
-                </p>
-              </div>
-            </div>
-
-            <h2 class="text-3xl font-bold text-animato-secondary mt-12 mb-6">Concerten & Optredens</h2>
-            <p class="text-gray-700 mb-4">
-              Jaarlijks verzorgen we meerdere concerten in prachtige locaties. Van intieme kerkconcerten tot grootse uitvoeringen in concertzalen, elk optreden is een feest voor koor en publiek.
-            </p>
-          </div>
-
-          <div class="mt-12 bg-animato-primary bg-opacity-10 p-8 rounded-lg">
-            <h3 class="text-2xl font-bold text-animato-secondary mb-4">
-              Interesse om mee te zingen?
-            </h3>
-            <p class="text-gray-700 mb-6">
-              We zijn altijd op zoek naar nieuwe leden in alle stemgroepen (Sopraan, Alt, Tenor, Bas). Geen audities vereist, gewoon passie voor zingen!
-            </p>
-            <a 
-              href="/word-lid" 
-              class="inline-block bg-animato-accent hover:bg-yellow-600 text-white px-8 py-3 rounded-lg font-semibold transition"
-            >
-              Word Lid
-            </a>
-          </div>
-        </div>
-      </div>
-    </Layout>
-  )
-})
+// /koor → permanente redirect naar /over (canonical "Over ons" URL)
+// 301 zodat search-engines de nieuwe URL onthouden.
+app.get('/koor', (c) => c.redirect('/over', 301))
 
 // =====================================================
 // WORD LID

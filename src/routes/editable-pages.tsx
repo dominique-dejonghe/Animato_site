@@ -22,6 +22,7 @@
 import { Hono } from 'hono'
 import type { Bindings } from '../types'
 import { Layout } from '../components/Layout'
+import { Breadcrumb } from '../components/Breadcrumb'
 import { optionalAuth } from '../middleware/auth'
 import { queryOne } from '../utils/db'
 import { processBodyLinks } from '../utils/text'
@@ -38,7 +39,10 @@ const RESERVED_SLUGS = new Set([
   // Auth
   'login', 'logout', 'register', 'wachtwoord-vergeten',
   // Public pages met eigen routes
-  'over', 'koor', 'word-lid', 'contact', 'fotoboek',
+  // NOTE: 'over' is bewust weggehaald — wordt nu door deze handler
+  // gerenderd uit editable_pages. /koor blijft gereserveerd want die
+  // doet een 301 redirect naar /over in public.tsx.
+  'koor', 'word-lid', 'contact', 'fotoboek',
   'privacyverklaring', 'privacy', 'cookies',
   // App-secties
   'leden', 'admin', 'api', 'agenda', 'nieuws', 'tickets',
@@ -69,7 +73,7 @@ app.use('/:slug', async (c, next) => {
   // Bestaat de pagina in DB?
   const page = await queryOne<any>(
     c.env.DB,
-    `SELECT slug, titel, intro, body, hero_image FROM editable_pages WHERE slug = ?`,
+    `SELECT slug, titel, intro, body, hero_image, show_in_breadcrumb FROM editable_pages WHERE slug = ?`,
     [slug]
   )
 
@@ -81,11 +85,15 @@ app.use('/:slug', async (c, next) => {
   const titel = page.titel || slug
   const intro = page.intro || ''
   const body = page.body || '<p>Deze pagina wordt nog ingevuld.</p>'
+  const showBreadcrumb = page.show_in_breadcrumb === 1 || page.show_in_breadcrumb === undefined || page.show_in_breadcrumb === null
   const url = new URL(c.req.url)
   const siteHosts = [url.hostname, 'animato-live.pages.dev', 'animato.be']
 
   return c.html(
     <Layout title={titel} user={user} currentPath={`/${slug}`}>
+      {showBreadcrumb && (
+        <Breadcrumb items={[{ label: titel }]} />
+      )}
       <div class="py-16 bg-gradient-to-b from-white to-gray-50">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
 

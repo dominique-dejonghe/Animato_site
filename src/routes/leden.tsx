@@ -197,6 +197,12 @@ app.get('/leden', async (c) => {
     icon: string; iconBg: string; iconColor: string;
     titel: string; body?: string; link?: string; cta?: string;
     priority: number;
+    // Dismiss support — als beide gezet zijn, krijgt het item een X-knop.
+    // dismissType bepaalt welke API-endpoint aangeroepen wordt.
+    //   - 'news'         → POST /api/leden/news/:id/dismiss  (post_id)
+    //   - 'notification' → POST /api/leden/notifications/:id/read
+    dismissType?: 'news' | 'notification';
+    dismissId?: number;
   }> = []
 
   // 1) Openstaand lidgeld
@@ -229,13 +235,18 @@ app.get('/leden', async (c) => {
     const sinceClause = sinceDate
       ? `AND datetime(p.published_at) >= datetime(?)`
       : `AND datetime(p.published_at) >= datetime('now', '-7 days')`
-    const params: any[] = sinceDate ? [sinceDate] : []
+    // LEFT JOIN op user_news_dismissed: items die het lid al weggeklikt
+    // of via "Lees" gedismissed heeft, vallen weg uit het widget.
+    const params: any[] = sinceDate ? [user.id, sinceDate] : [user.id]
     const recentNieuws = await queryAll<any>(c.env.DB,
       `SELECT p.id, p.titel, p.slug, p.published_at
        FROM posts p
+       LEFT JOIN user_news_dismissed und
+         ON und.post_id = p.id AND und.user_id = ?
        WHERE p.type = 'nieuws'
          AND p.is_published = 1
          AND (p.zichtbaarheid = 'publiek' OR p.zichtbaarheid = 'leden')
+         AND und.id IS NULL
          ${sinceClause}
        ORDER BY p.published_at DESC
        LIMIT 3`,
@@ -246,7 +257,9 @@ app.get('/leden', async (c) => {
         titel: 'Nieuw bericht: ' + n.titel,
         link: `/nieuws/${n.slug}`,
         cta: 'Lees',
-        priority: 3
+        priority: 3,
+        dismissType: 'news',
+        dismissId: n.id
       })
     }
   } catch (e) { /* ignore */ }
@@ -265,7 +278,9 @@ app.get('/leden', async (c) => {
       body: n.body || undefined,
       link: n.link || undefined,
       cta: n.link ? 'Bekijk' : undefined,
-      priority: n.type === 'lidgeld' ? 2 : 4
+      priority: n.type === 'lidgeld' ? 2 : 4,
+      dismissType: 'notification',
+      dismissId: n.id
     })
   }
 
@@ -330,24 +345,106 @@ app.get('/leden', async (c) => {
                   Alle notificaties <i class="fas fa-arrow-right ml-0.5 text-[10px]"></i>
                 </a>
               </div>
-              <ul class="divide-y divide-gray-100">
-                {dedupedActions.map((a, idx) => (
-                  <li class="flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition">
-                    <div class={`flex-shrink-0 w-9 h-9 rounded-full ${a.iconBg} ${a.iconColor} flex items-center justify-center`}>
-                      <i class={a.icon}></i>
-                    </div>
-                    <div class="flex-1 min-w-0">
-                      <p class="text-sm font-medium text-gray-800 truncate">{a.titel}</p>
-                      {a.body && <p class="text-xs text-gray-500 truncate">{a.body}</p>}
-                    </div>
-                    {a.link && (
-                      <a href={a.link} class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-animato-primary hover:bg-animato-primary/10 rounded-lg border border-animato-primary/30 transition">
-                        {a.cta || 'Open'} <i class="fas fa-chevron-right text-[10px]"></i>
-                      </a>
-                    )}
-                  </li>
-                ))}
+              <ul id="dashboard-actions-list" class="divide-y divide-gray-100">
+                {dedupedActions.map((a, idx) => {
+                  const dismissAttrs = a.dismissType && a.dismissId
+                    ? {
+                        'data-dismiss-type': a.dismissType,
+                        'data-dismiss-id': String(a.dismissId)
+                      }
+                    : {}
+                  return (
+                    <li class="dashboard-action-item flex items-center gap-3 px-5 py-3 hover:bg-gray-50 transition" {...dismissAttrs}>
+                      <div class={`flex-shrink-0 w-9 h-9 rounded-full ${a.iconBg} ${a.iconColor} flex items-center justify-center`}>
+                        <i class={a.icon}></i>
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <p class="text-sm font-medium text-gray-800 truncate">{a.titel}</p>
+                        {a.body && <p class="text-xs text-gray-500 truncate">{a.body}</p>}
+                      </div>
+                      {a.link && (
+                        <a href={a.link} data-action-link class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-animato-primary hover:bg-animato-primary/10 rounded-lg border border-animato-primary/30 transition">
+                          {a.cta || 'Open'} <i class="fas fa-chevron-right text-[10px]"></i>
+                        </a>
+                      )}
+                      {a.dismissType && a.dismissId && (
+                        <button
+                          type="button"
+                          data-action-dismiss
+                          aria-label="Verbergen"
+                          title="Verbergen"
+                          class="flex-shrink-0 w-7 h-7 inline-flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition"
+                        >
+                          <i class="fas fa-times text-xs"></i>
+                        </button>
+                      )}
+                    </li>
+                  )
+                })}
               </ul>
+              {/* Client-side: X-klik én Lees-klik triggert idempotent dismiss
+                  zodat het item meteen verdwijnt en bij volgende load niet
+                  terugkeert. Widget wordt zelf weggehaald als de lijst leeg is. */}
+              <script dangerouslySetInnerHTML={{ __html: `
+                (function() {
+                  var list = document.getElementById('dashboard-actions-list');
+                  if (!list) return;
+                  var card = list.closest('.bg-white.border.border-gray-200');
+
+                  function endpointFor(type, id) {
+                    if (type === 'news') return '/api/leden/news/' + id + '/dismiss';
+                    if (type === 'notification') return '/api/leden/notifications/' + id + '/read';
+                    return null;
+                  }
+
+                  function dismissItem(li, removeImmediately) {
+                    var type = li.getAttribute('data-dismiss-type');
+                    var id = li.getAttribute('data-dismiss-id');
+                    if (!type || !id) return;
+                    var url = endpointFor(type, id);
+                    if (!url) return;
+                    // Fire-and-forget; idempotent server-side.
+                    try {
+                      fetch(url, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'Accept': 'application/json' }
+                      }).catch(function(){});
+                    } catch (e) {}
+                    if (removeImmediately) {
+                      li.style.transition = 'opacity .2s ease, transform .2s ease';
+                      li.style.opacity = '0';
+                      li.style.transform = 'translateX(8px)';
+                      setTimeout(function() {
+                        li.remove();
+                        if (list.children.length === 0 && card) {
+                          card.style.transition = 'opacity .25s ease';
+                          card.style.opacity = '0';
+                          setTimeout(function(){ card.remove(); }, 250);
+                        }
+                      }, 200);
+                    }
+                  }
+
+                  // X-knop: meteen visueel verwijderen
+                  list.addEventListener('click', function(e) {
+                    var btn = e.target.closest('[data-action-dismiss]');
+                    if (btn) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      var li = btn.closest('.dashboard-action-item');
+                      if (li) dismissItem(li, true);
+                      return;
+                    }
+                    // "Lees"-link: dismiss in achtergrond, navigatie gebeurt normaal
+                    var link = e.target.closest('[data-action-link]');
+                    if (link) {
+                      var li = link.closest('.dashboard-action-item');
+                      if (li) dismissItem(li, false);
+                    }
+                  });
+                })();
+              ` }} />
             </div>
           )}
 
@@ -4580,6 +4677,31 @@ app.post('/api/leden/notifications/read-all', async (c) => {
     return c.redirect('/leden/profiel?success=notifications_read')
   }
   return c.json({ success: true, count })
+})
+
+// =====================================================
+// NIEUWS — per-user dismiss voor het "Wat staat er voor jou open?"-widget
+// =====================================================
+// Idempotent. Wordt aangeroepen vanuit het dashboard-widget op /leden:
+//   - X-knop op een "Nieuw bericht: ..." item
+//   - implicit bij klik op "Lees" (zo verschijnt het bericht niet opnieuw)
+app.post('/api/leden/news/:postId/dismiss', async (c) => {
+  const user = c.get('user') as SessionUser
+  const postId = parseInt(c.req.param('postId'))
+  if (!postId || Number.isNaN(postId)) {
+    return c.json({ error: 'invalid post id' }, 400)
+  }
+  try {
+    await execute(
+      c.env.DB,
+      `INSERT OR IGNORE INTO user_news_dismissed (user_id, post_id)
+       VALUES (?, ?)`,
+      [user.id, postId]
+    )
+    return c.json({ success: true })
+  } catch (e: any) {
+    return c.json({ error: 'dismiss failed', detail: String(e?.message || e) }, 500)
+  }
 })
 
 app.post('/api/leden/favorites/toggle', async (c) => {

@@ -56,6 +56,15 @@
       ? 'Ze sluiten zich aan bij Animato. Maak kennis met hen!'
       : 'Hij/zij sluit zich aan bij Animato. Maak kennis!';
 
+    // CTA: bij \u00e9\u00e9n lid \u2192 direct naar zijn profiel; bij meerdere \u2192 smoelenboek-overzicht
+    const ctaHref = isPlural
+      ? '/leden/smoelenboek'
+      : `/leden/smoelenboek/${members[0].id}`;
+    const ctaLabel = isPlural
+      ? 'Bekijk smoelenboek'
+      : `Bekijk ${members[0].voornaam}'s profiel`;
+    const ctaIcon = isPlural ? 'fas fa-users' : 'fas fa-user-circle';
+
     overlay.innerHTML = `
       <div class="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto relative animate-popin">
         <button id="new-members-close" aria-label="Sluiten"
@@ -79,10 +88,10 @@
 
         <div class="px-6 pb-6 sm:px-8 sm:pb-8">
           <a id="new-members-cta"
-             href="/leden/smoelenboek"
+             href="${ctaHref}"
              class="block w-full text-center bg-animato-accent hover:bg-yellow-500 text-white font-semibold px-6 py-3 rounded-xl shadow-lg hover:shadow-yellow-500/30 transition-all">
-            <i class="fas fa-id-card mr-2"></i>
-            Bekijk smoelenboek
+            <i class="${ctaIcon} mr-2"></i>
+            ${escapeHtml(ctaLabel)}
           </a>
           <button id="new-members-dismiss"
                   class="block w-full text-center mt-3 text-gray-600 hover:text-gray-900 text-sm py-2 transition">
@@ -126,6 +135,12 @@
       // markSeen async laten lopen, navigatie niet blokkeren
       markMembersSeen(ids).catch(() => {});
     });
+    // Klik op individuele leden-kaart: markeer als gezien + navigatie
+    overlay.querySelectorAll('a[data-member-card]').forEach(card => {
+      card.addEventListener('click', () => {
+        markMembersSeen(ids).catch(() => {});
+      });
+    });
 
     // Klik op overlay buiten modal \u2192 sluit
     overlay.addEventListener('click', (e) => {
@@ -156,11 +171,13 @@
     const lidSinds = formatLidSinds(m.created_at);
 
     return `
-      <div class="flex items-center gap-4 p-4 bg-gradient-to-r from-gray-50 to-white border border-gray-200 rounded-xl hover:shadow-md transition">
+      <a href="/leden/smoelenboek/${m.id}"
+         data-member-card="${m.id}"
+         class="flex items-center gap-4 p-4 bg-gradient-to-r from-gray-50 to-white border border-gray-200 rounded-xl hover:shadow-md hover:border-animato-primary transition group">
         ${photoHtml}
         <div class="flex-1 min-w-0">
           <div class="flex items-center gap-2 flex-wrap">
-            <h3 class="text-lg font-semibold text-gray-900 truncate">${escapeHtml(m.fullname)}</h3>
+            <h3 class="text-lg font-semibold text-gray-900 truncate group-hover:text-animato-primary transition">${escapeHtml(m.fullname)}</h3>
             ${stemgroepBadge}
           </div>
           <p class="text-sm text-gray-500 mt-0.5">
@@ -168,7 +185,8 @@
             Lid sinds ${escapeHtml(lidSinds)}
           </p>
         </div>
-      </div>
+        <i class="fas fa-chevron-right text-gray-300 group-hover:text-animato-primary transition"></i>
+      </a>
     `;
   }
 

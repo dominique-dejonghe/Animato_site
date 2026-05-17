@@ -490,6 +490,27 @@ app.post('/api/auth/login', async (c) => {
       }
     }
 
+    // Welkom-splash voor leden die hem nog niet gezien hebben.
+    // Dominique vraagde dit als feestelijk moment voor net-goedgekeurde aanvragen.
+    // We checken alleen wanneer de standaard /leden-redirect zou triggeren,
+    // niet bij externe redirects (bv. ticket-pagina, agenda-event, etc.) \u2014
+    // anders verlies je dat moment achter een willekeurig deeplink.
+    if (user.role === 'lid' && finalRedirect === '/leden') {
+      try {
+        const splashRow = await queryOne<{ welcome_splash_seen: number }>(
+          c.env.DB,
+          `SELECT welcome_splash_seen FROM users WHERE id = ?`,
+          [user.id]
+        )
+        if (splashRow && splashRow.welcome_splash_seen === 0) {
+          finalRedirect = '/leden/welkom'
+        }
+      } catch (e) {
+        // Bij DB-fout: stilletjes door naar /leden, geen UX-blocker
+        console.warn('[welkom] splash check failed:', e)
+      }
+    }
+
     return c.redirect(finalRedirect)
   } catch (error) {
     console.error('Login error:', error)

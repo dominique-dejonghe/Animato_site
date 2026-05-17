@@ -41,6 +41,7 @@ import adminCommentsRoutes from './routes/admin-comments'
 import editablePagesRoutes from './routes/editable-pages'
 import adminSeatingRoutes from './routes/admin-seating'
 import ledenActivityRoutes from './routes/leden-activity'
+import welkomRoutes from './routes/welkom'
 import adminCommunicationsRoutes from './routes/admin-communications' // Imported
 import feedbackRoutes from './routes/feedback'
 import adminFeedbackRoutes from './routes/admin-feedback'
@@ -135,6 +136,10 @@ app.route('/', checkinRoutes)
 // anders alle unmatched paden 401-t. Bevat een RESERVED_SLUGS lijst om
 // conflicten met /leden, /admin, etc. te voorkomen.
 app.route('/', editablePagesRoutes)
+
+// Welkom-splash voor nieuwe koorleden — MOET voor ledenRoutes, want
+// /leden/welkom zou anders door de wildcard van ledenRoutes worden gevangen
+app.route('/', welkomRoutes)
 
 // Leden portal routes
 app.route('/', ledenRoutes)

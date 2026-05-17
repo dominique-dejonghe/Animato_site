@@ -142,6 +142,32 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // =====================================================
+// DESKTOP "MEER" DROPDOWN (overflow nav)
+// =====================================================
+
+document.addEventListener('DOMContentLoaded', () => {
+  const moreDropdown = document.getElementById('nav-more-dropdown');
+  if (!moreDropdown) return;
+
+  const button = moreDropdown.querySelector('button');
+  const panel = moreDropdown.querySelector('div');
+  if (!button || !panel) return;
+
+  // Close on outside click
+  document.addEventListener('click', (e) => {
+    if (panel.classList.contains('hidden')) return;
+    if (!moreDropdown.contains(e.target)) {
+      panel.classList.add('hidden');
+    }
+  });
+
+  // Close on Escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') panel.classList.add('hidden');
+  });
+});
+
+// =====================================================
 // SMOOTH SCROLL
 // =====================================================
 

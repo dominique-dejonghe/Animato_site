@@ -23,11 +23,11 @@ app.get('/admin/paginas', async (c) => {
   const success = c.req.query('success')
 
   const pages = await queryAll<any>(c.env.DB,
-    `SELECT p.slug, p.titel, p.intro, p.updated_at, p.show_in_breadcrumb,
+    `SELECT p.slug, p.titel, p.intro, p.updated_at, p.show_in_nav, p.nav_order,
             pr.voornaam as updater_voornaam, pr.achternaam as updater_achternaam
      FROM editable_pages p
      LEFT JOIN profiles pr ON pr.user_id = p.updated_by
-     ORDER BY p.slug ASC`)
+     ORDER BY p.nav_order ASC, p.slug ASC`)
 
   return c.html(
     <Layout title="Pagina-beheer" user={user} currentPath="/admin/paginas">
@@ -82,15 +82,17 @@ app.get('/admin/paginas', async (c) => {
                     </a>
                   </td>
                   <td class="px-6 py-4">
-                    <div class="font-medium text-gray-900 flex items-center gap-2">
+                    <div class="font-medium text-gray-900 flex items-center gap-2 flex-wrap">
                       <span>{p.titel}</span>
-                      {p.show_in_breadcrumb === 1 ? (
-                        <span title="Zichtbaar in breadcrumb" class="text-green-600 text-xs">
-                          <i class="fas fa-eye"></i>
+                      {p.show_in_nav === 1 ? (
+                        <span title={`In header-navigatie (positie ${p.nav_order})`} class="inline-flex items-center gap-1 text-green-700 bg-green-50 border border-green-200 text-xs px-2 py-0.5 rounded-full">
+                          <i class="fas fa-bars"></i>
+                          <span>nav #{p.nav_order}</span>
                         </span>
                       ) : (
-                        <span title="Verborgen in breadcrumb" class="text-gray-400 text-xs">
+                        <span title="Niet in header-navigatie" class="inline-flex items-center gap-1 text-gray-500 bg-gray-50 border border-gray-200 text-xs px-2 py-0.5 rounded-full">
                           <i class="fas fa-eye-slash"></i>
+                          <span>verborgen</span>
                         </span>
                       )}
                     </div>
@@ -139,9 +141,14 @@ app.get('/admin/paginas', async (c) => {
               </div>
               <div>
                 <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                  <input type="checkbox" name="show_in_breadcrumb" value="1" checked class="rounded border-gray-300 text-animato-primary focus:ring-animato-primary" />
-                  <span>Toon deze pagina in de breadcrumb-navigatie</span>
+                  <input type="checkbox" name="show_in_nav" value="1" checked class="rounded border-gray-300 text-animato-primary focus:ring-animato-primary" />
+                  <span>Toon in header-navigatie</span>
                 </label>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Positie in nav (lager = eerder)</label>
+                <input type="number" name="nav_order" value="100" min="0" max="9999" class="w-full border border-gray-300 rounded-lg px-3 py-2" />
+                <p class="text-xs text-gray-500 mt-1">Statische items: Home=0, Over=10, Nieuws=20, Agenda=30, Concerten=40, Foto's=50, Contact=9999. Tip: gebruik tussen-waardes om je pagina ergens in te voegen.</p>
               </div>
               <div class="flex justify-end gap-2 pt-2">
                 <button type="button" onclick="document.getElementById('newPageModal').classList.add('hidden')" class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg">
@@ -167,7 +174,7 @@ app.get('/admin/paginas/:slug', async (c) => {
   const slug = c.req.param('slug')
 
   const page = await queryOne<any>(c.env.DB,
-    `SELECT slug, titel, intro, body, hero_image, show_in_breadcrumb FROM editable_pages WHERE slug = ?`,
+    `SELECT slug, titel, intro, body, hero_image, show_in_nav, nav_order FROM editable_pages WHERE slug = ?`,
     [slug])
 
   if (!page) {
@@ -221,23 +228,40 @@ app.get('/admin/paginas/:slug', async (c) => {
             <p class="text-xs text-gray-500 mt-1">Korte tagline die direct onder de titel komt.</p>
           </div>
 
-          <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+          <div class="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
             <label class="flex items-start gap-3 cursor-pointer">
               <input
                 type="checkbox"
-                name="show_in_breadcrumb"
+                name="show_in_nav"
                 value="1"
-                checked={page.show_in_breadcrumb === 1}
+                checked={page.show_in_nav === 1}
                 class="mt-1 rounded border-gray-300 text-animato-primary focus:ring-animato-primary"
               />
               <div>
-                <span class="text-sm font-medium text-gray-700">Toon in breadcrumb-navigatie</span>
+                <span class="text-sm font-medium text-gray-700">Toon in header-navigatie</span>
                 <p class="text-xs text-gray-500 mt-0.5">
-                  Wanneer aangevinkt verschijnt er een breadcrumb-balkje bovenaan de pagina (<i>Home &gt; {page.titel}</i>).
-                  Zet uit voor landingspagina's of pagina's waar je geen broodkruimels wil tonen.
+                  Wanneer aangevinkt verschijnt deze pagina als link in de header-balk
+                  (op desktop bij te veel items in de "Meer ▾" dropdown).
                 </p>
               </div>
             </label>
+
+            <div class="pl-7">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Positie in nav</label>
+              <input
+                type="number"
+                name="nav_order"
+                value={page.nav_order ?? 100}
+                min="0"
+                max="9999"
+                class="w-40 border border-gray-300 rounded-lg px-3 py-2"
+              />
+              <p class="text-xs text-gray-500 mt-1">
+                Lager getal = eerder in de balk. Statische posities ter referentie:
+                Home=0, Over Ons=10, Nieuws=20, Agenda=30, Concerten=40, Foto's=50, Contact=9999.
+                Gebruik 15 om tussen "Over Ons" en "Nieuws" te staan, bv.
+              </p>
+            </div>
           </div>
 
           <div>
@@ -298,7 +322,9 @@ app.post('/api/admin/paginas/create', async (c) => {
   const body = await c.req.parseBody()
   const slug = String(body.slug || '').toLowerCase().trim().replace(/[^a-z0-9-]/g, '')
   const titel = String(body.titel || '').trim()
-  const showInBreadcrumb = body.show_in_breadcrumb ? 1 : 0
+  const showInNav = body.show_in_nav ? 1 : 0
+  const navOrderRaw = parseInt(String(body.nav_order || '100'), 10)
+  const navOrder = Number.isFinite(navOrderRaw) ? Math.max(0, Math.min(9999, navOrderRaw)) : 100
 
   if (!slug || !titel) {
     return c.redirect('/admin/paginas?error=missing_fields')
@@ -311,8 +337,8 @@ app.post('/api/admin/paginas/create', async (c) => {
   }
 
   await execute(c.env.DB,
-    `INSERT INTO editable_pages (slug, titel, body, show_in_breadcrumb, updated_by) VALUES (?, ?, ?, ?, ?)`,
-    [slug, titel, '<p>Nieuwe pagina — vul hier je inhoud in.</p>', showInBreadcrumb, user.id])
+    `INSERT INTO editable_pages (slug, titel, body, show_in_nav, nav_order, updated_by) VALUES (?, ?, ?, ?, ?, ?)`,
+    [slug, titel, '<p>Nieuwe pagina — vul hier je inhoud in.</p>', showInNav, navOrder, user.id])
 
   return c.redirect(`/admin/paginas/${slug}`)
 })
@@ -326,7 +352,9 @@ app.post('/api/admin/paginas/save', async (c) => {
   const heroImage = String(body.hero_image || '').trim() || null
   const content = String(body.body || '').trim()
   // Checkbox: aanwezig in body = aangevinkt; afwezig = niet aangevinkt
-  const showInBreadcrumb = body.show_in_breadcrumb ? 1 : 0
+  const showInNav = body.show_in_nav ? 1 : 0
+  const navOrderRaw = parseInt(String(body.nav_order || '100'), 10)
+  const navOrder = Number.isFinite(navOrderRaw) ? Math.max(0, Math.min(9999, navOrderRaw)) : 100
 
   if (!slug || !titel) {
     return c.redirect('/admin/paginas?error=missing_fields')
@@ -334,10 +362,11 @@ app.post('/api/admin/paginas/save', async (c) => {
 
   await execute(c.env.DB, `
     UPDATE editable_pages
-    SET titel = ?, intro = ?, body = ?, hero_image = ?, show_in_breadcrumb = ?,
+    SET titel = ?, intro = ?, body = ?, hero_image = ?,
+        show_in_nav = ?, nav_order = ?,
         updated_at = CURRENT_TIMESTAMP, updated_by = ?
     WHERE slug = ?
-  `, [titel, intro, content, heroImage, showInBreadcrumb, user.id, slug])
+  `, [titel, intro, content, heroImage, showInNav, navOrder, user.id, slug])
 
   return c.redirect('/admin/paginas?success=saved')
 })

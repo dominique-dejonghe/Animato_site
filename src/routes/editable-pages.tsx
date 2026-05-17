@@ -73,7 +73,7 @@ app.use('/:slug', async (c, next) => {
   // Bestaat de pagina in DB?
   const page = await queryOne<any>(
     c.env.DB,
-    `SELECT slug, titel, intro, body, hero_image, show_in_breadcrumb FROM editable_pages WHERE slug = ?`,
+    `SELECT slug, titel, intro, body, hero_image FROM editable_pages WHERE slug = ?`,
     [slug]
   )
 
@@ -85,15 +85,12 @@ app.use('/:slug', async (c, next) => {
   const titel = page.titel || slug
   const intro = page.intro || ''
   const body = page.body || '<p>Deze pagina wordt nog ingevuld.</p>'
-  const showBreadcrumb = page.show_in_breadcrumb === 1 || page.show_in_breadcrumb === undefined || page.show_in_breadcrumb === null
   const url = new URL(c.req.url)
   const siteHosts = [url.hostname, 'animato-live.pages.dev', 'animato.be']
 
   return c.html(
     <Layout title={titel} user={user} currentPath={`/${slug}`}>
-      {showBreadcrumb && (
-        <Breadcrumb items={[{ label: titel }]} />
-      )}
+      <Breadcrumb items={[{ label: titel }]} />
       <div class="py-16 bg-gradient-to-b from-white to-gray-50">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
 

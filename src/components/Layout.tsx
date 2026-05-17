@@ -2,6 +2,7 @@
 // Base HTML structure met navigation, header, footer
 
 import type { FC } from 'hono/jsx'
+import { getNavPages } from '../utils/nav-context'
 
 interface LayoutProps {
   title?: string
@@ -32,6 +33,53 @@ export const Layout: FC<LayoutProps> = ({
   const fullTitle = title === 'Gemengd Koor Animato' ? title : `${title} | Gemengd Koor Animato`
   // Default OG-image = Animato logo (kleine fallback, dan toont WhatsApp tenminste iets visueel)
   const finalOgImage = ogImage || 'https://animato-live.pages.dev/static/images/animato-logo-full.png'
+
+  // =====================================================
+  // NAV-ITEMS — mix van statische items met editable_pages (show_in_nav=1)
+  // =====================================================
+  // Statische items hebben hardcoded nav_order zodat editable_pages tussen,
+  // voor of na de standaard-items kunnen verschijnen.
+  // - Home: 0
+  // - Over Ons: 10
+  // - Nieuws: 20
+  // - Agenda: 30
+  // - Concerten: 40
+  // - Foto's: 50
+  // - Contact: 9999 (altijd laatst)
+  // editable_pages met nav_order 11–9 verschijnen tussen Home/Over,
+  // met 21–39 tussen Nieuws/Agenda, enz. nav_order 100 = na Foto's.
+  type NavItem = { href: string; label: string; nav_order: number; activePaths?: string[] }
+  const staticItems: NavItem[] = [
+    { href: '/', label: 'Home', nav_order: 0, activePaths: ['/'] },
+    { href: '/over', label: 'Over Ons', nav_order: 10, activePaths: ['/over', '/koor'] },
+    { href: '/nieuws', label: 'Nieuws', nav_order: 20, activePaths: ['/nieuws'] },
+    { href: '/agenda', label: 'Agenda', nav_order: 30, activePaths: ['/agenda'] },
+    { href: '/concerten', label: 'Concerten', nav_order: 40, activePaths: ['/concerten'] },
+    { href: '/fotoboek', label: "Foto's", nav_order: 50, activePaths: ['/fotoboek'] },
+    { href: '/contact', label: 'Contact', nav_order: 9999, activePaths: ['/contact'] },
+  ]
+  const dynamicItems: NavItem[] = getNavPages().map(p => ({
+    href: `/${p.slug}`,
+    label: p.titel,
+    nav_order: p.nav_order,
+    activePaths: [`/${p.slug}`],
+  }))
+  const allNavItems = [...staticItems, ...dynamicItems].sort((a, b) => a.nav_order - b.nav_order)
+
+  // Desktop overflow-drempel: max 7 items zichtbaar, rest in "Meer" dropdown.
+  // Contact (nav_order 9999) blijft altijd zichtbaar.
+  const DESKTOP_MAX = 7
+  let visibleNav: NavItem[] = allNavItems
+  let overflowNav: NavItem[] = []
+  if (allNavItems.length > DESKTOP_MAX) {
+    const contact = allNavItems.find(i => i.nav_order === 9999)
+    const rest = allNavItems.filter(i => i.nav_order !== 9999)
+    visibleNav = rest.slice(0, DESKTOP_MAX - 1)
+    overflowNav = rest.slice(DESKTOP_MAX - 1)
+    if (contact) visibleNav.push(contact)
+  }
+
+  const isActive = (item: NavItem) => item.activePaths?.some(p => currentPath === p) ?? false
 
   return (
     <html lang="nl">
@@ -249,29 +297,38 @@ export const Layout: FC<LayoutProps> = ({
                 </a>
               </div>
 
-              {/* Desktop Navigation */}
-              <nav class="hidden md:flex items-center space-x-8">
-                <a href="/" class={`hover:text-animato-primary transition ${currentPath === '/' ? 'text-animato-primary font-semibold' : 'text-gray-700'}`}>
-                  Home
-                </a>
-                <a href="/over" class={`hover:text-animato-primary transition ${currentPath === '/over' || currentPath === '/koor' ? 'text-animato-primary font-semibold' : 'text-gray-700'}`}>
-                  Over Ons
-                </a>
-                <a href="/nieuws" class={`hover:text-animato-primary transition ${currentPath === '/nieuws' ? 'text-animato-primary font-semibold' : 'text-gray-700'}`}>
-                  Nieuws
-                </a>
-                <a href="/agenda" class={`hover:text-animato-primary transition ${currentPath === '/agenda' ? 'text-animato-primary font-semibold' : 'text-gray-700'}`}>
-                  Agenda
-                </a>
-                <a href="/concerten" class={`hover:text-animato-primary transition ${currentPath === '/concerten' ? 'text-animato-primary font-semibold' : 'text-gray-700'}`}>
-                  Concerten
-                </a>
-                <a href="/fotoboek" class={`hover:text-animato-primary transition ${currentPath === '/fotoboek' ? 'text-animato-primary font-semibold' : 'text-gray-700'}`}>
-                  Foto's
-                </a>
-                <a href="/contact" class={`hover:text-animato-primary transition ${currentPath === '/contact' ? 'text-animato-primary font-semibold' : 'text-gray-700'}`}>
-                  Contact
-                </a>
+              {/* Desktop Navigation — dynamisch op basis van editable_pages + statische items */}
+              <nav class="hidden md:flex items-center space-x-6 lg:space-x-8">
+                {visibleNav.map(item => (
+                  <a
+                    href={item.href}
+                    class={`hover:text-animato-primary transition whitespace-nowrap ${isActive(item) ? 'text-animato-primary font-semibold' : 'text-gray-700'}`}
+                  >
+                    {item.label}
+                  </a>
+                ))}
+                {overflowNav.length > 0 && (
+                  <div class="relative group" id="nav-more-dropdown">
+                    <button
+                      type="button"
+                      class="flex items-center gap-1 text-gray-700 hover:text-animato-primary transition whitespace-nowrap"
+                      onclick="this.nextElementSibling.classList.toggle('hidden')"
+                      aria-haspopup="true"
+                    >
+                      Meer <i class="fas fa-chevron-down text-xs"></i>
+                    </button>
+                    <div class="hidden absolute right-0 top-full mt-2 w-56 bg-white shadow-xl rounded-lg border border-gray-200 py-2 z-50">
+                      {overflowNav.map(item => (
+                        <a
+                          href={item.href}
+                          class={`block px-4 py-2 hover:bg-gray-50 transition ${isActive(item) ? 'text-animato-primary font-semibold' : 'text-gray-700'}`}
+                        >
+                          {item.label}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </nav>
 
               {/* Auth Buttons */}
@@ -325,16 +382,17 @@ export const Layout: FC<LayoutProps> = ({
             </div>
           </div>
 
-          {/* Mobile Navigation */}
+          {/* Mobile Navigation — alle items plat onder elkaar, geen overflow-dropdown */}
           <div id="mobile-menu" class="hidden md:hidden border-t border-gray-200">
             <div class="px-4 py-4 space-y-3">
-              <a href="/" class="block text-gray-700 hover:text-animato-primary">Home</a>
-              <a href="/over" class="block text-gray-700 hover:text-animato-primary">Over Ons</a>
-              <a href="/nieuws" class="block text-gray-700 hover:text-animato-primary">Nieuws</a>
-              <a href="/agenda" class="block text-gray-700 hover:text-animato-primary">Agenda</a>
-              <a href="/concerten" class="block text-gray-700 hover:text-animato-primary">Concerten</a>
-              <a href="/fotoboek" class="block text-gray-700 hover:text-animato-primary">Foto's</a>
-              <a href="/contact" class="block text-gray-700 hover:text-animato-primary">Contact</a>
+              {allNavItems.map(item => (
+                <a
+                  href={item.href}
+                  class={`block hover:text-animato-primary ${isActive(item) ? 'text-animato-primary font-semibold' : 'text-gray-700'}`}
+                >
+                  {item.label}
+                </a>
+              ))}
               
               {user ? (
                 <>

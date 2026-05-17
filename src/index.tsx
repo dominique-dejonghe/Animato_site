@@ -6,6 +6,7 @@ import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { serveStatic } from 'hono/cloudflare-workers'
 import type { Bindings } from './types'
+import { fetchNavPages, runWithNavPages } from './utils/nav-context'
 
 // Import routes
 import publicRoutes from './routes/public'
@@ -37,7 +38,6 @@ import adminSettingsRoutes from './routes/admin-settings'
 import adminFinanceRoutes from './routes/admin-finance'
 import adminPrintsRoutes from './routes/admin-prints'
 import adminCommentsRoutes from './routes/admin-comments'
-import editablePagesRoutes from './routes/editable-pages'
 import editablePagesRoutes from './routes/editable-pages'
 import adminSeatingRoutes from './routes/admin-seating'
 import ledenActivityRoutes from './routes/leden-activity'
@@ -81,6 +81,22 @@ app.use('/api/*', cors({
 
 // Static files from /static/* path
 app.use('/static/*', serveStatic({ root: './' }))
+
+// =====================================================
+// NAV CONTEXT MIDDLEWARE
+// =====================================================
+// Fetcht editable_pages met show_in_nav=1 één keer per request,
+// stopt ze in een AsyncLocalStorage zodat Layout.tsx ze sync kan
+// lezen zonder dat we 120+ call-sites moeten aanpassen.
+// Skip voor /api/*, /static/*, /r2/* — die hebben geen UI.
+app.use('*', async (c, next) => {
+  const path = c.req.path
+  if (path.startsWith('/api/') || path.startsWith('/static/') || path.startsWith('/r2/')) {
+    return next()
+  }
+  const navPages = await fetchNavPages(c.env.DB)
+  return runWithNavPages(navPages, () => next())
+})
 
 // R2 object storage public-serve route (foto's, partituren, covers)
 app.route('/', r2Routes)

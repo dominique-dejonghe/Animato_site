@@ -1805,9 +1805,126 @@ app.get('/leden/profiel', async (c) => {
     }
   } catch (e) { /* table may not exist yet */ }
 
-  // #116 — Notificaties voor dit lid (laatste 20)
-  const notifications = await getNotificationsForUser(c.env.DB, user.id, 20)
-  const unreadCount = notifications.filter((n: any) => !n.is_gelezen).length
+  // ─── #116/widget — Meldingen-kaart met 3 tabs ─────────────────────────
+  // Bron 1: alle DB-notificaties (laatste 50, voor 'Alles'-tab)
+  const allNotifications = await getNotificationsForUser(c.env.DB, user.id, 50)
+  const unreadCount = allNotifications.filter((n: any) => !n.is_gelezen).length
+
+  // Bron 2: openstaande nieuws-posts (laatste 14d) die het lid nog NIET
+  // heeft gedismissed. Spiegelt /leden-widget zodat /profiel synchroon loopt.
+  let openNews: Array<{ id: number; titel: string; slug: string; published_at: string }> = []
+  try {
+    const lastLoginRow = await queryOne<any>(c.env.DB,
+      `SELECT previous_login_at FROM users WHERE id = ?`, [user.id])
+    const sinceDate = lastLoginRow?.previous_login_at || null
+    const sinceClause = sinceDate
+      ? `AND datetime(p.published_at) >= datetime(?)`
+      : `AND datetime(p.published_at) >= datetime('now', '-14 days')`
+    const newsParams: any[] = sinceDate ? [user.id, sinceDate] : [user.id]
+    openNews = await queryAll<any>(c.env.DB,
+      `SELECT p.id, p.titel, p.slug, p.published_at
+       FROM posts p
+       LEFT JOIN user_news_dismissed und
+         ON und.post_id = p.id AND und.user_id = ?
+       WHERE p.type = 'nieuws'
+         AND p.is_published = 1
+         AND (p.zichtbaarheid = 'publiek' OR p.zichtbaarheid = 'leden')
+         AND und.id IS NULL
+         ${sinceClause}
+       ORDER BY p.published_at DESC
+       LIMIT 10`,
+      newsParams)
+  } catch (e) { /* ignore */ }
+
+  // Bron 3: gearchiveerde (=gedismissede) nieuws-posts voor 'Archief'-tab.
+  // Beperk tot laatste 90 dagen: dat houdt de lijst overzichtelijk en
+  // werkt netjes samen met de 'Wis archief'-actie (die dismissed_at
+  // terugzet naar 100d, waardoor items uit het zicht verdwijnen zonder
+  // dat de records zelf weg moeten — anders komen die items op /leden
+  // terug als 'openstaand'.)
+  let archivedNews: Array<{ id: number; titel: string; slug: string; published_at: string; dismissed_at: string }> = []
+  try {
+    archivedNews = await queryAll<any>(c.env.DB,
+      `SELECT p.id, p.titel, p.slug, p.published_at, und.dismissed_at
+       FROM user_news_dismissed und
+       JOIN posts p ON p.id = und.post_id
+       WHERE und.user_id = ?
+         AND datetime(und.dismissed_at) >= datetime('now', '-90 days')
+       ORDER BY und.dismissed_at DESC
+       LIMIT 50`,
+      [user.id])
+  } catch (e) { /* ignore */ }
+
+  // Berekenen 'Openstaand'-tab items (zelfde shape als /leden-widget,
+  // maar zonder dedup — gebruiker mag rustige overzicht zien).
+  type ProfielActie = {
+    icon: string; iconBg: string; iconColor: string;
+    titel: string; body?: string; link?: string; cta?: string;
+    dismissType?: 'news' | 'notification';
+    dismissId?: number;
+    canDismiss: boolean;  // sommige acties zijn niet weg te klikken (lidgeld!)
+  }
+  const profielOpenActies: ProfielActie[] = []
+
+  // 1) Openstaand lidgeld — NIET dismissible (moet effectief afgehandeld)
+  if (activeMembership && activeMembership.is_active &&
+      (!activeMembership.status || !['paid','waived'].includes(activeMembership.status))) {
+    profielOpenActies.push({
+      icon: 'fas fa-euro-sign', iconBg: 'bg-orange-100', iconColor: 'text-orange-600',
+      titel: `Lidgeld ${activeMembership.season} nog te betalen`,
+      body: activeMembership.amount ? `Bedrag: € ${Number(activeMembership.amount).toFixed(2)}` : undefined,
+      link: '/leden/profiel#lidgeld',
+      cta: 'Bekijk',
+      canDismiss: false
+    })
+  }
+
+  // 2) Ongelezen DB-notificaties
+  for (const n of allNotifications.filter((x: any) => !x.is_gelezen)) {
+    const style = getNotificationStyle(n.type)
+    profielOpenActies.push({
+      icon: style.icon, iconBg: style.bg, iconColor: style.color,
+      titel: n.titel,
+      body: n.body || undefined,
+      link: n.link || undefined,
+      cta: n.link ? 'Bekijk' : undefined,
+      dismissType: 'notification', dismissId: n.id, canDismiss: true
+    })
+  }
+
+  // 3) Recent nieuws (openNews al gefilterd op niet-gedismissed)
+  for (const nw of openNews) {
+    profielOpenActies.push({
+      icon: 'fas fa-newspaper', iconBg: 'bg-blue-100', iconColor: 'text-blue-600',
+      titel: 'Nieuw bericht: ' + nw.titel,
+      link: `/nieuws/${nw.slug}`, cta: 'Lees',
+      dismissType: 'news', dismissId: nw.id, canDismiss: true
+    })
+  }
+
+  // 4) Profiel onvolledig (~ /leden-logica)
+  const _pFields = profile ? [
+    profile.voornaam, profile.achternaam, profile.email, profile.telefoon,
+    profile.straat, profile.huisnummer, profile.postcode, profile.gemeente,
+    profile.geboortedatum, profile.stemgroep, profile.bio, profile.profielfoto_url
+  ] : []
+  const _filledFields = _pFields.filter((f: any) => f && String(f).trim() !== '').length
+  const _profielCompleet = profile ? Math.round((_filledFields / _pFields.length) * 100) : 0
+  if (_profielCompleet < 60) {
+    profielOpenActies.push({
+      icon: 'fas fa-user-edit', iconBg: 'bg-indigo-100', iconColor: 'text-indigo-600',
+      titel: `Vul je profiel verder aan (${_profielCompleet}% klaar)`,
+      body: 'Foto, telefoon, adres en bio helpen ons om je beter te leren kennen.',
+      link: '/leden/profiel#bewerken',
+      cta: 'Vul aan',
+      canDismiss: false
+    })
+  }
+
+  // Buckets voor de 3 tabs
+  const archivedNotifs = allNotifications.filter((n: any) => n.is_gelezen)
+  const archiveCount = archivedNews.length + archivedNotifs.length
+  const openCount = profielOpenActies.length
 
   return c.html(
     <Layout 
@@ -1861,97 +1978,395 @@ app.get('/leden/profiel', async (c) => {
             </div>
           )}
 
-          {/* #116 — Notificaties: meldingen die actie vragen of nieuwe info brengen */}
+          {/* #116 — Meldingen-kaart met 3 tabs: Openstaand / Archief / Alles */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6" id="notifications-card">
             <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
               <h2 class="text-xl font-bold text-gray-900">
                 <i class="fas fa-bell text-animato-primary mr-2"></i>
                 Meldingen
-                {unreadCount > 0 && (
+                {openCount > 0 && (
                   <span class="ml-2 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">
-                    {unreadCount} nieuw
+                    {openCount} openstaand
                   </span>
                 )}
               </h2>
-              {unreadCount > 0 && (
-                <form method="POST" action="/api/leden/notifications/read-all" class="inline">
-                  <button type="submit" class="text-xs text-animato-primary hover:underline font-medium">
-                    <i class="fas fa-check-double mr-1"></i>
-                    Markeer alles als gelezen
-                  </button>
-                </form>
+              <div class="flex items-center gap-3">
+                {unreadCount > 0 && (
+                  <form method="POST" action="/api/leden/notifications/read-all" class="inline">
+                    <button type="submit" class="text-xs text-animato-primary hover:underline font-medium">
+                      <i class="fas fa-check-double mr-1"></i>
+                      Markeer alles als gelezen
+                    </button>
+                  </form>
+                )}
+              </div>
+            </div>
+
+            {/* Tab nav */}
+            <div class="border-b border-gray-200 mb-4">
+              <nav class="-mb-px flex space-x-6 text-sm" id="notifications-tabs" role="tablist">
+                <button
+                  type="button"
+                  data-tab="open"
+                  class="notif-tab whitespace-nowrap py-2 px-1 border-b-2 border-animato-primary text-animato-primary font-semibold"
+                  role="tab"
+                  aria-selected="true"
+                >
+                  Openstaand
+                  {openCount > 0 && (
+                    <span class="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-animato-primary text-white">
+                      {openCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  data-tab="archief"
+                  class="notif-tab whitespace-nowrap py-2 px-1 border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  role="tab"
+                  aria-selected="false"
+                >
+                  Archief
+                  {archiveCount > 0 && (
+                    <span class="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-200 text-gray-700">
+                      {archiveCount}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  data-tab="alles"
+                  class="notif-tab whitespace-nowrap py-2 px-1 border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  role="tab"
+                  aria-selected="false"
+                >
+                  Alles
+                  {allNotifications.length > 0 && (
+                    <span class="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-gray-200 text-gray-700">
+                      {allNotifications.length}
+                    </span>
+                  )}
+                </button>
+              </nav>
+            </div>
+
+            {/* TAB 1: Openstaand */}
+            <div class="notif-pane" data-pane="open">
+              {profielOpenActies.length === 0 ? (
+                <div class="text-center py-8 text-gray-400">
+                  <i class="fas fa-inbox text-4xl mb-2"></i>
+                  <p class="text-sm">Geen openstaande meldingen — je bent helemaal bij!</p>
+                </div>
+              ) : (
+                <ul id="profiel-open-list" class="divide-y divide-gray-100">
+                  {profielOpenActies.map((a) => {
+                    const dismissAttrs = a.canDismiss && a.dismissType && a.dismissId
+                      ? {
+                          'data-dismiss-type': a.dismissType,
+                          'data-dismiss-id': String(a.dismissId)
+                        }
+                      : {}
+                    return (
+                      <li class="profiel-open-item flex items-center gap-3 py-3 px-2 -mx-2 rounded-lg hover:bg-gray-50 transition" {...dismissAttrs}>
+                        <div class={`flex-shrink-0 w-9 h-9 rounded-full ${a.iconBg} ${a.iconColor} flex items-center justify-center`}>
+                          <i class={a.icon}></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <p class="text-sm font-medium text-gray-800 truncate">{a.titel}</p>
+                          {a.body && <p class="text-xs text-gray-500 truncate">{a.body}</p>}
+                        </div>
+                        {a.link && (
+                          <a href={a.link} data-action-link class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-animato-primary hover:bg-animato-primary/10 rounded-lg border border-animato-primary/30 transition">
+                            {a.cta || 'Open'} <i class="fas fa-chevron-right text-[10px]"></i>
+                          </a>
+                        )}
+                        {a.canDismiss && a.dismissType && a.dismissId && (
+                          <button
+                            type="button"
+                            data-action-dismiss
+                            aria-label="Archiveren"
+                            title="Archiveren"
+                            class="flex-shrink-0 w-7 h-7 inline-flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition"
+                          >
+                            <i class="fas fa-times text-xs"></i>
+                          </button>
+                        )}
+                      </li>
+                    )
+                  })}
+                </ul>
               )}
             </div>
 
-            {notifications.length === 0 ? (
-              <div class="text-center py-8 text-gray-400">
-                <i class="fas fa-inbox text-4xl mb-2"></i>
-                <p class="text-sm">Geen meldingen — je bent helemaal bij!</p>
-              </div>
-            ) : (
-              <ul class="divide-y divide-gray-100">
-                {notifications.map((n: any) => {
-                  const style = getNotificationStyle(n.type)
-                  const created = new Date(n.created_at)
-                  const isUnread = !n.is_gelezen
-                  // Relatieve tijd
-                  const diffMs = Date.now() - created.getTime()
-                  const diffMin = Math.floor(diffMs / 60000)
-                  const diffHr = Math.floor(diffMin / 60)
-                  const diffDay = Math.floor(diffHr / 24)
-                  const relTime = diffMin < 1 ? 'zojuist'
-                    : diffMin < 60 ? `${diffMin}m geleden`
-                    : diffHr < 24 ? `${diffHr}u geleden`
-                    : diffDay < 7 ? `${diffDay}d geleden`
-                    : created.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })
+            {/* TAB 2: Archief */}
+            <div class="notif-pane hidden" data-pane="archief">
+              {archiveCount === 0 ? (
+                <div class="text-center py-8 text-gray-400">
+                  <i class="fas fa-archive text-4xl mb-2"></i>
+                  <p class="text-sm">Nog niets gearchiveerd.</p>
+                </div>
+              ) : (
+                <>
+                  <div class="flex justify-end mb-2">
+                    <button
+                      type="button"
+                      id="clear-archive-btn"
+                      class="text-xs text-gray-500 hover:text-red-600 hover:underline"
+                      title="Verwijder alle gearchiveerde meldingen"
+                    >
+                      <i class="fas fa-trash-alt mr-1"></i>
+                      Wis archief
+                    </button>
+                  </div>
+                  <ul id="profiel-archive-list" class="divide-y divide-gray-100">
+                    {archivedNews.map((nw) => {
+                      const d = new Date(nw.dismissed_at)
+                      const rel = d.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })
+                      return (
+                        <li class="profiel-archive-item flex items-center gap-3 py-3 px-2 -mx-2 rounded-lg hover:bg-gray-50 transition opacity-80"
+                            data-restore-type="news"
+                            data-restore-id={String(nw.id)}>
+                          <div class="flex-shrink-0 w-9 h-9 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+                            <i class="fas fa-newspaper"></i>
+                          </div>
+                          <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-gray-700 truncate">{nw.titel}</p>
+                            <p class="text-xs text-gray-400">Gearchiveerd op {rel}</p>
+                          </div>
+                          <a href={`/nieuws/${nw.slug}`} class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-200 transition">
+                            Lees <i class="fas fa-chevron-right text-[10px]"></i>
+                          </a>
+                          <button
+                            type="button"
+                            data-action-restore
+                            aria-label="Terugzetten"
+                            title="Terugzetten naar Openstaand"
+                            class="flex-shrink-0 w-7 h-7 inline-flex items-center justify-center text-gray-400 hover:text-animato-primary hover:bg-animato-primary/10 rounded-full transition"
+                          >
+                            <i class="fas fa-undo text-xs"></i>
+                          </button>
+                        </li>
+                      )
+                    })}
+                    {archivedNotifs.map((n: any) => {
+                      const style = getNotificationStyle(n.type)
+                      const d = n.gelezen_at ? new Date(n.gelezen_at) : new Date(n.created_at)
+                      const rel = d.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })
+                      return (
+                        <li class="profiel-archive-item flex items-center gap-3 py-3 px-2 -mx-2 rounded-lg hover:bg-gray-50 transition opacity-80"
+                            data-restore-type="notification"
+                            data-restore-id={String(n.id)}>
+                          <div class={`flex-shrink-0 w-9 h-9 rounded-full ${style.bg} ${style.color} flex items-center justify-center`}>
+                            <i class={style.icon}></i>
+                          </div>
+                          <div class="flex-1 min-w-0">
+                            <p class="text-sm font-medium text-gray-700 truncate">{n.titel}</p>
+                            <p class="text-xs text-gray-400">Gelezen op {rel}</p>
+                          </div>
+                          {n.link && (
+                            <a href={n.link} class="flex-shrink-0 inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100 rounded-lg border border-gray-200 transition">
+                              Bekijk <i class="fas fa-chevron-right text-[10px]"></i>
+                            </a>
+                          )}
+                          <button
+                            type="button"
+                            data-action-restore
+                            aria-label="Terugzetten"
+                            title="Terugzetten naar Openstaand"
+                            class="flex-shrink-0 w-7 h-7 inline-flex items-center justify-center text-gray-400 hover:text-animato-primary hover:bg-animato-primary/10 rounded-full transition"
+                          >
+                            <i class="fas fa-undo text-xs"></i>
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </>
+              )}
+            </div>
 
-                  // Wrap content based on whether there's a link
-                  const innerContent = (
-                    <div class={`flex items-start gap-3 py-3 px-2 -mx-2 rounded-lg transition ${isUnread ? 'bg-animato-primary bg-opacity-5 hover:bg-opacity-10' : 'hover:bg-gray-50'}`}>
-                      <div class={`flex-shrink-0 w-10 h-10 rounded-full ${style.bg} flex items-center justify-center`}>
-                        <i class={`${style.icon} ${style.color}`}></i>
-                      </div>
-                      <div class="flex-1 min-w-0">
-                        <div class="flex items-baseline justify-between gap-2 flex-wrap">
-                          <h3 class={`text-sm ${isUnread ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
-                            {n.titel}
-                            {isUnread && <span class="ml-2 inline-block w-2 h-2 bg-animato-primary rounded-full align-middle"></span>}
-                          </h3>
-                          <span class="text-[11px] text-gray-400 whitespace-nowrap">{relTime}</span>
+            {/* TAB 3: Alles — chronologisch, alle DB-notificaties */}
+            <div class="notif-pane hidden" data-pane="alles">
+              {allNotifications.length === 0 ? (
+                <div class="text-center py-8 text-gray-400">
+                  <i class="fas fa-list text-4xl mb-2"></i>
+                  <p class="text-sm">Nog geen meldingen ontvangen.</p>
+                </div>
+              ) : (
+                <ul class="divide-y divide-gray-100">
+                  {allNotifications.map((n: any) => {
+                    const style = getNotificationStyle(n.type)
+                    const created = new Date(n.created_at)
+                    const isUnread = !n.is_gelezen
+                    const diffMs = Date.now() - created.getTime()
+                    const diffMin = Math.floor(diffMs / 60000)
+                    const diffHr = Math.floor(diffMin / 60)
+                    const diffDay = Math.floor(diffHr / 24)
+                    const relTime = diffMin < 1 ? 'zojuist'
+                      : diffMin < 60 ? `${diffMin}m geleden`
+                      : diffHr < 24 ? `${diffHr}u geleden`
+                      : diffDay < 7 ? `${diffDay}d geleden`
+                      : created.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })
+
+                    const innerContent = (
+                      <div class={`flex items-start gap-3 py-3 px-2 -mx-2 rounded-lg transition ${isUnread ? 'bg-animato-primary bg-opacity-5 hover:bg-opacity-10' : 'hover:bg-gray-50'}`}>
+                        <div class={`flex-shrink-0 w-10 h-10 rounded-full ${style.bg} flex items-center justify-center`}>
+                          <i class={`${style.icon} ${style.color}`}></i>
                         </div>
-                        {n.body && (
-                          <p class={`text-xs mt-0.5 ${isUnread ? 'text-gray-700' : 'text-gray-500'}`}>{n.body}</p>
-                        )}
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-baseline justify-between gap-2 flex-wrap">
+                            <h3 class={`text-sm ${isUnread ? 'font-semibold text-gray-900' : 'font-medium text-gray-700'}`}>
+                              {n.titel}
+                              {isUnread && <span class="ml-2 inline-block w-2 h-2 bg-animato-primary rounded-full align-middle"></span>}
+                            </h3>
+                            <span class="text-[11px] text-gray-400 whitespace-nowrap">{relTime}</span>
+                          </div>
+                          {n.body && (
+                            <p class={`text-xs mt-0.5 ${isUnread ? 'text-gray-700' : 'text-gray-500'}`}>{n.body}</p>
+                          )}
+                        </div>
                       </div>
-                      {isUnread && (
-                        <button
-                          type="button"
-                          onclick={`event.preventDefault(); event.stopPropagation(); fetch('/api/leden/notifications/${n.id}/read', {method:'POST'}).then(()=>location.reload());`}
-                          class="flex-shrink-0 text-xs text-gray-400 hover:text-gray-600 px-2"
-                          title="Markeer als gelezen"
-                        >
-                          <i class="fas fa-times"></i>
-                        </button>
-                      )}
-                    </div>
-                  )
+                    )
+                    return (
+                      <li>
+                        {n.link ? (<a href={n.link} class="block">{innerContent}</a>) : innerContent}
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
 
-                  return (
-                    <li>
-                      {n.link ? (
-                        <a
-                          href={n.link}
-                          onclick={isUnread ? `fetch('/api/leden/notifications/${n.id}/read', {method:'POST'})` : undefined}
-                          class="block"
-                        >
-                          {innerContent}
-                        </a>
-                      ) : innerContent}
-                    </li>
-                  )
-                })}
-              </ul>
-            )}
+            {/* Tab + actions JS */}
+            <script dangerouslySetInnerHTML={{ __html: `
+              (function() {
+                var card = document.getElementById('notifications-card');
+                if (!card) return;
+                var tabs = card.querySelectorAll('.notif-tab');
+                var panes = card.querySelectorAll('.notif-pane');
+
+                function selectTab(name) {
+                  tabs.forEach(function(t) {
+                    var active = t.getAttribute('data-tab') === name;
+                    t.setAttribute('aria-selected', active ? 'true' : 'false');
+                    if (active) {
+                      t.classList.add('border-animato-primary','text-animato-primary','font-semibold');
+                      t.classList.remove('border-transparent','text-gray-500','hover:text-gray-700','hover:border-gray-300');
+                    } else {
+                      t.classList.remove('border-animato-primary','text-animato-primary','font-semibold');
+                      t.classList.add('border-transparent','text-gray-500','hover:text-gray-700','hover:border-gray-300');
+                    }
+                  });
+                  panes.forEach(function(p) {
+                    p.classList.toggle('hidden', p.getAttribute('data-pane') !== name);
+                  });
+                  try {
+                    var url = new URL(window.location.href);
+                    url.hash = 'notificaties-' + name;
+                    history.replaceState(null, '', url.toString());
+                  } catch (e) {}
+                }
+
+                tabs.forEach(function(t) {
+                  t.addEventListener('click', function() {
+                    selectTab(t.getAttribute('data-tab'));
+                  });
+                });
+
+                // Deep-link: #notificaties-archief / #notificaties-alles
+                var h = (window.location.hash || '').replace('#','');
+                if (h === 'notificaties-archief') selectTab('archief');
+                else if (h === 'notificaties-alles') selectTab('alles');
+                else if (h === 'notificaties') selectTab('open');
+
+                // --- Openstaand: X-knop archiveert (fade out + API) ---
+                var openList = document.getElementById('profiel-open-list');
+                function endpointDismiss(type, id) {
+                  if (type === 'news') return '/api/leden/news/' + id + '/dismiss';
+                  if (type === 'notification') return '/api/leden/notifications/' + id + '/read';
+                  return null;
+                }
+                if (openList) {
+                  openList.addEventListener('click', function(e) {
+                    var btn = e.target.closest('[data-action-dismiss]');
+                    if (btn) {
+                      e.preventDefault(); e.stopPropagation();
+                      var li = btn.closest('.profiel-open-item');
+                      if (!li) return;
+                      var type = li.getAttribute('data-dismiss-type');
+                      var id = li.getAttribute('data-dismiss-id');
+                      var url = endpointDismiss(type, id);
+                      if (!url) return;
+                      try { fetch(url, { method: 'POST', credentials: 'same-origin' }).catch(function(){}); } catch(e) {}
+                      li.style.transition = 'opacity .2s, transform .2s';
+                      li.style.opacity = '0';
+                      li.style.transform = 'translateX(8px)';
+                      setTimeout(function(){
+                        li.remove();
+                        // Update badge in tab
+                        var openTab = card.querySelector('.notif-tab[data-tab="open"] span');
+                        if (openTab) {
+                          var n = parseInt(openTab.textContent || '0', 10) - 1;
+                          if (n > 0) openTab.textContent = String(n);
+                          else if (openTab.parentNode) openTab.parentNode.removeChild(openTab);
+                        }
+                      }, 200);
+                      return;
+                    }
+                    // Klik op Lees-link: ook archiveren in achtergrond
+                    var link = e.target.closest('[data-action-link]');
+                    if (link) {
+                      var li2 = link.closest('.profiel-open-item');
+                      if (!li2) return;
+                      var type2 = li2.getAttribute('data-dismiss-type');
+                      var id2 = li2.getAttribute('data-dismiss-id');
+                      if (!type2 || !id2) return;
+                      var url2 = endpointDismiss(type2, id2);
+                      if (url2) {
+                        try { fetch(url2, { method: 'POST', credentials: 'same-origin' }).catch(function(){}); } catch(e) {}
+                      }
+                    }
+                  });
+                }
+
+                // --- Archief: terugzetten ---
+                var archList = document.getElementById('profiel-archive-list');
+                function endpointRestore(type, id) {
+                  if (type === 'news') return '/api/leden/news/' + id + '/undismiss';
+                  if (type === 'notification') return '/api/leden/notifications/' + id + '/unread';
+                  return null;
+                }
+                if (archList) {
+                  archList.addEventListener('click', function(e) {
+                    var btn = e.target.closest('[data-action-restore]');
+                    if (!btn) return;
+                    e.preventDefault(); e.stopPropagation();
+                    var li = btn.closest('.profiel-archive-item');
+                    if (!li) return;
+                    var type = li.getAttribute('data-restore-type');
+                    var id = li.getAttribute('data-restore-id');
+                    var url = endpointRestore(type, id);
+                    if (!url) return;
+                    try {
+                      fetch(url, { method: 'POST', credentials: 'same-origin' })
+                        .then(function(){ window.location.reload(); })
+                        .catch(function(){ window.location.reload(); });
+                    } catch(e) { window.location.reload(); }
+                  });
+                }
+
+                // --- Wis archief ---
+                var clearBtn = document.getElementById('clear-archive-btn');
+                if (clearBtn) {
+                  clearBtn.addEventListener('click', function() {
+                    if (!confirm('Alle gearchiveerde meldingen definitief verwijderen?')) return;
+                    fetch('/api/leden/notifications/clear-archive', { method: 'POST', credentials: 'same-origin' })
+                      .then(function(){ window.location.reload(); })
+                      .catch(function(){ alert('Kon archief niet wissen — probeer opnieuw.'); });
+                  });
+                }
+              })();
+            ` }} />
           </div>
 
           {/* Membership Status & History */}
@@ -4701,6 +5116,73 @@ app.post('/api/leden/news/:postId/dismiss', async (c) => {
     return c.json({ success: true })
   } catch (e: any) {
     return c.json({ error: 'dismiss failed', detail: String(e?.message || e) }, 500)
+  }
+})
+
+// Tegenhanger: terugzetten uit archief naar 'Openstaand'
+app.post('/api/leden/news/:postId/undismiss', async (c) => {
+  const user = c.get('user') as SessionUser
+  const postId = parseInt(c.req.param('postId'))
+  if (!postId || Number.isNaN(postId)) {
+    return c.json({ error: 'invalid post id' }, 400)
+  }
+  try {
+    await execute(
+      c.env.DB,
+      `DELETE FROM user_news_dismissed WHERE user_id = ? AND post_id = ?`,
+      [user.id, postId]
+    )
+    return c.json({ success: true })
+  } catch (e: any) {
+    return c.json({ error: 'undismiss failed', detail: String(e?.message || e) }, 500)
+  }
+})
+
+// Notificatie terug naar ongelezen (uit archief naar openstaand)
+app.post('/api/leden/notifications/:id/unread', async (c) => {
+  const user = c.get('user') as SessionUser
+  const id = parseInt(c.req.param('id'))
+  if (!id || Number.isNaN(id)) return c.json({ error: 'invalid id' }, 400)
+  try {
+    await execute(
+      c.env.DB,
+      `UPDATE notifications
+       SET is_gelezen = 0, gelezen_at = NULL
+       WHERE id = ? AND user_id = ?`,
+      [id, user.id]
+    )
+    return c.json({ success: true })
+  } catch (e: any) {
+    return c.json({ error: 'unread failed', detail: String(e?.message || e) }, 500)
+  }
+})
+
+// Wis archief: verwijdert alle GELEZEN notificaties.
+// Voor nieuws: we BEHOUDEN user_news_dismissed records (anders komen ze
+// terug als openstaand op /leden). De archief-lijst toont alleen items
+// jonger dan 90 dagen, dus oudere dismisses verdwijnen vanzelf uit het zicht.
+app.post('/api/leden/notifications/clear-archive', async (c) => {
+  const user = c.get('user') as SessionUser
+  try {
+    await execute(
+      c.env.DB,
+      `DELETE FROM notifications WHERE user_id = ? AND is_gelezen = 1`,
+      [user.id]
+    )
+    // Verberg ook recent-gedismissede nieuws-items uit de archief-view door
+    // hun dismissed_at terug te zetten tot >90 dagen geleden. Tabel-record
+    // blijft staan zodat het item niet als 'openstaand' terugkeert op /leden.
+    await execute(
+      c.env.DB,
+      `UPDATE user_news_dismissed
+         SET dismissed_at = datetime('now', '-100 days')
+         WHERE user_id = ?
+           AND datetime(dismissed_at) > datetime('now', '-90 days')`,
+      [user.id]
+    )
+    return c.json({ success: true })
+  } catch (e: any) {
+    return c.json({ error: 'clear failed', detail: String(e?.message || e) }, 500)
   }
 })
 

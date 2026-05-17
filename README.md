@@ -4,12 +4,29 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 
 ## 🌐 Live URLs
 
-- **Production**: https://animato-koor.pages.dev ✅ **ALL SYSTEMS OPERATIONAL**
-- **Latest Deploy**: https://879bcd72.animato-koor.pages.dev (Deployed: 2026-02-11 16:50 UTC)
-- **Development (Sandbox)**: https://3000-if8m2q02i4w90snul94e6-5185f4aa.sandbox.novita.ai
-- **API Documentation**: /api endpoint
-- **Current Version**: v1.0.35 (Production Database Fixed)
-- **Last Updated**: 2026-02-11 16:50 UTC
+- **Production**: https://animato-live.pages.dev ✅ **ALL SYSTEMS OPERATIONAL**
+- **GitHub**: https://github.com/dominique-dejonghe/Animato_site
+- **D1 Database**: animato-production (id `758eef10-f55b-428f-81ca-4d7f87862811`)
+- **Current Version**: v1.5 (Notifications hub op /leden + /leden/profiel)
+- **Last Updated**: 2026-05-17
+
+## 📰 Recent (mei 2026)
+
+- **Meldingen-hub op /leden/profiel** met 3 tabs: Openstaand, Archief, Alles.
+  Synchroon met het "Wat staat er voor jou open?"-widget op /leden. Items
+  archiveerbaar (X), terugzetbaar (↺), wis-archief-knop, deep-link via
+  `#notificaties-{open|archief|alles}`.
+- **Bell-badge in header** telt nu zowel ongelezen DB-notifs als
+  niet-gedismissede recente nieuws-posts (consistent met widget).
+- **"Wat staat er voor jou open?" widget op /leden** met X-knop per item +
+  auto-dismiss bij "Lees"-klik (idempotent server-side).
+- **Welkom-splash met confetti** voor nieuw geconverteerde leden (`/leden/welkom`).
+- **Aankondiging-popup met confetti** voor bestaande leden wanneer een
+  nieuw lid erbij komt (dynamische CTA: 1 lid → profiel-link, meerdere → smoelenboek).
+- **Dynamische header-nav** met editable_pages-rendering en "Meer" overflow-dropdown.
+- **Canonieke /over + 301 /koor → /over**, breadcrumb-toggle per pagina,
+  donkere breadcrumb-styling met home-icoon.
+- **Centrale comment-moderatie** in admin (event-comments + reacties).
 
 ## ✨ Features
 

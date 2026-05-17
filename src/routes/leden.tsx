@@ -5069,10 +5069,41 @@ app.get('/leden/smoelenboek/:id', async (c) => {
 // =====================================================
 app.get('/api/leden/notifications/unread-count', async (c) => {
   const user = c.get('user') as SessionUser
-  const count = await getUnreadCount(c.env.DB, user.id)
+  // 1) Ongelezen DB-notificaties
+  const notifCount = await getUnreadCount(c.env.DB, user.id)
+
+  // 2) Recent nieuws (sinds previous_login_at of laatste 14d) dat NIET
+  //    al door dit lid gedismissed is. Spiegelt de bron-logica van het
+  //    /leden-widget en de Openstaand-tab op /leden/profiel — zo blijft
+  //    de bell-badge in de header consistent met wat de gebruiker
+  //    werkelijk ziet als "openstaand".
+  let newsCount = 0
+  try {
+    const lastLoginRow = await queryOne<any>(c.env.DB,
+      `SELECT previous_login_at FROM users WHERE id = ?`, [user.id])
+    const sinceDate = lastLoginRow?.previous_login_at || null
+    const sinceClause = sinceDate
+      ? `AND datetime(p.published_at) >= datetime(?)`
+      : `AND datetime(p.published_at) >= datetime('now', '-14 days')`
+    const params: any[] = sinceDate ? [user.id, sinceDate] : [user.id]
+    const row = await queryOne<{ cnt: number }>(c.env.DB,
+      `SELECT COUNT(*) as cnt
+       FROM posts p
+       LEFT JOIN user_news_dismissed und
+         ON und.post_id = p.id AND und.user_id = ?
+       WHERE p.type = 'nieuws'
+         AND p.is_published = 1
+         AND (p.zichtbaarheid = 'publiek' OR p.zichtbaarheid = 'leden')
+         AND und.id IS NULL
+         ${sinceClause}`,
+      params)
+    newsCount = row?.cnt || 0
+  } catch (e) { /* ignore */ }
+
+  const count = notifCount + newsCount
   // Cache uit zodat de badge altijd actueel is
   c.header('Cache-Control', 'no-store, max-age=0')
-  return c.json({ count })
+  return c.json({ count, notifications: notifCount, news: newsCount })
 })
 
 app.post('/api/leden/notifications/:id/read', async (c) => {

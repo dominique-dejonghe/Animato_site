@@ -678,7 +678,7 @@ app.get('/agenda', async (c) => {
             </div>
             <div class="flex gap-3">
               <a id="event-modal-link" href="#" class="flex-1 text-center px-4 py-2 bg-animato-primary text-white rounded-lg text-sm font-semibold hover:bg-animato-secondary transition hidden">
-                <i class="fas fa-external-link-alt mr-2"></i>Bekijk details
+                <i class="fas fa-comments mr-2"></i>Details &amp; reacties
               </a>
             </div>
           </div>
@@ -752,24 +752,74 @@ app.get('/agenda', async (c) => {
 
           document.getElementById('event-modal-ics').href = '/api/agenda/ics?event=' + evt.id;
 
+          // === Robuuste datum-normalisatie ===
+          // DB-formaten kunnen zijn: "2025-11-26T19:30",  "2025-12-03T19:30:00.000Z",
+          // "2025-11-26 19:30:00", "2025-11-26T19:30:00", etc.
+          // Voor Google: compact ISO basic format YYYYMMDDTHHMMSSZ (in UTC)
+          // Voor Outlook: ISO extended format YYYY-MM-DDTHH:MM:SSZ
+          function parseDateFlexible(s) {
+            if (!s) return null;
+            // Voeg seconden toe als ze ontbreken: "2025-11-26T19:30" -> "2025-11-26T19:30:00"
+            var n = String(s).trim();
+            if (n.includes(' ') && !n.includes('T')) n = n.replace(' ', 'T');
+            if (/T\\d{2}:\\d{2}$/.test(n)) n += ':00';
+            // Als er geen timezone-suffix is, behandel als lokale tijd (Belgische tijd)
+            // Maar wij gaan ervan uit dat DB-tijden Belgisch zijn, dus we maken er een Date van
+            var d = new Date(n);
+            if (isNaN(d.getTime())) return null;
+            return d;
+          }
+          function toGoogleFormat(d) {
+            // YYYYMMDDTHHMMSSZ (UTC)
+            var pad = function(x) { return String(x).padStart(2, '0'); };
+            return d.getUTCFullYear()
+              + pad(d.getUTCMonth() + 1)
+              + pad(d.getUTCDate()) + 'T'
+              + pad(d.getUTCHours())
+              + pad(d.getUTCMinutes())
+              + pad(d.getUTCSeconds()) + 'Z';
+          }
+          function toOutlookFormat(d) {
+            // ISO 8601 extended: 2025-12-03T18:30:00.000Z
+            return d.toISOString();
+          }
+
+          var startDate = parseDateFlexible(evt.start_at);
+          var endDate = parseDateFlexible(evt.end_at) || (startDate ? new Date(startDate.getTime() + 60*60*1000) : null);
+          var details = (evt.beschrijving || '').replace(/<[^>]*>/g, '').substring(0, 500);
+
           // Google Calendar link
-          var gStart = evt.start_at ? evt.start_at.replace(/[-:]/g, '').replace('.000', '').replace('T', 'T') : '';
-          var gEnd = evt.end_at ? evt.end_at.replace(/[-:]/g, '').replace('.000', '').replace('T', 'T') : gStart;
-          var gUrl = 'https://calendar.google.com/calendar/render?action=TEMPLATE'
-            + '&text=' + encodeURIComponent(evt.titel)
-            + '&dates=' + gStart + '/' + gEnd
-            + '&location=' + encodeURIComponent(evt.locatie || '')
-            + '&details=' + encodeURIComponent((evt.beschrijving || '').replace(/<[^>]*>/g, '').substring(0, 500));
-          document.getElementById('event-modal-google').href = gUrl;
+          if (startDate && endDate) {
+            var gUrl = 'https://calendar.google.com/calendar/render?action=TEMPLATE'
+              + '&text=' + encodeURIComponent(evt.titel)
+              + '&dates=' + toGoogleFormat(startDate) + '/' + toGoogleFormat(endDate)
+              + '&location=' + encodeURIComponent(evt.locatie || '')
+              + '&details=' + encodeURIComponent(details);
+            document.getElementById('event-modal-google').href = gUrl;
+            document.getElementById('event-modal-google').style.pointerEvents = '';
+            document.getElementById('event-modal-google').style.opacity = '';
+          } else {
+            document.getElementById('event-modal-google').href = '#';
+            document.getElementById('event-modal-google').style.pointerEvents = 'none';
+            document.getElementById('event-modal-google').style.opacity = '0.4';
+          }
 
           // Outlook.com link
-          var oUrl = 'https://outlook.live.com/calendar/0/action/compose?rru=addevent'
-            + '&subject=' + encodeURIComponent(evt.titel)
-            + '&startdt=' + (evt.start_at || '')
-            + '&enddt=' + (evt.end_at || evt.start_at || '')
-            + '&location=' + encodeURIComponent(evt.locatie || '')
-            + '&body=' + encodeURIComponent((evt.beschrijving || '').replace(/<[^>]*>/g, '').substring(0, 500));
-          document.getElementById('event-modal-outlook').href = oUrl;
+          if (startDate && endDate) {
+            var oUrl = 'https://outlook.live.com/calendar/0/deeplink/compose?rru=addevent&path=/calendar/action/compose'
+              + '&subject=' + encodeURIComponent(evt.titel)
+              + '&startdt=' + encodeURIComponent(toOutlookFormat(startDate))
+              + '&enddt=' + encodeURIComponent(toOutlookFormat(endDate))
+              + '&location=' + encodeURIComponent(evt.locatie || '')
+              + '&body=' + encodeURIComponent(details);
+            document.getElementById('event-modal-outlook').href = oUrl;
+            document.getElementById('event-modal-outlook').style.pointerEvents = '';
+            document.getElementById('event-modal-outlook').style.opacity = '';
+          } else {
+            document.getElementById('event-modal-outlook').href = '#';
+            document.getElementById('event-modal-outlook').style.pointerEvents = 'none';
+            document.getElementById('event-modal-outlook').style.opacity = '0.4';
+          }
 
           const linkBtn = document.getElementById('event-modal-link');
           if (evt.type === 'concert' && evt.slug) {
@@ -1911,11 +1961,212 @@ app.get('/concerten/:slug', async (c) => {
 })
 
 // =====================================================
+// ICS EXPORT — single event + alle events
+// =====================================================
+
+// Datum-helper: maak ISO basic format "20251126T193000Z" uit een DB-string
+function toIcsDate(s: string | null | undefined): string {
+  if (!s) return ''
+  let n = String(s).trim()
+  if (n.includes(' ') && !n.includes('T')) n = n.replace(' ', 'T')
+  if (/T\d{2}:\d{2}$/.test(n)) n += ':00'
+  const d = new Date(n)
+  if (isNaN(d.getTime())) return ''
+  const pad = (x: number) => String(x).padStart(2, '0')
+  return d.getUTCFullYear() +
+    pad(d.getUTCMonth() + 1) +
+    pad(d.getUTCDate()) + 'T' +
+    pad(d.getUTCHours()) +
+    pad(d.getUTCMinutes()) +
+    pad(d.getUTCSeconds()) + 'Z'
+}
+// ICS-escape: backslash, comma, semicolon, newline
+function icsEscape(s: string | null | undefined): string {
+  if (!s) return ''
+  return String(s).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n')
+}
+function buildVEvent(ev: any, hostUrl: string): string {
+  const start = toIcsDate(ev.start_at)
+  const end = toIcsDate(ev.end_at) || start
+  const desc = icsEscape((ev.beschrijving || '').replace(/<[^>]*>/g, '').substring(0, 1500))
+  const uid = `event-${ev.id}@animato.be`
+  const dtstamp = toIcsDate(new Date().toISOString())
+  return [
+    'BEGIN:VEVENT',
+    `UID:${uid}`,
+    `DTSTAMP:${dtstamp}`,
+    `DTSTART:${start}`,
+    `DTEND:${end}`,
+    `SUMMARY:${icsEscape(ev.titel || 'Animato evenement')}`,
+    `LOCATION:${icsEscape(ev.locatie || '')}`,
+    `DESCRIPTION:${desc}`,
+    `URL:${hostUrl}/agenda/${ev.slug || ''}`,
+    'END:VEVENT'
+  ].join('\r\n')
+}
+function buildIcs(events: any[], hostUrl: string): string {
+  const lines = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Animato//Agenda//NL',
+    'CALSCALE:GREGORIAN',
+    'METHOD:PUBLISH',
+    'X-WR-CALNAME:Animato Agenda',
+    'X-WR-TIMEZONE:Europe/Brussels'
+  ]
+  for (const ev of events) lines.push(buildVEvent(ev, hostUrl))
+  lines.push('END:VCALENDAR')
+  return lines.join('\r\n') + '\r\n'
+}
+
+// Single event
+app.get('/api/agenda/ics', async (c) => {
+  const eventId = c.req.query('event')
+  if (!eventId) return c.text('Missing ?event=ID', 400)
+  const ev = await queryOne<any>(c.env.DB, `SELECT * FROM events WHERE id = ?`, [eventId])
+  if (!ev) return c.text('Event niet gevonden', 404)
+  const host = new URL(c.req.url).origin
+  const body = buildIcs([ev], host)
+  return new Response(body, {
+    headers: {
+      'Content-Type': 'text/calendar; charset=utf-8',
+      'Content-Disposition': `attachment; filename="animato-event-${ev.id}.ics"`
+    }
+  })
+})
+
+// Alle events
+app.get('/api/agenda/ics/all', async (c) => {
+  const events = await queryAll<any>(c.env.DB,
+    `SELECT id, slug, titel, start_at, end_at, locatie, beschrijving FROM events ORDER BY start_at`
+  )
+  const host = new URL(c.req.url).origin
+  const body = buildIcs(events || [], host)
+  return new Response(body, {
+    headers: {
+      'Content-Type': 'text/calendar; charset=utf-8',
+      'Content-Disposition': `attachment; filename="animato-agenda.ics"`
+    }
+  })
+})
+
+// =====================================================
+// EVENT-REACTIES (reply + emoji) — ledenfunctie
+// =====================================================
+
+const EVENT_REACTION_TYPES = ['like', 'love', 'laugh', 'wow', 'sad']
+
+// Plaats een tekstreactie
+app.post('/agenda/:id/reply', async (c) => {
+  const user = c.get('user') as any
+  if (!user?.id) return c.redirect('/login')
+  const eventId = parseInt(c.req.param('id'))
+  if (!eventId) return c.redirect('/agenda')
+
+  const body = await c.req.parseBody()
+  const raw = String(body.body || '').trim()
+  if (!raw) {
+    const ev = await queryOne<any>(c.env.DB, `SELECT slug FROM events WHERE id = ?`, [eventId])
+    return c.redirect(ev?.slug ? `/agenda/${ev.slug}` : '/agenda')
+  }
+  const safeBody = raw.length > 5000 ? raw.substring(0, 5000) : raw
+
+  const event = await queryOne<any>(c.env.DB, `SELECT id, slug FROM events WHERE id = ? LIMIT 1`, [eventId])
+  if (!event) return c.notFound()
+
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO event_replies (event_id, auteur_id, body) VALUES (?, ?, ?)`
+    ).bind(eventId, user.id, safeBody).run()
+  } catch (e: any) {
+    console.warn('Event reply insert failed:', e?.message)
+  }
+
+  return c.redirect(`/agenda/${event.slug}`)
+})
+
+// Verwijder een reactie (eigenaar of staff)
+app.post('/agenda/:id/reply/:replyId/delete', async (c) => {
+  const user = c.get('user') as any
+  if (!user?.id) return c.redirect('/login')
+  const eventId = c.req.param('id')
+  const replyId = c.req.param('replyId')
+
+  const reply = await queryOne<any>(c.env.DB, `SELECT auteur_id FROM event_replies WHERE id = ? LIMIT 1`, [replyId])
+  const ev = await queryOne<any>(c.env.DB, `SELECT slug FROM events WHERE id = ?`, [eventId])
+  if (!reply || !ev) return c.redirect('/agenda')
+
+  const isOwner = reply.auteur_id === user.id
+  const isStaff = user.role === 'admin' || user.role === 'moderator' || user.role === 'bestuur' || user.is_bestuurslid === 1
+  if (!isOwner && !isStaff) return c.redirect(`/agenda/${ev.slug}`)
+
+  try {
+    await c.env.DB.prepare(
+      `UPDATE event_replies SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+    ).bind(replyId).run()
+  } catch (e: any) {
+    console.warn('Event reply delete failed:', e?.message)
+  }
+  return c.redirect(`/agenda/${ev.slug}`)
+})
+
+// Emoji-reactie (toggle/switch) — JSON in, JSON out
+app.post('/agenda/:id/reactie-emoji', async (c) => {
+  const user = c.get('user') as any
+  if (!user?.id) return c.json({ error: 'Niet ingelogd' }, 401)
+  const eventId = parseInt(c.req.param('id'))
+  if (!eventId) return c.json({ error: 'Geen id' }, 400)
+
+  let body: any
+  try { body = await c.req.json() } catch { body = {} }
+  const type = String(body?.type || '').trim()
+  if (!EVENT_REACTION_TYPES.includes(type)) return c.json({ error: 'Ongeldig type' }, 400)
+
+  const event = await queryOne<any>(c.env.DB, `SELECT id FROM events WHERE id = ? LIMIT 1`, [eventId])
+  if (!event) return c.json({ error: 'Event niet gevonden' }, 404)
+
+  const existing = await queryOne<any>(
+    c.env.DB,
+    `SELECT id, type FROM event_reactions WHERE event_id = ? AND user_id = ? LIMIT 1`,
+    [eventId, user.id]
+  )
+  try {
+    if (!existing) {
+      await c.env.DB.prepare(
+        `INSERT INTO event_reactions (event_id, user_id, type) VALUES (?, ?, ?)`
+      ).bind(eventId, user.id, type).run()
+    } else if (existing.type === type) {
+      await c.env.DB.prepare(`DELETE FROM event_reactions WHERE id = ?`).bind(existing.id).run()
+    } else {
+      await c.env.DB.prepare(
+        `UPDATE event_reactions SET type = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?`
+      ).bind(type, existing.id).run()
+    }
+  } catch (e: any) {
+    console.warn('Event reactie mislukt:', e?.message)
+    return c.json({ error: 'Opslaan mislukt' }, 500)
+  }
+
+  const countsRaw = await queryAll<any>(c.env.DB,
+    `SELECT type, COUNT(*) as n FROM event_reactions WHERE event_id = ? GROUP BY type`,
+    [eventId]
+  )
+  const counts: Record<string, number> = {}
+  for (const row of countsRaw) counts[row.type] = row.n
+
+  const mine = await queryOne<any>(c.env.DB,
+    `SELECT type FROM event_reactions WHERE event_id = ? AND user_id = ? LIMIT 1`,
+    [eventId, user.id]
+  )
+  return c.json({ counts, myReaction: mine?.type || null })
+})
+
+// =====================================================
 // GENERIEKE EVENT DETAIL PAGINA
 // =====================================================
 
 app.get('/agenda/:slug', async (c) => {
-  const user = c.get('user')
+  const user = c.get('user') as any
   const slug = c.req.param('slug')
 
   const event = await queryOne<any>(
@@ -1932,6 +2183,49 @@ app.get('/agenda/:slug', async (c) => {
   if (event.type === 'concert') {
     return c.redirect(`/concerten/${slug}`)
   }
+
+  // === Reacties + emoji-reacties (alleen voor ingelogde leden) ===
+  const isLoggedIn = !!user?.id
+  let replies: any[] = []
+  let reactionCounts: Record<string, number> = {}
+  let myReactionType: string | null = null
+
+  if (isLoggedIn) {
+    replies = await queryAll<any>(
+      c.env.DB,
+      `SELECT r.id, r.body, r.created_at, r.auteur_id,
+              u.email, p.voornaam, p.achternaam, p.foto_url
+       FROM event_replies r
+       JOIN users u ON r.auteur_id = u.id
+       LEFT JOIN profiles p ON p.user_id = u.id
+       WHERE r.event_id = ? AND r.is_deleted = 0
+       ORDER BY r.created_at ASC`,
+      [event.id]
+    )
+
+    const countsRaw = await queryAll<any>(
+      c.env.DB,
+      `SELECT type, COUNT(*) as n FROM event_reactions WHERE event_id = ? GROUP BY type`,
+      [event.id]
+    )
+    for (const row of countsRaw) reactionCounts[row.type] = row.n
+
+    const myReaction = await queryOne<any>(
+      c.env.DB,
+      `SELECT type FROM event_reactions WHERE event_id = ? AND user_id = ? LIMIT 1`,
+      [event.id, user.id]
+    )
+    myReactionType = myReaction?.type || null
+  }
+
+  const isStaff = isLoggedIn && (user.role === 'admin' || user.role === 'moderator' || user.role === 'bestuur' || user.is_bestuurslid === 1)
+  const emojiList: Array<{ type: string; emoji: string; label: string }> = [
+    { type: 'like',  emoji: '👍', label: 'Like' },
+    { type: 'love',  emoji: '❤️', label: 'Love' },
+    { type: 'laugh', emoji: '😄', label: 'Haha' },
+    { type: 'wow',   emoji: '😮', label: 'Wow' },
+    { type: 'sad',   emoji: '😢', label: 'Sad' }
+  ]
 
   return c.html(
     <Layout title={event.titel} description={event.beschrijving} user={user}>
@@ -2021,6 +2315,151 @@ app.get('/agenda/:slug', async (c) => {
                 Details
               </h2>
               <div class="prose prose-lg max-w-none" dangerouslySetInnerHTML={{ __html: processBodyLinks(event.beschrijving, siteHosts(c.req.url)) }} />
+            </div>
+          )}
+
+          {/* === REACTIES + EMOJI === */}
+          {isLoggedIn ? (
+            <>
+              {/* Emoji-reactiebalk */}
+              <div class="bg-white rounded-lg shadow-md p-5 mb-6">
+                <h3 class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                  <i class="fas fa-smile text-animato-primary"></i>
+                  Wat vind je van deze {event.type === 'repetitie' ? 'repetitie' : 'activiteit'}?
+                </h3>
+                <div id="emoji-reactions-bar" class="flex flex-wrap gap-2" data-event-id={event.id}>
+                  {emojiList.map(em => (
+                    <button
+                      type="button"
+                      data-emoji-type={em.type}
+                      class={`emoji-btn flex items-center gap-2 px-4 py-2 rounded-full border-2 transition ${
+                        myReactionType === em.type
+                          ? 'bg-animato-primary border-animato-primary text-white shadow-md'
+                          : 'bg-white border-gray-200 text-gray-700 hover:border-animato-primary hover:bg-blue-50'
+                      }`}
+                    >
+                      <span class="text-xl">{em.emoji}</span>
+                      <span class="text-xs font-semibold" data-emoji-count={em.type}>{reactionCounts[em.type] || 0}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Reacties */}
+              <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+                <h3 class="text-lg font-bold text-gray-900 mb-4">
+                  <i class="fas fa-comments mr-2 text-animato-primary"></i>
+                  {replies.length} Reactie{replies.length === 1 ? '' : 's'}
+                </h3>
+
+                {replies.length === 0 ? (
+                  <p class="text-gray-500 text-sm italic mb-4">Nog geen reacties. Wees de eerste!</p>
+                ) : (
+                  <div class="space-y-4 mb-6">
+                    {replies.map((r: any) => {
+                      const naam = `${r.voornaam || ''} ${r.achternaam || ''}`.trim() || r.email
+                      const initials = ((r.voornaam || r.email || '?').charAt(0) + (r.achternaam || '').charAt(0)).toUpperCase()
+                      const isOwner = r.auteur_id === user.id
+                      const canDelete = isOwner || isStaff
+                      return (
+                        <div class="flex gap-3 items-start border-b border-gray-100 pb-3 last:border-0">
+                          {r.foto_url ? (
+                            <img src={r.foto_url} alt={naam} class="w-10 h-10 rounded-full object-cover flex-shrink-0" />
+                          ) : (
+                            <div class="w-10 h-10 rounded-full bg-animato-primary text-white flex items-center justify-center font-bold flex-shrink-0">
+                              {initials}
+                            </div>
+                          )}
+                          <div class="flex-1">
+                            <div class="flex items-baseline justify-between gap-2 flex-wrap">
+                              <div>
+                                <span class="font-semibold text-gray-900">{naam}</span>
+                                <span class="text-xs text-gray-500 ml-2">
+                                  {new Date(r.created_at).toLocaleString('nl-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              {canDelete && (
+                                <form action={`/agenda/${event.id}/reply/${r.id}/delete`} method="POST" class="inline" onsubmit="return confirm('Reactie verwijderen?')">
+                                  <button type="submit" class="text-gray-400 hover:text-red-600 text-xs" title="Verwijder reactie">
+                                    <i class="fas fa-trash"></i>
+                                  </button>
+                                </form>
+                              )}
+                            </div>
+                            <p class="text-gray-700 text-sm mt-1 whitespace-pre-wrap break-words">{r.body}</p>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {/* Reactieformulier */}
+                <form action={`/agenda/${event.id}/reply`} method="POST" class="space-y-2">
+                  <label class="block text-sm font-semibold text-gray-700">Voeg een reactie toe</label>
+                  <textarea
+                    name="body"
+                    rows={3}
+                    required
+                    maxlength={5000}
+                    placeholder="Typ je reactie… Emoji's en accenten zijn welkom 🎵"
+                    class="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  ></textarea>
+                  <div class="flex justify-end">
+                    <button type="submit" class="bg-animato-primary hover:bg-animato-secondary text-white px-5 py-2 rounded-lg font-semibold text-sm transition">
+                      <i class="fas fa-paper-plane mr-2"></i>Verstuur
+                    </button>
+                  </div>
+                </form>
+              </div>
+
+              <script dangerouslySetInnerHTML={{__html: `
+                (function() {
+                  const bar = document.getElementById('emoji-reactions-bar');
+                  if (!bar) return;
+                  const eventId = bar.dataset.eventId;
+                  bar.querySelectorAll('.emoji-btn').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                      const type = btn.dataset.emojiType;
+                      try {
+                        const r = await fetch('/agenda/' + eventId + '/reactie-emoji', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ type })
+                        });
+                        if (!r.ok) throw new Error('HTTP ' + r.status);
+                        const data = await r.json();
+                        // Update counts
+                        bar.querySelectorAll('[data-emoji-count]').forEach(el => {
+                          const t = el.dataset.emojiCount;
+                          el.textContent = data.counts[t] || 0;
+                        });
+                        // Update active state
+                        bar.querySelectorAll('.emoji-btn').forEach(b => {
+                          const t = b.dataset.emojiType;
+                          if (t === data.myReaction) {
+                            b.classList.remove('bg-white','border-gray-200','text-gray-700','hover:border-animato-primary','hover:bg-blue-50');
+                            b.classList.add('bg-animato-primary','border-animato-primary','text-white','shadow-md');
+                          } else {
+                            b.classList.remove('bg-animato-primary','border-animato-primary','text-white','shadow-md');
+                            b.classList.add('bg-white','border-gray-200','text-gray-700','hover:border-animato-primary','hover:bg-blue-50');
+                          }
+                        });
+                      } catch (e) {
+                        alert('Reactie opslaan mislukt. Probeer opnieuw.');
+                        location.reload();
+                      }
+                    });
+                  });
+                })();
+              `}} />
+            </>
+          ) : (
+            <div class="bg-blue-50 border border-blue-200 rounded-lg p-5 mb-6 text-center">
+              <p class="text-sm text-blue-900">
+                <i class="fas fa-lock mr-2"></i>
+                <a href="/login" class="font-semibold underline hover:text-blue-700">Log in</a> om te reageren of een emoji-reactie achter te laten.
+              </p>
             </div>
           )}
 

@@ -10,7 +10,8 @@ import { queryOne, queryAll, execute } from '../utils/db'
 import { createMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { processBodyLinks } from '../utils/text'
-import { getNotificationsForUser, getUnreadCount, markAsRead, markAllAsRead, getNotificationStyle } from '../utils/notifications'
+import { getNotificationsForUser, getUnreadCount, markAsRead, markAllAsRead, getNotificationStyle, notifyUserIfEnabled, getUserNotificationPrefs, setUserNotificationPrefs } from '../utils/notifications'
+import type { NotificationType } from '../utils/notifications'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1550,7 +1551,7 @@ app.post('/leden/board/:id/reply', async (c) => {
   // Verifieer dat de thread bestaat en dat user toegang heeft (zelfde check als de detail-page)
   const thread = await queryOne<any>(
     c.env.DB,
-    `SELECT id, zichtbaarheid FROM posts WHERE id = ? AND type = 'board' LIMIT 1`,
+    `SELECT id, titel, auteur_id, zichtbaarheid FROM posts WHERE id = ? AND type = 'board' LIMIT 1`,
     [threadId]
   )
   if (!thread) return c.notFound()
@@ -1571,6 +1572,22 @@ app.post('/leden/board/:id/reply', async (c) => {
   } catch (e: any) {
     console.warn('Board reply insert failed:', e?.message)
   }
+
+  // 🔔 Notify thread-auteur (tenzij hij zelf reageert). Honoreert opt-out 'board'.
+  try {
+    if (thread.auteur_id && thread.auteur_id !== user.id) {
+      const replierName = `${user.voornaam || ''} ${user.achternaam || ''}`.trim() || 'Een lid'
+      const preview = safeBody.length > 100 ? safeBody.substring(0, 97) + '…' : safeBody
+      await notifyUserIfEnabled(
+        c.env.DB,
+        thread.auteur_id,
+        'board',
+        `${replierName} reageerde op je bericht`,
+        `${thread.titel || 'Forum'}: ${preview}`,
+        `/leden/board/${threadId}`
+      )
+    }
+  } catch (e) { console.error('[notif] board-reply notify failed:', e) }
 
   return c.redirect(`/leden/board/${threadId}`)
 })
@@ -1925,6 +1942,9 @@ app.get('/leden/profiel', async (c) => {
   const archivedNotifs = allNotifications.filter((n: any) => n.is_gelezen)
   const archiveCount = archivedNews.length + archivedNotifs.length
   const openCount = profielOpenActies.length
+
+  // Notificatie-voorkeuren (settings-paneel onderaan profiel)
+  const notifPrefs = await getUserNotificationPrefs(c.env.DB, user.id)
 
   return c.html(
     <Layout 
@@ -3220,6 +3240,103 @@ app.get('/leden/profiel', async (c) => {
                 })();
               `
             }}></script>
+          </div>
+
+          {/* Notification preferences */}
+          <div class="bg-white rounded-lg shadow-md p-6 mb-6" id="notif-prefs">
+            <h3 class="text-xl font-bold text-gray-900 mb-2">
+              <i class="fas fa-sliders-h text-animato-primary mr-2"></i>
+              Notificatie-voorkeuren
+            </h3>
+            <p class="text-sm text-gray-500 mb-4">
+              Vink uit waarover je géén meldingen wil ontvangen. Items blijven
+              wel zichtbaar in het Archief als je later van gedacht verandert.
+            </p>
+
+            <form id="notif-prefs-form" class="space-y-3">
+              {(() => {
+                const labels: Array<{ key: NotificationType; label: string; desc: string; icon: string; canDisable: boolean }> = [
+                  { key: 'nieuws',    label: 'Nieuwsberichten',        desc: 'Wanneer er een nieuw nieuwsbericht gepubliceerd wordt.', icon: 'fas fa-newspaper',     canDisable: true },
+                  { key: 'concert',   label: 'Nieuwe concerten',       desc: 'Wanneer een concert wordt toegevoegd aan de agenda.',    icon: 'fas fa-music',         canDisable: true },
+                  { key: 'repetitie', label: 'Nieuwe repetities',      desc: 'Wanneer een repetitie wordt toegevoegd aan de agenda.',  icon: 'fas fa-calendar-alt',  canDisable: true },
+                  { key: 'materiaal', label: 'Nieuw materiaal',        desc: 'Nieuwe partituren of oefentracks (filter op stemgroep).', icon: 'fas fa-file-audio',    canDisable: true },
+                  { key: 'board',     label: 'Reacties op je posts',   desc: 'Wanneer iemand reageert op jouw forum-bericht of agenda.', icon: 'fas fa-comments',      canDisable: true },
+                  { key: 'systeem',   label: 'Systeem-meldingen',      desc: 'Overige aankondigingen vanuit het bestuur.',              icon: 'fas fa-bullhorn',      canDisable: true },
+                  { key: 'lidgeld',   label: 'Lidgeld-herinneringen',  desc: 'Verplicht — kan niet uitgezet worden.',                   icon: 'fas fa-euro-sign',     canDisable: false },
+                  { key: 'profiel',   label: 'Profiel-meldingen',      desc: 'Verplicht — kan niet uitgezet worden.',                   icon: 'fas fa-user-edit',     canDisable: false },
+                ]
+                return labels.map(item => {
+                  const isOn = notifPrefs[item.key]
+                  return (
+                    <label class={`flex items-start gap-3 p-3 rounded-lg border ${item.canDisable ? 'border-gray-200 hover:bg-gray-50 cursor-pointer' : 'border-gray-100 bg-gray-50 opacity-70'} transition`}>
+                      <input
+                        type="checkbox"
+                        name={`pref_${item.key}`}
+                        data-pref-key={item.key}
+                        checked={isOn}
+                        disabled={!item.canDisable}
+                        class="mt-1 h-4 w-4 rounded text-animato-primary focus:ring-animato-primary"
+                      />
+                      <div class="flex-1 min-w-0">
+                        <div class="text-sm font-medium text-gray-800 flex items-center gap-2">
+                          <i class={`${item.icon} text-animato-primary/70`}></i>
+                          {item.label}
+                          {!item.canDisable && (
+                            <span class="text-[10px] font-bold uppercase bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">Verplicht</span>
+                          )}
+                        </div>
+                        <p class="text-xs text-gray-500 mt-0.5">{item.desc}</p>
+                      </div>
+                    </label>
+                  )
+                })
+              })()}
+
+              <div class="flex justify-end items-center gap-3 pt-2">
+                <span id="notif-prefs-status" class="text-xs text-gray-500"></span>
+                <button
+                  type="submit"
+                  class="px-5 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm font-medium"
+                >
+                  <i class="fas fa-save mr-1"></i>
+                  Voorkeuren opslaan
+                </button>
+              </div>
+            </form>
+
+            <script dangerouslySetInnerHTML={{ __html: `
+              (function() {
+                var form = document.getElementById('notif-prefs-form');
+                var status = document.getElementById('notif-prefs-status');
+                if (!form) return;
+                form.addEventListener('submit', function(e) {
+                  e.preventDefault();
+                  var prefs = {};
+                  form.querySelectorAll('input[data-pref-key]').forEach(function(cb) {
+                    if (cb.disabled) return;
+                    prefs[cb.getAttribute('data-pref-key')] = !!cb.checked;
+                  });
+                  status.textContent = 'Opslaan...';
+                  status.classList.remove('text-red-600','text-green-600');
+                  fetch('/api/leden/notification-prefs', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(prefs)
+                  })
+                  .then(function(r){ return r.ok ? r.json() : Promise.reject(r); })
+                  .then(function() {
+                    status.textContent = '✓ Voorkeuren opgeslagen';
+                    status.classList.add('text-green-600');
+                    setTimeout(function() { status.textContent = ''; status.classList.remove('text-green-600'); }, 3000);
+                  })
+                  .catch(function() {
+                    status.textContent = 'Opslaan mislukt — probeer opnieuw';
+                    status.classList.add('text-red-600');
+                  });
+                });
+              })();
+            ` }} />
           </div>
 
           {/* Change Password Card */}
@@ -5123,6 +5240,39 @@ app.post('/api/leden/notifications/read-all', async (c) => {
     return c.redirect('/leden/profiel?success=notifications_read')
   }
   return c.json({ success: true, count })
+})
+
+// =====================================================
+// NOTIFICATION PREFERENCES — per-user opt-in/opt-out per type
+// =====================================================
+app.get('/api/leden/notification-prefs', async (c) => {
+  const user = c.get('user') as SessionUser
+  const prefs = await getUserNotificationPrefs(c.env.DB, user.id)
+  return c.json({ prefs })
+})
+
+app.post('/api/leden/notification-prefs', async (c) => {
+  const user = c.get('user') as SessionUser
+  let body: any
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+  // Whitelist: enkel keys die in NotificationType passen accepteren.
+  // 'lidgeld' en 'profiel' zijn 'verplichte' types die niet uitgezet
+  // kunnen worden — we negeren stilletjes pogingen om die op false te zetten.
+  const allowedTypes: NotificationType[] = ['nieuws','materiaal','repetitie','concert','board','systeem']
+  const sanitized: Partial<Record<NotificationType, boolean>> = {}
+  for (const t of allowedTypes) {
+    if (t in body) sanitized[t] = !!body[t]
+  }
+  try {
+    await setUserNotificationPrefs(c.env.DB, user.id, sanitized)
+    return c.json({ success: true })
+  } catch (e: any) {
+    return c.json({ error: 'save_failed', detail: String(e?.message || e) }, 500)
+  }
 })
 
 // =====================================================

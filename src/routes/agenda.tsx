@@ -8,6 +8,7 @@ import { Layout } from '../components/Layout'
 import { optionalAuth } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
 import { processBodyLinks } from '../utils/text'
+import { notifyUserIfEnabled } from '../utils/notifications'
 
 // Helper: hosts die als 'intern' gelden bij rich-text linkprocessing (#90)
 function siteHosts(url: string): string[] {
@@ -2071,7 +2072,7 @@ app.post('/agenda/:id/reply', async (c) => {
   }
   const safeBody = raw.length > 5000 ? raw.substring(0, 5000) : raw
 
-  const event = await queryOne<any>(c.env.DB, `SELECT id, slug FROM events WHERE id = ? LIMIT 1`, [eventId])
+  const event = await queryOne<any>(c.env.DB, `SELECT id, slug, titel, created_by FROM events WHERE id = ? LIMIT 1`, [eventId])
   if (!event) return c.notFound()
 
   try {
@@ -2081,6 +2082,24 @@ app.post('/agenda/:id/reply', async (c) => {
   } catch (e: any) {
     console.warn('Event reply insert failed:', e?.message)
   }
+
+  // 🔔 Notify de event-auteur (vaak admin/bestuur) bij een reactie. We hangen
+  // dit onder 'board' notif-type — semantisch is het immers ook een forum-pingback.
+  // Honoreert opt-out 'board'. Skip als auteur zelf reageert.
+  try {
+    if (event.created_by && event.created_by !== user.id) {
+      const replierName = `${user.voornaam || ''} ${user.achternaam || ''}`.trim() || 'Een lid'
+      const preview = safeBody.length > 100 ? safeBody.substring(0, 97) + '…' : safeBody
+      await notifyUserIfEnabled(
+        c.env.DB,
+        event.created_by,
+        'board',
+        `${replierName} reageerde op ${event.titel || 'agenda-item'}`,
+        preview,
+        `/agenda/${event.slug}`
+      )
+    }
+  } catch (e) { console.error('[notif] agenda-reply notify failed:', e) }
 
   return c.redirect(`/agenda/${event.slug}`)
 })

@@ -7,6 +7,7 @@ import { queryAll, queryOne, execute } from '../utils/db'
 import { verifyToken } from '../utils/auth'
 import type { Bindings } from '../types'
 import { uploadDataUrlToR2, deleteFromR2 } from '../utils/r2-storage'
+import { notifyActiveMembersByStemgroep } from '../utils/notifications'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1186,6 +1187,38 @@ app.post('/api/admin/bestanden/create', async (c) => {
       pieceId,
       JSON.stringify({ titel: body.material_titel, type: body.type, stem: body.stem })
     ])
+
+    // 🔔 Notify de juiste stemgroepen over de upload. Logica:
+    //   * body.zichtbaar_voor === 'alle_leden'  → alle actieve leden
+    //   * stem in {'S','A','T','B'}              → enkel die stemgroep
+    //   * stem === 'satb' of leeg               → alle leden
+    // Honoreert opt-outs voor 'materiaal' via notifyActiveMembersByStemgroep.
+    try {
+      const stemRaw = String(body.stem || '').toUpperCase()
+      const isPerStem = ['S','A','T','B'].includes(stemRaw)
+      const visibleAll = (body.zichtbaar_voor || 'alle_leden') === 'alle_leden'
+      // Doel-stems leeg = alle leden; anders alleen die ene stemgroep.
+      const targetStems = (isPerStem && !visibleAll) ? [stemRaw] : []
+      // Haal werk-titel op voor body-context
+      const piece = await queryOne<any>(c.env.DB,
+        `SELECT p.titel as piece_titel, w.titel as work_titel
+         FROM pieces p LEFT JOIN works w ON w.id = p.work_id
+         WHERE p.id = ? LIMIT 1`, [pieceId])
+      const workLabel = piece?.work_titel || piece?.piece_titel || 'een werk'
+      const typeLabel = String(body.type || 'bestand')
+      const stemLabel = isPerStem ? ` (${stemRaw})` : ''
+      await notifyActiveMembersByStemgroep(
+        c.env.DB,
+        targetStems,
+        'materiaal',
+        `Nieuw ${typeLabel}${stemLabel}: ${body.material_titel}`,
+        `Toegevoegd bij ${workLabel}`,
+        '/leden/materiaal'
+      )
+    } catch (e) {
+      console.error('[notif] material-create notify failed:', e)
+      // niet-fataal
+    }
 
     return c.redirect('/admin/bestanden')
 

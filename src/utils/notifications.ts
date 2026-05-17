@@ -68,6 +68,7 @@ export async function createNotificationForUsers(
 
 /**
  * Notify ALL active members (excluding visitors and test accounts).
+ * Filtert leden uit die expliciet opt-out hebben gezet voor dit type.
  * Gebruikt voor system-wide events zoals nieuwspublicaties.
  */
 export async function notifyAllActiveMembers(
@@ -77,15 +78,146 @@ export async function notifyAllActiveMembers(
   body?: string,
   link?: string
 ): Promise<number> {
+  // LEFT JOIN op user_notification_prefs: enkel users zónder opt-out (enabled=0)
+  // voor dit type krijgen de notificatie. Geen rij = default aan.
   const result = await db.prepare(
-    `SELECT id FROM users
-     WHERE status = 'actief'
-       AND role NOT IN ('bezoeker')
-       AND COALESCE(is_test_account, 0) = 0`
-  ).all<{ id: number }>()
+    `SELECT u.id FROM users u
+     LEFT JOIN user_notification_prefs p
+       ON p.user_id = u.id AND p.notif_type = ?
+     WHERE u.status = 'actief'
+       AND u.role NOT IN ('bezoeker')
+       AND COALESCE(u.is_test_account, 0) = 0
+       AND (p.id IS NULL OR p.enabled = 1)`
+  ).bind(type).all<{ id: number }>()
 
   const userIds = (result.results || []).map(r => r.id)
   return createNotificationForUsers(db, userIds, type, titel, body, link)
+}
+
+/**
+ * Notify alle actieve leden van één of meerdere stemgroepen ('S','A','T','B').
+ * Bij visibility='alle_leden' (lege stems-array) valt dit terug op
+ * notifyAllActiveMembers. Honoreert óók de opt-out preferences.
+ *
+ * Gebruikt voor materials-uploads: alleen sopranen krijgen notif over een
+ * sopraan-partij, etc.
+ */
+export async function notifyActiveMembersByStemgroep(
+  db: D1Database,
+  stems: string[],   // bv. ['S','A'] of [] voor alle leden
+  type: NotificationType,
+  titel: string,
+  body?: string,
+  link?: string
+): Promise<number> {
+  // Lege array of expliciet alle = fallback naar alle leden
+  if (!stems || stems.length === 0) {
+    return notifyAllActiveMembers(db, type, titel, body, link)
+  }
+  // Bouw placeholders dynamisch: stems kan 1..4 elementen hebben
+  const placeholders = stems.map(() => '?').join(',')
+  const result = await db.prepare(
+    `SELECT u.id FROM users u
+     LEFT JOIN user_notification_prefs p
+       ON p.user_id = u.id AND p.notif_type = ?
+     WHERE u.status = 'actief'
+       AND u.role NOT IN ('bezoeker')
+       AND COALESCE(u.is_test_account, 0) = 0
+       AND UPPER(u.stemgroep) IN (${placeholders})
+       AND (p.id IS NULL OR p.enabled = 1)`
+  ).bind(type, ...stems.map(s => s.toUpperCase())).all<{ id: number }>()
+
+  const userIds = (result.results || []).map(r => r.id)
+  return createNotificationForUsers(db, userIds, type, titel, body, link)
+}
+
+/**
+ * Notify één specifieke user, MAAR alleen als die niet opt-out heeft voor
+ * dit type. Wrapper rond createNotification.
+ *
+ * Gebruikt voor user-specifieke triggers zoals "iemand reageerde op je post".
+ */
+export async function notifyUserIfEnabled(
+  db: D1Database,
+  userId: number,
+  type: NotificationType,
+  titel: string,
+  body?: string,
+  link?: string
+): Promise<boolean> {
+  try {
+    const pref = await db.prepare(
+      `SELECT enabled FROM user_notification_prefs
+       WHERE user_id = ? AND notif_type = ?
+       LIMIT 1`
+    ).bind(userId, type).first<{ enabled: number }>()
+    // Geen rij = default aan; rij met enabled=0 = opt-out
+    if (pref && pref.enabled === 0) return false
+    await createNotification(db, userId, type, titel, body, link)
+    return true
+  } catch (e) {
+    console.error('notifyUserIfEnabled failed:', e)
+    return false
+  }
+}
+
+/**
+ * Lees prefs van één user. Retourneert een map { type: enabled? } voor alle
+ * notificatie-types — types die niet in de DB staan krijgen default true.
+ */
+export async function getUserNotificationPrefs(
+  db: D1Database,
+  userId: number
+): Promise<Record<NotificationType, boolean>> {
+  const allTypes: NotificationType[] = [
+    'nieuws','materiaal','repetitie','concert','board','systeem','lidgeld','profiel'
+  ]
+  const defaults = allTypes.reduce((acc, t) => {
+    acc[t] = true
+    return acc
+  }, {} as Record<NotificationType, boolean>)
+  try {
+    const result = await db.prepare(
+      `SELECT notif_type, enabled FROM user_notification_prefs WHERE user_id = ?`
+    ).bind(userId).all<{ notif_type: string; enabled: number }>()
+    for (const r of (result.results || [])) {
+      if (r.notif_type in defaults) {
+        defaults[r.notif_type as NotificationType] = r.enabled === 1
+      }
+    }
+  } catch (e) { /* ignore */ }
+  return defaults
+}
+
+/**
+ * Update de preferences in bulk. Items met enabled=true verwijderen we uit
+ * de tabel (geen rij = default aan); items met enabled=false zetten we
+ * expliciet op enabled=0. Atomic via db.batch().
+ */
+export async function setUserNotificationPrefs(
+  db: D1Database,
+  userId: number,
+  prefs: Partial<Record<NotificationType, boolean>>
+): Promise<void> {
+  const stmts: D1PreparedStatement[] = []
+  for (const [type, enabled] of Object.entries(prefs)) {
+    if (enabled) {
+      // Default = aan: rij weg
+      stmts.push(db.prepare(
+        `DELETE FROM user_notification_prefs WHERE user_id = ? AND notif_type = ?`
+      ).bind(userId, type))
+    } else {
+      // Opt-out: upsert
+      stmts.push(db.prepare(
+        `INSERT INTO user_notification_prefs (user_id, notif_type, enabled, updated_at)
+         VALUES (?, ?, 0, CURRENT_TIMESTAMP)
+         ON CONFLICT(user_id, notif_type) DO UPDATE SET enabled=0, updated_at=CURRENT_TIMESTAMP`
+      ).bind(userId, type))
+    }
+  }
+  if (stmts.length > 0) {
+    await db.batch(stmts)
+  }
 }
 
 /**

@@ -11,6 +11,7 @@ import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 import { createEventOccurrences, formatRecurrenceRule } from '../utils/recurring-events'
 import { generateICS, generateBulkICS, generateGoogleCalendarURL } from '../utils/ics'
 import { uploadDataUrlToR2, deleteFromR2, isDataUrl, r2KeyFromUrl } from '../utils/r2-storage'
+import { notifyAllActiveMembers } from '../utils/notifications'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1532,6 +1533,42 @@ app.post('/admin/events/save', async (c) => {
           slug: null
         }
         await generateAndSaveOccurrences(c.env.DB, result.meta.last_row_id, baseEvent, recurrenceRule, user.id)
+      }
+
+      // 🔔 Notify alle leden — alleen bij CREATE van een master-event.
+      // Niet bij edit (te ruisig) en niet voor losse recurring-occurrences
+      // (die worden via generateAndSaveOccurrences gemaakt en zouden 50
+      // notifs opleveren voor één wekelijkse repetitie). Type mappt naar
+      // de relevante NotificationType: 'concert' / 'repetitie' / 'systeem'.
+      try {
+        const notifType: 'concert' | 'repetitie' | 'systeem' =
+          type === 'concert' ? 'concert'
+          : type === 'repetitie' ? 'repetitie'
+          : 'systeem'
+        const fmtDate = (s: string) => {
+          try {
+            return new Date(s).toLocaleDateString('nl-BE', {
+              weekday: 'short', day: 'numeric', month: 'short',
+              hour: '2-digit', minute: '2-digit'
+            })
+          } catch { return s }
+        }
+        const titelPrefix = type === 'concert' ? 'Nieuw concert' :
+                            type === 'repetitie' ? 'Nieuwe repetitie' :
+                            type === 'activiteit' ? 'Nieuwe activiteit' :
+                            'Nieuwe agenda-item'
+        const niceDate = fmtDate(start_at as string)
+        const link = finalSlug ? `/agenda/${finalSlug}` : '/agenda'
+        await notifyAllActiveMembers(
+          c.env.DB,
+          notifType,
+          `${titelPrefix}: ${titel}`,
+          niceDate + (finalLocatie ? ' — ' + finalLocatie : ''),
+          link
+        )
+      } catch (e) {
+        console.error('[notif] event-create notify failed:', e)
+        // niet-fataal — event is al opgeslagen
       }
     }
 

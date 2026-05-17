@@ -37,6 +37,8 @@ import adminSettingsRoutes from './routes/admin-settings'
 import adminFinanceRoutes from './routes/admin-finance'
 import adminPrintsRoutes from './routes/admin-prints'
 import adminCommentsRoutes from './routes/admin-comments'
+import editablePagesRoutes from './routes/editable-pages'
+import editablePagesRoutes from './routes/editable-pages'
 import adminSeatingRoutes from './routes/admin-seating'
 import ledenActivityRoutes from './routes/leden-activity'
 import adminCommunicationsRoutes from './routes/admin-communications' // Imported
@@ -111,6 +113,12 @@ app.route('/', photosRoutes)
 
 // Check-in routes (QR scan page is public, streaks require auth)
 app.route('/', checkinRoutes)
+
+// Editable pages (dynamische /:slug pagina's uit editable_pages tabel)
+// MOET voor ledenRoutes staan — die heeft wildcard auth-middleware die
+// anders alle unmatched paden 401-t. Bevat een RESERVED_SLUGS lijst om
+// conflicten met /leden, /admin, etc. te voorkomen.
+app.route('/', editablePagesRoutes)
 
 // Leden portal routes
 app.route('/', ledenRoutes)

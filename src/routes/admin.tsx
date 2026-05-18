@@ -15,67 +15,37 @@ import { notifyAllActiveMembers } from '../utils/notifications'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // =====================================================
-// IMPERSONATE AUTO-RESTORE
-// Wanneer een admin op de site heeft rondgekeken als lid en
-// terug navigeert naar /admin (of /api/admin/*), dan willen we
-// automatisch de admin-sessie herstellen — ook als het 1h-token
-// inmiddels is verlopen. De admin_impersonate_token is 7d geldig.
+// IMPERSONATE-FALLBACK
 //
-// LET OP: '/admin/*' matcht in Hono GEEN '/admin' zelf (zonder
-// trailing path). Daarom registreren we het twee keer.
+// Wanneer een admin "Bekijk als lid" doet, wordt z'n admin-sessie
+// gestasht in `admin_impersonate_token` (7d geldig) en wordt
+// `auth_token` overschreven met een lid-token (8u geldig).
+//
+// Terugkeer naar /admin werd vroeger afgehandeld door 2 middlewares
+// die elk een redirect-dance deden om de cookies te swappen. Dat
+// veroorzaakte een race waarbij de gebruiker {"error":"Ongeldige of
+// verlopen sessie"} kreeg als JSON-dump in z'n browser.
+//
+// Nu doet `requireAuth` (zie src/middleware/auth.ts) dat zélf, zonder
+// redirect: verify auth_token; faalt dat → verify admin_impersonate_token
+// en gebruik die. Cookies worden in dezelfde response atomair geüpdatet.
+// Eén bron van waarheid in plaats van 3 die elkaar moeten kennen.
 // =====================================================
-const restoreAdminSessionIfImpersonating = async (c: any, next: any) => {
-  const { getCookie: gc, setCookie: sc } = await import('hono/cookie')
-  const impersonateToken = gc(c, 'admin_impersonate_token')
-  if (impersonateToken) {
-    // Zet beide cookies in dezelfde response zodat de browser ze atomair
-    // toepast — geen race waarbij auth_token al weg is en de redirect
-    // binnenkomt zonder geldige sessie.
-    sc(c, 'auth_token', impersonateToken, { maxAge: 7 * 24 * 60 * 60, httpOnly: true, secure: true, sameSite: 'Lax', path: '/' })
-    sc(c, 'admin_impersonate_token', '', { maxAge: 0, httpOnly: true, secure: true, sameSite: 'Lax', path: '/' })
-    return c.redirect(c.req.url)
-  }
-  await next()
-}
-
-// Match zowel /admin (exact) als /admin/* (subpaths)
-app.use('/admin', restoreAdminSessionIfImpersonating)
-app.use('/admin/*', restoreAdminSessionIfImpersonating)
-app.use('/api/admin', restoreAdminSessionIfImpersonating)
-app.use('/api/admin/*', restoreAdminSessionIfImpersonating)
-
-// =====================================================
-// AUTH FALLBACK voor impersonate-edge-case:
-// Als de gewone auth_token (lid, kortlevend) niet meer geldig is
-// MAAR er is nog een admin_impersonate_token, gebruik dan dat token.
-// Dit voorkomt "Ongeldige of verlopen sessie" wanneer een admin
-// na > 1u terug naar /admin gaat.
-// =====================================================
-const impersonateAuthFallback = async (c: any, next: any) => {
-  const { getCookie: gc, setCookie: sc } = await import('hono/cookie')
-  const adminToken = gc(c, 'admin_impersonate_token')
-  const liveToken = gc(c, 'auth_token')
-
-  if (adminToken && !liveToken) {
-    // Geen levend lid-token meer maar wel admin-token bewaard → herstel
-    sc(c, 'auth_token', adminToken, { maxAge: 7 * 24 * 60 * 60, httpOnly: true, secure: true, sameSite: 'Lax', path: '/' })
-    sc(c, 'admin_impersonate_token', '', { maxAge: 0, httpOnly: true, secure: true, sameSite: 'Lax', path: '/' })
-    return c.redirect(c.req.url)
-  }
-  await next()
-}
-
-app.use('/admin', impersonateAuthFallback)
-app.use('/admin/*', impersonateAuthFallback)
-app.use('/api/admin', impersonateAuthFallback)
-app.use('/api/admin/*', impersonateAuthFallback)
 
 // Apply auth middleware - admin, moderator én bestuursleden krijgen toegang tot /admin/*
 // (bestuursleden hebben verantwoordelijkheid voor projecten, vergaderingen, budgettering)
 // Strikte admin-only acties (bv. user roles wijzigen, lid verwijderen) blijven binnen
 // individuele handlers via expliciete role-check beschermd.
+//
+// LET OP: '/admin/*' matcht in Hono NIET '/admin' (exact, geen trailing).
+// Daarom expliciet beide registreren — anders kan /admin onbedoeld door
+// requireAuth heenglippen bij een refactor.
+app.use('/admin', requireAuth)
+app.use('/admin', requireBestuurslid)
 app.use('/admin/*', requireAuth)
 app.use('/admin/*', requireBestuurslid)
+app.use('/api/admin', requireAuth)
+app.use('/api/admin', requireBestuurslid)
 app.use('/api/admin/*', requireAuth)
 app.use('/api/admin/*', requireBestuurslid)
 

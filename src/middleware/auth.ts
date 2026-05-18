@@ -13,52 +13,89 @@ import { verifyToken, hasRole, canAccessStem, canModerate, isAdmin } from '../ut
 /**
  * Require authenticated user
  * Attaches user to context as c.get('user')
+ *
+ * Impersonate-aware: probeert in volgorde:
+ *   1. auth_token (de "live" sessie)
+ *   2. admin_impersonate_token (gestashte admin-sessie tijdens "Bekijk als lid")
+ *
+ * Belangrijk: we doen géén redirect naar c.req.url om cookies te herstellen
+ * (zoals de vorige implementatie). Reden: dat veroorzaakte een race waarbij de
+ * Set-Cookie header soms niet bij was aangekomen vóór de redirect-fetch, en
+ * de gebruiker dus een "Ongeldige sessie" zag op /admin terwijl er nochtans
+ * een geldig admin-token in het impersonate-cookie zat.
+ *
+ * Nu: als auth_token onbruikbaar is maar impersonate-token werkt, gebruiken
+ * we die meteen voor DEZE request, en updaten we de cookies in dezelfde
+ * response. Geen redirect-dance.
  */
 export async function requireAuth(c: Context<{ Bindings: Bindings }>, next: Next) {
-  // Check for token in cookie or Authorization header
-  let token = getCookie(c, 'auth_token') ||
-              c.req.header('Authorization')?.replace('Bearer ', '')
-
   const jwtSecret = c.env.JWT_SECRET
-  let user = token ? await verifyToken(token, jwtSecret) : null
+  const authToken = getCookie(c, 'auth_token') ||
+                    c.req.header('Authorization')?.replace('Bearer ', '')
+  const impersonateToken = getCookie(c, 'admin_impersonate_token')
 
-  // IMPERSONATE FALLBACK:
-  // Als het primaire token ontbreekt of verlopen is MAAR er is een
-  // admin_impersonate_token (admin was zichzelf als lid aan het bekijken),
-  // herstel dan de admin-sessie automatisch ipv 401 te returnen.
-  // Dit voorkomt "Ongeldige of verlopen sessie" wanneer een admin terug
-  // naar /admin navigeert nadat het lid-token is verlopen.
-  if (!user) {
-    const impersonateToken = getCookie(c, 'admin_impersonate_token')
-    if (impersonateToken) {
-      const adminUser = await verifyToken(impersonateToken, jwtSecret)
-      if (adminUser) {
-        const { setCookie } = await import('hono/cookie')
-        setCookie(c, 'auth_token', impersonateToken, {
-          maxAge: 7 * 24 * 60 * 60,
-          httpOnly: true,
-          secure: true,
-          sameSite: 'Lax',
-          path: '/'
-        })
-        setCookie(c, 'admin_impersonate_token', '', {
-          maxAge: 0,
-          httpOnly: true,
-          secure: true,
-          sameSite: 'Lax',
-          path: '/'
-        })
-        token = impersonateToken
-        user = adminUser
-      }
+  // Probeer eerst de live-sessie
+  let token: string | undefined = authToken
+  let user = authToken ? await verifyToken(authToken, jwtSecret) : null
+
+  // Als die niet werkt maar er is een gestashte admin-sessie, probeer die.
+  // Dit dekt twee scenario's:
+  //   a) auth_token bestaat niet (cookie verwijderd / nooit gezet)
+  //   b) auth_token bestaat maar JWT-verify faalt (verlopen, secret rotated)
+  if (!user && impersonateToken) {
+    const adminUser = await verifyToken(impersonateToken, jwtSecret)
+    if (adminUser) {
+      // Promoveer impersonate-token naar live-sessie en wis de stash
+      const { setCookie } = await import('hono/cookie')
+      setCookie(c, 'auth_token', impersonateToken, {
+        maxAge: 7 * 24 * 60 * 60,
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+        path: '/'
+      })
+      setCookie(c, 'admin_impersonate_token', '', {
+        maxAge: 0,
+        httpOnly: true,
+        secure: true,
+        sameSite: 'Lax',
+        path: '/'
+      })
+      token = impersonateToken
+      user = adminUser
     }
   }
 
-  if (!token) {
-    return c.json({ error: 'Niet ingelogd' }, 401)
-  }
-
   if (!user) {
+    // Onderscheid: helemaal geen token vs ongeldig token. Voor admin-paths
+    // willen we HTML i.p.v. JSON tonen (vriendelijker dan een rauwe dump
+    // van { error: "..." }). De handler op /admin neemt dit over.
+    const path = c.req.path
+    const wantsHtml = (c.req.header('Accept') || '').includes('text/html') &&
+                      !path.startsWith('/api/')
+    if (wantsHtml && (path === '/admin' || path.startsWith('/admin/'))) {
+      // Wis stale cookies preventief zodat de gebruiker een schone re-login krijgt
+      const { setCookie } = await import('hono/cookie')
+      setCookie(c, 'auth_token', '', { maxAge: 0, path: '/', httpOnly: true, secure: true, sameSite: 'Lax' })
+      setCookie(c, 'admin_impersonate_token', '', { maxAge: 0, path: '/', httpOnly: true, secure: true, sameSite: 'Lax' })
+      return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><title>Sessie verlopen</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+        </head>
+        <body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+          <div class="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center">
+            <i class="fas fa-clock text-amber-500 text-5xl mb-4"></i>
+            <h1 class="text-2xl font-bold text-gray-800 mb-2">Sessie verlopen</h1>
+            <p class="text-gray-600 mb-6">Je beheerderssessie is niet meer geldig. Log opnieuw in om verder te gaan.</p>
+            <a href="/login?redirect=${encodeURIComponent(path)}" class="inline-block px-6 py-3 bg-animato-primary text-white rounded-lg font-medium hover:bg-animato-secondary transition" style="background-color:#00A9CE">
+              <i class="fas fa-sign-in-alt mr-2"></i>Opnieuw inloggen
+            </a>
+          </div>
+        </body></html>`, 401)
+    }
+    if (!authToken && !impersonateToken) {
+      return c.json({ error: 'Niet ingelogd' }, 401)
+    }
     return c.json({ error: 'Ongeldige of verlopen sessie' }, 401)
   }
 
@@ -68,11 +105,13 @@ export async function requireAuth(c: Context<{ Bindings: Bindings }>, next: Next
   // Heartbeat: raak user_sessions.updated_at aan zodat we
   // inactiviteit kunnen meten op /admin/audit. Niet-blokkerend.
   try {
-    const tokenPrefix = token.substring(0, 32)
-    await c.env.DB.prepare(
-      `UPDATE user_sessions SET updated_at = CURRENT_TIMESTAMP
-       WHERE session_token = ? AND is_active = 1`
-    ).bind(tokenPrefix).run()
+    const tokenPrefix = (token || '').substring(0, 32)
+    if (tokenPrefix) {
+      await c.env.DB.prepare(
+        `UPDATE user_sessions SET updated_at = CURRENT_TIMESTAMP
+         WHERE session_token = ? AND is_active = 1`
+      ).bind(tokenPrefix).run()
+    }
   } catch (_) { /* stil falen — niet kritiek */ }
 
   await next()

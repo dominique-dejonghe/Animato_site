@@ -393,6 +393,8 @@ app.get('/leden', async (c) => {
           {spotlight && (() => {
             const sl = spotlight
             const fotoSrc = sl.user.foto_url || getDefaultAvatar(sl.user.stemgroep || '')
+            // Twee labels: partij-naam (voor "bij de X") en zanger-naam (voor "onze X")
+            const stemPartij = ({S:'sopranen',A:'alten',T:'tenoren',B:'bassen'} as any)[sl.user.stemgroep || ''] || ''
             const stemLabel = ({S:'Sopraan',A:'Alt',T:'Tenor',B:'Bas'} as any)[sl.user.stemgroep || ''] || ''
             let titleText = ''
             let subText = ''
@@ -400,20 +402,20 @@ app.get('/leden', async (c) => {
             let gradient = 'from-amber-50 to-orange-50 border-amber-200'
             if (sl.type === 'birthday') {
               titleText = `🎂 Vandaag jarig: ${sl.user.voornaam} ${sl.user.achternaam}!`
-              subText = `Zing eens een verjaardags-lied${stemLabel ? ` voor onze ${stemLabel.toLowerCase()}` : ''} 🎵`
+              subText = `Zing eens een verjaardags-lied${stemPartij ? ` voor onze ${stemPartij}` : ''} 🎵`
               icon = 'fa-birthday-cake'
               gradient = 'from-pink-50 to-rose-50 border-pink-200'
             } else if (sl.type === 'newmember') {
               titleText = `👋 Welkom in Animato, ${sl.user.voornaam}!`
               const dagen = sl.meta?.daysAgo ?? 0
               subText = dagen <= 1
-                ? `Vers van de pers: ${sl.user.voornaam} is net begonnen${stemLabel ? ` bij de ${stemLabel.toLowerCase()}` : ''}. Zeg eens hallo!`
+                ? `Vers van de pers: ${sl.user.voornaam} is net begonnen${stemPartij ? ` bij de ${stemPartij}` : ''}. Zeg eens hallo!`
                 : `${sl.user.voornaam} is sinds ${dagen} dagen bij ons${stemLabel ? ` (${stemLabel})` : ''}. Maak even kennis!`
               icon = 'fa-hand-wave'
               gradient = 'from-emerald-50 to-teal-50 border-emerald-200'
             } else {
               titleText = `✨ Koorlid in de kijker: ${sl.user.voornaam} ${sl.user.achternaam}`
-              subText = stemLabel ? `${stemLabel} bij Animato — leer ${sl.user.voornaam} eens beter kennen!` : `Leer ${sl.user.voornaam} eens beter kennen!`
+              subText = stemLabel ? `Zingt ${stemLabel.toLowerCase()} bij Animato — leer ${sl.user.voornaam} eens beter kennen!` : `Leer ${sl.user.voornaam} eens beter kennen!`
             }
             return (
               <div
@@ -421,7 +423,7 @@ app.get('/leden', async (c) => {
                 data-spotlight-key={sl.key}
                 class={`mb-6 bg-gradient-to-r ${gradient} border rounded-2xl shadow-sm p-5 flex items-center gap-5 transition-opacity duration-300`}
               >
-                <a href={`/leden/leden/${sl.user.id}`} class="flex-shrink-0 group">
+                <a href={`/leden/smoelenboek/${sl.user.id}`} class="flex-shrink-0 group">
                   <img
                     src={fotoSrc}
                     alt={sl.user.voornaam}
@@ -431,7 +433,7 @@ app.get('/leden', async (c) => {
                 <div class="flex-1 min-w-0">
                   <div class="flex items-center gap-2 text-gray-700 mb-1">
                     <i class={`fas ${icon} text-amber-500`}></i>
-                    <a href={`/leden/leden/${sl.user.id}`} class="text-lg font-bold text-gray-800 hover:underline truncate" style="font-family: 'Playfair Display', serif;">
+                    <a href={`/leden/smoelenboek/${sl.user.id}`} class="text-lg font-bold text-gray-800 hover:underline truncate" style="font-family: 'Playfair Display', serif;">
                       {titleText}
                     </a>
                   </div>

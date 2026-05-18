@@ -2110,6 +2110,30 @@ app.post('/agenda/:id/reply', async (c) => {
     }
   } catch (e) { console.error('[notif] agenda-reply notify failed:', e) }
 
+  // 📣 @mentions: detect & notify genoemde personen (skipt auteur zelf en event-auteur die we hierboven al pinged)
+  try {
+    const { extractMentionTokens, resolveMentions, notifyMentionedUsers } = await import('../utils/mentions')
+    const tokens = extractMentionTokens(safeBody)
+    if (tokens.length > 0) {
+      const mentionMap = await resolveMentions(c.env.DB, tokens)
+      // Sluit event-auteur uit van de mentions-notif (al apart genotificeerd)
+      if (event.created_by) {
+        for (const [k, v] of mentionMap) {
+          if (v.userId === event.created_by) mentionMap.delete(k)
+        }
+      }
+      const replierName = `${user.voornaam || ''} ${user.achternaam || ''}`.trim() || 'Een lid'
+      const preview = safeBody.length > 120 ? safeBody.substring(0, 117) + '…' : safeBody
+      await notifyMentionedUsers(c.env.DB, mentionMap, {
+        authorId: user.id,
+        authorName: replierName,
+        title: `${replierName} noemde je in ${event.titel || 'een agenda-item'}`,
+        bodySnippet: preview,
+        link: `/agenda/${event.slug}`,
+      })
+    }
+  } catch (e) { console.error('[mentions] agenda-reply failed:', e) }
+
   return c.redirect(`/agenda/${event.slug}`)
 })
 
@@ -2237,6 +2261,25 @@ app.get('/agenda/:slug', async (c) => {
       replyReactionsMap = await getReactionsForTargets(
         c.env.DB, 'event_reply', replies.map((r: any) => r.id), user.id
       )
+    }
+
+    // 📣 @mentions: bulk-resolve over alle reply-bodies (plain-text, dus eerst escape)
+    if (replies.length > 0) {
+      try {
+        const { extractMentionTokens, resolveMentions, renderMentions, escapeForMention } =
+          await import('../utils/mentions')
+        const allTokens = new Set<string>()
+        for (const r of replies) {
+          for (const t of extractMentionTokens(r.body)) allTokens.add(t)
+        }
+        if (allTokens.size > 0) {
+          const mentionMap = await resolveMentions(c.env.DB, Array.from(allTokens))
+          for (const r of replies) {
+            const escaped = escapeForMention(r.body)
+            r._body_with_mentions = renderMentions(escaped, mentionMap)
+          }
+        }
+      } catch (_) { /* graceful */ }
     }
 
     const countsRaw = await queryAll<any>(
@@ -2423,7 +2466,14 @@ app.get('/agenda/:slug', async (c) => {
                                 </form>
                               )}
                             </div>
-                            <p class="text-gray-700 text-sm mt-1 whitespace-pre-wrap break-words">{r.body}</p>
+                            {r._body_with_mentions ? (
+                              <p
+                                class="text-gray-700 text-sm mt-1 whitespace-pre-wrap break-words"
+                                dangerouslySetInnerHTML={{ __html: r._body_with_mentions }}
+                              />
+                            ) : (
+                              <p class="text-gray-700 text-sm mt-1 whitespace-pre-wrap break-words">{r.body}</p>
+                            )}
                             {/* Reacties op deze reply (6 emoji's, polymorphic) */}
                             {(() => {
                               const s = replyReactionsMap.get(r.id)
@@ -2457,7 +2507,11 @@ app.get('/agenda/:slug', async (c) => {
                     placeholder="Typ je reactie… Emoji's en accenten zijn welkom 🎵"
                     class="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                   ></textarea>
-                  <div class="flex justify-end">
+                  <div class="flex justify-between items-center gap-2 flex-wrap">
+                    <p class="text-xs text-gray-500">
+                      <i class="fas fa-at text-animato-primary/60 mr-1"></i>
+                      Tip: tag iemand met <span class="font-mono bg-gray-100 px-1 rounded">@voornaam</span> — die persoon krijgt een melding.
+                    </p>
                     <button type="submit" class="bg-animato-primary hover:bg-animato-secondary text-white px-5 py-2 rounded-lg font-semibold text-sm transition">
                       <i class="fas fa-paper-plane mr-2"></i>Verstuur
                     </button>

@@ -372,6 +372,24 @@ app.get('/nieuws/:slug', async (c) => {
       cm._reactions_counts = s ? s.counts : { like:0,love:0,laugh:0,music:0,clap:0,pray:0 }
       cm._reactions_mine = s ? Array.from(s.mine) : []
     }
+
+    // 📣 @mentions: bulk-resolve over alle comment-bodies (plain-text → escape eerst)
+    try {
+      const { extractMentionTokens, resolveMentions, renderMentions, escapeForMention } =
+        await import('../utils/mentions')
+      const allTokens = new Set<string>()
+      for (const cm of comments) {
+        for (const t of extractMentionTokens(cm.body)) allTokens.add(t)
+      }
+      if (allTokens.size > 0) {
+        const mentionMap = await resolveMentions(c.env.DB, Array.from(allTokens))
+        for (const cm of comments) {
+          const escaped = escapeForMention(cm.body)
+          cm._body_with_mentions = renderMentions(escaped, mentionMap)
+        }
+      }
+    } catch (_) { /* graceful */
+    }
   }
 
   // Voor publieke bezoekers: enkel het aantal reacties tonen (teaser, lokt login uit)
@@ -685,7 +703,14 @@ app.get('/nieuws/:slug', async (c) => {
                               <span class="font-semibold text-gray-900">{naam}</span>
                               <span class="text-xs text-gray-400">{dtStr}</span>
                             </div>
-                            <p class="text-gray-700 whitespace-pre-wrap break-words">{cm.body}</p>
+                            {cm._body_with_mentions ? (
+                              <p
+                                class="text-gray-700 whitespace-pre-wrap break-words"
+                                dangerouslySetInnerHTML={{ __html: cm._body_with_mentions }}
+                              />
+                            ) : (
+                              <p class="text-gray-700 whitespace-pre-wrap break-words">{cm.body}</p>
+                            )}
                             {/* Reacties op deze comment (auto-init door /static/js/comment-reactions.js) */}
                             <div
                               class="comment-reactions mt-2"
@@ -866,7 +891,7 @@ app.post('/nieuws/:slug/reactie', async (c) => {
   // Bestaat het artikel?
   const post = await queryOne<any>(
     c.env.DB,
-    `SELECT id FROM posts WHERE slug = ? AND type = 'nieuws' AND is_published = 1 LIMIT 1`,
+    `SELECT id, titel FROM posts WHERE slug = ? AND type = 'nieuws' AND is_published = 1 LIMIT 1`,
     [slug]
   )
   if (!post) return c.notFound()
@@ -878,6 +903,24 @@ app.post('/nieuws/:slug/reactie', async (c) => {
   } catch (e: any) {
     console.warn('Comment insert failed:', e?.message)
   }
+
+  // 📣 @mentions in nieuws-comment
+  try {
+    const { extractMentionTokens, resolveMentions, notifyMentionedUsers } = await import('../utils/mentions')
+    const tokens = extractMentionTokens(safeBody)
+    if (tokens.length > 0) {
+      const mentionMap = await resolveMentions(c.env.DB, tokens)
+      const replierName = `${user.voornaam || ''} ${user.achternaam || ''}`.trim() || 'Een lid'
+      const preview = safeBody.length > 120 ? safeBody.substring(0, 117) + '…' : safeBody
+      await notifyMentionedUsers(c.env.DB, mentionMap, {
+        authorId: user.id,
+        authorName: replierName,
+        title: `${replierName} noemde je in '${post.titel || 'een nieuwsbericht'}'`,
+        bodySnippet: preview,
+        link: `/nieuws/${slug}#reacties`,
+      })
+    }
+  } catch (e) { console.error('[mentions] nieuws-comment failed:', e) }
 
   return c.redirect(`/nieuws/${slug}#reacties`)
 })

@@ -211,6 +211,58 @@ app.get('/leden', async (c) => {
   // 🌟 Koorlid in de kijker — één spotlight per request, dismissible
   const spotlight = await pickSpotlight(c.env.DB, user.id).catch(() => null)
 
+  // 👋 Welkom-terug-detectie: was deze gebruiker > 30 dagen weg sinds vorige login?
+  // We gebruiken previous_login_at (gezet bij elke login) en de
+  // user_dismissed_spotlights tabel om de banner te kunnen wegklikken
+  // zodat we hem niet bij elk dashboard-bezoek herhalen.
+  let welcomeBack: { daysAway: number; missed: { events: number; materials: number; posts: number } } | null = null
+  try {
+    const prev = await queryOne<any>(
+      c.env.DB,
+      `SELECT previous_login_at FROM users WHERE id = ? LIMIT 1`,
+      [user.id]
+    )
+    if (prev?.previous_login_at) {
+      const prevMs = new Date(String(prev.previous_login_at).replace(' ', 'T') + 'Z').getTime()
+      const daysAway = Math.floor((Date.now() - prevMs) / (24 * 60 * 60 * 1000))
+      if (daysAway >= 30) {
+        // Spotlight-key uniek per "afwezigheidsperiode" — gebruik de prev-datum
+        const wbKey = 'welcomeback:' + String(prev.previous_login_at).substring(0, 10)
+        const dismissed = await queryOne<any>(
+          c.env.DB,
+          `SELECT id FROM user_dismissed_spotlights
+           WHERE user_id = ? AND spotlight_key = ? LIMIT 1`,
+          [user.id, wbKey]
+        )
+        if (!dismissed) {
+          // Tel wat ze gemist hebben sinds prev_login (cap 30d via section-visits util)
+          const cutoff = String(prev.previous_login_at)
+          const [missedEvents, missedMaterials, missedPosts] = await Promise.all([
+            queryOne<any>(c.env.DB,
+              `SELECT COUNT(*) AS n FROM events WHERE created_at > ? AND COALESCE(is_cancelled,0)=0`,
+              [cutoff]).then(r => r?.n || 0).catch(() => 0),
+            queryOne<any>(c.env.DB,
+              `SELECT COUNT(*) AS n FROM materials WHERE created_at > ? AND COALESCE(is_deleted,0)=0`,
+              [cutoff]).then(r => r?.n || 0).catch(() => 0),
+            queryOne<any>(c.env.DB,
+              `SELECT COUNT(*) AS n FROM posts WHERE created_at > ? AND COALESCE(is_deleted,0)=0`,
+              [cutoff]).then(r => r?.n || 0).catch(() => 0),
+          ])
+          welcomeBack = {
+            daysAway: Math.min(daysAway, 365), // cap voor display
+            missed: {
+              events: missedEvents,
+              materials: missedMaterials,
+              posts: missedPosts,
+            },
+          }
+          // Attach de wbKey aan welcomeBack zodat de banner-JS hem kan gebruiken
+          ;(welcomeBack as any).key = wbKey
+        }
+      }
+    }
+  } catch (_) { /* graceful */ }
+
   // ─── Action items / notification list (#116) ───────────────────────────
   // Build a live "wat staat er voor jou open?" list combining:
   //   1) ongelezen DB-notificaties (laatste 5)
@@ -419,6 +471,85 @@ app.get('/leden', async (c) => {
                 });
               })();
             `}}/>
+          )}
+
+          {/* 👋 Welkom terug — dismissible, telt wat ze gemist hebben */}
+          {welcomeBack && (
+            <div
+              id="welcomeback-banner"
+              data-welcomeback-key={(welcomeBack as any).key}
+              class="relative mb-6 rounded-2xl p-6 bg-gradient-to-r from-sky-50 via-cyan-50 to-emerald-50 border border-cyan-200 shadow-sm transition-opacity"
+            >
+              <div class="flex items-start gap-4">
+                <div class="flex-shrink-0 w-12 h-12 rounded-full bg-white shadow flex items-center justify-center text-2xl">
+                  👋
+                </div>
+                <div class="flex-1 min-w-0">
+                  <h3 class="text-lg font-bold text-gray-900 mb-1">
+                    Welkom terug, {user.voornaam}!
+                  </h3>
+                  <p class="text-sm text-gray-700 mb-3">
+                    Je was <span class="font-semibold text-cyan-700">{welcomeBack.daysAway} dagen</span> weg.
+                    Tof dat je terug bent — hier is een mini-recap:
+                  </p>
+                  <div class="flex flex-wrap gap-2">
+                    {welcomeBack.missed.events > 0 && (
+                      <a href="/agenda" class="inline-flex items-center gap-2 px-3 py-1.5 bg-white text-cyan-700 text-sm rounded-full border border-cyan-200 hover:bg-cyan-50 transition">
+                        <i class="far fa-calendar"></i>
+                        <span><span class="font-semibold">{welcomeBack.missed.events}</span> nieuwe agenda-item{welcomeBack.missed.events === 1 ? '' : 's'}</span>
+                      </a>
+                    )}
+                    {welcomeBack.missed.materials > 0 && (
+                      <a href="/leden/materiaal" class="inline-flex items-center gap-2 px-3 py-1.5 bg-white text-emerald-700 text-sm rounded-full border border-emerald-200 hover:bg-emerald-50 transition">
+                        <i class="fas fa-file-audio"></i>
+                        <span><span class="font-semibold">{welcomeBack.missed.materials}</span> nieuw{welcomeBack.missed.materials === 1 ? '' : 'e'} materia{welcomeBack.missed.materials === 1 ? 'al' : 'len'}</span>
+                      </a>
+                    )}
+                    {welcomeBack.missed.posts > 0 && (
+                      <a href="/leden/board" class="inline-flex items-center gap-2 px-3 py-1.5 bg-white text-sky-700 text-sm rounded-full border border-sky-200 hover:bg-sky-50 transition">
+                        <i class="fas fa-comments"></i>
+                        <span><span class="font-semibold">{welcomeBack.missed.posts}</span> nieuw{welcomeBack.missed.posts === 1 ? '' : 'e'} bericht{welcomeBack.missed.posts === 1 ? '' : 'en'}</span>
+                      </a>
+                    )}
+                    {welcomeBack.missed.events === 0 && welcomeBack.missed.materials === 0 && welcomeBack.missed.posts === 0 && (
+                      <span class="text-sm text-gray-500 italic">
+                        Het was rustig op de site — niets dramatisch gemist.
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  id="welcomeback-dismiss"
+                  class="flex-shrink-0 w-8 h-8 rounded-full hover:bg-white/60 text-gray-400 hover:text-gray-700 transition flex items-center justify-center"
+                  title="Sluiten"
+                  aria-label="Sluit deze melding"
+                >
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+            </div>
+          )}
+          {welcomeBack && (
+            <script dangerouslySetInnerHTML={{ __html: `
+              (function() {
+                var banner = document.getElementById('welcomeback-banner');
+                var btn = document.getElementById('welcomeback-dismiss');
+                if (!banner || !btn) return;
+                btn.addEventListener('click', function(e) {
+                  e.preventDefault(); e.stopPropagation();
+                  var key = banner.getAttribute('data-welcomeback-key');
+                  banner.style.opacity = '0';
+                  setTimeout(function(){ banner.remove(); }, 300);
+                  fetch('/api/leden/spotlight/dismiss', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: key })
+                  }).catch(function(){});
+                });
+              })();
+            ` }}/>
           )}
 
           {/* Welcome message */}
@@ -1406,6 +1537,23 @@ app.get('/leden/board/:id', async (c) => {
     }
   }
 
+  // 📣 @mentions: bulk-resolve over reply-bodies (Quill HTML, dus geen extra escape)
+  if (replies.length > 0) {
+    try {
+      const { extractMentionTokens, resolveMentions, renderMentions } = await import('../utils/mentions')
+      const allTokens = new Set<string>()
+      for (const r of replies) {
+        for (const t of extractMentionTokens(r.body)) allTokens.add(t)
+      }
+      if (allTokens.size > 0) {
+        const mentionMap = await resolveMentions(c.env.DB, Array.from(allTokens))
+        for (const r of replies) {
+          r._body_with_mentions = renderMentions(r.body, mentionMap)
+        }
+      }
+    } catch (_) { /* graceful */ }
+  }
+
   // === Emoji-reacties op het board-bericht ===
   // Aggregaat per type én de eigen reactie van de gebruiker (om te tonen welke al gekozen is)
   const reactionCountsRaw = await queryAll<any>(
@@ -1586,7 +1734,12 @@ app.get('/leden/board/:id', async (c) => {
                           </form>
                         )}
                       </div>
-                      <div class="prose" dangerouslySetInnerHTML={{ __html: processBodyLinks(reply.body, [new URL(c.req.url).hostname, 'animato-live.pages.dev', 'animato.be']) }} />
+                      <div class="prose" dangerouslySetInnerHTML={{
+                        __html: processBodyLinks(
+                          reply._body_with_mentions || reply.body,
+                          [new URL(c.req.url).hostname, 'animato-live.pages.dev', 'animato.be']
+                        )
+                      }} />
                       {/* Emoji-reacties op deze reply (auto-init door /static/js/comment-reactions.js) */}
                       <div
                         class="comment-reactions mt-2"
@@ -1745,6 +1898,30 @@ app.post('/leden/board/:id/reply', async (c) => {
       )
     }
   } catch (e) { console.error('[notif] board-reply notify failed:', e) }
+
+  // 📣 @mentions in board reply
+  try {
+    const { extractMentionTokens, resolveMentions, notifyMentionedUsers } = await import('../utils/mentions')
+    const tokens = extractMentionTokens(safeBody)
+    if (tokens.length > 0) {
+      const mentionMap = await resolveMentions(c.env.DB, tokens)
+      // Sluit thread-auteur uit (al genotificeerd hierboven)
+      if (thread.auteur_id) {
+        for (const [k, v] of mentionMap) {
+          if (v.userId === thread.auteur_id) mentionMap.delete(k)
+        }
+      }
+      const replierName = `${user.voornaam || ''} ${user.achternaam || ''}`.trim() || 'Een lid'
+      const preview = safeBody.length > 120 ? safeBody.substring(0, 117) + '…' : safeBody
+      await notifyMentionedUsers(c.env.DB, mentionMap, {
+        authorId: user.id,
+        authorName: replierName,
+        title: `${replierName} noemde je in '${thread.titel || 'een bericht'}'`,
+        bodySnippet: preview,
+        link: `/leden/board/${threadId}`,
+      })
+    }
+  } catch (e) { console.error('[mentions] board-reply failed:', e) }
 
   return c.redirect(`/leden/board/${threadId}`)
 })
@@ -5590,7 +5767,7 @@ app.post('/api/leden/spotlight/dismiss', async (c) => {
     return c.json({ error: 'invalid spotlight key' }, 400)
   }
   // Whitelist op prefix om DB-vervuiling te voorkomen
-  if (!/^(birthday|newmember|random):/.test(key)) {
+  if (!/^(birthday|newmember|random|welcomeback):/.test(key)) {
     return c.json({ error: 'invalid spotlight key format' }, 400)
   }
   try {

@@ -93,6 +93,9 @@ app.get('/admin', async (c) => {
       `SELECT COUNT(*) as count FROM concert_projects WHERE status IN ('in_uitvoering', 'planning')`
     ),
     total_meetings: await queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as count FROM meetings`
+    ),
+    upcoming_meetings: await queryOne<any>(c.env.DB,
       `SELECT COUNT(*) as count FROM meetings WHERE datetime(datum || ' ' || COALESCE(start_tijd, '00:00')) >= datetime('now')`
     ),
     total_checkins: await queryOne<any>(c.env.DB,
@@ -375,6 +378,11 @@ app.get('/admin', async (c) => {
                 </div>
               </div>
               <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_meetings?.count || 0}</p>
+              <p class="text-xs text-gray-500 -mt-1">
+                {(stats.upcoming_meetings?.count || 0) > 0
+                  ? `${stats.upcoming_meetings?.count} komend`
+                  : 'geen komende'}
+              </p>
               <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 Bekijk agenda <i class="fas fa-arrow-right text-xs"></i>
               </span>
@@ -916,8 +924,10 @@ app.post('/api/admin/aanmeldingen/:id/archiveer', async (c) => {
 
 // Delete aanvraag
 app.post('/api/admin/aanmeldingen/:id/delete', async (c) => {
+  // BUG-FIX: vroeger filterde dit op type='word_lid', waardoor contact-berichten
+  // nooit verwijderd werden (ze bleven zichtbaar in archief). Nu beide types toegestaan.
   const id = c.req.param('id')
-  await execute(c.env.DB, `DELETE FROM form_submissions WHERE id = ? AND type = 'word_lid'`, [id])
+  await execute(c.env.DB, `DELETE FROM form_submissions WHERE id = ? AND type IN ('word_lid', 'contact')`, [id])
   return c.redirect('/admin/aanmeldingen?success=deleted')
 })
 

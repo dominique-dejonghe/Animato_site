@@ -164,6 +164,28 @@ app.get('/leden', async (c) => {
   )
   const isAdmin = user.role === 'admin' || user.role === 'bestuur'
 
+  // "Nieuw sinds vorige bezoek"-tellingen per sectie voor dashboard-tegels.
+  // Lichte queries (1 COUNT(*) per sectie) en alleen ophalen, niet bumpen.
+  // Bumpen gebeurt op de sectie-pagina zelf.
+  const newCounts: Record<string, number> = { agenda: 0, materiaal: 0, board: 0, nieuws: 0 }
+  try {
+    const { countNewSince } = await import('../utils/section-visits')
+    const [nAgenda, nMaterials, nBoard, nNieuws] = await Promise.all([
+      countNewSince(c.env.DB, user.id, 'agenda', 'events',
+        { extraWhere: 'COALESCE(is_cancelled,0)=0' }),
+      countNewSince(c.env.DB, user.id, 'bestanden', 'materials',
+        { extraWhere: 'COALESCE(is_deleted,0)=0' }).catch(() => 0),
+      countNewSince(c.env.DB, user.id, 'forum', 'posts',
+        { extraWhere: "COALESCE(is_deleted,0)=0 AND post_type='board'" }).catch(() => 0),
+      countNewSince(c.env.DB, user.id, 'nieuws', 'posts',
+        { extraWhere: "COALESCE(is_deleted,0)=0 AND post_type='nieuws' AND status='gepubliceerd'" }).catch(() => 0),
+    ])
+    newCounts.agenda = nAgenda
+    newCounts.materiaal = nMaterials
+    newCounts.board = nBoard  // 'board' module-key is "Berichten" tegel
+    newCounts.nieuws = nNieuws
+  } catch (_) { /* tabel ontbreekt? laat default 0 */ }
+
   // Calculate total donations for user
   const totalDonations = await queryOne<any>(c.env.DB, `
     SELECT SUM(amount) as total FROM donations WHERE user_id = ? AND status = 'paid'
@@ -613,6 +635,8 @@ app.get('/leden', async (c) => {
 
           {/* Quick actions - modules filtered by admin toggle settings */}
           {(() => {
+            // "Nieuw sinds vorige bezoek"-counts per sectie
+            // newCounts wordt enkele regels boven dit blok geprepareerd
             // Module definitions with their module_key mapping
             const allModules = [
               { key: 'agenda',       href: '/leden/agenda',        icon: 'far fa-calendar',     iconBg: 'bg-animato-primary bg-opacity-10', iconColor: 'text-animato-primary text-xl', title: 'Agenda',         desc: 'Repetities & concerten',        border: '' },
@@ -631,11 +655,23 @@ app.get('/leden', async (c) => {
 
             return (
               <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-12">
-                {visibleModules.map(m => (
+                {visibleModules.map(m => {
+                  // "Nieuw"-badge voor secties met activiteit sinds vorige bezoek
+                  let newCount = 0
+                  if (m.key === 'agenda') newCount = newCounts.agenda
+                  else if (m.key === 'materiaal') newCount = newCounts.materiaal
+                  else if (m.key === 'nieuws') newCount = newCounts.board + newCounts.nieuws
+                  return (
                   <a href={m.href} class={`bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center relative ${m.border} ${isAdmin && m.key && !enabledModules.has(m.key) ? 'opacity-50 ring-2 ring-red-300' : ''}`}>
                     {/* Admin-only badge for disabled modules */}
                     {isAdmin && m.key && !enabledModules.has(m.key) && (
                       <span class="absolute top-1 right-1 bg-red-100 text-red-600 text-[10px] px-1.5 py-0.5 rounded-full font-semibold">UIT</span>
+                    )}
+                    {/* "Nieuw sinds vorige bezoek"-badge (gecapt op 30d) */}
+                    {newCount > 0 && (
+                      <span class="absolute top-1 right-1 bg-animato-primary text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm" title={`${newCount} nieuw sinds je vorige bezoek`}>
+                        {newCount > 99 ? '99+' : newCount} nieuw
+                      </span>
                     )}
                     <div class={`w-12 h-12 ${m.iconBg} rounded-full flex items-center justify-center mx-auto mb-3`}>
                       {m.emoji ? <span class="text-2xl">{m.emoji}</span> : <i class={`${m.icon} ${m.iconColor}`}></i>}
@@ -653,7 +689,8 @@ app.get('/leden', async (c) => {
                       </div>
                     )}
                   </a>
-                ))}
+                  )
+                })}
               </div>
             )
           })()}
@@ -1058,6 +1095,12 @@ app.get('/leden/board', async (c) => {
   const user = c.get('user') as SessionUser
   const categorie = c.req.query('cat') || 'all'
   const search = c.req.query('search') || ''
+
+  // Markeer dit als sectiebezoek voor "Nieuw sinds vorige bezoek"-badges
+  try {
+    const { markSectionVisit } = await import('../utils/section-visits')
+    await markSectionVisit(c.env.DB, user.id, 'forum')
+  } catch (_) {}
 
   // Bouw zichtbaarheidsfilter rolafhankelijk:
   // - Iedereen: 'leden' + eigen stemgroep
@@ -4128,6 +4171,12 @@ app.post('/api/leden/betaling/online', async (c) => {
 
 app.get('/leden/materiaal', async (c) => {
   const user = c.get('user') as SessionUser
+
+  // Markeer dit als sectiebezoek voor "Nieuw sinds vorige bezoek"-badges
+  try {
+    const { markSectionVisit } = await import('../utils/section-visits')
+    await markSectionVisit(c.env.DB, user.id, 'bestanden')
+  } catch (_) {}
 
   // Query params for filtering
   const search = (c.req.query('search') || '').trim()

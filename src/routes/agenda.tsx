@@ -51,6 +51,14 @@ app.get('/agenda', async (c) => {
   const dateParam = c.req.query('date') || new Date().toISOString().split('T')[0]
   const isAdmin = (user as any)?.role === 'admin'
 
+  // Markeer dit als sectiebezoek voor "Nieuw sinds vorige bezoek"-badges
+  if (user && (user as any).id) {
+    try {
+      const { markSectionVisit } = await import('../utils/section-visits')
+      await markSectionVisit(c.env.DB, (user as any).id, 'agenda')
+    } catch (_) {}
+  }
+
   // Birthday toggle — default ON for logged-in users
   const birthdayCookie = getCookie(c, 'show_birthdays')
   const showBirthdays = user ? (birthdayCookie !== '0') : false

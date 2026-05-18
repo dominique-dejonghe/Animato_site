@@ -24,6 +24,14 @@ app.get('/nieuws', async (c) => {
   const archief = c.req.query('archief') === '1'
   const maandenRecent = 6 // Berichten ouder dan 6 maanden zijn "archief"
 
+  // Markeer dit als sectiebezoek voor "Nieuw sinds vorige bezoek"-badges
+  if (user && user.id) {
+    try {
+      const { markSectionVisit } = await import('../utils/section-visits')
+      await markSectionVisit(c.env.DB, user.id, 'nieuws')
+    } catch (_) {}
+  }
+
   // Bouw zichtbaarheidsfilter op basis van gebruikersrol
   // - niet ingelogd: enkel 'publiek'
   // - lid: 'publiek' + 'leden' + eigen stemgroep (sopraan/alt/tenor/bas)

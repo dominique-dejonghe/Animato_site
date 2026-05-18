@@ -202,6 +202,9 @@ export function requireStemgroep(stem: Stemgroep) {
 /**
  * Require board member (bestuurslid) - or admin/moderator
  * Board members have is_bestuurslid=1, admins/moderators always have access
+ *
+ * Voor browser-requests op /admin tonen we een vriendelijke HTML-pagina
+ * i.p.v. een rauwe JSON-dump (consistent met requireAuth).
  */
 export async function requireBestuurslid(c: Context<{ Bindings: Bindings }>, next: Next) {
   const user = c.get('user') as SessionUser
@@ -220,6 +223,53 @@ export async function requireBestuurslid(c: Context<{ Bindings: Bindings }>, nex
   if (user.is_bestuurslid) {
     await next()
     return
+  }
+
+  // IMPERSONATE-AWARE: vóór we 403 retourneren, kijken of er een gestashte
+  // admin-sessie is. Scenario: admin klikt "Bekijk als lid", auth_token =
+  // lid-token, en navigeert dan terug naar /admin. Zonder deze check zou
+  // de geldige lid-sessie de admin uitsluiten van z'n eigen admin-paneel.
+  const impersonateToken = getCookie(c, 'admin_impersonate_token')
+  if (impersonateToken) {
+    const adminUser = await verifyToken(impersonateToken, c.env.JWT_SECRET)
+    if (adminUser && (adminUser.role === 'admin' || adminUser.role === 'moderator' || adminUser.is_bestuurslid)) {
+      const { setCookie } = await import('hono/cookie')
+      // Promoveer impersonate-token naar live-sessie en wis de stash
+      setCookie(c, 'auth_token', impersonateToken, {
+        maxAge: 7 * 24 * 60 * 60,
+        httpOnly: true, secure: true, sameSite: 'Lax', path: '/'
+      })
+      setCookie(c, 'admin_impersonate_token', '', {
+        maxAge: 0, httpOnly: true, secure: true, sameSite: 'Lax', path: '/'
+      })
+      c.set('user', adminUser)
+      await next()
+      return
+    }
+  }
+
+  // 403 — afhankelijk van wie er aanklopt: HTML voor browser, JSON voor API
+  const path = c.req.path
+  const wantsHtml = (c.req.header('Accept') || '').includes('text/html') &&
+                    !path.startsWith('/api/')
+  if (wantsHtml) {
+    return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><title>Geen toegang</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+      </head>
+      <body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+        <div class="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center">
+          <i class="fas fa-lock text-red-500 text-5xl mb-4"></i>
+          <h1 class="text-2xl font-bold text-gray-800 mb-2">Geen toegang</h1>
+          <p class="text-gray-600 mb-6">Dit deel van de site is enkel voor bestuursleden, moderators en administrators. Heb je per ongeluk de verkeerde link gevolgd?</p>
+          <div class="flex flex-col gap-2">
+            <a href="/leden" class="inline-block px-6 py-3 bg-animato-primary text-white rounded-lg font-medium hover:bg-animato-secondary transition" style="background-color:#00A9CE">
+              <i class="fas fa-arrow-left mr-2"></i>Terug naar ledenportaal
+            </a>
+            <a href="/" class="text-sm text-gray-500 hover:underline">Of naar de homepage</a>
+          </div>
+        </div>
+      </body></html>`, 403)
   }
 
   return c.json({ 

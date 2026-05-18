@@ -12,6 +12,7 @@ import { getMollieApiKey } from '../utils/mollie-config'
 import { processBodyLinks } from '../utils/text'
 import { getNotificationsForUser, getUnreadCount, markAsRead, markAllAsRead, getNotificationStyle, notifyUserIfEnabled, getUserNotificationPrefs, setUserNotificationPrefs } from '../utils/notifications'
 import type { NotificationType } from '../utils/notifications'
+import { pickSpotlight } from '../utils/spotlight'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -185,6 +186,9 @@ app.get('/leden', async (c) => {
   // Check if admin is impersonating this user
   const impersonating = !!(c.get('impersonating' as any))
 
+  // 🌟 Koorlid in de kijker — één spotlight per request, dismissible
+  const spotlight = await pickSpotlight(c.env.DB, user.id).catch(() => null)
+
   // ─── Action items / notification list (#116) ───────────────────────────
   // Build a live "wat staat er voor jou open?" list combining:
   //   1) ongelezen DB-notificaties (laatste 5)
@@ -310,6 +314,91 @@ app.get('/leden', async (c) => {
     <Layout title="Ledenportaal" user={user} impersonating={impersonating}>
       <div class="py-12 bg-gray-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+
+          {/* 🌟 Koorlid in de kijker — dismissible banner */}
+          {spotlight && (() => {
+            const sl = spotlight
+            const fotoSrc = sl.user.foto_url || getDefaultAvatar(sl.user.stemgroep || '')
+            const stemLabel = ({S:'Sopraan',A:'Alt',T:'Tenor',B:'Bas'} as any)[sl.user.stemgroep || ''] || ''
+            let titleText = ''
+            let subText = ''
+            let icon = 'fa-star'
+            let gradient = 'from-amber-50 to-orange-50 border-amber-200'
+            if (sl.type === 'birthday') {
+              titleText = `🎂 Vandaag jarig: ${sl.user.voornaam} ${sl.user.achternaam}!`
+              subText = `Zing eens een verjaardags-lied${stemLabel ? ` voor onze ${stemLabel.toLowerCase()}` : ''} 🎵`
+              icon = 'fa-birthday-cake'
+              gradient = 'from-pink-50 to-rose-50 border-pink-200'
+            } else if (sl.type === 'newmember') {
+              titleText = `👋 Welkom in Animato, ${sl.user.voornaam}!`
+              const dagen = sl.meta?.daysAgo ?? 0
+              subText = dagen <= 1
+                ? `Vers van de pers: ${sl.user.voornaam} is net begonnen${stemLabel ? ` bij de ${stemLabel.toLowerCase()}` : ''}. Zeg eens hallo!`
+                : `${sl.user.voornaam} is sinds ${dagen} dagen bij ons${stemLabel ? ` (${stemLabel})` : ''}. Maak even kennis!`
+              icon = 'fa-hand-wave'
+              gradient = 'from-emerald-50 to-teal-50 border-emerald-200'
+            } else {
+              titleText = `✨ Koorlid in de kijker: ${sl.user.voornaam} ${sl.user.achternaam}`
+              subText = stemLabel ? `${stemLabel} bij Animato — leer ${sl.user.voornaam} eens beter kennen!` : `Leer ${sl.user.voornaam} eens beter kennen!`
+            }
+            return (
+              <div
+                id="spotlight-banner"
+                data-spotlight-key={sl.key}
+                class={`mb-6 bg-gradient-to-r ${gradient} border rounded-2xl shadow-sm p-5 flex items-center gap-5 transition-opacity duration-300`}
+              >
+                <a href={`/leden/leden/${sl.user.id}`} class="flex-shrink-0 group">
+                  <img
+                    src={fotoSrc}
+                    alt={sl.user.voornaam}
+                    class="w-20 h-20 rounded-full object-cover ring-4 ring-white shadow-md group-hover:ring-animato-primary transition"
+                  />
+                </a>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 text-gray-700 mb-1">
+                    <i class={`fas ${icon} text-amber-500`}></i>
+                    <a href={`/leden/leden/${sl.user.id}`} class="text-lg font-bold text-gray-800 hover:underline truncate" style="font-family: 'Playfair Display', serif;">
+                      {titleText}
+                    </a>
+                  </div>
+                  <p class="text-sm text-gray-600">{subText}</p>
+                  {sl.user.bio && sl.type !== 'birthday' && (
+                    <p class="text-xs text-gray-500 mt-2 line-clamp-2 italic">"{sl.user.bio}"</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  id="spotlight-dismiss"
+                  class="flex-shrink-0 w-8 h-8 rounded-full hover:bg-white/60 text-gray-400 hover:text-gray-700 transition flex items-center justify-center"
+                  title="Niet meer tonen"
+                  aria-label="Sluit deze melding"
+                >
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+            )
+          })()}
+          {spotlight && (
+            <script dangerouslySetInnerHTML={{ __html: `
+              (function(){
+                var banner = document.getElementById('spotlight-banner');
+                var btn = document.getElementById('spotlight-dismiss');
+                if (!banner || !btn) return;
+                btn.addEventListener('click', function(e){
+                  e.preventDefault(); e.stopPropagation();
+                  var key = banner.getAttribute('data-spotlight-key');
+                  banner.style.opacity = '0';
+                  setTimeout(function(){ banner.remove(); }, 300);
+                  fetch('/api/leden/spotlight/dismiss', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ key: key })
+                  }).catch(function(){});
+                });
+              })();
+            `}}/>
+          )}
+
           {/* Welcome message */}
           {welcome && (
             <div class="bg-green-50 border border-green-200 rounded-lg p-6 mb-8 animate-fade-in">
@@ -1261,6 +1350,19 @@ app.get('/leden/board/:id', async (c) => {
     [threadId]
   )
 
+  // Comment-reactions (6 emoji's) op individuele post_replies — bulk-fetch
+  {
+    const { getReactionsForTargets } = await import('../utils/comment-reactions')
+    const replyMap = replies.length > 0
+      ? await getReactionsForTargets(c.env.DB, 'post_reply', replies.map((r: any) => r.id), user.id)
+      : new Map()
+    for (const r of replies) {
+      const s = replyMap.get(r.id)
+      r._reactions_counts = s ? s.counts : { like:0,love:0,laugh:0,music:0,clap:0,pray:0 }
+      r._reactions_mine = s ? Array.from(s.mine) : []
+    }
+  }
+
   // === Emoji-reacties op het board-bericht ===
   // Aggregaat per type én de eigen reactie van de gebruiker (om te tonen welke al gekozen is)
   const reactionCountsRaw = await queryAll<any>(
@@ -1277,6 +1379,8 @@ app.get('/leden/board/:id', async (c) => {
     [threadId, user.id]
   )
   const myReactionType: string | null = myReaction?.type || null
+
+  // === Reactions per reply zijn al opgehaald hierboven in _reactions_counts ===
 
   return c.html(
     <Layout title={thread.titel} user={user} impersonating={!!(c.get('impersonating' as any))}>
@@ -1440,6 +1544,14 @@ app.get('/leden/board/:id', async (c) => {
                         )}
                       </div>
                       <div class="prose" dangerouslySetInnerHTML={{ __html: processBodyLinks(reply.body, [new URL(c.req.url).hostname, 'animato-live.pages.dev', 'animato.be']) }} />
+                      {/* Emoji-reacties op deze reply (auto-init door /static/js/comment-reactions.js) */}
+                      <div
+                        class="comment-reactions mt-2"
+                        data-target-type="post_reply"
+                        data-target-id={reply.id}
+                        data-counts={JSON.stringify(reply._reactions_counts || {})}
+                        data-mine={JSON.stringify(reply._reactions_mine || [])}
+                      />
                     </div>
                   </div>
                 </div>
@@ -1528,6 +1640,8 @@ app.get('/leden/board/:id', async (c) => {
           });
         })();
       ` }} />
+      {/* Bootstrap voor polymorphic comment_reactions op replies */}
+      <script src="/static/js/comment-reactions.js" defer></script>
     </Layout>
   )
 })
@@ -1945,6 +2059,15 @@ app.get('/leden/profiel', async (c) => {
 
   // Notificatie-voorkeuren (settings-paneel onderaan profiel)
   const notifPrefs = await getUserNotificationPrefs(c.env.DB, user.id)
+
+  // Privacy: tonen we de online-status van deze gebruiker aan anderen?
+  // Default = 1 (zichtbaar), maar elke lid kan opt-out.
+  const privacyRow = await queryOne<any>(
+    c.env.DB,
+    `SELECT COALESCE(show_online_status, 1) AS show_online_status FROM users WHERE id = ?`,
+    [user.id]
+  )
+  const showOnlineStatus = privacyRow?.show_online_status === 1 || privacyRow?.show_online_status === true
 
   return c.html(
     <Layout 
@@ -3339,6 +3462,67 @@ app.get('/leden/profiel', async (c) => {
             ` }} />
           </div>
 
+          {/* Privacy & zichtbaarheid */}
+          <div class="bg-white rounded-lg shadow-md p-6 mb-6" id="privacy-prefs">
+            <h3 class="text-xl font-bold text-gray-900 mb-2">
+              <i class="fas fa-user-shield text-animato-primary mr-2"></i>
+              Privacy & zichtbaarheid
+            </h3>
+            <p class="text-sm text-gray-500 mb-4">
+              Bepaal zelf wat andere leden van jouw activiteit te zien krijgen.
+            </p>
+
+            <label class="flex items-start gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer transition">
+              <input
+                type="checkbox"
+                id="show-online-status"
+                checked={showOnlineStatus}
+                class="mt-1 h-4 w-4 rounded text-animato-primary focus:ring-animato-primary"
+              />
+              <div class="flex-1 min-w-0">
+                <div class="text-sm font-medium text-gray-800 flex items-center gap-2">
+                  <span class="inline-block w-2 h-2 rounded-full bg-green-500"></span>
+                  Toon mijn online-status aan andere leden
+                </div>
+                <p class="text-xs text-gray-500 mt-0.5">
+                  Wanneer ingeschakeld zien medeleden een groen bolletje naast jouw naam wanneer je actief bent op de site (laatste 5 minuten).
+                  Schakel je dit uit, dan blijft je activiteit zichtbaar voor jezelf maar verborgen voor anderen.
+                </p>
+              </div>
+              <span id="privacy-status" class="text-xs text-gray-500 self-center"></span>
+            </label>
+
+            <script dangerouslySetInnerHTML={{ __html: `
+              (function() {
+                var cb = document.getElementById('show-online-status');
+                var status = document.getElementById('privacy-status');
+                if (!cb) return;
+                cb.addEventListener('change', function() {
+                  status.textContent = 'Opslaan...';
+                  status.classList.remove('text-red-600','text-green-600');
+                  fetch('/api/leden/privacy/online-status', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ show: cb.checked })
+                  })
+                  .then(function(r){ return r.ok ? r.json() : Promise.reject(r); })
+                  .then(function() {
+                    status.textContent = '✓ Opgeslagen';
+                    status.classList.add('text-green-600');
+                    setTimeout(function() { status.textContent = ''; status.classList.remove('text-green-600'); }, 2500);
+                  })
+                  .catch(function() {
+                    // Revert
+                    cb.checked = !cb.checked;
+                    status.textContent = 'Opslaan mislukt';
+                    status.classList.add('text-red-600');
+                  });
+                });
+              })();
+            ` }} />
+          </div>
+
           {/* Change Password Card */}
           <div class="bg-white rounded-lg shadow-md p-6">
             <h3 class="text-xl font-bold text-gray-900 mb-4">
@@ -4421,17 +4605,27 @@ app.get('/leden/smoelenboek', async (c) => {
   ])
 
   // Get members with optional search + stemgroep filter + checkin count for streaks
+  // Online-status: last_seen_at binnen 5 minuten EN show_online_status = 1.
+  // Eigen profiel ziet altijd z'n eigen status (anders verwarrend).
   let query = `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio, p.favoriete_werk,
             p.toon_email, p.toon_telefoon, u.email, p.telefoon,
             CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite,
-            COUNT(qc.id) as total_checkins
+            COUNT(qc.id) as total_checkins,
+            CASE
+              WHEN u.last_seen_at IS NOT NULL
+                AND u.last_seen_at >= datetime('now', '-5 minutes')
+                AND (u.show_online_status = 1 OR u.id = ?)
+              THEN 1 ELSE 0
+            END as is_online
      FROM users u
      JOIN profiles p ON u.id = p.user_id
      LEFT JOIN member_favorites f ON f.favorite_member_id = u.id AND f.user_id = ?
      LEFT JOIN qr_checkins qc ON qc.user_id = u.id
      WHERE u.status = 'actief' AND p.smoelenboek_zichtbaar = 1 AND u.is_test_account = 0`
   
-  const params: any[] = [user.id]
+  // params: eerste ? voor "eigen profiel ziet z'n eigen status",
+  // tweede ? voor de member_favorites JOIN.
+  const params: any[] = [user.id, user.id]
 
   if (search) {
     query += ` AND (p.voornaam LIKE ? OR p.achternaam LIKE ?)`
@@ -4679,6 +4873,14 @@ app.get('/leden/smoelenboek', async (c) => {
                                   <div class="w-24 h-24 bg-gray-200 rounded-full overflow-hidden border-4 border-white shadow-sm">
                                     <img src={m.foto_url || getDefaultAvatar(m.stemgroep)} class="w-full h-full object-cover" alt={m.voornaam} />
                                   </div>
+                                  {/* Online-indicator: groen bolletje bij actieve sessie binnen 5 min */}
+                                  {m.is_online === 1 && (
+                                    <span
+                                      class="absolute bottom-0 right-1 w-4 h-4 bg-green-500 border-2 border-white rounded-full shadow-sm"
+                                      title="Nu actief"
+                                      aria-label="Online"
+                                    ></span>
+                                  )}
                                   {memberStreaks[m.id] > 0 && (
                                     <div
                                       class="absolute -top-1 -right-1 inline-flex items-center gap-0.5 px-2 py-0.5 bg-orange-500 text-white rounded-full text-xs font-bold shadow-md border-2 border-white"
@@ -4719,15 +4921,26 @@ app.get('/leden/smoelenboek', async (c) => {
                               <tr class="hover:bg-gray-50">
                                   <td class="px-6 py-4 whitespace-nowrap">
                                       <div class="flex items-center">
-                                          <div class="flex-shrink-0 h-10 w-10">
+                                          <div class="flex-shrink-0 h-10 w-10 relative">
                                               {m.foto_url ? (
                                                   <img class="h-10 w-10 rounded-full object-cover" src={m.foto_url || getDefaultAvatar(m.stemgroep)} alt="" />
                                               ) : (
                                                   <img class="h-10 w-10 rounded-full object-cover" src={getDefaultAvatar(m.stemgroep)} alt="" />
                                               )}
+                                              {/* Online-indicator (klein groen bolletje, hoek rechtsonder van avatar) */}
+                                              {m.is_online === 1 && (
+                                                <span
+                                                  class="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-500 border-2 border-white rounded-full"
+                                                  title="Nu actief"
+                                                  aria-label="Online"
+                                                ></span>
+                                              )}
                                           </div>
                                           <div class="ml-4">
-                                              <div class="text-sm font-medium text-gray-900">{m.voornaam} {m.achternaam}</div>
+                                              <div class="text-sm font-medium text-gray-900 flex items-center gap-2">
+                                                {m.voornaam} {m.achternaam}
+                                                {m.is_online === 1 && <span class="inline-block w-2 h-2 bg-green-500 rounded-full" aria-hidden="true"></span>}
+                                              </div>
                                               <div class="text-sm text-gray-500">{m.bio ? m.bio.substring(0, 30) + '...' : ''}</div>
                                           </div>
                                       </div>
@@ -5300,6 +5513,50 @@ app.post('/api/leden/news/:postId/dismiss', async (c) => {
   }
 })
 
+// Privacy: online-status toggle (opt-out)
+app.post('/api/leden/privacy/online-status', async (c) => {
+  const user = c.get('user') as SessionUser
+  let body: any
+  try { body = await c.req.json() } catch { return c.json({ error: 'invalid json' }, 400) }
+  const show = body?.show === true || body?.show === 1
+  try {
+    await execute(
+      c.env.DB,
+      `UPDATE users SET show_online_status = ? WHERE id = ?`,
+      [show ? 1 : 0, user.id]
+    )
+    return c.json({ success: true, show_online_status: show })
+  } catch (e: any) {
+    return c.json({ error: 'update failed', detail: String(e?.message || e) }, 500)
+  }
+})
+
+// 🌟 Spotlight wegklikken — onthouden per (user, spotlight_key)
+app.post('/api/leden/spotlight/dismiss', async (c) => {
+  const user = c.get('user') as SessionUser
+  let body: any
+  try { body = await c.req.json() } catch { return c.json({ error: 'invalid json' }, 400) }
+  const key = String(body?.key || '').trim()
+  if (!key || key.length > 100) {
+    return c.json({ error: 'invalid spotlight key' }, 400)
+  }
+  // Whitelist op prefix om DB-vervuiling te voorkomen
+  if (!/^(birthday|newmember|random):/.test(key)) {
+    return c.json({ error: 'invalid spotlight key format' }, 400)
+  }
+  try {
+    await execute(
+      c.env.DB,
+      `INSERT OR IGNORE INTO user_dismissed_spotlights (user_id, spotlight_key)
+       VALUES (?, ?)`,
+      [user.id, key]
+    )
+    return c.json({ success: true })
+  } catch (e: any) {
+    return c.json({ error: 'dismiss failed', detail: String(e?.message || e) }, 500)
+  }
+})
+
 // Tegenhanger: terugzetten uit archief naar 'Openstaand'
 app.post('/api/leden/news/:postId/undismiss', async (c) => {
   const user = c.get('user') as SessionUser
@@ -5318,6 +5575,10 @@ app.post('/api/leden/news/:postId/undismiss', async (c) => {
     return c.json({ error: 'undismiss failed', detail: String(e?.message || e) }, 500)
   }
 })
+
+// NB: het algemene endpoint POST /api/comment-reactions/toggle leeft in
+// src/routes/comment-reactions.tsx en wordt geregistreerd in index.tsx.
+// Geen dupe nodig in deze module.
 
 // Notificatie terug naar ongelezen (uit archief naar openstaand)
 app.post('/api/leden/notifications/:id/unread', async (c) => {

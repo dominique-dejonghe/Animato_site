@@ -353,6 +353,19 @@ app.get('/nieuws/:slug', async (c) => {
     [artikel.id]
   ) : []
 
+  // Comment-reactions (6 emoji's) op individuele post_comments — bulk-fetch
+  if (user && comments.length > 0) {
+    const { getReactionsForTargets } = await import('../utils/comment-reactions')
+    const reactionsMap = await getReactionsForTargets(
+      c.env.DB, 'post_comment', comments.map((c: any) => c.id), user.id
+    )
+    for (const cm of comments) {
+      const s = reactionsMap.get(cm.id)
+      cm._reactions_counts = s ? s.counts : { like:0,love:0,laugh:0,music:0,clap:0,pray:0 }
+      cm._reactions_mine = s ? Array.from(s.mine) : []
+    }
+  }
+
   // Voor publieke bezoekers: enkel het aantal reacties tonen (teaser, lokt login uit)
   const commentCount = !user ? await queryOne<any>(
     c.env.DB,
@@ -665,6 +678,14 @@ app.get('/nieuws/:slug', async (c) => {
                               <span class="text-xs text-gray-400">{dtStr}</span>
                             </div>
                             <p class="text-gray-700 whitespace-pre-wrap break-words">{cm.body}</p>
+                            {/* Reacties op deze comment (auto-init door /static/js/comment-reactions.js) */}
+                            <div
+                              class="comment-reactions mt-2"
+                              data-target-type="post_comment"
+                              data-target-id={cm.id}
+                              data-counts={JSON.stringify(cm._reactions_counts || {})}
+                              data-mine={JSON.stringify(cm._reactions_mine || [])}
+                            />
                             {canDelete && (
                               <form method="POST" action={`/nieuws/${artikel.slug}/reactie/${cm.id}/delete`}
                                     onsubmit="return confirm('Reactie verwijderen?')"

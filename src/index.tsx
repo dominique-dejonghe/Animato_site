@@ -53,6 +53,7 @@ import adminAnalyticsRoutes from './routes/admin-analytics'
 import adminModulesRoutes from './routes/admin-modules'
 import adminWalkthroughRoutes from './routes/admin-walkthrough'
 import walkthroughApiRoutes from './routes/walkthrough-api'
+import commentReactionsRoutes from './routes/comment-reactions'
 import publicDonationRoutes from './routes/public-donation'
 import adminAttendanceRoutes from './routes/admin-attendance'
 import adminAiNewsRoutes from './routes/admin-ai-news'
@@ -176,6 +177,7 @@ app.route('/', adminSeatingRoutes)
 app.route('/', adminModulesRoutes)
 app.route('/', adminWalkthroughRoutes)
 app.route('/', walkthroughApiRoutes)
+app.route('/', commentReactionsRoutes)
 app.route('/', ledenActivityRoutes)
 app.route('/', adminCommunicationsRoutes) // Added route
 app.route('/', adminFeedbackRoutes)

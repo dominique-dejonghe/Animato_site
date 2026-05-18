@@ -550,7 +550,10 @@ export const Layout: FC<LayoutProps> = ({
 
         {/* Custom JS - includes mobile menu handler */}
         <script src="/static/js/app.js"></script>
-        
+
+        {/* Comment reactions UI (auto-init op .comment-reactions elementen) */}
+        <script src="/static/js/comment-reactions.js" defer></script>
+
         {/* Walkthrough Tours */}
         <script src="/static/walkthrough.js"></script>
 

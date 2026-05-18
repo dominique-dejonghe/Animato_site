@@ -114,6 +114,20 @@ export async function requireAuth(c: Context<{ Bindings: Bindings }>, next: Next
     }
   } catch (_) { /* stil falen — niet kritiek */ }
 
+  // Users-heartbeat: last_seen_at op user-niveau, voor "wie is online?" en
+  // accurate sessie-duur in audit. Throttled op DB-niveau: enkel updaten
+  // als de vorige heartbeat > 5 minuten oud is. Houdt de write-load laag
+  // (1 update per user per 5 min, niet per request). Niet-blokkerend.
+  try {
+    await c.env.DB.prepare(
+      `UPDATE users
+         SET last_seen_at = CURRENT_TIMESTAMP
+       WHERE id = ?
+         AND (last_seen_at IS NULL
+              OR last_seen_at < datetime(CURRENT_TIMESTAMP, '-5 minutes'))`
+    ).bind(user.id).run()
+  } catch (_) { /* stil falen */ }
+
   await next()
 }
 

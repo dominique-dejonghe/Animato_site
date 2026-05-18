@@ -9,6 +9,7 @@ import { optionalAuth } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
 import { processBodyLinks } from '../utils/text'
 import { notifyUserIfEnabled } from '../utils/notifications'
+import { getReactionsForTargets } from '../utils/comment-reactions'
 
 // Helper: hosts die als 'intern' gelden bij rich-text linkprocessing (#90)
 function siteHosts(url: string): string[] {
@@ -2208,6 +2209,7 @@ app.get('/agenda/:slug', async (c) => {
   let replies: any[] = []
   let reactionCounts: Record<string, number> = {}
   let myReactionType: string | null = null
+  let replyReactionsMap = new Map<number, any>()
 
   if (isLoggedIn) {
     replies = await queryAll<any>(
@@ -2221,6 +2223,13 @@ app.get('/agenda/:slug', async (c) => {
        ORDER BY r.created_at ASC`,
       [event.id]
     )
+
+    // Comment-reactions bulk ophalen (één query voor alle replies in deze event)
+    if (replies.length > 0) {
+      replyReactionsMap = await getReactionsForTargets(
+        c.env.DB, 'event_reply', replies.map((r: any) => r.id), user.id
+      )
+    }
 
     const countsRaw = await queryAll<any>(
       c.env.DB,
@@ -2236,6 +2245,7 @@ app.get('/agenda/:slug', async (c) => {
     )
     myReactionType = myReaction?.type || null
   }
+  // replyReactions is hierboven al gevuld in de isLoggedIn-branch
 
   const isStaff = isLoggedIn && (user.role === 'admin' || user.role === 'moderator' || user.role === 'bestuur' || user.is_bestuurslid === 1)
   const emojiList: Array<{ type: string; emoji: string; label: string }> = [
@@ -2406,6 +2416,21 @@ app.get('/agenda/:slug', async (c) => {
                               )}
                             </div>
                             <p class="text-gray-700 text-sm mt-1 whitespace-pre-wrap break-words">{r.body}</p>
+                            {/* Reacties op deze reply (6 emoji's, polymorphic) */}
+                            {(() => {
+                              const s = replyReactionsMap.get(r.id)
+                              const counts = s ? s.counts : { like:0, love:0, laugh:0, music:0, clap:0, pray:0 }
+                              const mine = s ? Array.from(s.mine) : []
+                              return (
+                                <div
+                                  class="comment-reactions mt-2"
+                                  data-target-type="event_reply"
+                                  data-target-id={r.id}
+                                  data-counts={JSON.stringify(counts)}
+                                  data-mine={JSON.stringify(mine)}
+                                />
+                              )
+                            })()}
                           </div>
                         </div>
                       )
@@ -2494,6 +2519,8 @@ app.get('/agenda/:slug', async (c) => {
           </div>
         </div>
       </article>
+      {/* Bootstrap voor polymorphic comment_reactions */}
+      <script src="/static/js/comment-reactions.js" defer></script>
     </Layout>
   )
 })

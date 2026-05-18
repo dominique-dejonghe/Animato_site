@@ -5622,7 +5622,8 @@ app.get('/admin/audit', async (c) => {
             {/* Legenda */}
             <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-xs text-blue-900">
               <i class="fas fa-info-circle mr-1"></i>
-              <strong>Duur</strong> = tijd tussen login en logout (of nu, voor actieve sessies).
+              <strong>Duur</strong> = effectieve tijd tussen login en laatste activiteit (heartbeat).
+              <span class="text-blue-700">"(nog actief)"</span> wordt enkel getoond als de laatste activiteit &lt; 30 min geleden was.
               <strong class="ml-2">Inactief sinds</strong> = tijd sinds laatste pagina-bezoek.
               Klik op een rij om JSON-details uit te klappen.
             </div>
@@ -5703,17 +5704,31 @@ app.get('/admin/audit', async (c) => {
                     {logs.map((log: any) => {
                       const sess = findSession(log)
                       // Duur berekenen
+                      //   - Afgesloten sessies (logout): duration_seconds = werkelijke duur
+                      //   - Actieve sessies (geen logout): effectieve duur =
+                      //     updated_at (laatste heartbeat) - login_at, NIET now() - login_at.
+                      //     Anders rapporteren we 9u "actief" voor iemand die 3 dagen
+                      //     geleden de tab gesloten heeft, want het token leeft 7 dagen.
+                      //   - Idle > 30 min → markeer als "afgelopen (X geleden)"
                       let duurStr = '—'
                       let inactiefStr = '—'
                       if (sess) {
                         if (sess.duration_seconds) {
                           duurStr = fmtDuration(sess.duration_seconds)
                         } else if (sess.is_active) {
-                          // Actieve sessie: nu - login_at
-                          const liveSec = Math.floor(
-                            (Date.now() - new Date(sess.login_at + 'Z').getTime()) / 1000
-                          )
-                          duurStr = fmtDuration(liveSec) + ' (nog actief)'
+                          const loginMs = new Date(sess.login_at + 'Z').getTime()
+                          const lastMs = sess.updated_at
+                            ? new Date(sess.updated_at + 'Z').getTime()
+                            : loginMs
+                          const effectiveSec = Math.max(0, Math.floor((lastMs - loginMs) / 1000))
+                          const idleSec = Math.floor((Date.now() - lastMs) / 1000)
+                          if (idleSec > 30 * 60) {
+                            // Tab is dicht / browser weg → niet meer "actief"
+                            duurStr = fmtDuration(effectiveSec)
+                          } else {
+                            // Echt nog aanwezig (heartbeat < 30 min geleden)
+                            duurStr = fmtDuration(effectiveSec) + ' (nog actief)'
+                          }
                         }
                         // Inactief = nu - updated_at (alleen nuttig voor actieve sessies)
                         if (sess.is_active && sess.updated_at) {

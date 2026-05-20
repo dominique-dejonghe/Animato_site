@@ -5,8 +5,11 @@
 //
 // Prioriteit (eerste die match én niet door deze gebruiker is weggeklikt):
 //   1. Verjaardag vandaag (any actief lid jarig vandaag — Belgisch tijdperk)
-//   2. Nieuw lid (laatste 2 weken aangemaakt, status=actief)
-//   3. Random weekly spotlight (lid met bio, roteert op kalenderweek)
+//   2. Nieuw lid (laatste 30 dagen, op basis van profiles.lid_sinds —
+//      NIET users.created_at: dat is de account-aanmaak-datum en kan misleidend
+//      zijn voor leden die ooit gemigreerd zijn vanuit een lid-aanvraag).
+//   3. Random weekly spotlight — élk actief lid (met of zonder bio), roteert
+//      op kalenderweek. Garandeert dat er altíjd een spotlight is.
 //
 // Spotlight-key formaat:
 //   'birthday:<userId>:YYYY-MM-DD'      ← unieke key per verjaardag-dag
@@ -106,16 +109,21 @@ export async function pickSpotlight(
     }
   }
 
-  // ----- 2. Nieuw lid (laatste 14 dagen) -------------------------------
+  // ----- 2. Nieuw lid (laatste 30 dagen op basis van profiles.lid_sinds) -----
+  // BUG-FIX (Dominique): users.created_at geeft account-aanmaak-datum, niet de
+  // echte start in het koor. Bij migraties kan dat misleidend zijn (lid sinds
+  // 2020, maar account net aangemaakt). profiles.lid_sinds is de werkelijke
+  // aanvangsdatum en die is voor alle 68 actieve leden ingevuld.
   const newMembers = await db.prepare(
     `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio,
-            CAST(julianday('now') - julianday(u.created_at) AS INTEGER) AS days_ago
+            CAST(julianday('now') - julianday(p.lid_sinds) AS INTEGER) AS days_ago
        FROM users u
        JOIN profiles p ON p.user_id = u.id
       WHERE u.status = 'actief'
         AND u.id != ?
-        AND u.created_at >= datetime('now', '-14 days')
-      ORDER BY u.created_at DESC`
+        AND p.lid_sinds IS NOT NULL
+        AND p.lid_sinds >= date('now', '-30 days')
+      ORDER BY p.lid_sinds DESC, u.id DESC`
   ).bind(currentUserId).all()
 
   for (const row of (newMembers.results || []) as any[]) {
@@ -137,17 +145,21 @@ export async function pickSpotlight(
     }
   }
 
-  // ----- 3. Random weekly spotlight (alleen leden met bio) -------------
+  // ----- 3. Random weekly spotlight — élk actief lid komt in aanmerking ----
+  // BUG-FIX (Dominique): vroeger eis 'bio ≥ 20 chars' → pool vaak leeg →
+  // geen spotlight. Nu: alle actieve leden, gesorteerd zodat leden met bio
+  // én foto bovenaan staan (mooier in de banner). Foto wordt niet vereist,
+  // ledenlijst toont anders gewoon initialen-avatar.
   const week = isoWeek()
-  // Pool: actieve leden met een bio van min. 20 tekens
   const candidates = await db.prepare(
-    `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio
+    `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio,
+            CASE WHEN p.bio IS NOT NULL AND length(trim(p.bio)) >= 20 THEN 1 ELSE 0 END AS has_bio,
+            CASE WHEN p.foto_url IS NOT NULL AND length(trim(p.foto_url)) > 0 THEN 1 ELSE 0 END AS has_foto
        FROM users u
        JOIN profiles p ON p.user_id = u.id
       WHERE u.status = 'actief'
         AND u.id != ?
-        AND p.bio IS NOT NULL
-        AND length(trim(p.bio)) >= 20
+        AND p.voornaam IS NOT NULL
       ORDER BY u.id ASC`
   ).bind(currentUserId).all()
 
@@ -159,26 +171,34 @@ export async function pickSpotlight(
   // zien verschillende spotlights. Bouwt een zachte sociale ervaring:
   // "ken jij Marijke al?" "Hé, ik kreeg vorige week óók Marijke!"
   // — nee, eigenlijk zien jullie misschien iets anders, en dat is OK.
-  // Hash op userId + week + lid-id pool-grootte:
+  // Hash op userId + week:
   let seed = currentUserId
   for (let i = 0; i < week.length; i++) seed = (seed * 31 + week.charCodeAt(i)) & 0xffffffff
-  const idx = Math.abs(seed) % pool.length
-  const chosen = pool[idx]
-  const key = `random:${chosen.id}:${week}`
-  if (dismissed.has(key)) {
-    // User klikte deze persoon deze week al weg → niets meer tonen
-    return null
-  }
-  return {
-    key,
-    type: 'random',
-    user: {
-      id: chosen.id,
-      voornaam: chosen.voornaam,
-      achternaam: chosen.achternaam,
-      foto_url: chosen.foto_url,
-      stemgroep: chosen.stemgroep,
-      bio: chosen.bio,
+  const startIdx = Math.abs(seed) % pool.length
+
+  // BUG-FIX (Dominique): "toch een lid in de kijker zetten" — als de gekozen
+  // persoon al is weggeklikt voor deze week, kies de volgende. Probeer tot
+  // pool.length kandidaten voor we opgeven.
+  for (let offset = 0; offset < pool.length; offset++) {
+    const chosen = pool[(startIdx + offset) % pool.length]
+    const key = `random:${chosen.id}:${week}`
+    if (!dismissed.has(key)) {
+      return {
+        key,
+        type: 'random',
+        user: {
+          id: chosen.id,
+          voornaam: chosen.voornaam,
+          achternaam: chosen.achternaam,
+          foto_url: chosen.foto_url,
+          stemgroep: chosen.stemgroep,
+          bio: chosen.bio,
+        }
+      }
     }
   }
+
+  // Alle leden deze week al weggeklikt — gebruiker heeft duidelijk geen zin
+  // in spotlights deze week, respecteer dat.
+  return null
 }

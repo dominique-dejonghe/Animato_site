@@ -270,6 +270,30 @@ app.get('/admin/lidgelden', async (c) => {
               Dit lidmaatschap is al betaald — bedrag kan niet meer gewijzigd worden.
             </div>
           )}
+          {successMsg === 'synced' && (
+            <div class="bg-cyan-50 border border-cyan-200 rounded-lg p-3 mb-4 text-sm text-cyan-800">
+              <i class="fas fa-sync mr-2"></i>
+              Status gesynchroniseerd met Mollie. Actuele Mollie-status: <strong>{c.req.query('mollie_status') || 'onbekend'}</strong>
+            </div>
+          )}
+          {errorMsg === 'sync_failed' && (
+            <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
+              <i class="fas fa-exclamation-triangle mr-2"></i>
+              Mollie-sync mislukt — check API-key en payment ID. Details in server-log.
+            </div>
+          )}
+          {errorMsg === 'mollie_not_found' && (
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4 text-sm text-amber-800">
+              <i class="fas fa-question-circle mr-2"></i>
+              Deze payment is niet (meer) bekend bij Mollie — mogelijk verlopen of een test-betaling die nooit gestart is.
+            </div>
+          )}
+          {errorMsg === 'no_mollie_id' && (
+            <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 text-sm text-gray-800">
+              <i class="fas fa-info-circle mr-2"></i>
+              Geen Mollie payment ID gekoppeld — sync niet mogelijk. Het lid moet eerst op "Nu Betalen" klikken.
+            </div>
+          )}
 
           {/* Season Selector */}
           <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6 flex items-center justify-between">
@@ -671,6 +695,15 @@ app.get('/admin/lidgelden', async (c) => {
                                     <i class="fas fa-envelope mr-1"></i> Stuur Link
                                   </button>
                                 </form>
+                                {/* Sync-knop: alleen als er een echte Mollie payment_id is */}
+                                {m.mollie_payment_id && !String(m.mollie_payment_id).startsWith('tr_MOCK_') && (
+                                  <form action="/api/admin/lidgelden/sync-mollie" method="POST" class="inline">
+                                    <input type="hidden" name="membership_id" value={m.id} />
+                                    <button class="text-cyan-600 hover:text-cyan-800 text-sm font-medium" title="Check status bij Mollie en sync (handig als webhook niet doorkwam)">
+                                      <i class="fas fa-sync mr-1"></i> Sync Mollie
+                                    </button>
+                                  </form>
+                                )}
                               </>
                             )}
                             {/* #111: switch formule basis ↔ full + bedrag aanpassen + delete */}
@@ -1066,6 +1099,70 @@ app.post('/api/admin/lidgelden/generate-bulk', async (c) => {
     } catch (e) { console.error('notify on bulk_generate failed:', e) }
 
     return c.redirect('/admin/lidgelden?season_id=' + yearId + '&success=bulk_generated&count=' + users.length)
+})
+
+// Sync met Mollie — query de actuele payment status en update lokaal
+// Handig wanneer de webhook niet aangekomen is (ontbrekende DNS, firewall,
+// of Mollie heeft hem nog niet getriggerd in test-mode)
+app.post('/api/admin/lidgelden/sync-mollie', async (c) => {
+  const body = await c.req.parseBody()
+  const db = c.env.DB
+  const membershipId = String(body.membership_id || '')
+  if (!membershipId) return c.redirect('/admin/lidgelden?error=missing_id')
+
+  const m = await queryOne<any>(db,
+    `SELECT um.id, um.user_id, um.year_id, um.amount, um.status, um.mollie_payment_id, my.season
+     FROM user_memberships um
+     JOIN membership_years my ON my.id = um.year_id
+     WHERE um.id = ?`,
+    [membershipId])
+
+  if (!m) return c.redirect('/admin/lidgelden?error=not_found')
+  if (!m.mollie_payment_id || String(m.mollie_payment_id).startsWith('tr_MOCK_')) {
+    return c.redirect(`/admin/lidgelden?season_id=${m.year_id}&error=no_mollie_id`)
+  }
+
+  try {
+    const { getMolliePayment } = await import('../utils/mollie')
+    const apiKey = await getMollieApiKey(c.env)
+    const molliePmt = await getMolliePayment(apiKey, m.mollie_payment_id)
+
+    if (!molliePmt) {
+      return c.redirect(`/admin/lidgelden?season_id=${m.year_id}&error=mollie_not_found`)
+    }
+
+    const newStatus = molliePmt.status === 'paid' ? 'paid'
+                    : molliePmt.status === 'open' ? 'pending'
+                    : molliePmt.status === 'pending' ? 'pending'
+                    : 'cancelled'
+
+    await execute(db,
+      `UPDATE user_memberships
+       SET status = ?, paid_at = CASE WHEN ? = 'paid' AND paid_at IS NULL THEN CURRENT_TIMESTAMP ELSE paid_at END
+       WHERE id = ?`,
+      [newStatus, newStatus, m.id])
+
+    if (newStatus === 'paid') {
+      // Sluit lidgeld-notifs + bevestiging
+      await execute(db,
+        `UPDATE notifications
+         SET is_gelezen = 1, gelezen_at = CURRENT_TIMESTAMP
+         WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
+        [m.user_id])
+      const bedrag = m.amount ? `€ ${Number(m.amount).toFixed(2)}` : ''
+      await createNotification(
+        db, m.user_id, 'lidgeld',
+        `Lidgeld ${m.season} ontvangen — bedankt! 🎵`,
+        bedrag ? `We hebben ${bedrag} ontvangen. Je lidmaatschap is actief.` : 'Je lidmaatschap is actief.',
+        '/leden/profiel#lidgeld'
+      )
+    }
+
+    return c.redirect(`/admin/lidgelden?season_id=${m.year_id}&success=synced&mollie_status=${molliePmt.status}`)
+  } catch (e: any) {
+    console.error('sync-mollie failed:', e)
+    return c.redirect(`/admin/lidgelden?season_id=${m.year_id}&error=sync_failed`)
+  }
 })
 
 // Toggle Status (Paid/Pending)

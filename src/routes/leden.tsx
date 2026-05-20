@@ -2059,11 +2059,14 @@ app.get('/leden/profiel', async (c) => {
       }
   }
 
-  // BUG-FIX: Eager refresh wanneer lid terugkomt van Mollie met ?payment=success.
-  // Webhook kan vertraagd zijn of (zelden) niet aankomen — we polleren actief
-  // de openstaande membership voor deze user en vragen Mollie naar de status.
-  // Dit zorgt dat de status én notificaties direct kloppen, ook al heeft de
-  // webhook nog niet ingelopen.
+  // BUG-FIX (Dominique): Eager refresh wanneer lid terugkomt van Mollie met
+  // ?payment=success. Webhook kan vertraagd zijn of (zelden) niet aankomen —
+  // we polleren actief de openstaande membership voor deze user en vragen
+  // Mollie naar de status. Dit zorgt dat de status én notificaties direct
+  // kloppen, ook al heeft de webhook nog niet ingelopen.
+  //
+  // We accepteren elk mollie_payment_id behalve mock-IDs (tr_MOCK_*). Echte
+  // Mollie test-mode IDs zien er uit als 'tr_xxxxxxxxxx' (geen MOCK in de naam).
   if (paymentReturn) {
     try {
       const pendingMembership = await queryOne<any>(c.env.DB,
@@ -2082,15 +2085,52 @@ app.get('/leden/profiel', async (c) => {
         const { getMollieApiKey } = await import('../utils/mollie-config')
         const apiKey = await getMollieApiKey(c.env)
         // Niet falen als Mollie tijdelijk onbereikbaar is — webhook pakt het wel op
-        const molliePmt = await getMolliePayment(apiKey, pendingMembership.mollie_payment_id).catch(() => null)
+        const molliePmt = await getMolliePayment(apiKey, pendingMembership.mollie_payment_id).catch((err) => {
+          console.error('[eager-refresh] getMolliePayment failed:', err)
+          return null
+        })
+        console.log('[eager-refresh] mollie status for', pendingMembership.mollie_payment_id, '=', molliePmt?.status)
         if (molliePmt?.status === 'paid') {
-          const siteUrl = c.env.SITE_URL || 'http://localhost:3000'
-          // Trigger webhook lokaal — die heeft alle finalize-logica al
-          await fetch(`${siteUrl}/api/webhooks/mollie`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `id=${encodeURIComponent(pendingMembership.mollie_payment_id)}`
-          }).catch(() => {})
+          // Update direct in DB (sneller dan webhook-roundtrip) + sluit notifs
+          await execute(c.env.DB,
+            `UPDATE user_memberships
+             SET status = 'paid',
+                 paid_at = COALESCE(paid_at, CURRENT_TIMESTAMP)
+             WHERE id = ?`,
+            [pendingMembership.id])
+          await execute(c.env.DB,
+            `UPDATE notifications
+             SET is_gelezen = 1, gelezen_at = CURRENT_TIMESTAMP
+             WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
+            [user.id])
+          // Bevestigings-notif (idempotent: check eerst of er al eentje is van vandaag)
+          const existing = await queryOne<any>(c.env.DB,
+            `SELECT id FROM notifications
+             WHERE user_id = ? AND type = 'lidgeld'
+               AND titel LIKE '%ontvangen%'
+               AND date(created_at) = date('now')
+             LIMIT 1`,
+            [user.id])
+          if (!existing) {
+            const { createNotification } = await import('../utils/notifications')
+            const m = await queryOne<any>(c.env.DB,
+              `SELECT um.amount, my.season
+               FROM user_memberships um
+               JOIN membership_years my ON my.id = um.year_id
+               WHERE um.id = ?`,
+              [pendingMembership.id])
+            if (m) {
+              const bedrag = m.amount ? `€ ${Number(m.amount).toFixed(2)}` : ''
+              await createNotification(
+                c.env.DB,
+                user.id,
+                'lidgeld',
+                `Lidgeld ${m.season} ontvangen — bedankt! 🎵`,
+                bedrag ? `We hebben ${bedrag} ontvangen. Je lidmaatschap is actief.` : 'Je lidmaatschap is actief.',
+                '/leden/profiel#lidgeld'
+              )
+            }
+          }
         }
       }
     } catch (e) { console.error('eager payment refresh failed:', e) }
@@ -4367,8 +4407,12 @@ app.post('/api/leden/betaling/online', async (c) => {
       })
       
       // 3. Update records
+      // BUG-FIX (Dominique): payment.id MOET opgeslagen worden, anders kan
+      // de eager-refresh hem niet terugvinden en blijft status 'openstaand'.
       await execute(c.env.DB, `UPDATE donations SET payment_id = ?, status = 'pending' WHERE id = ?`, [payment.id, donationId])
-      await execute(c.env.DB, `UPDATE user_memberships SET mollie_payment_url = ? WHERE id = ?`, [payment.checkoutUrl, membership.id])
+      await execute(c.env.DB,
+        `UPDATE user_memberships SET mollie_payment_url = ?, mollie_payment_id = ? WHERE id = ?`,
+        [payment.checkoutUrl, payment.id, membership.id])
       
       return c.redirect(payment.checkoutUrl)
   } else {
@@ -4385,10 +4429,13 @@ app.post('/api/leden/betaling/online', async (c) => {
       })
       
       const paymentUrl = payment.checkoutUrl
-      
-      // Save URL
-      await execute(c.env.DB, `UPDATE user_memberships SET mollie_payment_url = ? WHERE id = ?`, [paymentUrl, membership.id])
-    
+
+      // Save URL + payment ID (id is essentieel voor eager-refresh en
+      // admin-side status-check)
+      await execute(c.env.DB,
+        `UPDATE user_memberships SET mollie_payment_url = ?, mollie_payment_id = ? WHERE id = ?`,
+        [paymentUrl, payment.id, membership.id])
+
       return c.redirect(paymentUrl)
   }
 })

@@ -2042,6 +2042,7 @@ app.get('/leden/profiel', async (c) => {
   const success = c.req.query('success')
   const error = c.req.query('error')
   const paymentId = c.req.query('payment_id')
+  const paymentReturn = c.req.query('payment') === 'success'
 
   // Auto-confirm mock payments in dev
   if (paymentId && paymentId.startsWith('tr_MOCK_')) {
@@ -2056,6 +2057,43 @@ app.get('/leden/profiel', async (c) => {
       } catch (e) {
           console.error('Failed to trigger mock webhook', e)
       }
+  }
+
+  // BUG-FIX: Eager refresh wanneer lid terugkomt van Mollie met ?payment=success.
+  // Webhook kan vertraagd zijn of (zelden) niet aankomen — we polleren actief
+  // de openstaande membership voor deze user en vragen Mollie naar de status.
+  // Dit zorgt dat de status én notificaties direct kloppen, ook al heeft de
+  // webhook nog niet ingelopen.
+  if (paymentReturn) {
+    try {
+      const pendingMembership = await queryOne<any>(c.env.DB,
+        `SELECT um.id, um.mollie_payment_id, um.status
+         FROM user_memberships um
+         JOIN membership_years my ON my.id = um.year_id
+         WHERE um.user_id = ?
+           AND my.is_active = 1
+           AND um.status IN ('pending', 'open')
+           AND um.mollie_payment_id IS NOT NULL
+           AND um.mollie_payment_id NOT LIKE 'tr_MOCK_%'
+         ORDER BY um.id DESC LIMIT 1`,
+        [user.id])
+      if (pendingMembership?.mollie_payment_id) {
+        const { getMolliePayment } = await import('../utils/mollie')
+        const { getMollieApiKey } = await import('../utils/mollie-config')
+        const apiKey = await getMollieApiKey(c.env)
+        // Niet falen als Mollie tijdelijk onbereikbaar is — webhook pakt het wel op
+        const molliePmt = await getMolliePayment(apiKey, pendingMembership.mollie_payment_id).catch(() => null)
+        if (molliePmt?.status === 'paid') {
+          const siteUrl = c.env.SITE_URL || 'http://localhost:3000'
+          // Trigger webhook lokaal — die heeft alle finalize-logica al
+          await fetch(`${siteUrl}/api/webhooks/mollie`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `id=${encodeURIComponent(pendingMembership.mollie_payment_id)}`
+          }).catch(() => {})
+        }
+      }
+    } catch (e) { console.error('eager payment refresh failed:', e) }
   }
 
   // Get full profile

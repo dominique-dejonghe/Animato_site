@@ -985,7 +985,14 @@ app.post('/api/admin/lidgelden/create', async (c) => {
   `, [body.user_id, body.year_id, body.type, amount, mockMollieId])
 
   // #116 — Notificeer dit ene lid
+  // BUG-FIX (Dominique): sluit eerst bestaande open lidgeld-notifs van deze
+  // user (voorkomt dubbele meldingen na re-create of type/bedrag-wijziging).
   try {
+    await execute(db,
+      `UPDATE notifications
+       SET is_gelezen = 1, gelezen_at = CURRENT_TIMESTAMP
+       WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
+      [Number(body.user_id)])
     await createNotification(
       db,
       Number(body.user_id),
@@ -1034,8 +1041,20 @@ app.post('/api/admin/lidgelden/generate-bulk', async (c) => {
     }
 
     // #116 — Notificeer alle nieuwe lidgeld-leden in één batch
+    // BUG-FIX (Dominique): sluit eerst alle bestaande open lidgeld-notifs van
+    // de doelusers — voorkomt dubbele meldingen na re-generate.
     try {
       const userIds = (users as any[]).map((u: any) => u.id)
+      if (userIds.length > 0) {
+        const placeholders = userIds.map(() => '?').join(',')
+        await execute(db,
+          `UPDATE notifications
+           SET is_gelezen = 1, gelezen_at = CURRENT_TIMESTAMP
+           WHERE user_id IN (${placeholders})
+             AND type = 'lidgeld'
+             AND is_gelezen = 0`,
+          userIds)
+      }
       await createNotificationForUsers(
         db,
         userIds,
@@ -1116,6 +1135,19 @@ app.post('/api/admin/lidgelden/update-type', async (c) => {
     await execute(db, `UPDATE user_memberships SET type = ? WHERE id = ?`, [newType, membershipId])
   } else {
     await execute(db, `UPDATE user_memberships SET type = ?, amount = ? WHERE id = ?`, [newType, newAmount, membershipId])
+    // BUG-FIX (Dominique): bij type/bedrag-wijziging hangen er nog 'oude' lidgeld-notifs
+    // in de DB met het verouderde bedrag — markeer als gelezen zodat het lid niet
+    // meerdere meldingen met verschillende bedragen ziet.
+    try {
+      const uidRow = await queryOne<any>(db, `SELECT user_id FROM user_memberships WHERE id = ?`, [membershipId])
+      if (uidRow?.user_id) {
+        await execute(db,
+          `UPDATE notifications
+           SET is_gelezen = 1, gelezen_at = CURRENT_TIMESTAMP
+           WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
+          [uidRow.user_id])
+      }
+    } catch (e) { console.error('cleanup old lidgeld notifs after update-type failed:', e) }
   }
 
   return c.redirect('/admin/lidgelden?season_id=' + membership.year_id + '&success=type_updated')
@@ -1144,6 +1176,18 @@ app.post('/api/admin/lidgelden/update-amount', async (c) => {
   await execute(db,
     `UPDATE user_memberships SET amount = ?, mollie_payment_url = NULL WHERE id = ?`,
     [newAmount, membershipId])
+
+  // BUG-FIX (Dominique): zie update-type — sluit stale lidgeld-notifs
+  try {
+    const uidRow = await queryOne<any>(db, `SELECT user_id FROM user_memberships WHERE id = ?`, [membershipId])
+    if (uidRow?.user_id) {
+      await execute(db,
+        `UPDATE notifications
+         SET is_gelezen = 1, gelezen_at = CURRENT_TIMESTAMP
+         WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
+        [uidRow.user_id])
+    }
+  } catch (e) { console.error('cleanup old lidgeld notifs after update-amount failed:', e) }
 
   return c.redirect('/admin/lidgelden?season_id=' + m.year_id + '&success=amount_updated')
 })

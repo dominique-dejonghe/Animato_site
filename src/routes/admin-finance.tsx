@@ -1053,12 +1053,40 @@ app.post('/api/admin/lidgelden/generate-bulk', async (c) => {
 app.post('/api/admin/lidgelden/status', async (c) => {
   const body = await c.req.parseBody()
   const db = c.env.DB
-  
+
   await execute(db, `
-    UPDATE user_memberships 
-    SET status = ?, paid_at = CASE WHEN ? = 'paid' THEN CURRENT_TIMESTAMP ELSE NULL END 
+    UPDATE user_memberships
+    SET status = ?, paid_at = CASE WHEN ? = 'paid' THEN CURRENT_TIMESTAMP ELSE NULL END
     WHERE id = ?
   `, [body.status, body.status, body.membership_id])
+
+  // BUG-FIX: bij handmatig 'paid' zetten — sluit lidgeld-notifs + bevestig
+  if (body.status === 'paid') {
+    try {
+      const m = await queryOne<any>(db,
+        `SELECT um.user_id, um.amount, my.season
+         FROM user_memberships um
+         JOIN membership_years my ON my.id = um.year_id
+         WHERE um.id = ?`,
+        [body.membership_id])
+      if (m) {
+        await execute(db,
+          `UPDATE notifications
+           SET is_gelezen = 1, gelezen_at = CURRENT_TIMESTAMP
+           WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
+          [m.user_id])
+        const bedrag = m.amount ? `€ ${Number(m.amount).toFixed(2)}` : ''
+        await createNotification(
+          db,
+          m.user_id,
+          'lidgeld',
+          `Lidgeld ${m.season} geregistreerd — bedankt! 🎵`,
+          bedrag ? `${bedrag} geboekt door het bestuur. Je lidmaatschap is actief.` : 'Je lidmaatschap is actief.',
+          '/leden/profiel#lidgeld'
+        )
+      }
+    } catch (e) { console.error('lidgeld status->paid notif cleanup failed:', e) }
+  }
 
   // Get referer to redirect back to correct season
   return c.redirect('/admin/lidgelden')

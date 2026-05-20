@@ -3,9 +3,49 @@ import { queryOne, execute } from '../utils/db'
 import { getMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { sendEmail, ticketEmail } from '../utils/email'
+import { createNotification } from '../utils/notifications'
 import type { Bindings } from '../types'
 
 const app = new Hono<{ Bindings: Bindings }>()
+
+/**
+ * Helper voor lidgeld-betaalbevestiging:
+ * - markeer alle openstaande 'lidgeld'-notifs van deze user als gelezen
+ * - voeg één bevestigings-notif toe ('Lidgeld ontvangen, bedankt!')
+ * Zo verdwijnen 'Openstaand'-meldingen en krijgt het lid positieve feedback.
+ */
+async function finalizeLidgeldNotifications(
+  db: D1Database,
+  membershipId: number | string
+): Promise<void> {
+  try {
+    const m = await queryOne<any>(db,
+      `SELECT um.user_id, um.amount, my.season
+       FROM user_memberships um
+       JOIN membership_years my ON my.id = um.year_id
+       WHERE um.id = ?`,
+      [membershipId])
+    if (!m) return
+    // Sluit alle openstaande lidgeld-notifs van deze user (markeer als gelezen)
+    await execute(db,
+      `UPDATE notifications
+       SET is_gelezen = 1, gelezen_at = CURRENT_TIMESTAMP
+       WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
+      [m.user_id])
+    // Voeg positieve bevestiging toe
+    const bedrag = m.amount ? `€ ${Number(m.amount).toFixed(2)}` : ''
+    await createNotification(
+      db,
+      m.user_id,
+      'lidgeld',
+      `Lidgeld ${m.season} ontvangen — bedankt! 🎵`,
+      bedrag ? `We hebben ${bedrag} ontvangen. Je lidmaatschap is actief.` : 'Je lidmaatschap is actief.',
+      '/leden/profiel#lidgeld'
+    )
+  } catch (e) {
+    console.error('finalizeLidgeldNotifications failed:', e)
+  }
+}
 
 // ==========================================
 // MOLLIE WEBHOOK
@@ -100,6 +140,11 @@ app.post('/api/webhooks/mollie', async (c) => {
         WHERE id = ?
       `, [newStatus, newStatus, membershipId])
 
+      // BUG-FIX: bij paid alle openstaande lidgeld-notifs sluiten + bevestiging
+      if (newStatus === 'paid') {
+        await finalizeLidgeldNotifications(c.env.DB, membershipId)
+      }
+
       return c.json({ success: true, type: 'membership', status: newStatus })
     }
 
@@ -128,6 +173,8 @@ app.post('/api/webhooks/mollie', async (c) => {
 
       // Send combined email if paid
       if (newStatus === 'paid') {
+         // BUG-FIX: bij paid alle openstaande lidgeld-notifs sluiten + bevestiging
+         await finalizeLidgeldNotifications(c.env.DB, membershipId)
          const user = molliePayment.metadata.user_id ? await queryOne(c.env.DB, "SELECT email, voornaam FROM users JOIN profiles ON users.id=profiles.user_id WHERE users.id=?", [molliePayment.metadata.user_id]) : null;
          if (user) {
             await sendEmail({

@@ -348,7 +348,14 @@ app.get('/leden', async (c) => {
   try {
     dashNotifs = await getNotificationsForUser(c.env.DB, user.id, 10, true) // unreadOnly=true
   } catch (e) { /* ignore */ }
-  const unreadNotifs = dashNotifs.slice(0, 4)
+  // BUG-FIX: voorkom dubbele lidgeld-kaart. De runtime-check (#1) toont al
+  // 'Lidgeld X nog te betalen'; filter dus type='lidgeld' uit DB-notifs
+  // wanneer er al een openstaand lidgeld is gedetecteerd.
+  const hasOpenLidgeldCard = dashboardActions.some(a => a.titel.startsWith('Lidgeld ') && a.titel.includes('nog te betalen'))
+  const unreadNotifs = (hasOpenLidgeldCard
+    ? dashNotifs.filter(n => n.type !== 'lidgeld')
+    : dashNotifs
+  ).slice(0, 4)
   for (const n of unreadNotifs) {
     const style = getNotificationStyle(n.type)
     dashboardActions.push({
@@ -2220,6 +2227,7 @@ app.get('/leden/profiel', async (c) => {
   const profielOpenActies: ProfielActie[] = []
 
   // 1) Openstaand lidgeld — NIET dismissible (moet effectief afgehandeld)
+  let hasOpenLidgeldActie = false
   if (activeMembership && activeMembership.is_active &&
       (!activeMembership.status || !['paid','waived'].includes(activeMembership.status))) {
     profielOpenActies.push({
@@ -2230,10 +2238,13 @@ app.get('/leden/profiel', async (c) => {
       cta: 'Bekijk',
       canDismiss: false
     })
+    hasOpenLidgeldActie = true
   }
 
   // 2) Ongelezen DB-notificaties
-  for (const n of allNotifications.filter((x: any) => !x.is_gelezen)) {
+  // BUG-FIX: filter type='lidgeld'-notifs eruit als runtime-kaart al getoond.
+  // Voorkomt dubbel "Lidgeld nog te betalen" + "Lidgeld (€X) staat open".
+  for (const n of allNotifications.filter((x: any) => !x.is_gelezen && (!hasOpenLidgeldActie || x.type !== 'lidgeld'))) {
     const style = getNotificationStyle(n.type)
     profielOpenActies.push({
       icon: style.icon, iconBg: style.bg, iconColor: style.color,

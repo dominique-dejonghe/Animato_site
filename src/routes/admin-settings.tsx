@@ -197,6 +197,69 @@ app.get('/admin/settings', async (c) => {
                 </div>
               </form>
             </div>
+
+            {/* Hero / Homepage Settings */}
+            <div class="bg-white rounded-lg shadow-md p-6 lg:col-span-2">
+              <h2 class="text-xl font-semibold mb-4 border-b pb-2">
+                <i class="fas fa-film text-purple-600 mr-2"></i>
+                Hero (Homepage Banner / Video)
+              </h2>
+              <p class="text-sm text-gray-600 mb-4">
+                Pas de video, titel en ondertitel aan op de homepage. Wijzigingen zijn direct zichtbaar.
+              </p>
+
+              <form method="POST" action="/api/admin/settings/update">
+                <input type="hidden" name="section" value="hero" />
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Video Type</label>
+                    <select name="hero_video_type" class="w-full border rounded px-3 py-2">
+                      <option value="youtube" selected={settingsMap.hero_video_type !== 'mp4'}>YouTube</option>
+                      <option value="mp4" selected={settingsMap.hero_video_type === 'mp4'}>MP4 (R2 / extern)</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">Kies welk type bron je wil gebruiken.</p>
+                  </div>
+
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">YouTube Video ID</label>
+                    <input type="text" name="hero_video_id" value={settingsMap.hero_video_id || 'oXLw5RC0lNo'} placeholder="bv. oXLw5RC0lNo" class="w-full border rounded px-3 py-2 font-mono text-sm" />
+                    <p class="text-xs text-gray-500 mt-1">Enkel het ID (na <code>v=</code>), niet de volledige URL.</p>
+                  </div>
+
+                  <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">MP4 / Video URL (alleen bij type = MP4)</label>
+                    <input type="url" name="hero_video_url" value={settingsMap.hero_video_url || ''} placeholder="https://r2.example.com/hero.mp4" class="w-full border rounded px-3 py-2" />
+                    <p class="text-xs text-gray-500 mt-1">Bij voorkeur een MP4 in Cloudflare R2 of een andere CDN. Laat leeg bij YouTube.</p>
+                  </div>
+
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Start (seconden) — YouTube loop</label>
+                    <input type="number" min="0" name="hero_video_start_sec" value={settingsMap.hero_video_start_sec || '6'} class="w-full border rounded px-3 py-2" />
+                  </div>
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Einde (seconden) — YouTube loop</label>
+                    <input type="number" min="0" name="hero_video_end_sec" value={settingsMap.hero_video_end_sec || '240'} class="w-full border rounded px-3 py-2" />
+                  </div>
+
+                  <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Hero Titel</label>
+                    <input type="text" name="hero_titel" value={settingsMap.hero_titel || 'Gemengd Koor Animato'} class="w-full border rounded px-3 py-2" />
+                  </div>
+
+                  <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Hero Subtitel</label>
+                    <input type="text" name="hero_subtitel" value={settingsMap.hero_subtitel || 'Koor met passie • Samen musiceren sinds 1988'} class="w-full border rounded px-3 py-2" />
+                  </div>
+                </div>
+
+                <button type="submit" class="mt-4 bg-purple-600 text-white px-4 py-2 rounded hover:bg-opacity-90">
+                  <i class="fas fa-save mr-1"></i> Hero opslaan
+                </button>
+                <a href="/" target="_blank" class="ml-2 text-sm text-animato-primary hover:underline">
+                  <i class="fas fa-external-link-alt mr-1"></i>Bekijk homepage
+                </a>
+              </form>
+            </div>
           </div>
         </div>
       </div>
@@ -239,6 +302,8 @@ app.post('/api/admin/settings/update', async (c) => {
     keys = ['current_season', 'membership_fee_base', 'membership_fee_paper', 'price_per_page', 'mollie_api_key']
   } else if (body.section === 'general') {
     keys = ['site_name', 'contact_email', 'contact_phone', 'social_facebook', 'social_instagram', 'social_youtube', 'beta_features']
+  } else if (body.section === 'hero') {
+    keys = ['hero_video_type', 'hero_video_id', 'hero_video_url', 'hero_video_start_sec', 'hero_video_end_sec', 'hero_titel', 'hero_subtitel']
   }
 
   for (const key of keys) {

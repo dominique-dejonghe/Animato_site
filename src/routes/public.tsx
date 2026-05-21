@@ -43,6 +43,21 @@ app.get('/', async (c) => {
      LIMIT 3`
   )
 
+  // Fetch hero-instellingen (admin kan deze aanpassen via /admin/settings)
+  // Defensief: als settings nog niet bestaan (verse DB), gebruik defaults.
+  const heroSettings = await queryAll<any>(c.env.DB,
+    `SELECT key, value FROM system_settings WHERE key LIKE 'hero_%'`
+  ).catch(() => [])
+  const heroMap: Record<string, string> = {}
+  for (const s of heroSettings) heroMap[s.key] = s.value
+  const heroType   = heroMap.hero_video_type || 'youtube'
+  const heroYtId   = heroMap.hero_video_id || 'oXLw5RC0lNo'
+  const heroMp4Url = heroMap.hero_video_url || ''
+  const heroStart  = parseInt(heroMap.hero_video_start_sec || '6', 10) || 6
+  const heroEnd    = parseInt(heroMap.hero_video_end_sec || '240', 10) || 240
+  const heroTitel    = heroMap.hero_titel || 'Gemengd Koor Animato'
+  const heroSubtitel = heroMap.hero_subtitel || 'Koor met passie • Samen musiceren sinds 1988'
+
   // JSON-LD structured data for GEO
   const jsonLd = {
     "@context": "https://schema.org",
@@ -52,7 +67,7 @@ app.get('/', async (c) => {
     "logo": "https://animato.be/static/logo.png",
     "image": "https://animato.be/static/cover.jpg",
     "description": "Een dynamisch gemengd koor uit Brussel dat klassieke meesterwerken en moderne composities brengt.",
-    "foundingDate": "1985",
+    "foundingDate": "1988",
     "location": {
       "@type": "Place",
       "name": "Koorstraat 1",
@@ -100,21 +115,43 @@ app.get('/', async (c) => {
 
       {/* Hero Section with Full-Width Video Background */}
       <section class="relative overflow-hidden text-white" style="height: 600px;">
-        {/* YouTube Video Background - Full Width - Loops from 0:06 to 4:00 (#107) */}
+        {/* Video Background - YouTube of MP4, beheerd vanuit /admin/settings */}
         <div class="absolute inset-0 w-full h-full overflow-hidden">
-          <iframe
-            src="https://www.youtube.com/embed/oXLw5RC0lNo?autoplay=1&mute=1&loop=1&playlist=oXLw5RC0lNo&controls=0&showinfo=0&rel=0&modestbranding=1&playsinline=1&start=6&end=240"
-            title="Gemengd Koor Animato"
-            frameborder="0"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowfullscreen
-            style="position: absolute; top: 50%; left: 50%; width: 100vw; height: 56.25vw; min-height: 100%; min-width: 177.77vh; transform: translate(-50%, -50%); pointer-events: none;"
-          ></iframe>
+          {heroType === 'mp4' && heroMp4Url ? (
+            <video
+              src={heroMp4Url}
+              autoplay
+              muted
+              loop
+              playsinline
+              style="position: absolute; top: 50%; left: 50%; width: 100%; height: 100%; object-fit: cover; transform: translate(-50%, -50%); pointer-events: none;"
+            ></video>
+          ) : (
+            <iframe
+              src={`https://www.youtube.com/embed/${heroYtId}?autoplay=1&mute=1&loop=1&playlist=${heroYtId}&controls=0&showinfo=0&rel=0&modestbranding=1&playsinline=1&start=${heroStart}&end=${heroEnd}`}
+              title={heroTitel}
+              frameborder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowfullscreen
+              style="position: absolute; top: 50%; left: 50%; width: 100vw; height: 56.25vw; min-height: 100%; min-width: 177.77vh; transform: translate(-50%, -50%); pointer-events: none;"
+            ></iframe>
+          )}
         </div>
         
         {/* Dark overlay for better text readability */}
         <div class="absolute inset-0 bg-black opacity-50"></div>
-        
+
+        {/* Admin edit-knop: alleen zichtbaar voor admins */}
+        {isAdmin && (
+          <a
+            href="/admin/settings#hero"
+            class="absolute top-4 right-4 z-20 inline-flex items-center gap-2 px-3 py-1.5 bg-white/90 hover:bg-white text-gray-800 rounded-lg text-sm font-medium shadow-md transition"
+            title="Hero bewerken"
+          >
+            <i class="fas fa-edit"></i> Hero bewerken
+          </a>
+        )}
+
         {/* Content overlay */}
         <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-full flex items-center justify-center">
           <div class="text-center">
@@ -125,10 +162,10 @@ app.get('/', async (c) => {
               style="animation-duration: 3s;"
             />
             <h1 class="text-5xl md:text-6xl font-bold mb-4 drop-shadow-lg" style="font-family: 'Playfair Display', serif;">
-              Gemengd Koor Animato
+              {heroTitel}
             </h1>
             <p class="text-xl md:text-2xl mb-8 text-gray-100 drop-shadow-lg">
-              Koor met passie • Samen musiceren sinds 1985
+              {heroSubtitel}
             </p>
             <div class="flex flex-col sm:flex-row justify-center gap-4">
               <a 
@@ -164,7 +201,7 @@ app.get('/', async (c) => {
             Over Ons
           </h2>
           <p class="text-gray-700 text-lg mb-4">
-            Gemengd Koor Animato is een dynamisch koor dat al sinds 1985 het Vlaamse muzieklandschap verrijkt met passie en vakmanschap.
+            Gemengd Koor Animato is een dynamisch koor dat al sinds 1988 het Vlaamse muzieklandschap verrijkt met passie en vakmanschap.
           </p>
           <p class="text-gray-700 text-lg mb-6">
             Ons repertoire varieert van klassieke meesterwerken tot moderne composities, altijd met respect voor de muziek en plezier in het samen musiceren.
@@ -395,7 +432,7 @@ app.get('/', async (c) => {
 
             <details class="group bg-gray-50 rounded-lg p-6 [&_summary::-webkit-details-marker]:hidden">
               <summary class="flex cursor-pointer items-center justify-between gap-1.5 text-gray-900">
-                <h3 class="font-medium text-lg font-bold">Wat voor muziek zingt Animato?</h3>
+                <h3 class="font-medium text-lg font-bold">Welke soort muziek zingt Animato?</h3>
                 <span class="shrink-0 rounded-full bg-white p-1.5 text-gray-900 sm:p-3">
                   <svg xmlns="http://www.w3.org/2000/svg" class="size-5 shrink-0 transition duration-300 group-open:-rotate-180" viewBox="0 0 20 20" fill="currentColor">
                     <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd" />
@@ -834,23 +871,6 @@ app.get('/contact', async (c) => {
                     <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">
                       gemengdkooranimato@gmail.com
                     </a>
-                  </div>
-                </div>
-
-                <div class="flex items-start">
-                  <div class="flex-shrink-0">
-                    <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center">
-                      <i class="fas fa-map-marker-alt text-animato-primary text-xl"></i>
-                    </div>
-                  </div>
-                  <div class="ml-4">
-                    <h3 class="font-semibold text-gray-900">Adres</h3>
-                    <p class="text-gray-600">
-                      Zaal De Sopper<br />
-                      Oppuursdorp 15<br />
-                      2890 Oppuurs<br />
-                      België
-                    </p>
                   </div>
                 </div>
 
@@ -1473,28 +1493,26 @@ app.get('/privacyverklaring', async (c) => {
           <h1 class="text-4xl font-bold text-animato-secondary mb-8" style="font-family: 'Playfair Display', serif;">
             Privacyverklaring
           </h1>
-          <p class="text-sm text-gray-500 mb-8">Laatste update: april 2026</p>
+          <p class="text-lg text-gray-600 mb-8 italic">Privacyverklaring voor leden van Gemengd Koor Animato die inloggen op de website.</p>
 
           <div class="prose prose-gray max-w-none space-y-8 text-gray-700 leading-relaxed">
 
             <section>
-              <h2 class="text-2xl font-bold text-animato-secondary mb-3">1. Wie zijn wij?</h2>
-              <p>Gemengd Koor Animato, gevestigd te Zaal De Sopper, Oppuursdorp 15, 2890 Oppuurs, is verantwoordelijk voor de verwerking van persoonsgegevens zoals beschreven in deze privacyverklaring.</p>
-              <p class="mt-2"><strong>Contactgegevens:</strong><br/>
-                E-mail: <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">gemengdkooranimato@gmail.com</a><br/>
-                Adres: Oppuursdorp 15, 2890 Oppuurs
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">1. Wie</h2>
+              <p>Gemengd Koor Animato, feitelijke vereniging<br/>
+                p.a. Kattestraat 92, 2890 Puurs-Sint-Amands<br/>
+                E-mail: <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">gemengdkooranimato@gmail.com</a>
               </p>
             </section>
 
             <section>
-              <h2 class="text-2xl font-bold text-animato-secondary mb-3">2. Welke gegevens verwerken wij?</h2>
-              <p>Wij verwerken de volgende categorieën persoonsgegevens:</p>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">2. Gegevens die je met ons deelt en verwerkt worden</h2>
               <ul class="list-disc list-inside mt-2 space-y-1">
                 <li>Naam en voornaam</li>
                 <li>E-mailadres</li>
-                <li>Telefoonnummer (optioneel)</li>
+                <li>Telefoonnummer</li>
                 <li>Stemgroep (sopraan, alt, tenor, bas)</li>
-                <li>Adresgegevens (voor ledenadministratie)</li>
+                <li>Adresgegevens</li>
                 <li>Inloggegevens voor het ledenportaal</li>
               </ul>
             </section>
@@ -1502,11 +1520,10 @@ app.get('/privacyverklaring', async (c) => {
             <section>
               <h2 class="text-2xl font-bold text-animato-secondary mb-3">3. Waarvoor gebruiken wij uw gegevens?</h2>
               <ul class="list-disc list-inside mt-2 space-y-1">
-                <li>Ledenbeheer en communicatie met leden</li>
-                <li>Organisatie van repetities, concerten en activiteiten</li>
+                <li>Ledenbeheer en organisatorische communicatie</li>
+                <li>Dekking verzekering (door lidmaatschap van Animato bij Koor&amp;Stem)</li>
                 <li>Beantwoorden van contactvragen via het contactformulier</li>
                 <li>Opvolging van inschrijvingen voor activiteiten</li>
-                <li>Verzenden van nieuwsbrieven en uitnodigingen (met uw toestemming)</li>
               </ul>
             </section>
 
@@ -1514,38 +1531,25 @@ app.get('/privacyverklaring', async (c) => {
               <h2 class="text-2xl font-bold text-animato-secondary mb-3">4. Rechtsgrond voor verwerking</h2>
               <p>Wij verwerken uw gegevens op basis van:</p>
               <ul class="list-disc list-inside mt-2 space-y-1">
-                <li><strong>Uitvoering van overeenkomst</strong>: voor ledenadministratie en organisatorische communicatie</li>
-                <li><strong>Toestemming</strong>: voor het versturen van nieuwsbrieven en uitnodigingen</li>
-                <li><strong>Gerechtvaardigd belang</strong>: voor de werking van het koor</li>
+                <li><strong>Uitvoering van overeenkomst</strong>: lidmaatschap</li>
+                <li><strong>Toestemming</strong>: door inloggen en delen van je gegevens</li>
+                <li><strong>Gerechtvaardigd belang</strong>: voor de verzekeringsdekking, opvolging lidmaatschap, organisatie van de feitelijke vereniging.</li>
               </ul>
             </section>
 
             <section>
               <h2 class="text-2xl font-bold text-animato-secondary mb-3">5. Bewaartermijn</h2>
-              <p>Wij bewaren uw persoonsgegevens niet langer dan nodig voor de doeleinden waarvoor ze zijn verzameld. Gegevens van leden worden bewaard zolang het lidmaatschap actief is en maximaal 2 jaar daarna. Contactformuliergegevens worden maximaal 1 jaar bewaard.</p>
+              <p>Wij bewaren uw persoonsgegevens niet langer dan nodig voor de doeleinden waarvoor ze zijn verzameld. Gegevens van leden worden bewaard zolang het lidmaatschap actief is en maximaal 1 jaar daarna.</p>
             </section>
 
             <section>
-              <h2 class="text-2xl font-bold text-animato-secondary mb-3">6. Uw rechten</h2>
-              <p>U heeft het recht om:</p>
-              <ul class="list-disc list-inside mt-2 space-y-1">
-                <li>Inzage te vragen in uw persoonsgegevens</li>
-                <li>Onjuiste gegevens te laten corrigeren</li>
-                <li>Uw gegevens te laten verwijderen</li>
-                <li>Bezwaar te maken tegen de verwerking</li>
-                <li>Uw toestemming in te trekken</li>
-              </ul>
-              <p class="mt-2">U kunt deze rechten uitoefenen door contact op te nemen via <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">gemengdkooranimato@gmail.com</a>.</p>
+              <h2 class="text-2xl font-bold text-animato-secondary mb-3">6. Uw rechten en eventuele klachten</h2>
+              <p>U heeft het recht op inzage van uw persoonsgegevens, correctie van foutieve gegevens en intrekking van uw toestemming op elk moment. Contacteer: <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">gemengdkooranimato@gmail.com</a>.</p>
             </section>
 
             <section>
               <h2 class="text-2xl font-bold text-animato-secondary mb-3">7. Beveiliging</h2>
-              <p>Wij nemen passende technische en organisatorische maatregelen om uw persoonsgegevens te beveiligen tegen ongeoorloofde toegang, verlies of misbruik. Wachtwoorden worden versleuteld opgeslagen.</p>
-            </section>
-
-            <section>
-              <h2 class="text-2xl font-bold text-animato-secondary mb-3">8. Klachten</h2>
-              <p>Heeft u een klacht over onze verwerking van persoonsgegevens? U kunt contact opnemen met de <a href="https://www.gegevensbeschermingsautoriteit.be" target="_blank" rel="noopener" class="text-animato-primary hover:underline">Gegevensbeschermingsautoriteit (GBA)</a>.</p>
+              <p>Gebruikelijke technische en organisatorische maatregelen om uw persoonsgegevens te beveiligen tegen ongeoorloofde toegang, verlies of misbruik.</p>
             </section>
 
           </div>
@@ -1655,8 +1659,7 @@ app.get('/cookies', async (c) => {
               <p>Heeft u vragen over ons cookiebeleid? Neem gerust contact op:</p>
               <p class="mt-2">
                 <strong>Gemengd Koor Animato</strong><br/>
-                E-mail: <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">gemengdkooranimato@gmail.com</a><br/>
-                Adres: Oppuursdorp 15, 2890 Oppuurs
+                E-mail: <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">gemengdkooranimato@gmail.com</a>
               </p>
             </section>
 

@@ -23,7 +23,24 @@ function getDefaultAvatar(stemgroep: string): string {
 
 // =====================================================
 // HELPER: Calculate streaks for a user
+//
+// Belangrijk: partiële repetities (doelgroep != 'all' / 'SATB' / eigen stem)
+// tellen NIET als gemist — de user werd daar gewoon niet verwacht. We laden
+// dus eerst de user's stemgroep + bestuurstatus en filteren `allRehearsals`
+// op events die voor déze user "verwacht" waren.
 // =====================================================
+function isRehearsalExpected(doelgroep: string | null, stemgroep: string | null, isBestuurslid: boolean): boolean {
+  const d = (doelgroep || 'all').toUpperCase()
+  if (d === 'ALL' || d === 'SATB') return true
+  if (d === 'BESTUUR') return isBestuurslid
+  const sg = (stemgroep || '').toUpperCase()
+  if (!sg) return false  // user heeft geen stemgroep → enkel SATB/all telt
+  if (d === sg) return true
+  if (d === 'SA' && (sg === 'S' || sg === 'A')) return true
+  if (d === 'TB' && (sg === 'T' || sg === 'B')) return true
+  return false
+}
+
 async function calculateStreak(db: D1Database, userId: number): Promise<{ current: number; longest: number; total: number }> {
   // Enkel zelf-gescande check-ins tellen mee voor de streak.
   const checkins = await queryAll<any>(db,
@@ -38,10 +55,23 @@ async function calculateStreak(db: D1Database, userId: number): Promise<{ curren
 
   if (checkins.length === 0) return { current: 0, longest: 0, total: 0 }
 
-  const allRehearsals = await queryAll<any>(db,
-    `SELECT id, start_at FROM events 
+  // Haal user-info op om "verwachte" repetities te bepalen
+  const userInfo = await queryOne<any>(db,
+    `SELECT stemgroep, is_bestuurslid FROM users WHERE id = ?`,
+    [userId]
+  )
+  const stemgroep = userInfo?.stemgroep || null
+  const isBestuurslid = (userInfo?.is_bestuurslid || 0) === 1
+
+  const allRehearsalsRaw = await queryAll<any>(db,
+    `SELECT id, start_at, doelgroep FROM events 
      WHERE type = 'repetitie' AND datetime(start_at) <= datetime('now')
      ORDER BY start_at DESC`
+  )
+  // Filter: alleen repetities die voor deze user verwacht waren.
+  // Een partiële repetitie (bv. enkel sopranen) telt NIET als gemist voor een tenor.
+  const allRehearsals = allRehearsalsRaw.filter((r: any) =>
+    isRehearsalExpected(r.doelgroep, stemgroep, isBestuurslid)
   )
 
   if (allRehearsals.length === 0) return { current: 0, longest: 0, total: checkins.length }
@@ -318,7 +348,7 @@ app.get('/leden/streaks', async (c) => {
   // BATCH: 3 queries total instead of N*2 queries
   const [members, allRehearsals, allCheckins] = await Promise.all([
     queryAll<any>(c.env.DB,
-      `SELECT u.id, u.stemgroep, p.voornaam, p.achternaam, p.foto_url,
+      `SELECT u.id, u.stemgroep, u.is_bestuurslid, p.voornaam, p.achternaam, p.foto_url,
               COUNT(qc.id) as total_checkins
        FROM users u
        LEFT JOIN profiles p ON p.user_id = u.id
@@ -328,7 +358,7 @@ app.get('/leden/streaks', async (c) => {
        ORDER BY total_checkins DESC`
     ),
     queryAll<any>(c.env.DB,
-      `SELECT id, start_at FROM events WHERE type = 'repetitie' AND datetime(start_at) <= datetime('now') ORDER BY start_at DESC`
+      `SELECT id, start_at, doelgroep FROM events WHERE type = 'repetitie' AND datetime(start_at) <= datetime('now') ORDER BY start_at DESC`
     ),
     queryAll<any>(c.env.DB,
       `SELECT qc.user_id, qc.event_id FROM qr_checkins qc JOIN events e ON e.id = qc.event_id
@@ -344,15 +374,18 @@ app.get('/leden/streaks', async (c) => {
   }
 
   // Calculate streaks in-memory (zero extra queries)
-  function calcStreakFast(userId: number): { current: number; longest: number; total: number } {
+  // Partiële repetities (doelgroep != all/SATB en niet voor user's stem) tellen
+  // niet als gemist — we filteren `allRehearsals` per user.
+  function calcStreakFast(userId: number, stemgroep: string | null, isBestuurslid: boolean): { current: number; longest: number; total: number } {
     const userCheckins = checkinsByUser[userId]
     if (!userCheckins || userCheckins.size === 0) return { current: 0, longest: 0, total: 0 }
+    const relevant = allRehearsals.filter((r: any) => isRehearsalExpected(r.doelgroep, stemgroep, isBestuurslid))
     let current = 0
-    for (const r of allRehearsals) {
+    for (const r of relevant) {
       if (userCheckins.has(r.id)) current++; else break
     }
     let longest = 0, temp = 0
-    for (const r of allRehearsals) {
+    for (const r of relevant) {
       if (userCheckins.has(r.id)) { temp++; longest = Math.max(longest, temp) } else { temp = 0 }
     }
     return { current, longest, total: userCheckins.size }
@@ -360,7 +393,7 @@ app.get('/leden/streaks', async (c) => {
 
   const leaderboard: any[] = []
   for (const m of members) {
-    const streak = calcStreakFast(m.id)
+    const streak = calcStreakFast(m.id, m.stemgroep, (m.is_bestuurslid || 0) === 1)
     if (streak.total > 0 || m.id === user.id) {
       leaderboard.push({ ...m, streak, isMe: m.id === user.id })
     }

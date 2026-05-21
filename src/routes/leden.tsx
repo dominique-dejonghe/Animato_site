@@ -148,12 +148,14 @@ app.get('/leden', async (c) => {
      JOIN pieces pi ON pi.id = m.piece_id
      JOIN works w ON w.id = pi.work_id
      WHERE m.is_actief = 1
-       AND (m.stem = ? OR m.stem = 'SATB' OR m.stem = 'algemeen')
+       AND (m.stem = ? OR m.stem = 'SATB' OR m.stem = 'algemeen'
+            OR (m.stem = 'SA' AND ? IN ('S','A'))
+            OR (m.stem = 'TB' AND ? IN ('T','B')))
        AND (m.zichtbaar_voor = 'alle_leden' OR 
             (m.zichtbaar_voor = 'stem_specifiek' OR m.zichtbaar_voor = 'eigen_stem'))
      ORDER BY m.created_at DESC
      LIMIT 5`,
-    [user.stemgroep || 'SATB']
+    [user.stemgroep || 'SATB', user.stemgroep || '', user.stemgroep || '']
   )
 
   // Fetch enabled modules for conditional rendering
@@ -787,6 +789,7 @@ app.get('/leden', async (c) => {
               { key: 'polls',        href: '/leden/polls',         icon: 'fas fa-poll',         iconBg: 'bg-green-100',                     iconColor: 'text-green-600 text-xl',       title: 'Polls',          desc: 'Stem mee!',                     border: '' },
               { key: 'voorstellen',  href: '/leden/voorstellen',   icon: 'fas fa-lightbulb',    iconBg: 'bg-yellow-100',                    iconColor: 'text-yellow-600 text-xl',      title: 'Voorstellen',    desc: 'Deel je ideeën',                border: '' },
               { key: null,           href: '/leden/streaks',       icon: null,                  iconBg: 'bg-orange-100',                    iconColor: '',                             title: 'Streaks',        desc: 'Aanwezigheid & badges',         border: 'border-2 border-orange-200', emoji: '🔥' },
+              { key: null,           href: '/leden/reglementen',   icon: 'fas fa-scroll',       iconBg: 'bg-amber-100',                     iconColor: 'text-amber-700 text-xl',       title: 'Reglementen',    desc: 'Koor-kompas & afspraken',       border: '' },
               { key: 'voice_analyzer', href: '/stem-test',         icon: 'fas fa-microphone',   iconBg: 'bg-purple-100',                    iconColor: 'text-purple-600 text-xl',      title: 'Stem Test',      desc: 'Test je stembereik',            border: '' },
               { key: null,           href: '/leden/profiel',       icon: 'fas fa-id-card',      iconBg: 'bg-animato-primary bg-opacity-10', iconColor: 'text-animato-primary text-xl', title: 'Mijn profiel',   desc: 'Persoonsgegevens bewerken',     border: '', isProfile: true },
             ]
@@ -4474,11 +4477,13 @@ app.get('/leden/materiaal', async (c) => {
      LEFT JOIN (SELECT material_id, COUNT(*) as view_count FROM material_views GROUP BY material_id) vc ON vc.material_id = m.id
      LEFT JOIN (SELECT material_id, 1 as has_viewed FROM material_views WHERE user_id = ? GROUP BY material_id) uv ON uv.material_id = m.id
      WHERE m.is_actief = 1
-       AND (m.stem = ? OR m.stem = 'SATB' OR m.stem = 'algemeen')
+       AND (m.stem = ? OR m.stem = 'SATB' OR m.stem = 'algemeen'
+            OR (m.stem = 'SA' AND ? IN ('S','A'))
+            OR (m.stem = 'TB' AND ? IN ('T','B')))
        AND (m.zichtbaar_voor = 'alle_leden' OR
             (m.zichtbaar_voor = 'stem_specifiek' OR m.zichtbaar_voor = 'eigen_stem'))
      ORDER BY w.titel ASC, pi.nummer ASC, m.type ASC`,
-    [user.id, user.stemgroep || 'SATB']
+    [user.id, user.stemgroep || 'SATB', user.stemgroep || '', user.stemgroep || '']
   )
 
   // Helper: determine icon + label + style per material type/url
@@ -4933,6 +4938,7 @@ app.get('/leden/smoelenboek', async (c) => {
   // Eigen profiel ziet altijd z'n eigen status (anders verwarrend).
   let query = `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio, p.favoriete_werk,
             p.toon_email, p.toon_telefoon, u.email, p.telefoon,
+            u.is_bestuurslid, p.bestuurs_functie,
             CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite,
             COUNT(qc.id) as total_checkins,
             CASE
@@ -5215,6 +5221,12 @@ app.get('/leden/smoelenboek', async (c) => {
                                   )}
                                 </div>
                                 <h3 class="font-bold text-gray-900 text-lg group-hover:text-animato-primary transition-colors">{m.voornaam} {m.achternaam}</h3>
+                                {m.is_bestuurslid === 1 && (
+                                  <div class="mt-2 inline-flex items-center gap-1 px-2.5 py-0.5 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold border border-amber-200" title={m.bestuurs_functie || 'Bestuurslid'}>
+                                    <i class="fas fa-crown text-[10px]"></i>
+                                    {m.bestuurs_functie || 'Bestuur'}
+                                  </div>
+                                )}
                                 {m.bio && <p class="text-sm text-gray-500 mt-2 line-clamp-2">{m.bio}</p>}
                               </div>
                           </a>
@@ -5261,9 +5273,14 @@ app.get('/leden/smoelenboek', async (c) => {
                                               )}
                                           </div>
                                           <div class="ml-4">
-                                              <div class="text-sm font-medium text-gray-900 flex items-center gap-2">
+                                              <div class="text-sm font-medium text-gray-900 flex items-center gap-2 flex-wrap">
                                                 {m.voornaam} {m.achternaam}
                                                 {m.is_online === 1 && <span class="inline-block w-2 h-2 bg-green-500 rounded-full" aria-hidden="true"></span>}
+                                                {m.is_bestuurslid === 1 && (
+                                                  <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full text-[10px] font-semibold border border-amber-200" title={m.bestuurs_functie || 'Bestuurslid'}>
+                                                    <i class="fas fa-crown text-[9px]"></i>{m.bestuurs_functie || 'Bestuur'}
+                                                  </span>
+                                                )}
                                               </div>
                                               <div class="text-sm text-gray-500">{m.bio ? m.bio.substring(0, 30) + '...' : ''}</div>
                                           </div>
@@ -5348,6 +5365,7 @@ app.get('/leden/smoelenboek/:id', async (c) => {
     `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio, 
             p.favoriete_werk, p.favoriete_genre, p.favoriete_componist, p.instrument, p.jaren_in_koor, p.zanger_type,
             p.toon_email, p.toon_telefoon, u.email, p.telefoon, p.adres, u.created_at, p.geboortedatum, p.lid_sinds,
+            u.is_bestuurslid, p.bestuurs_functie,
             CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite
      FROM users u
      JOIN profiles p ON u.id = p.user_id
@@ -5456,7 +5474,15 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                                 <img src={member.foto_url || getDefaultAvatar(member.stemgroep)} class="w-full h-full object-cover" alt={member.voornaam} id="profile-photo-thumb" />
                             </div>
                             <div class="mt-4 md:mt-0 md:ml-6 flex-1">
-                                <h1 class="text-3xl font-bold text-gray-900">{member.voornaam} {member.achternaam}</h1>
+                                <div class="flex items-center gap-3 flex-wrap">
+                                  <h1 class="text-3xl font-bold text-gray-900">{member.voornaam} {member.achternaam}</h1>
+                                  {member.is_bestuurslid === 1 && (
+                                    <span class="inline-flex items-center gap-1.5 px-3 py-1 bg-gradient-to-r from-amber-100 to-yellow-100 text-amber-800 rounded-full text-sm font-semibold border border-amber-300 shadow-sm" title={member.bestuurs_functie || 'Bestuurslid'}>
+                                      <i class="fas fa-crown text-amber-600"></i>
+                                      {member.bestuurs_functie || 'Bestuurslid'}
+                                    </span>
+                                  )}
+                                </div>
                                 <p class="text-gray-600 flex items-center mt-1">
                                     <span class={`inline-block w-3 h-3 rounded-full mr-2 ${
                                         member.stemgroep === 'S' ? 'bg-pink-500' : 
@@ -6358,6 +6384,103 @@ app.post('/api/leden/materiaal/print-aanvraag', async (c) => {
     console.error('Print request error:', error)
     return c.redirect('/leden/materiaal?error=print_failed')
   }
+})
+
+// =====================================================
+// /leden/reglementen — Reglementen & documenten voor leden
+//
+// Toont een lijst van alle actieve documenten uit reglementen_documenten.
+// Admins kunnen deze beheren via /admin/reglementen.
+// =====================================================
+app.get('/leden/reglementen', async (c) => {
+  const user = c.get('user') as SessionUser
+  const isAdmin = user.role === 'admin' || user.role === 'bestuur' || (user as any).is_bestuurslid === 1
+
+  const docs = await queryAll<any>(c.env.DB,
+    `SELECT id, titel, beschrijving, url, icoon, volgorde
+     FROM reglementen_documenten
+     WHERE is_actief = 1
+     ORDER BY volgorde ASC, created_at DESC`
+  ).catch(() => [])
+
+  return c.html(
+    <Layout title="Reglementen & Documenten" user={user} impersonating={!!(c.get('impersonating' as any))} breadcrumbs={[{label: 'Leden', href: '/leden'}, {label: 'Reglementen', href: '#'}]}>
+      <div class="py-12 bg-gray-50 min-h-screen">
+        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div class="mb-4">
+            <a href="/leden" class="inline-flex items-center text-sm text-animato-primary hover:underline font-semibold">
+              <i class="fas fa-arrow-left mr-2"></i> Terug naar dashboard
+            </a>
+          </div>
+
+          <div class="flex items-center justify-between mb-8 flex-wrap gap-4">
+            <div>
+              <h1 class="text-3xl font-bold text-gray-900 flex items-center gap-3">
+                <i class="fas fa-scroll text-amber-600"></i>
+                Reglementen & Documenten
+              </h1>
+              <p class="text-gray-600 mt-2">
+                Alle nuttige documenten over de werking en afspraken van het koor.
+              </p>
+            </div>
+            {isAdmin && (
+              <a href="/admin/reglementen" class="inline-flex items-center gap-2 px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm">
+                <i class="fas fa-cog"></i> Beheren
+              </a>
+            )}
+          </div>
+
+          {docs.length === 0 ? (
+            <div class="bg-white rounded-xl shadow-sm p-12 text-center">
+              <i class="fas fa-folder-open text-6xl text-gray-300 mb-4"></i>
+              <h3 class="text-xl font-semibold text-gray-700 mb-2">Nog geen documenten beschikbaar</h3>
+              <p class="text-gray-500 mb-4">
+                Het bestuur heeft nog geen reglementen of documenten geüpload.
+              </p>
+              {isAdmin && (
+                <a href="/admin/reglementen" class="inline-flex items-center gap-2 px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm">
+                  <i class="fas fa-plus"></i> Document toevoegen
+                </a>
+              )}
+            </div>
+          ) : (
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {docs.map((d: any) => (
+                <a
+                  href={d.url}
+                  target="_blank"
+                  rel="noopener"
+                  class="group bg-white rounded-xl shadow-sm hover:shadow-lg transition p-6 border border-gray-100 flex items-start gap-4"
+                >
+                  <div class="flex-shrink-0 w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center group-hover:bg-amber-200 transition">
+                    <i class={`fas ${d.icoon || 'fa-file-pdf'} text-amber-700 text-xl`}></i>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <h3 class="font-bold text-gray-900 group-hover:text-animato-primary transition">
+                      {d.titel}
+                    </h3>
+                    {d.beschrijving && (
+                      <p class="text-sm text-gray-600 mt-1">{d.beschrijving}</p>
+                    )}
+                    <div class="mt-2 text-xs text-animato-primary font-medium inline-flex items-center gap-1">
+                      <i class="fas fa-external-link-alt"></i> Openen
+                    </div>
+                  </div>
+                </a>
+              ))}
+            </div>
+          )}
+
+          <div class="mt-12 pt-6 border-t border-gray-200 text-sm text-gray-500">
+            <p>
+              <i class="fas fa-info-circle mr-1 text-animato-primary"></i>
+              Heb je vragen over een reglement? Neem contact op via <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">gemengdkooranimato@gmail.com</a>.
+            </p>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
 })
 
 export default app

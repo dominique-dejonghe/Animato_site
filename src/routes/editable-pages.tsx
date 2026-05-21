@@ -82,6 +82,7 @@ app.use('/:slug', async (c, next) => {
   }
 
   const user = c.get('user') as any
+  const isAdmin = user?.role === 'admin' || user?.role === 'bestuur' || user?.is_bestuurslid === 1
   const titel = page.titel || slug
   const intro = page.intro || ''
   const body = page.body || '<p>Deze pagina wordt nog ingevuld.</p>'
@@ -93,6 +94,18 @@ app.use('/:slug', async (c, next) => {
       <Breadcrumb items={[{ label: titel }]} />
       <div class="py-16 bg-gradient-to-b from-white to-gray-50">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+
+          {isAdmin && (
+            <div class="mb-6 flex justify-end">
+              <a
+                href={`/admin/paginas/${slug}`}
+                class="inline-flex items-center gap-2 px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm shadow-sm"
+                title="Pagina bewerken in beheerders-modus"
+              >
+                <i class="fas fa-edit"></i> Pagina bewerken
+              </a>
+            </div>
+          )}
 
           {page.hero_image && (
             <div class="mb-8 rounded-2xl overflow-hidden shadow-lg">

@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { getCookie } from 'hono/cookie'
-import { verifyToken } from '../utils/auth'
+import { verifyToken, isAdmin } from '../utils/auth'
 import { execute, queryOne, queryAll } from '../utils/db'
 import type { Bindings } from '../types'
 
@@ -207,10 +207,18 @@ app.post('/api/feedback/:id/retest-response', async (c) => {
   )
 
   if (!feedback) return c.json({ error: 'Not found' }, 404)
-  if (feedback.user_id !== user.id) return c.json({ error: 'Forbidden' }, 403)
-  
-  // Only allow response when status is 'hertesten'
-  if (feedback.status !== 'hertesten') {
+
+  // Admins/moderators mogen elk item heropenen ("opnieuw programmeren")
+  // ook al staat het op 'resolved' of een andere status. Voor gewone
+  // melders blijft de strikte check: alleen eigen items op 'hertesten'.
+  const adminOverride = isAdmin(user) || user.role === 'moderator'
+  const isOwner = feedback.user_id === user.id
+
+  if (!adminOverride && !isOwner) {
+    return c.json({ error: 'Forbidden' }, 403)
+  }
+
+  if (!adminOverride && feedback.status !== 'hertesten') {
     return c.json({ error: 'Dit item staat niet op hertesten' }, 400)
   }
 

@@ -340,6 +340,56 @@ app.post('/api/admin/feedback/update', async (c) => {
 })
 
 // =============================================================================
+// REOPEN FOR DEV — "Opnieuw programmeren"-flow voor testers/admins
+// =============================================================================
+// Zet een item dat op 'resolved', 'rejected' of 'hertesten' staat terug op 'open'
+// met een verplichte reden, en logt dat als admin-comment zodat de dev meteen
+// ziet wat er nog niet goed was. Lost Dirks bug op: testers konden eerder geen
+// items zelf opnieuw inplannen voor herontwikkeling.
+app.post('/api/admin/feedback/reopen', async (c) => {
+  const user = c.get('user') as SessionUser
+  const body = await c.req.json().catch(() => ({})) as any
+  const id = parseInt(body.id)
+  const reason = ((body.reason as string) || '').trim()
+
+  if (!id) return c.json({ error: 'Geen item-id opgegeven' }, 400)
+
+  const feedback = await queryOne<{ status: string }>(
+    c.env.DB,
+    'SELECT status FROM feedback WHERE id = ?',
+    [id]
+  )
+  if (!feedback) return c.json({ error: 'Item niet gevonden' }, 404)
+
+  // Alleen zinvol als het item al een afgesloten/geteste status had
+  const reopenable = ['resolved', 'rejected', 'hertesten']
+  if (!reopenable.includes(feedback.status)) {
+    return c.json({
+      error: `Item staat op '${feedback.status}' — kan niet heropend worden vanuit deze status. Gebruik de status-dropdown.`
+    }, 400)
+  }
+
+  // 1) Zet status terug op 'open'
+  await execute(
+    c.env.DB,
+    `UPDATE feedback SET status = 'open', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    [id]
+  )
+
+  // 2) Log een admin-comment met de reden (zichtbaar voor melder + dev)
+  const msg = reason
+    ? `🔁 Heropend voor herontwikkeling door ${user.email}: ${reason}`
+    : `🔁 Heropend voor herontwikkeling door ${user.email}.`
+  await execute(
+    c.env.DB,
+    `INSERT INTO feedback_comments (feedback_id, user_id, message, is_admin) VALUES (?, ?, ?, 1)`,
+    [id, user.id, msg]
+  )
+
+  return c.json({ success: true })
+})
+
+// =============================================================================
 // ASSIGN FEEDBACK TO ADMIN (or unassign)
 // =============================================================================
 app.post('/api/admin/feedback/assign', async (c) => {
@@ -1428,6 +1478,17 @@ app.get('/admin/feedback', async (c) => {
                           <i class="fas fa-flask"></i> Markeer als getest
                         </button>
                       )}
+                      {/* Tester-flow: "Opnieuw programmeren" — herzet item naar 'open' zodat dev het oppakt.
+                          Zichtbaar voor admins op alle reeds-afgesloten/geteste statussen. */}
+                      {['resolved', 'rejected', 'hertesten'].includes(item.status) && (
+                        <button
+                          onclick={`reopenForDev(${item.id})`}
+                          class="text-xs px-2 py-1 bg-rose-50 text-rose-700 rounded hover:bg-rose-100 transition border border-rose-200 font-semibold"
+                          title="Het item is nog niet goed — zet terug op 'open' zodat het opnieuw geprogrammeerd wordt"
+                        >
+                          <i class="fas fa-redo"></i> Opnieuw programmeren
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -1604,6 +1665,29 @@ app.get('/admin/feedback', async (c) => {
       {/* JavaScript */}
       <script dangerouslySetInnerHTML={{__html: `
         const loadedConversations = {};
+
+        // ===================== OPNIEUW PROGRAMMEREN =====================
+        // Voor testers/admins: zet een 'resolved'/'rejected'/'hertesten' item
+        // terug op 'open' met een notitie, zodat de dev het opnieuw oppakt.
+        async function reopenForDev(feedbackId) {
+          const reason = prompt('Wat is er nog niet goed?\\n(Verschijnt als notitie bij het item zodat de dev het kan oppakken)');
+          if (reason === null) return; // geannuleerd
+          try {
+            const res = await fetch('/api/admin/feedback/reopen', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ id: feedbackId, reason: (reason || '').trim() })
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              throw new Error(err.error || ('HTTP ' + res.status));
+            }
+            location.reload();
+          } catch(e) {
+            alert('Heropenen mislukt: ' + e.message);
+          }
+        }
 
         // ===================== RETEST MODAL =====================
         let selectedRetestResult = null;

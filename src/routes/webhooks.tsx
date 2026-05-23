@@ -50,22 +50,63 @@ async function finalizeLidgeldNotifications(
 // ==========================================
 // MOLLIE WEBHOOK
 // ==========================================
+//
+// Best-effort diagnostic logging helper. Mag NOOIT de hoofdflow blokkeren —
+// een log-failure mag niet leiden tot een 500 die Mollie laat retryen.
+async function logWebhookCall(
+  db: D1Database,
+  data: {
+    paymentId?: string
+    paymentType?: string
+    mollieStatus?: string
+    localAction?: string
+    httpStatus?: number
+    errorMessage?: string
+    rawBody?: string
+  }
+): Promise<void> {
+  try {
+    await execute(db, `
+      INSERT INTO mollie_webhook_log
+        (payment_id, payment_type, mollie_status, local_action, http_status, error_message, raw_body)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `, [
+      data.paymentId || null,
+      data.paymentType || null,
+      data.mollieStatus || null,
+      data.localAction || null,
+      data.httpStatus ?? null,
+      data.errorMessage || null,
+      (data.rawBody || '').slice(0, 500),
+    ])
+  } catch (e) {
+    // Log-tabel bestaat misschien niet in een dev-DB — slik en negeer
+    console.error('[Mollie webhook] kon log-row niet schrijven:', e)
+  }
+}
+
 app.post('/api/webhooks/mollie', async (c) => {
+  let rawForLog = ''
+  let paymentId = ''
   try {
     // Mollie stuurt application/x-www-form-urlencoded met één veld: id
     // We ondersteunen ook JSON voor eigen/test-calls
-    let paymentId = ''
     const contentType = c.req.header('content-type') || ''
     if (contentType.includes('application/json')) {
       const json = await c.req.json().catch(() => ({} as any))
       paymentId = String((json as any).id || '')
+      rawForLog = JSON.stringify(json).slice(0, 500)
     } else {
       const body = await c.req.parseBody().catch(() => ({} as any))
       paymentId = String((body as any).id || '')
+      rawForLog = `id=${paymentId}`
     }
 
     if (!paymentId) {
       console.warn('[Mollie webhook] Geen payment ID in request')
+      await logWebhookCall(c.env.DB, {
+        errorMessage: 'No payment ID in request', httpStatus: 400, rawBody: rawForLog
+      })
       return c.json({ error: 'No payment ID' }, 400)
     }
 
@@ -75,6 +116,10 @@ app.post('/api/webhooks/mollie', async (c) => {
     const molliePayment = await getMolliePayment(await getMollieApiKey(c.env), paymentId)
     if (!molliePayment) {
       console.warn('[Mollie webhook] Payment niet gevonden bij Mollie:', paymentId)
+      await logWebhookCall(c.env.DB, {
+        paymentId, errorMessage: 'Payment not found at Mollie',
+        httpStatus: 404, rawBody: rawForLog
+      })
       return c.json({ error: 'Payment not found' }, 404)
     }
 
@@ -145,6 +190,11 @@ app.post('/api/webhooks/mollie', async (c) => {
         await finalizeLidgeldNotifications(c.env.DB, membershipId)
       }
 
+      await logWebhookCall(c.env.DB, {
+        paymentId, paymentType: 'membership', mollieStatus: status,
+        localAction: `membership_${membershipId} -> ${newStatus}`,
+        httpStatus: 200, rawBody: rawForLog,
+      })
       return c.json({ success: true, type: 'membership', status: newStatus })
     }
 
@@ -280,10 +330,23 @@ app.post('/api/webhooks/mollie', async (c) => {
       }
     }
 
+    await logWebhookCall(c.env.DB, {
+      paymentId, paymentType: 'ticket', mollieStatus: status,
+      localAction: `ticket_${ticket.id} -> ${newStatus}`,
+      httpStatus: 200, rawBody: rawForLog,
+    })
     return c.json({ success: true, status: newStatus })
-    
+
   } catch (error) {
     console.error('Webhook error:', error)
+    // Log de fout zodat admins kunnen zien dat Mollie ons WEL bereikte
+    // maar onze code erop crashte. Anders blijft de status onverklaarbaar pending.
+    await logWebhookCall(c.env.DB, {
+      paymentId,
+      errorMessage: ((error as Error).message || 'unknown').slice(0, 500),
+      httpStatus: 500,
+      rawBody: rawForLog,
+    })
     return c.json({ error: (error as Error).message }, 500)
   }
 })

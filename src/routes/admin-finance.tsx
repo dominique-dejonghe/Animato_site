@@ -180,6 +180,9 @@ app.get('/admin/lidgelden', async (c) => {
                   </button>
                 </>
               )}
+              <a href="/admin/mollie-webhook-log" class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-50" title="Bekijk welke webhook-calls Mollie naar ons stuurde (diagnose)">
+                <i class="fas fa-clipboard-list mr-2"></i> Webhook-log
+              </a>
             </div>
           </div>
 
@@ -276,6 +279,16 @@ app.get('/admin/lidgelden', async (c) => {
               Status gesynchroniseerd met Mollie. Actuele Mollie-status: <strong>{c.req.query('mollie_status') || 'onbekend'}</strong>
             </div>
           )}
+          {successMsg === 'bulk_synced' && (
+            <div class="bg-cyan-50 border border-cyan-200 rounded-lg p-3 mb-4 text-sm text-cyan-800">
+              <i class="fas fa-sync mr-2"></i>
+              <strong>Bulk-sync klaar.</strong> {' '}
+              {c.req.query('checked') || '0'} lidgelden bevraagd bij Mollie:{' '}
+              <span class="font-bold text-green-700">{c.req.query('paid') || '0'} alsnog op &lsquo;paid&rsquo;</span>,{' '}
+              {c.req.query('unchanged') || '0'} nog steeds open,{' '}
+              {c.req.query('errors') || '0'} fouten.
+            </div>
+          )}
           {errorMsg === 'sync_failed' && (
             <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
               <i class="fas fa-exclamation-triangle mr-2"></i>
@@ -365,11 +378,25 @@ app.get('/admin/lidgelden', async (c) => {
                     <div class="bg-green-500 h-1.5 rounded-full" style={`width: ${paidPct}%`}></div>
                   </div>
                 </a>
-                <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=pending`} class={`bg-white p-4 rounded shadow border-l-4 border-amber-500 hover:bg-amber-50 transition cursor-pointer ${filter === 'pending' ? 'ring-2 ring-amber-400' : ''}`}>
-                  <p class="text-gray-500 text-sm">Openstaand ({pending.length})</p>
-                  <p class="text-2xl font-bold">€ {openAmount.toFixed(2)}</p>
-                  <p class="text-xs text-gray-400 mt-1">Gemiddeld {avgDaysOpen} dagen open</p>
-                </a>
+                <div class={`bg-white p-4 rounded shadow border-l-4 border-amber-500 hover:bg-amber-50 transition ${filter === 'pending' ? 'ring-2 ring-amber-400' : ''}`}>
+                  <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=pending`} class="block cursor-pointer">
+                    <p class="text-gray-500 text-sm">Openstaand ({pending.length})</p>
+                    <p class="text-2xl font-bold">€ {openAmount.toFixed(2)}</p>
+                    <p class="text-xs text-gray-400 mt-1">Gemiddeld {avgDaysOpen} dagen open</p>
+                  </a>
+                  {/* Bulk-sync knop: bevraagt Mollie voor ALLE pending items in dit seizoen.
+                      Lost het 'webhook kwam nooit door'-probleem op in één klik. */}
+                  {pending.length > 0 && (
+                    <form action="/api/admin/lidgelden/sync-mollie-bulk" method="POST" class="mt-2"
+                          onsubmit={`return confirm('Bevraag Mollie voor alle ${pending.length} openstaande lidgelden? Items die intussen bij Mollie betaald zijn worden hier op \\'paid\\' gezet.');`}>
+                      <input type="hidden" name="year_id" value={activeSeason.id} />
+                      <button type="submit" class="text-xs bg-amber-600 hover:bg-amber-700 text-white px-2 py-1 rounded inline-flex items-center gap-1 transition"
+                              title="Loop door alle openstaande lidgelden en check bij Mollie of er intussen betaald is">
+                        <i class="fas fa-sync-alt"></i> Sync alle bij Mollie
+                      </button>
+                    </form>
+                  )}
+                </div>
                 <div class="bg-white p-4 rounded shadow border-l-4 border-gray-500 flex flex-col justify-center items-start relative" id="bulkGenerateCard">
                    <div class="flex items-center justify-between w-full mb-1">
                      <p class="text-gray-500 text-sm">Actie</p>
@@ -1101,6 +1128,83 @@ app.post('/api/admin/lidgelden/generate-bulk', async (c) => {
     return c.redirect('/admin/lidgelden?season_id=' + yearId + '&success=bulk_generated&count=' + users.length)
 })
 
+// BULK SYNC: loop over alle pending lidgelden met een echte Mollie-ID en
+// bevraag elk individueel bij Mollie. Stale 'pending' rijen — waar de webhook
+// nooit doorkwam — worden zo alsnog op 'paid' gezet zodra Mollie bevestigt.
+// Limiet: 50 per call om timeouts te voorkomen (Cloudflare CPU-budget).
+app.post('/api/admin/lidgelden/sync-mollie-bulk', async (c) => {
+  const db = c.env.DB
+  const body = await c.req.parseBody().catch(() => ({} as any))
+  const yearId = String((body as any).year_id || '')
+
+  // Pak alle pending met echte Mollie-id (niet MOCK)
+  let q = `SELECT um.id, um.user_id, um.year_id, um.amount, um.mollie_payment_id, my.season
+           FROM user_memberships um
+           JOIN membership_years my ON my.id = um.year_id
+           WHERE um.status = 'pending'
+             AND um.mollie_payment_id IS NOT NULL
+             AND um.mollie_payment_id NOT LIKE 'tr_MOCK_%'`
+  const params: any[] = []
+  if (yearId) { q += ` AND um.year_id = ?`; params.push(yearId) }
+  q += ` ORDER BY um.created_at DESC LIMIT 50`
+
+  const rows = await queryAll<any>(db, q, params)
+
+  const { getMolliePayment } = await import('../utils/mollie')
+  const apiKey = await getMollieApiKey(c.env)
+
+  let paidCount = 0, errorCount = 0, unchanged = 0
+  for (const m of rows) {
+    try {
+      const pmt = await getMolliePayment(apiKey, m.mollie_payment_id)
+      if (!pmt) { errorCount++; continue }
+
+      const newStatus = pmt.status === 'paid' ? 'paid'
+                      : pmt.status === 'open' ? 'pending'
+                      : pmt.status === 'pending' ? 'pending'
+                      : 'cancelled'
+
+      if (newStatus === 'pending') { unchanged++; continue }
+
+      await execute(db,
+        `UPDATE user_memberships
+         SET status = ?, paid_at = CASE WHEN ? = 'paid' AND paid_at IS NULL THEN CURRENT_TIMESTAMP ELSE paid_at END
+         WHERE id = ?`,
+        [newStatus, newStatus, m.id])
+
+      if (newStatus === 'paid') {
+        paidCount++
+        // Sluit lidgeld-notifs + bevestiging (zoals webhook normaal zou doen)
+        await execute(db,
+          `UPDATE notifications
+           SET is_gelezen = 1, gelezen_at = CURRENT_TIMESTAMP
+           WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
+          [m.user_id])
+        const bedrag = m.amount ? `€ ${Number(m.amount).toFixed(2)}` : ''
+        await createNotification(
+          db, m.user_id, 'lidgeld',
+          `Lidgeld ${m.season} ontvangen — bedankt! 🎵`,
+          bedrag ? `We hebben ${bedrag} ontvangen. Je lidmaatschap is actief.` : 'Je lidmaatschap is actief.',
+          '/leden/profiel#lidgeld'
+        )
+      }
+    } catch (e) {
+      errorCount++
+      console.error(`bulk-sync failed for membership ${m.id}:`, e)
+    }
+  }
+
+  const params2 = new URLSearchParams({
+    success: 'bulk_synced',
+    paid: String(paidCount),
+    unchanged: String(unchanged),
+    errors: String(errorCount),
+    checked: String(rows.length),
+  })
+  if (yearId) params2.set('season_id', yearId)
+  return c.redirect(`/admin/lidgelden?${params2.toString()}`)
+})
+
 // Sync met Mollie — query de actuele payment status en update lokaal
 // Handig wanneer de webhook niet aangekomen is (ontbrekende DNS, firewall,
 // of Mollie heeft hem nog niet getriggerd in test-mode)
@@ -1570,6 +1674,136 @@ app.post('/api/admin/lidgelden/bulk-remind', async (c) => {
   }
 
   return c.redirect(`/admin/lidgelden?season_id=${seasonId}&success=bulk_reminded&count=${sent}${failed > 0 ? '&failed=' + failed : ''}`)
+})
+
+// =============================================================================
+// MOLLIE WEBHOOK LOG — diagnose-pagina
+// =============================================================================
+// Toont de laatste 100 webhook-calls die we van Mollie ontvingen. Cruciaal
+// voor het beantwoorden van "waarom blijft mijn lidgeld pending?":
+// - Lege tabel = Mollie bereikt ons NIET (DNS/firewall/wrong webhook URL)
+// - Wel rows maar errors = onze handler crasht
+// - Rows met paid + matching action = alles werkt zoals het hoort
+app.get('/admin/mollie-webhook-log', async (c) => {
+  const user = c.get('user') as any
+  const db = c.env.DB
+
+  const rows = await queryAll<any>(db,
+    `SELECT id, payment_id, payment_type, mollie_status, local_action,
+            http_status, error_message, raw_body, created_at
+     FROM mollie_webhook_log
+     ORDER BY created_at DESC, id DESC
+     LIMIT 100`
+  )
+
+  const totalToday = await queryOne<any>(db,
+    `SELECT COUNT(*) as n FROM mollie_webhook_log WHERE created_at >= datetime('now', '-1 day')`
+  )
+  const errorsToday = await queryOne<any>(db,
+    `SELECT COUNT(*) as n FROM mollie_webhook_log
+     WHERE created_at >= datetime('now', '-1 day') AND (http_status >= 400 OR error_message IS NOT NULL)`
+  )
+
+  return c.html(
+    <Layout title="Mollie Webhook Log" user={user}>
+      <div class="flex min-h-screen bg-gray-50">
+        <AdminSidebar activeSection="finance" />
+        <div class="flex-1 p-8">
+          <div class="flex justify-between items-center mb-6">
+            <div>
+              <h1 class="text-3xl font-bold text-gray-900 flex items-center gap-3">
+                <i class="fas fa-clipboard-list text-animato-primary"></i>
+                Mollie Webhook Log
+              </h1>
+              <p class="text-gray-600 mt-1">Diagnose: bereikt Mollie ons met betalingsbevestigingen?</p>
+            </div>
+            <a href="/admin/lidgelden" class="text-sm text-gray-600 hover:text-gray-800">
+              <i class="fas fa-arrow-left mr-1"></i> Terug naar Lidgelden
+            </a>
+          </div>
+
+          {/* Stats */}
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="bg-white p-4 rounded shadow border-l-4 border-blue-500">
+              <p class="text-gray-500 text-sm">Calls vandaag</p>
+              <p class="text-2xl font-bold">{totalToday?.n || 0}</p>
+            </div>
+            <div class={`bg-white p-4 rounded shadow border-l-4 ${(errorsToday?.n || 0) > 0 ? 'border-red-500' : 'border-green-500'}`}>
+              <p class="text-gray-500 text-sm">Errors vandaag</p>
+              <p class="text-2xl font-bold">{errorsToday?.n || 0}</p>
+            </div>
+            <div class="bg-white p-4 rounded shadow border-l-4 border-gray-500">
+              <p class="text-gray-500 text-sm">Webhook URL</p>
+              <p class="text-xs font-mono break-all text-gray-700">https://animato-live.pages.dev/api/webhooks/mollie</p>
+            </div>
+          </div>
+
+          {/* Diagnosis hints */}
+          {(!rows || rows.length === 0) && (
+            <div class="bg-amber-50 border border-amber-300 rounded-lg p-4 mb-6">
+              <h3 class="font-semibold text-amber-900 mb-2"><i class="fas fa-exclamation-triangle mr-2"></i>Nog geen webhook-calls ontvangen</h3>
+              <p class="text-sm text-amber-800 mb-2">Mogelijke oorzaken:</p>
+              <ul class="text-sm text-amber-800 list-disc list-inside space-y-1">
+                <li>Er werd nog geen echte betaling via Mollie gestart sinds de live-key actief is</li>
+                <li>De Mollie betaling is wel gestart maar nog niet afgerond door de klant</li>
+                <li>Mollie's test-betalingen worden pas afgerond na klikken in het test-dashboard</li>
+                <li>Webhook-URL onbereikbaar voor Mollie (zou bij Mollie zichtbaar zijn als 'failed webhook')</li>
+              </ul>
+              <p class="text-sm text-amber-800 mt-3">
+                <strong>Tip:</strong> doe een echte test-betaling van 0,01 € met een live-key om dit te valideren.
+              </p>
+            </div>
+          )}
+
+          {/* Log table */}
+          <div class="bg-white rounded shadow overflow-hidden">
+            <table class="w-full text-sm">
+              <thead class="bg-gray-50 border-b">
+                <tr>
+                  <th class="text-left px-4 py-2 font-semibold text-gray-700">Tijd</th>
+                  <th class="text-left px-4 py-2 font-semibold text-gray-700">Payment ID</th>
+                  <th class="text-left px-4 py-2 font-semibold text-gray-700">Type</th>
+                  <th class="text-left px-4 py-2 font-semibold text-gray-700">Mollie status</th>
+                  <th class="text-left px-4 py-2 font-semibold text-gray-700">Lokale actie</th>
+                  <th class="text-center px-4 py-2 font-semibold text-gray-700">HTTP</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(rows || []).map((r: any) => (
+                  <tr class={`border-b ${(r.http_status >= 400 || r.error_message) ? 'bg-red-50' : 'hover:bg-gray-50'}`}>
+                    <td class="px-4 py-2 text-xs text-gray-600 whitespace-nowrap">{r.created_at}</td>
+                    <td class="px-4 py-2 font-mono text-xs">{r.payment_id || '—'}</td>
+                    <td class="px-4 py-2 text-xs">{r.payment_type || '—'}</td>
+                    <td class="px-4 py-2 text-xs">
+                      {r.mollie_status === 'paid' && <span class="px-2 py-0.5 bg-green-100 text-green-700 rounded">paid</span>}
+                      {r.mollie_status === 'open' && <span class="px-2 py-0.5 bg-amber-100 text-amber-700 rounded">open</span>}
+                      {r.mollie_status && r.mollie_status !== 'paid' && r.mollie_status !== 'open' && (
+                        <span class="px-2 py-0.5 bg-gray-100 text-gray-700 rounded">{r.mollie_status}</span>
+                      )}
+                      {!r.mollie_status && <span class="text-gray-400">—</span>}
+                    </td>
+                    <td class="px-4 py-2 text-xs">
+                      {r.local_action || (r.error_message ? <span class="text-red-700">{r.error_message}</span> : '—')}
+                    </td>
+                    <td class="px-4 py-2 text-center">
+                      <span class={`text-xs font-mono ${r.http_status >= 400 ? 'text-red-600 font-bold' : 'text-gray-600'}`}>
+                        {r.http_status || '—'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <p class="text-xs text-gray-500 mt-4">
+            <i class="fas fa-info-circle mr-1"></i>
+            Toont de laatste 100 calls. Calls worden permanent bewaard tot manuele cleanup.
+          </p>
+        </div>
+      </div>
+    </Layout>
+  )
 })
 
 export default app

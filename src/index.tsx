@@ -148,6 +148,13 @@ app.route('/', welkomRoutes)
 // MOET voor ledenRoutes om dezelfde reden
 app.route('/', newMembersRoutes)
 
+// ⚠️ KRITIEK: webhook routes MOETEN voor ledenRoutes staan.
+// /api/webhooks/mollie is een publieke POST endpoint (Mollie heeft géén
+// auth-cookie), maar leden.tsx heeft `app.use('*', requireAuth)` dat
+// elke unmatched route 401-t. Mollie's bevestiging zou verloren gaan en
+// lidgeld-status zou eeuwig op 'pending' blijven. Zie webhooks.tsx.
+app.route('/', webhooksRoutes)
+
 // Leden portal routes
 app.route('/', ledenRoutes)
 
@@ -189,9 +196,9 @@ app.route('/', quizRoutes)
 app.route('/', adminAnalyticsRoutes)
 app.route('/', adminR2MigrateRoutes)
 
-// Tickets & Webhooks
+// Tickets (webhooksRoutes is hierboven al gemount vóór ledenRoutes —
+// zie de KRITIEK-comment daar voor uitleg over de Mollie auth-bypass.)
 app.route('/', ticketsRoutes)
-app.route('/', webhooksRoutes)
 
 // Polls & Voting
 app.route('/', pollsRoutes)

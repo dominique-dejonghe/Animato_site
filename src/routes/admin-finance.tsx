@@ -1658,7 +1658,16 @@ app.post('/api/admin/lidgelden/bulk-remind', async (c) => {
       await sendEmail({ to: m.email, subject, html }, c.env.RESEND_API_KEY)
 
       // Notificatie ook in-app
+      // BUG-FIX (Claudine, 23 mei): sluit eerst alle bestaande open lidgeld-notifs
+      // van deze user voordat we een nieuwe maken — anders blijft de oude
+      // staan en krijgt het lid 2 (of meer) "openstaande" meldingen voor
+      // hetzelfde lidgeld.
       try {
+        await execute(db,
+          `UPDATE notifications
+           SET is_gelezen = 1, gelezen_at = CURRENT_TIMESTAMP
+           WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
+          [m.user_id])
         await createNotification(db, m.user_id, 'lidgeld',
           filter === 'overdue' ? '⏰ Herinnering lidgeld open' : 'Lidgeld betaalverzoek verstuurd',
           `Bekijk je mailbox voor de betaallink — bedrag €${(m.amount||0).toFixed(2)}`,

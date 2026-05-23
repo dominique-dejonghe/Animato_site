@@ -860,6 +860,7 @@ app.get('/contact', async (c) => {
               <h2 class="text-2xl font-bold text-gray-900 mb-6">Contactgegevens</h2>
               
               <div class="space-y-6">
+                {/* Email */}
                 <div class="flex items-start">
                   <div class="flex-shrink-0">
                     <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center">
@@ -874,15 +875,37 @@ app.get('/contact', async (c) => {
                   </div>
                 </div>
 
+                {/* Repetitie-adres (Sopper) — toegevoegd op verzoek van Dirk, 23 mei 2026 */}
                 <div class="flex items-start">
                   <div class="flex-shrink-0">
                     <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center">
-                      <i class="fas fa-clock text-animato-primary text-xl"></i>
+                      <i class="fas fa-music text-animato-primary text-xl"></i>
                     </div>
                   </div>
                   <div class="ml-4">
-                    <h3 class="font-semibold text-gray-900">Repetities</h3>
-                    <p class="text-gray-600">Elke woensdag van 19:30 tot 21:30 uur</p>
+                    <h3 class="font-semibold text-gray-900">Repetitie-adres</h3>
+                    <p class="text-gray-700">Zaal De Sopper</p>
+                    <p class="text-gray-600">Oppuursdorp 15</p>
+                    <p class="text-gray-600">2890 Oppuurs</p>
+                    <p class="text-sm text-gray-500 mt-1">
+                      <i class="fas fa-clock text-animato-primary mr-1"></i>
+                      Elke woensdag van 19:30 tot 21:30 uur
+                    </p>
+                  </div>
+                </div>
+
+                {/* Postadres / per adres — officiële correspondentie */}
+                <div class="flex items-start">
+                  <div class="flex-shrink-0">
+                    <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center">
+                      <i class="fas fa-mail-bulk text-animato-primary text-xl"></i>
+                    </div>
+                  </div>
+                  <div class="ml-4">
+                    <h3 class="font-semibold text-gray-900">Postadres</h3>
+                    <p class="text-gray-700">Gemengd Koor Animato vzw</p>
+                    <p class="text-gray-600">p.a. Kattestraat 92</p>
+                    <p class="text-gray-600">2890 Puurs-Sint-Amands</p>
                   </div>
                 </div>
               </div>

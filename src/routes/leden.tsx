@@ -2736,6 +2736,39 @@ app.get('/leden/profiel', async (c) => {
                 else if (h === 'notificaties-alles') selectTab('alles');
                 else if (h === 'notificaties') selectTab('open');
 
+                // BUG-FIX (Claudine, 23 mei): wanneer #lidgeld in de URL staat en
+                // de gebruiker al op /leden/profiel is, doet de browser geen
+                // scroll-jump op mobiel — het ziet eruit alsof er "geladen
+                // wordt zonder te voltooien". Force-scroll + flash om feedback
+                // te geven dat de actie wel degelijk lukte.
+                function flashScrollTo(id) {
+                  var el = document.getElementById(id);
+                  if (!el) return;
+                  try {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  } catch(e) {
+                    el.scrollIntoView();
+                  }
+                  el.style.transition = 'box-shadow .4s ease';
+                  el.style.boxShadow = '0 0 0 4px rgba(0, 169, 206, 0.35)';
+                  setTimeout(function(){
+                    el.style.boxShadow = '';
+                  }, 1400);
+                }
+                if (h === 'lidgeld') {
+                  // Wacht 1 frame zodat layout klaar is voor scroll
+                  setTimeout(function(){ flashScrollTo('lidgeld'); }, 50);
+                }
+                // Vang ook in-page clicks op notif-links af zodat het ook werkt
+                // als de gebruiker al op de pagina is (hash change → geen reload).
+                window.addEventListener('hashchange', function() {
+                  var nh = (window.location.hash || '').replace('#','');
+                  if (nh === 'lidgeld') flashScrollTo('lidgeld');
+                  else if (nh === 'notificaties-archief') selectTab('archief');
+                  else if (nh === 'notificaties-alles') selectTab('alles');
+                  else if (nh === 'notificaties') selectTab('open');
+                });
+
                 // --- Openstaand: X-knop archiveert (fade out + API) ---
                 var openList = document.getElementById('profiel-open-list');
                 function endpointDismiss(type, id) {
@@ -2826,8 +2859,14 @@ app.get('/leden/profiel', async (c) => {
             ` }} />
           </div>
 
-          {/* Membership Status & History */}
-          <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+          {/* Membership Status & History
+              BUG-FIX (Claudine, 23 mei): id="lidgeld" staat NU op de buitenkaart
+              i.p.v. op het conditionele gele "openstaand"-blok. Reden: notifs
+              linken naar /leden/profiel#lidgeld, maar leden zonder pending row
+              hadden geen anchor → klik leek te "laden zonder te voltooien".
+              Door het id op de altijd-aanwezige kaart te zetten, scrollt de
+              klik altijd naar Lidmaatschappen — pending of niet. */}
+          <div class="bg-white rounded-lg shadow-md p-6 mb-6 scroll-mt-24" id="lidgeld">
             <h3 class="text-xl font-bold text-gray-900 mb-4">
               <i class="fas fa-id-card text-animato-secondary mr-2"></i>
               Lidmaatschappen
@@ -2835,7 +2874,7 @@ app.get('/leden/profiel', async (c) => {
             
             {/* Active Membership Status */}
             {activeMembership && activeMembership.is_active && activeMembership.status === 'pending' ? (
-              <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-6 animate-pulse-slow" id="lidgeld">
+              <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-6 animate-pulse-slow">
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div class="flex-1">
                     <div class="flex items-center text-yellow-800 font-bold text-lg mb-2">

@@ -100,6 +100,28 @@ app.get('/admin', async (c) => {
     total_form_submissions: await safeCount(
       `SELECT COUNT(*) as count FROM form_submissions WHERE status = 'nieuw' AND type IN ('word_lid','contact')`
     ),
+    // === Financiën — actief seizoen lidgeld-stats ===
+    open_lidgelden: await safeCount(
+      `SELECT COUNT(*) as count FROM user_memberships um
+       JOIN membership_years my ON my.id = um.year_id
+       WHERE my.is_active = 1 AND um.status = 'pending'`
+    ),
+    // === Donaties — alle paid giften (totaalsom in apart object) ===
+    total_donations_paid: await safeCount(
+      `SELECT COUNT(*) as count FROM donations WHERE status = 'paid'`
+    ),
+  }
+
+  // Donations totaalbedrag (los van count) — defensief
+  let donationsTotalAmount = 0
+  try {
+    const sumRow = await queryOne<any>(
+      c.env.DB,
+      `SELECT COALESCE(SUM(amount), 0) as total FROM donations WHERE status = 'paid'`
+    )
+    donationsTotalAmount = Number(sumRow?.total || 0)
+  } catch (e) {
+    console.error('admin donationsTotalAmount query failed:', e)
   }
 
   // Get recent activity from audit logs — defensief
@@ -393,6 +415,36 @@ app.get('/admin', async (c) => {
               </span>
             </a>
 
+            {/* Financiën & Lidgelden */}
+            <a href="/admin/lidgelden" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg hover:border-emerald-300 transition cursor-pointer group">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Financiën & Lidgelden</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-emerald-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-euro-sign text-emerald-600 text-base"></i>
+                </div>
+              </div>
+              <p class="text-3xl font-bold text-gray-900 leading-none">{stats.open_lidgelden?.count || 0}</p>
+              <p class="text-xs text-gray-500 -mt-1">openstaand actief seizoen</p>
+              <span class="text-xs text-emerald-700 group-hover:underline inline-flex items-center gap-1 font-medium">
+                Beheer lidgelden <i class="fas fa-arrow-right text-xs"></i>
+              </span>
+            </a>
+
+            {/* Donaties & Giften */}
+            <a href="/admin/lidgelden#giften-donaties" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg hover:border-pink-300 transition cursor-pointer group">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Giften & Donaties</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-pink-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-gift text-pink-600 text-base"></i>
+                </div>
+              </div>
+              <p class="text-3xl font-bold text-gray-900 leading-none">€{donationsTotalAmount.toFixed(0)}</p>
+              <p class="text-xs text-gray-500 -mt-1">{stats.total_donations_paid?.count || 0} gift{stats.total_donations_paid?.count === 1 ? '' : 'en'} ontvangen</p>
+              <span class="text-xs text-pink-700 group-hover:underline inline-flex items-center gap-1 font-medium">
+                Beheer giften <i class="fas fa-arrow-right text-xs"></i>
+              </span>
+            </a>
+
             <a href="/admin/audit" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden border-2 border-animato-accent hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Gebruikers Activiteit</p>
@@ -463,6 +515,14 @@ app.get('/admin', async (c) => {
               <a href="/admin/tickets" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-animato-primary hover:bg-gray-50 transition">
                 <i class="fas fa-ticket-alt text-2xl text-purple-600 mb-2"></i>
                 <span class="text-sm font-medium text-gray-700">Ticketing</span>
+              </a>
+              <a href="/admin/lidgelden" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-emerald-400 hover:bg-emerald-50 transition">
+                <i class="fas fa-euro-sign text-2xl text-emerald-600 mb-2"></i>
+                <span class="text-sm font-medium text-gray-700">Lidgelden</span>
+              </a>
+              <a href="/admin/lidgelden#giften-donaties" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-pink-400 hover:bg-pink-50 transition">
+                <i class="fas fa-gift text-2xl text-pink-600 mb-2"></i>
+                <span class="text-sm font-medium text-gray-700">Donaties</span>
               </a>
               <a href="/admin/projects" class="flex flex-col items-center p-4 border-2 border-gray-200 rounded-lg hover:border-animato-primary hover:bg-gray-50 transition">
                 <i class="fas fa-tasks text-2xl text-blue-600 mb-2"></i>

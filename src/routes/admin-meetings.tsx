@@ -923,7 +923,8 @@ app.get('/admin/meetings/:id', async (c) => {
                          </span>
                       </div>
                    </div>
-                   <div class="max-h-72 overflow-y-auto -mx-1 px-1 divide-y divide-gray-50">
+                   {/* #ux: lijst toont min. 10 deelnemers zonder scroll; daarboven scrollt het. */}
+                   <div class="max-h-[36rem] overflow-y-auto -mx-1 px-1 divide-y divide-gray-50">
                       {participants.map((p: any) => {
                          const initials = ((p.voornaam || '?')[0] + (p.achternaam || '?')[0]).toUpperCase()
                          const statusBg =

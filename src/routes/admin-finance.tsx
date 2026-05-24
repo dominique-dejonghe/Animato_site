@@ -623,7 +623,8 @@ app.get('/admin/lidgelden', async (c) => {
               )}
 
               {/* === Giften & Donaties — overzichtsblok === */}
-              <div class="bg-gradient-to-br from-pink-50 to-rose-50 border border-pink-200 p-5 rounded-lg shadow-sm mb-6">
+              {/* id voor deeplink vanaf /admin dashboard tile/snelle-actie */}
+              <div id="giften-donaties" class="bg-gradient-to-br from-pink-50 to-rose-50 border border-pink-200 p-5 rounded-lg shadow-sm mb-6 scroll-mt-24">
                 <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
                   <h3 class="font-bold text-gray-800 text-base flex items-center">
                     <i class="fas fa-gift text-pink-500 mr-2"></i>

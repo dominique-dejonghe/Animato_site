@@ -1657,8 +1657,36 @@ app.post('/api/admin/lidgelden/reset-season', async (c) => {
   const before = await queryOne<any>(db, "SELECT COUNT(*) as c FROM user_memberships WHERE year_id = ?", [seasonId])
   const count = before?.c || 0
 
+  // Verzamel de user_ids die geraakt worden zodat we hun dangling
+  // lidgeld-notifs kunnen opruimen voordat we de memberships zelf wissen.
+  // Zonder deze stap blijven oude "Lidgeld staat open"-notifs hangen na een
+  // reset → leden klikken erop → komen op /leden/profiel#lidgeld → vinden
+  // geen betaalknop want hun row is weg → "kon niet betalen". Bug (Dominique, 23 mei).
+  const affectedUsers = await queryAll<any>(db,
+    "SELECT DISTINCT user_id FROM user_memberships WHERE year_id = ?",
+    [seasonId])
+
   // Verwijder alle memberships voor dit seizoen
   await execute(db, "DELETE FROM user_memberships WHERE year_id = ?", [seasonId])
+
+  // Markeer alle open lidgeld-notifs van deze leden als gelezen — verwijderen
+  // zou hun "Alles"-tab geschiedenis aantasten. is_gelezen=1 houdt ze in archief
+  // maar weg uit de openstaande-widget en de bel-badge.
+  try {
+    if (affectedUsers.length > 0) {
+      const userIds = affectedUsers.map((u: any) => u.user_id)
+      const placeholders = userIds.map(() => '?').join(',')
+      await execute(db,
+        `UPDATE notifications
+         SET is_gelezen = 1, gelezen_at = CURRENT_TIMESTAMP
+         WHERE user_id IN (${placeholders})
+           AND type = 'lidgeld'
+           AND is_gelezen = 0`,
+        userIds)
+    }
+  } catch (e) {
+    console.error('reset-season: opruimen lidgeld-notifs faalde:', e)
+  }
 
   return c.redirect(`/admin/lidgelden?season_id=${seasonId}&success=reset&count=${count}`)
 })

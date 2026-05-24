@@ -350,14 +350,26 @@ app.get('/leden', async (c) => {
   try {
     dashNotifs = await getNotificationsForUser(c.env.DB, user.id, 10, true) // unreadOnly=true
   } catch (e) { /* ignore */ }
-  // BUG-FIX: voorkom dubbele lidgeld-kaart. De runtime-check (#1) toont al
-  // 'Lidgeld X nog te betalen'; filter dus type='lidgeld' uit DB-notifs
-  // wanneer er al een openstaand lidgeld is gedetecteerd.
+  // BUG-FIX (Dominique, 23 mei): bel-melding "staat open" enkel als er
+  // ECHT een pending row is. Onderscheid:
+  //   - "staat open" / "te betalen" notifs zijn alleen relevant met pending row;
+  //     anders zijn ze stale (bv. na reset-season).
+  //   - "ontvangen — bedankt!" / paid-confirmation notifs blijven altijd zichtbaar.
+  // Heuristiek: titel bevat "open", "openstaand" of "te betalen" → invitation-style.
   const hasOpenLidgeldCard = dashboardActions.some(a => a.titel.startsWith('Lidgeld ') && a.titel.includes('nog te betalen'))
-  const unreadNotifs = (hasOpenLidgeldCard
-    ? dashNotifs.filter(n => n.type !== 'lidgeld')
-    : dashNotifs
-  ).slice(0, 4)
+  function isInvitationLidgeld(n: any): boolean {
+    if (n.type !== 'lidgeld') return false
+    const t = (n.titel || '').toLowerCase()
+    return t.includes('open') || t.includes('te betalen') || t.includes('herinnering') || t.includes('betaalverzoek')
+  }
+  const unreadNotifs = dashNotifs.filter(n => {
+    // Niet-lidgeld: altijd tonen
+    if (n.type !== 'lidgeld') return true
+    // Lidgeld confirmation/thanks: altijd tonen
+    if (!isInvitationLidgeld(n)) return true
+    // Lidgeld invitation: alleen tonen als er ECHT een pending row is
+    return hasOpenLidgeldCard
+  }).slice(0, 4)
   for (const n of unreadNotifs) {
     const style = getNotificationStyle(n.type)
     dashboardActions.push({
@@ -2323,9 +2335,22 @@ app.get('/leden/profiel', async (c) => {
   }
 
   // 2) Ongelezen DB-notificaties
-  // BUG-FIX: filter type='lidgeld'-notifs eruit als runtime-kaart al getoond.
-  // Voorkomt dubbel "Lidgeld nog te betalen" + "Lidgeld (€X) staat open".
-  for (const n of allNotifications.filter((x: any) => !x.is_gelezen && (!hasOpenLidgeldActie || x.type !== 'lidgeld'))) {
+  // BUG-FIX (Dominique, 23 mei): voor 'invitation'-type lidgeld notifs (bv.
+  // "staat open", "te betalen", "herinnering", "betaalverzoek") alleen tonen
+  // als er ook ECHT een pending membership-row is. Anders zijn ze stale
+  // (bv. na een reset-season waar de notif bleef hangen).
+  // Confirmation/paid-notifs ("ontvangen — bedankt!") blijven altijd zichtbaar.
+  function isInvitationLidgeldNotif(x: any): boolean {
+    if (x.type !== 'lidgeld') return false
+    const t = (x.titel || '').toLowerCase()
+    return t.includes('open') || t.includes('te betalen') || t.includes('herinnering') || t.includes('betaalverzoek')
+  }
+  for (const n of allNotifications.filter((x: any) => {
+    if (x.is_gelezen) return false
+    // Lidgeld-invitation: enkel als er een runtime-kaart is
+    if (isInvitationLidgeldNotif(x)) return hasOpenLidgeldActie
+    return true
+  })) {
     const style = getNotificationStyle(n.type)
     profielOpenActies.push({
       icon: style.icon, iconBg: style.bg, iconColor: style.color,

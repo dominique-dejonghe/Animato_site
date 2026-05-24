@@ -800,22 +800,73 @@ app.get('/admin/lidgelden', async (c) => {
         </div>
       </div>
 
-      {/* Add Membership Modal */}
+      {/* Add Membership Modal
+          UX-fix (Dominique, 23 mei 2026): zoekbalk i.p.v. scroll-through select.
+          Gebruikers worden gefilterd op voornaam/achternaam/email; klik op een
+          rij vult de hidden user_id én toont de selectie zichtbaar. */}
       {activeSeason && (
         <div id="addModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
             <h3 class="text-xl font-bold mb-4">Lidmaatschap Toekennen ({activeSeason.season})</h3>
-            <form action="/api/admin/lidgelden/create" method="POST">
+            <form action="/api/admin/lidgelden/create" method="POST" id="addMembershipForm">
               <input type="hidden" name="year_id" value={activeSeason.id} />
+              <input type="hidden" name="user_id" id="addModalUserId" required />
+
               <div class="mb-4">
                 <label class="block text-sm font-medium mb-1">Lid</label>
-                <select name="user_id" class="w-full border rounded p-2" required>
-                  {usersWithoutMembership.map((u: any) => (
-                    <option value={u.id}>{u.voornaam} {u.achternaam} ({u.email})</option>
-                  ))}
-                  {usersWithoutMembership.length === 0 && <option disabled selected>Alle actieve leden hebben al een lidmaatschap</option>}
-                </select>
+
+                {usersWithoutMembership.length === 0 ? (
+                  <div class="text-sm text-gray-500 italic border rounded p-2 bg-gray-50">
+                    Alle actieve leden hebben al een lidmaatschap.
+                  </div>
+                ) : (
+                  <>
+                    {/* Geselecteerd lid — pill met clear-knop, hidden tot keuze gemaakt */}
+                    <div id="addModalSelected" class="hidden mb-2 inline-flex items-center gap-2 bg-animato-primary/10 border border-animato-primary/30 text-animato-primary rounded-full px-3 py-1.5 text-sm font-medium">
+                      <i class="fas fa-user-check"></i>
+                      <span id="addModalSelectedLabel"></span>
+                      <button type="button" id="addModalClear" class="ml-1 text-animato-primary hover:text-red-600 transition" aria-label="Selectie wissen">
+                        <i class="fas fa-times text-xs"></i>
+                      </button>
+                    </div>
+
+                    {/* Zoekbalk + filtered list */}
+                    <div class="relative">
+                      <div class="relative">
+                        <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none"></i>
+                        <input
+                          type="text"
+                          id="addModalSearch"
+                          autocomplete="off"
+                          placeholder={`Zoek op naam of email (${usersWithoutMembership.length} leden)`}
+                          class="w-full border rounded pl-9 pr-3 py-2 focus:ring-2 focus:ring-animato-primary focus:border-transparent text-sm"
+                        />
+                      </div>
+                      <ul id="addModalList" class="mt-1 max-h-56 overflow-y-auto border border-gray-200 rounded divide-y divide-gray-100 bg-white shadow-sm">
+                        {usersWithoutMembership.map((u: any) => {
+                          const fullName = `${u.voornaam || ''} ${u.achternaam || ''}`.trim()
+                          const haystack = `${fullName} ${u.email || ''}`.toLowerCase()
+                          return (
+                            <li
+                              class="add-modal-row px-3 py-2 cursor-pointer hover:bg-animato-primary/5 transition text-sm"
+                              data-user-id={String(u.id)}
+                              data-user-label={`${fullName} (${u.email || ''})`}
+                              data-haystack={haystack}
+                            >
+                              <div class="font-medium text-gray-900">{fullName || '(naamloos)'}</div>
+                              <div class="text-xs text-gray-500">{u.email}</div>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                      <div id="addModalEmpty" class="hidden text-center text-xs text-gray-400 py-3 italic">
+                        Geen leden gevonden.
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
+
               <div class="mb-4">
                 <label class="block text-sm font-medium mb-1">Formule</label>
                 <select name="type" class="w-full border rounded p-2" required>
@@ -825,9 +876,121 @@ app.get('/admin/lidgelden', async (c) => {
               </div>
               <div class="flex justify-end gap-2">
                 <button type="button" onclick="document.getElementById('addModal').classList.add('hidden')" class="px-4 py-2 border rounded">Annuleren</button>
-                <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded" disabled={usersWithoutMembership.length === 0}>Aanmaken</button>
+                <button type="submit" id="addModalSubmit" class="px-4 py-2 bg-animato-primary text-white rounded disabled:opacity-50 disabled:cursor-not-allowed" disabled>Aanmaken</button>
               </div>
             </form>
+
+            {/* Zoek/select JS voor de Lidmaatschap-toekennen modal */}
+            <script dangerouslySetInnerHTML={{__html: `
+              (function() {
+                var modal   = document.getElementById('addModal');
+                var search  = document.getElementById('addModalSearch');
+                var list    = document.getElementById('addModalList');
+                var empty   = document.getElementById('addModalEmpty');
+                var hidden  = document.getElementById('addModalUserId');
+                var pill    = document.getElementById('addModalSelected');
+                var label   = document.getElementById('addModalSelectedLabel');
+                var clear   = document.getElementById('addModalClear');
+                var submit  = document.getElementById('addModalSubmit');
+                if (!modal || !search || !list || !hidden) return;
+
+                function setEnabled(on) {
+                  if (submit) submit.disabled = !on;
+                }
+
+                function selectUser(id, lbl) {
+                  hidden.value = id;
+                  if (label) label.textContent = lbl;
+                  if (pill)  pill.classList.remove('hidden');
+                  setEnabled(true);
+                }
+
+                function clearSelection() {
+                  hidden.value = '';
+                  if (pill)  pill.classList.add('hidden');
+                  setEnabled(false);
+                }
+
+                if (clear) {
+                  clear.addEventListener('click', function() {
+                    clearSelection();
+                    search.value = '';
+                    filter('');
+                    search.focus();
+                  });
+                }
+
+                list.addEventListener('click', function(e) {
+                  var row = e.target.closest('.add-modal-row');
+                  if (!row) return;
+                  var id  = row.getAttribute('data-user-id');
+                  var lbl = row.getAttribute('data-user-label');
+                  if (id) selectUser(id, lbl || '');
+                  // Markeer visueel
+                  list.querySelectorAll('.add-modal-row').forEach(function(r) {
+                    r.classList.remove('bg-animato-primary/10');
+                  });
+                  row.classList.add('bg-animato-primary/10');
+                });
+
+                function filter(q) {
+                  q = (q || '').trim().toLowerCase();
+                  var rows = list.querySelectorAll('.add-modal-row');
+                  var shown = 0;
+                  rows.forEach(function(r) {
+                    var h = r.getAttribute('data-haystack') || '';
+                    var match = !q || h.indexOf(q) !== -1;
+                    r.style.display = match ? '' : 'none';
+                    if (match) shown++;
+                  });
+                  if (empty) empty.classList.toggle('hidden', shown !== 0);
+                  list.style.display = shown === 0 ? 'none' : '';
+                }
+
+                search.addEventListener('input', function() { filter(search.value); });
+
+                // Enter in zoekbalk: kies de eerste zichtbare rij
+                search.addEventListener('keydown', function(e) {
+                  if (e.key !== 'Enter') return;
+                  e.preventDefault();
+                  var rows = list.querySelectorAll('.add-modal-row');
+                  for (var i = 0; i < rows.length; i++) {
+                    if (rows[i].style.display !== 'none') {
+                      rows[i].click();
+                      break;
+                    }
+                  }
+                });
+
+                // Reset state bij open van modal: bekijken triggers ontbreken,
+                // we observeren classList wijziging via MutationObserver.
+                try {
+                  var mo = new MutationObserver(function() {
+                    if (!modal.classList.contains('hidden')) {
+                      // Modal net geopend → reset
+                      clearSelection();
+                      search.value = '';
+                      filter('');
+                      setTimeout(function(){ search.focus(); }, 50);
+                    }
+                  });
+                  mo.observe(modal, { attributes: true, attributeFilter: ['class'] });
+                } catch(_) {}
+
+                // Submit-guard: voorkom verzending zonder selectie
+                var form = document.getElementById('addMembershipForm');
+                if (form) {
+                  form.addEventListener('submit', function(e) {
+                    if (!hidden.value) {
+                      e.preventDefault();
+                      search.focus();
+                      search.classList.add('ring-2','ring-red-400');
+                      setTimeout(function(){ search.classList.remove('ring-2','ring-red-400'); }, 1200);
+                    }
+                  });
+                }
+              })();
+            `}} />
           </div>
         </div>
       )}

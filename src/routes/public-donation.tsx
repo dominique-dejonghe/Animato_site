@@ -12,7 +12,21 @@ app.get('/steun-ons', (c) => {
     <Layout title="Steun Animato" currentPath="/steun-ons">
       <div class="py-12 bg-gray-50 min-h-screen">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          
+
+          {/* Terug-knop — toegevoegd op verzoek van Dirk (23 mei 2026)
+              Gebruikt history.back() als die bestaat, anders fallback naar home.
+              Zichtbaar boven de titel zodat het meteen vindbaar is op mobiel. */}
+          <div class="mb-4">
+            <a
+              href="/"
+              id="steun-ons-back"
+              class="inline-flex items-center gap-2 text-sm font-medium text-gray-600 hover:text-animato-primary transition px-3 py-2 rounded-lg hover:bg-white"
+            >
+              <i class="fas fa-arrow-left"></i>
+              <span>Terug</span>
+            </a>
+          </div>
+
           <div class="text-center mb-12">
             <h1 class="text-4xl font-bold text-gray-900 mb-4" style="font-family: 'Playfair Display', serif;">
               Steun Gemengd Koor Animato
@@ -99,6 +113,25 @@ app.get('/steun-ons', (c) => {
         function setAmount(val) {
             document.getElementById('customAmount').value = val;
         }
+        // Terug-knop: liever history.back() (zelfde origin) zodat de bezoeker
+        // exact terugkeert naar het scherm waar ze vandaan kwamen. Werkt niet
+        // als de pagina rechtstreeks geopend is (geen referrer of buitenkant):
+        // dan blijft de href="/" als fallback geldig.
+        (function() {
+          var btn = document.getElementById('steun-ons-back');
+          if (!btn) return;
+          btn.addEventListener('click', function(e) {
+            try {
+              var ref = document.referrer || '';
+              // Alleen history.back() als referrer hetzelfde origin is en er
+              // wel degelijk navigatie-geschiedenis is.
+              if (ref && ref.indexOf(window.location.origin) === 0 && window.history.length > 1) {
+                e.preventDefault();
+                window.history.back();
+              }
+            } catch (err) { /* fallback naar href="/" */ }
+          });
+        })();
       `}} />
     </Layout>
   )

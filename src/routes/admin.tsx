@@ -59,90 +59,95 @@ app.get('/admin', async (c) => {
   // Disable caching for admin pages
   noCacheHeaders(c)
 
-  // Get statistics
-  const stats = {
-    total_leden: await queryOne<any>(c.env.DB,
-      // Alle actieve users tellen mee — lid, stemleider, pianist, dirigent, admin, moderator
-      `SELECT COUNT(*) as count FROM users WHERE status = 'actief'`
-    ),
-    total_posts: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM posts WHERE is_published = 1`
-    ),
-    total_events: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM events WHERE datetime(start_at) > datetime('now')`
-    ),
-    total_albums: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM albums WHERE is_publiek = 1`
-    ),
-    total_materials: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM materials WHERE is_actief = 1`
-    ),
-    total_locations: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM locations WHERE is_actief = 1`
-    ),
-    total_polls: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM polls WHERE status IN ('open', 'concept')`
-    ),
-    total_proposals_pending: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM member_proposals WHERE status = 'pending'`
-    ),
-    total_pending: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM users WHERE status = 'proeflid'`
-    ),
-    total_projects: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM concert_projects WHERE status IN ('in_uitvoering', 'planning')`
-    ),
-    total_meetings: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM meetings`
-    ),
-    upcoming_meetings: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM meetings WHERE datetime(datum || ' ' || COALESCE(start_tijd, '00:00')) >= datetime('now')`
-    ),
-    total_checkins: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(DISTINCT user_id) as count FROM qr_checkins`
-    ).catch(() => ({ count: 0 })),
-    last_attendance: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM qr_checkins qc 
-       JOIN events e ON e.id = qc.event_id 
-       WHERE e.type = 'repetitie'
-       AND e.start_at = (SELECT MAX(e2.start_at) FROM events e2 JOIN qr_checkins qc2 ON qc2.event_id = e2.id WHERE e2.type = 'repetitie')`
-    ).catch(() => ({ count: 0 })),
-    total_form_submissions: await queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM form_submissions WHERE status = 'nieuw' AND type IN ('word_lid','contact')`
-    ).catch(() => ({ count: 0 })),
+  try {
+
+  // === DEFENSIVE QUERIES ===
+  // Elke query in een aparte try/catch zodat één missende tabel/kolom
+  // niet de hele /admin-pagina laat crashen met een 500. Onbekende waarden
+  // worden 0; dat is veiliger dan een witte error-pagina voor bestuursleden
+  // die per ongeluk op een sub-feature drukken dat onder migratie staat.
+  const safeCount = async (sql: string, params: any[] = []): Promise<{ count: number }> => {
+    try {
+      const r = await queryOne<any>(c.env.DB, sql, params)
+      return { count: r?.count || 0 }
+    } catch (e) {
+      console.error(`admin stats query failed: ${sql.substring(0, 60)}...`, e)
+      return { count: 0 }
+    }
   }
 
-  // Get recent activity from audit logs
-  const recentActivity = await queryAll(
-    c.env.DB,
-    `SELECT a.*, u.email, p.voornaam, p.achternaam
-     FROM audit_logs a
-     LEFT JOIN users u ON u.id = a.user_id
-     LEFT JOIN profiles p ON p.user_id = u.id
-     ORDER BY a.created_at DESC
-     LIMIT 10`
-  )
+  const stats = {
+    // Alle actieve users tellen mee — lid, stemleider, pianist, dirigent, admin, moderator
+    total_leden: await safeCount(`SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
+    total_posts: await safeCount(`SELECT COUNT(*) as count FROM posts WHERE is_published = 1`),
+    total_events: await safeCount(`SELECT COUNT(*) as count FROM events WHERE datetime(start_at) > datetime('now')`),
+    total_albums: await safeCount(`SELECT COUNT(*) as count FROM albums WHERE is_publiek = 1`),
+    total_materials: await safeCount(`SELECT COUNT(*) as count FROM materials WHERE is_actief = 1`),
+    total_locations: await safeCount(`SELECT COUNT(*) as count FROM locations WHERE is_actief = 1`),
+    total_polls: await safeCount(`SELECT COUNT(*) as count FROM polls WHERE status IN ('open', 'concept')`),
+    total_proposals_pending: await safeCount(`SELECT COUNT(*) as count FROM member_proposals WHERE status = 'pending'`),
+    total_pending: await safeCount(`SELECT COUNT(*) as count FROM users WHERE status = 'proeflid'`),
+    total_projects: await safeCount(`SELECT COUNT(*) as count FROM concert_projects WHERE status IN ('in_uitvoering', 'planning')`),
+    total_meetings: await safeCount(`SELECT COUNT(*) as count FROM meetings`),
+    upcoming_meetings: await safeCount(`SELECT COUNT(*) as count FROM meetings WHERE datetime(datum || ' ' || COALESCE(start_tijd, '00:00')) >= datetime('now')`),
+    total_checkins: await safeCount(`SELECT COUNT(DISTINCT user_id) as count FROM qr_checkins`),
+    last_attendance: await safeCount(
+      `SELECT COUNT(*) as count FROM qr_checkins qc
+       JOIN events e ON e.id = qc.event_id
+       WHERE e.type = 'repetitie'
+       AND e.start_at = (SELECT MAX(e2.start_at) FROM events e2 JOIN qr_checkins qc2 ON qc2.event_id = e2.id WHERE e2.type = 'repetitie')`
+    ),
+    total_form_submissions: await safeCount(
+      `SELECT COUNT(*) as count FROM form_submissions WHERE status = 'nieuw' AND type IN ('word_lid','contact')`
+    ),
+  }
 
-  // Get stemgroep breakdown
-  const stemgroepStats = await queryAll(
-    c.env.DB,
-    `SELECT stemgroep, COUNT(*) as count
-     FROM users
-     WHERE role = 'lid' AND status = 'actief'
-     GROUP BY stemgroep`
-  )
+  // Get recent activity from audit logs — defensief
+  let recentActivity: any[] = []
+  try {
+    recentActivity = await queryAll(
+      c.env.DB,
+      `SELECT a.*, u.email, p.voornaam, p.achternaam
+       FROM audit_logs a
+       LEFT JOIN users u ON u.id = a.user_id
+       LEFT JOIN profiles p ON p.user_id = u.id
+       ORDER BY a.created_at DESC
+       LIMIT 10`
+    ) || []
+  } catch (e) {
+    console.error('admin recentActivity query failed:', e)
+  }
 
-  // Lijst van leden voor de "Bekijk als lid" dropdown (#115)
+  // Get stemgroep breakdown — defensief
+  let stemgroepStats: any[] = []
+  try {
+    stemgroepStats = await queryAll(
+      c.env.DB,
+      `SELECT stemgroep, COUNT(*) as count
+       FROM users
+       WHERE role = 'lid' AND status = 'actief'
+       GROUP BY stemgroep`
+    ) || []
+  } catch (e) {
+    console.error('admin stemgroepStats query failed:', e)
+  }
+
+  // Lijst van leden voor de "Bekijk als lid" dropdown (#115) — defensief
   // — testaccount eerst, dan alfabetisch, met test-leden bovenaan
-  const impersonateMembers = await queryAll<any>(
-    c.env.DB,
-    `SELECT u.id, u.email, u.is_test_account, u.stemgroep,
-            COALESCE(p.voornaam, '') as voornaam, COALESCE(p.achternaam, '') as achternaam
-     FROM users u
-     LEFT JOIN profiles p ON p.user_id = u.id
-     WHERE u.status = 'actief' AND u.role != 'admin'
-     ORDER BY u.is_test_account DESC, p.achternaam ASC, p.voornaam ASC`
-  )
+  let impersonateMembers: any[] = []
+  try {
+    impersonateMembers = await queryAll<any>(
+      c.env.DB,
+      `SELECT u.id, u.email, u.is_test_account, u.stemgroep,
+              COALESCE(p.voornaam, '') as voornaam, COALESCE(p.achternaam, '') as achternaam
+       FROM users u
+       LEFT JOIN profiles p ON p.user_id = u.id
+       WHERE u.status = 'actief' AND u.role != 'admin'
+       ORDER BY u.is_test_account DESC, p.achternaam ASC, p.voornaam ASC`
+    ) || []
+  } catch (e) {
+    console.error('admin impersonateMembers query failed:', e)
+  }
 
   return c.html(
     <Layout 
@@ -578,6 +583,45 @@ app.get('/admin', async (c) => {
       </div>
     </Layout>
   )
+
+  } catch (err: any) {
+    // Catch-all: voorkomt witte error-pagina voor bestuursleden.
+    // Toont stack trace zodat we het probleem direct kunnen diagnosticeren.
+    console.error('=== /admin dashboard CRASHED ===', err)
+    const stack = err?.stack || err?.message || String(err)
+    const userInfo = `id=${user?.id} email=${user?.email} role=${user?.role} is_bestuurslid=${user?.is_bestuurslid}`
+    return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><title>Admin error</title>
+      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+      </head>
+      <body class="min-h-screen bg-gray-50 p-6">
+        <div class="max-w-3xl mx-auto bg-white rounded-2xl shadow-lg p-8">
+          <div class="flex items-start gap-4 mb-4">
+            <i class="fas fa-exclamation-triangle text-red-500 text-3xl"></i>
+            <div>
+              <h1 class="text-2xl font-bold text-gray-800">Admin Dashboard kon niet laden</h1>
+              <p class="text-gray-600 text-sm mt-1">Er ging iets mis bij het ophalen van de gegevens. Hieronder de details — stuur deze door aan IT.</p>
+            </div>
+          </div>
+          <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 mb-4 text-xs font-mono">
+            <div><strong>Gebruiker:</strong> ${userInfo.replace(/</g, '&lt;')}</div>
+            <div><strong>Tijd:</strong> ${new Date().toISOString()}</div>
+          </div>
+          <details open>
+            <summary class="cursor-pointer text-sm font-semibold text-gray-700 mb-2">Technische details</summary>
+            <pre class="bg-red-50 border border-red-200 text-red-900 rounded-lg p-3 text-xs overflow-x-auto whitespace-pre-wrap">${stack.replace(/</g, '&lt;')}</pre>
+          </details>
+          <div class="mt-6 flex gap-3">
+            <a href="/" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg text-sm font-medium">
+              <i class="fas fa-home mr-1.5"></i> Naar homepage
+            </a>
+            <a href="/leden" class="px-4 py-2 bg-animato-primary text-white hover:opacity-90 rounded-lg text-sm font-medium" style="background-color:#00A9CE">
+              <i class="fas fa-users mr-1.5"></i> Naar ledenportaal
+            </a>
+          </div>
+        </div>
+      </body></html>`, 500)
+  }
 })
 
 // =====================================================

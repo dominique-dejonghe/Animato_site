@@ -74,6 +74,20 @@ app.get('/admin/lidgelden', async (c) => {
     ORDER BY p.achternaam, p.voornaam
   `, [activeSeason.id]) : []
 
+  // === Donaties (giften) — alle donations, ongeacht seizoen ===
+  // Public donations hebben user_id=null + "[Publiek: Naam <email>]" prefix in message
+  // Member donations hebben user_id ingevuld
+  const allDonations: any[] = await queryAll(db, `
+    SELECT d.id, d.user_id, d.amount, d.message, d.is_anonymous, d.status,
+           d.payment_provider, d.payment_id, d.created_at,
+           u.email AS donor_email,
+           p.voornaam AS donor_voornaam, p.achternaam AS donor_achternaam
+    FROM donations d
+    LEFT JOIN users u ON d.user_id = u.id
+    LEFT JOIN profiles p ON d.user_id = p.user_id
+    ORDER BY d.created_at DESC
+  `) || []
+
   // === Payment Analytics ===
   const now = Date.now()
   const DAY = 1000 * 60 * 60 * 24
@@ -143,6 +157,22 @@ app.get('/admin/lidgelden', async (c) => {
     })
   }
   const maxWeekCount = Math.max(1, ...weeklyTrend.map((w) => w.count))
+
+  // === Donations KPIs ===
+  const donationsPaid = allDonations.filter((d: any) => d.status === 'paid')
+  const donationsPending = allDonations.filter((d: any) => d.status === 'pending')
+  const donationsTotalPaid = donationsPaid.reduce((acc: number, d: any) => acc + Number(d.amount || 0), 0)
+  const donationsTotalPending = donationsPending.reduce((acc: number, d: any) => acc + Number(d.amount || 0), 0)
+  const donationsAvg = donationsPaid.length > 0 ? donationsTotalPaid / donationsPaid.length : 0
+  // Helper: parse "[Publiek: Naam <email>]" prefix uit message-veld
+  const parsePublicDonor = (msg: string | null): { name: string; email: string; cleanMsg: string } | null => {
+    if (!msg) return null
+    const m = msg.match(/^\[Publiek:\s*([^<]+?)\s*<([^>]+)>\]\s*(.*)$/s)
+    if (!m) return null
+    return { name: m[1].trim(), email: m[2].trim(), cleanMsg: m[3].trim() }
+  }
+  // Recente donations (laatste 10) — al gesorteerd DESC op created_at
+  const recentDonations = allDonations.slice(0, 10)
 
   // Filter de visible memberships op basis van ?filter=
   let visibleMemberships = enriched
@@ -591,6 +621,128 @@ app.get('/admin/lidgelden', async (c) => {
                   </div>
                 </div>
               )}
+
+              {/* === Giften & Donaties — overzichtsblok === */}
+              <div class="bg-gradient-to-br from-pink-50 to-rose-50 border border-pink-200 p-5 rounded-lg shadow-sm mb-6">
+                <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+                  <h3 class="font-bold text-gray-800 text-base flex items-center">
+                    <i class="fas fa-gift text-pink-500 mr-2"></i>
+                    Giften & Donaties
+                    <span class="ml-2 text-xs font-normal text-gray-500">({allDonations.length} totaal)</span>
+                  </h3>
+                  <div class="flex gap-2 flex-wrap">
+                    {donationsPending.filter((d: any) => d.payment_id && !d.payment_id.startsWith('tr_MOCK_')).length > 0 && (
+                      <form action="/api/admin/donations/sync-mollie-bulk" method="POST" class="inline"
+                        onsubmit="return confirm('Controleer alle openstaande giften bij Mollie en update status?');">
+                        <button type="submit" class="inline-flex items-center h-8 px-3 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition font-medium whitespace-nowrap">
+                          <i class="fas fa-sync mr-1.5"></i> Sync Mollie ({donationsPending.filter((d: any) => d.payment_id && !d.payment_id.startsWith('tr_MOCK_')).length})
+                        </button>
+                      </form>
+                    )}
+                    <a href="/api/admin/donations/export"
+                      class="inline-flex items-center h-8 px-3 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition font-medium whitespace-nowrap"
+                      title="Download alle giften als CSV">
+                      <i class="fas fa-file-csv mr-1.5"></i> Export CSV
+                    </a>
+                  </div>
+                </div>
+
+                {/* Stats tiles */}
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                  <div class="bg-white rounded-lg p-3 border border-pink-100">
+                    <div class="text-xs text-gray-500 uppercase tracking-wide">Totaal ontvangen</div>
+                    <div class="text-2xl font-bold text-pink-700 mt-1">€{donationsTotalPaid.toFixed(2)}</div>
+                    <div class="text-xs text-gray-500 mt-0.5">{donationsPaid.length} betaalde gift{donationsPaid.length === 1 ? '' : 'en'}</div>
+                  </div>
+                  <div class="bg-white rounded-lg p-3 border border-pink-100">
+                    <div class="text-xs text-gray-500 uppercase tracking-wide">Gemiddelde gift</div>
+                    <div class="text-2xl font-bold text-purple-700 mt-1">€{donationsAvg.toFixed(2)}</div>
+                    <div class="text-xs text-gray-500 mt-0.5">per donateur</div>
+                  </div>
+                  <div class="bg-white rounded-lg p-3 border border-pink-100">
+                    <div class="text-xs text-gray-500 uppercase tracking-wide">Openstaand</div>
+                    <div class="text-2xl font-bold text-amber-700 mt-1">€{donationsTotalPending.toFixed(2)}</div>
+                    <div class="text-xs text-gray-500 mt-0.5">{donationsPending.length} pending</div>
+                  </div>
+                  <div class="bg-white rounded-lg p-3 border border-pink-100">
+                    <div class="text-xs text-gray-500 uppercase tracking-wide">Donateurs</div>
+                    <div class="text-2xl font-bold text-rose-700 mt-1">{new Set(allDonations.filter((d: any) => d.status === 'paid').map((d: any) => d.user_id || `pub:${parsePublicDonor(d.message)?.email || d.id}`)).size}</div>
+                    <div class="text-xs text-gray-500 mt-0.5">unieke gevers</div>
+                  </div>
+                </div>
+
+                {/* Recent donations lijst */}
+                {recentDonations.length > 0 ? (
+                  <div class="bg-white rounded-lg border border-pink-100 overflow-hidden">
+                    <div class="px-3 py-2 bg-pink-50 border-b border-pink-100 text-xs font-semibold text-gray-700">
+                      <i class="fas fa-history mr-1.5"></i> Recente giften (laatste {recentDonations.length})
+                    </div>
+                    <div class="divide-y divide-gray-100">
+                      {recentDonations.map((d: any) => {
+                        const dt = d.created_at ? new Date(d.created_at) : null
+                        const dateStr = dt ? dt.toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'
+                        const pub = parsePublicDonor(d.message)
+                        let donorLabel: any
+                        let donorBadge: any
+                        if (d.user_id && d.donor_voornaam) {
+                          // Geregistreerd lid
+                          donorLabel = <span class="font-medium text-gray-900">{d.donor_voornaam} {d.donor_achternaam}</span>
+                          donorBadge = <span class="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded uppercase tracking-wide">Lid</span>
+                        } else if (pub) {
+                          // Publieke gift met naam+email
+                          donorLabel = (
+                            <span>
+                              <span class="font-medium text-gray-900">{pub.name}</span>
+                              <span class="text-xs text-gray-500 ml-1">&lt;{pub.email}&gt;</span>
+                            </span>
+                          )
+                          donorBadge = <span class="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded uppercase tracking-wide">Publiek</span>
+                        } else if (d.is_anonymous) {
+                          donorLabel = <span class="italic text-gray-500">Anoniem</span>
+                          donorBadge = <span class="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-700 rounded uppercase tracking-wide">Anoniem</span>
+                        } else {
+                          donorLabel = <span class="italic text-gray-500">Onbekend</span>
+                          donorBadge = <span class="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded uppercase tracking-wide">?</span>
+                        }
+                        const statusBadge =
+                          d.status === 'paid' ? <span class="text-[10px] px-1.5 py-0.5 bg-green-100 text-green-700 rounded font-semibold">PAID</span>
+                          : d.status === 'pending' ? <span class="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded font-semibold">PENDING</span>
+                          : <span class="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-700 rounded font-semibold">{(d.status || '').toUpperCase()}</span>
+                        const isMock = d.payment_id && d.payment_id.startsWith('tr_MOCK_')
+                        const cleanMsg = pub ? pub.cleanMsg : (d.message || '')
+                        return (
+                          <div class="flex items-center gap-3 px-3 py-2 text-sm hover:bg-pink-50/30">
+                            <div class="flex-1 min-w-0">
+                              <div class="flex items-center gap-2 flex-wrap">
+                                {donorLabel}
+                                {donorBadge}
+                                {statusBadge}
+                                {isMock && <span class="text-[10px] px-1.5 py-0.5 bg-yellow-100 text-yellow-800 rounded">MOCK</span>}
+                              </div>
+                              {cleanMsg && (
+                                <div class="text-xs text-gray-600 mt-0.5 italic truncate" title={cleanMsg}>"{cleanMsg}"</div>
+                              )}
+                            </div>
+                            <div class="text-right whitespace-nowrap">
+                              <div class="font-mono font-semibold text-pink-700">€{Number(d.amount).toFixed(2)}</div>
+                              <div class="text-[10px] text-gray-500">{dateStr}</div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div class="bg-white rounded-lg border border-pink-100 p-4 text-center text-sm text-gray-500 italic">
+                    Nog geen giften ontvangen. Wanneer iemand via <a href="/steun-ons" class="text-pink-600 hover:underline" target="_blank">/steun-ons</a> of als lid een gift doet, verschijnen ze hier.
+                  </div>
+                )}
+
+                <div class="text-xs text-gray-500 mt-3 flex items-center gap-2 flex-wrap">
+                  <i class="fas fa-info-circle"></i>
+                  <span>Giften zijn los van lidgelden. Publieke giften komen via <code class="bg-white px-1 rounded text-pink-700">/steun-ons</code>, lid-giften via het ledenportaal.</span>
+                </div>
+              </div>
 
               {/* Active filter banner — met bulk-acties op gefilterde lijst */}
               {filter !== 'all' && (
@@ -2004,6 +2156,172 @@ app.get('/admin/mollie-webhook-log', async (c) => {
       </div>
     </Layout>
   )
+})
+
+// =====================================================================
+// DONATIONS ADMIN ENDPOINTS
+// =====================================================================
+
+// CSV export — alle donations met donor-info en publiek/lid/anoniem onderscheid
+app.get('/api/admin/donations/export', async (c) => {
+  const db = c.env.DB
+  const rows = await queryAll<any>(db, `
+    SELECT d.id, d.user_id, d.amount, d.message, d.is_anonymous, d.status,
+           d.payment_provider, d.payment_id, d.created_at,
+           u.email AS donor_email,
+           p.voornaam AS donor_voornaam, p.achternaam AS donor_achternaam,
+           p.telefoon AS donor_telefoon
+    FROM donations d
+    LEFT JOIN users u ON d.user_id = u.id
+    LEFT JOIN profiles p ON d.user_id = p.user_id
+    ORDER BY d.created_at DESC
+  `)
+
+  const escape = (v: any) => {
+    if (v === null || v === undefined) return ''
+    const s = String(v).replace(/"/g, '""')
+    return /[",;\n]/.test(s) ? `"${s}"` : s
+  }
+  // Parse "[Publiek: Naam <email>]" prefix
+  const parsePub = (msg: string | null) => {
+    if (!msg) return null
+    const m = msg.match(/^\[Publiek:\s*([^<]+?)\s*<([^>]+)>\]\s*(.*)$/s)
+    if (!m) return null
+    return { name: m[1].trim(), email: m[2].trim(), cleanMsg: m[3].trim() }
+  }
+
+  const headers = [
+    'ID', 'Type', 'Voornaam', 'Achternaam', 'Email', 'Telefoon',
+    'Bedrag', 'Boodschap', 'Anoniem', 'Status',
+    'Provider', 'Payment ID', 'Aangemaakt op'
+  ]
+  const lines = [headers.join(';')]
+  for (const d of (rows as any[])) {
+    const pub = parsePub(d.message)
+    let type = ''
+    let voornaam = ''
+    let achternaam = ''
+    let email = ''
+    let telefoon = ''
+    let cleanMsg = d.message || ''
+
+    if (d.user_id && d.donor_voornaam) {
+      type = 'Lid'
+      voornaam = d.donor_voornaam || ''
+      achternaam = d.donor_achternaam || ''
+      email = d.donor_email || ''
+      telefoon = d.donor_telefoon || ''
+    } else if (pub) {
+      type = 'Publiek'
+      // "Naam" splitsen naar voor/achternaam (eerste spatie)
+      const parts = pub.name.split(/\s+/)
+      voornaam = parts[0] || ''
+      achternaam = parts.slice(1).join(' ') || ''
+      email = pub.email
+      cleanMsg = pub.cleanMsg
+    } else if (d.is_anonymous) {
+      type = 'Anoniem'
+    } else {
+      type = 'Onbekend'
+    }
+
+    lines.push([
+      escape(d.id),
+      escape(type),
+      escape(voornaam),
+      escape(achternaam),
+      escape(email),
+      escape(telefoon),
+      escape(Number(d.amount).toFixed(2)),
+      escape(cleanMsg),
+      escape(d.is_anonymous ? 'Ja' : 'Nee'),
+      escape(d.status),
+      escape(d.payment_provider),
+      escape(d.payment_id),
+      escape(d.created_at),
+    ].join(';'))
+  }
+
+  // BOM voor Excel-compatibiliteit (UTF-8 accenten)
+  const csv = '\uFEFF' + lines.join('\n')
+  const today = new Date().toISOString().slice(0, 10)
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="giften-${today}.csv"`,
+    }
+  })
+})
+
+// Bulk-sync openstaande donations met Mollie — analoog aan lidgelden bulk-sync
+// Pakt alle pending donations met een echte (niet-MOCK) Mollie payment_id en
+// queryt elk individueel. Updated lokale status indien Mollie 'paid' meldt.
+app.post('/api/admin/donations/sync-mollie-bulk', async (c) => {
+  const db = c.env.DB
+
+  // Pak alle pending met echte Mollie-id (niet MOCK)
+  const rows = await queryAll<any>(db, `
+    SELECT id, user_id, amount, payment_id, message
+    FROM donations
+    WHERE status = 'pending'
+      AND payment_id IS NOT NULL
+      AND payment_id NOT LIKE 'tr_MOCK_%'
+      AND payment_provider = 'mollie'
+    ORDER BY created_at DESC
+    LIMIT 50
+  `)
+
+  const { getMolliePayment } = await import('../utils/mollie')
+  const apiKey = await getMollieApiKey(c.env)
+
+  let paidCount = 0, errorCount = 0, unchanged = 0
+  for (const d of (rows as any[])) {
+    try {
+      const pmt = await getMolliePayment(apiKey, d.payment_id)
+      if (!pmt) { errorCount++; continue }
+
+      const newStatus = pmt.status === 'paid' ? 'paid'
+                      : pmt.status === 'open' ? 'pending'
+                      : pmt.status === 'pending' ? 'pending'
+                      : 'cancelled'
+
+      if (newStatus === 'pending') { unchanged++; continue }
+
+      await execute(db,
+        `UPDATE donations SET status = ? WHERE id = ?`,
+        [newStatus, d.id])
+
+      if (newStatus === 'paid') {
+        paidCount++
+        // Bedank-notif voor leden (publieke giften hebben user_id=null → skip)
+        if (d.user_id) {
+          const bedrag = d.amount ? `€ ${Number(d.amount).toFixed(2)}` : ''
+          try {
+            await createNotification(
+              db, d.user_id, 'gift',
+              `Bedankt voor je gift! 💝`,
+              bedrag ? `We hebben ${bedrag} ontvangen — heel hartelijk bedankt voor je steun!` : 'Bedankt voor je steun!',
+              '/leden/donaties'
+            )
+          } catch (e) {
+            console.error('donations sync: createNotification faalde:', e)
+          }
+        }
+      }
+    } catch (e) {
+      errorCount++
+      console.error(`donations bulk-sync failed for donation ${d.id}:`, e)
+    }
+  }
+
+  const params = new URLSearchParams({
+    success: 'donations_synced',
+    paid: String(paidCount),
+    unchanged: String(unchanged),
+    errors: String(errorCount),
+    checked: String(rows.length),
+  })
+  return c.redirect(`/admin/lidgelden?${params.toString()}`)
 })
 
 export default app

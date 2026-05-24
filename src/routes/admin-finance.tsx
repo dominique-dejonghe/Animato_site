@@ -29,7 +29,7 @@ app.get('/admin/lidgelden', async (c) => {
   const user = c.get('user')
   const db = c.env.DB
   const selectedSeasonId = c.req.query('season_id')
-  const filter = c.req.query('filter') || 'all'  // all | paid | pending | fast | slow | overdue
+  const filter = c.req.query('filter') || 'all'  // all | paid | pending | fast | slow | overdue | basis | full
   const successMsg = c.req.query('success') || ''
   const errorMsg = c.req.query('error') || ''
   const successCount = c.req.query('count') || ''
@@ -174,6 +174,10 @@ app.get('/admin/lidgelden', async (c) => {
   // Recente donations (laatste 10) — al gesorteerd DESC op created_at
   const recentDonations = allDonations.slice(0, 10)
 
+  // Formule-buckets (basis = €25 digitaal, full = €50 met papieren partituren)
+  const basisMemberships = enriched.filter((m: any) => m.type === 'basis')
+  const fullMemberships = enriched.filter((m: any) => m.type === 'full')
+
   // Filter de visible memberships op basis van ?filter=
   let visibleMemberships = enriched
   let filterLabel = ''
@@ -182,6 +186,8 @@ app.get('/admin/lidgelden', async (c) => {
   else if (filter === 'fast') { visibleMemberships = fastPayers; filterLabel = 'Snelle betalers (≤7 dagen)' }
   else if (filter === 'slow') { visibleMemberships = slowPayers; filterLabel = 'Langzame betalers (>30 dagen)' }
   else if (filter === 'overdue') { visibleMemberships = overdue; filterLabel = 'Overdue (>30 dagen open)' }
+  else if (filter === 'basis') { visibleMemberships = basisMemberships; filterLabel = 'Formule Basis (€25 digitaal)' }
+  else if (filter === 'full') { visibleMemberships = fullMemberships; filterLabel = 'Formule Full (€50 met partituren)' }
 
   return c.html(
     <Layout title="Lidgelden Beheer" user={user}>
@@ -518,6 +524,32 @@ app.get('/admin/lidgelden', async (c) => {
                   <p class="text-gray-500 text-xs"><i class="fas fa-stopwatch mr-1"></i> Gem. tijd tot betaling</p>
                   <p class="text-xl font-bold text-gray-700">{avgDaysToPay} dagen</p>
                 </div>
+              </div>
+
+              {/* === FORMULE-FILTERS (Basis €25 / Full €50) === */}
+              <div class="grid grid-cols-2 md:grid-cols-2 gap-3 mb-6">
+                <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=basis`}
+                   class={`bg-white p-3 rounded shadow border-l-4 border-gray-500 hover:bg-gray-50 transition cursor-pointer flex items-center justify-between ${filter === 'basis' ? 'ring-2 ring-gray-400' : ''}`}>
+                  <div>
+                    <p class="text-gray-500 text-xs"><i class="fas fa-laptop mr-1"></i> Formule Basis (€25 digitaal)</p>
+                    <p class="text-xl font-bold text-gray-700">{basisMemberships.length} <span class="text-xs font-normal text-gray-500">lidmaatschappen</span></p>
+                  </div>
+                  <div class="text-right">
+                    <p class="text-[10px] text-gray-500 uppercase tracking-wide">betaald</p>
+                    <p class="text-sm font-semibold text-green-700">{basisMemberships.filter((m: any) => m.status === 'paid').length}/{basisMemberships.length}</p>
+                  </div>
+                </a>
+                <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=full`}
+                   class={`bg-white p-3 rounded shadow border-l-4 border-purple-500 hover:bg-purple-50 transition cursor-pointer flex items-center justify-between ${filter === 'full' ? 'ring-2 ring-purple-400' : ''}`}>
+                  <div>
+                    <p class="text-gray-500 text-xs"><i class="fas fa-music mr-1"></i> Formule Full (€50 met partituren)</p>
+                    <p class="text-xl font-bold text-purple-700">{fullMemberships.length} <span class="text-xs font-normal text-gray-500">lidmaatschappen</span></p>
+                  </div>
+                  <div class="text-right">
+                    <p class="text-[10px] text-gray-500 uppercase tracking-wide">betaald</p>
+                    <p class="text-sm font-semibold text-green-700">{fullMemberships.filter((m: any) => m.status === 'paid').length}/{fullMemberships.length}</p>
+                  </div>
+                </a>
               </div>
 
               {/* Trend + lijsten */}
@@ -1884,6 +1916,8 @@ app.get('/api/admin/lidgelden/export', async (c) => {
   else if (filter === 'fast') filtered = enriched.filter(m => m.status === 'paid' && m.daysToPay !== null && m.daysToPay <= 7)
   else if (filter === 'slow') filtered = enriched.filter(m => m.status === 'paid' && m.daysToPay !== null && m.daysToPay > 30)
   else if (filter === 'overdue') filtered = enriched.filter(m => m.status === 'pending' && m.daysOpen > 30)
+  else if (filter === 'basis') filtered = enriched.filter(m => m.type === 'basis')
+  else if (filter === 'full') filtered = enriched.filter(m => m.type === 'full')
 
   // CSV bouwen — Excel-compatibel met BOM voor accenten
   const escape = (v: any) => {

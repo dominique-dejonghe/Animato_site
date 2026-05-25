@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
+import { MemberPicker, MemberPickerScript } from '../components/MemberPicker'
+import { TaskCommentsCollapsible, TaskCommentsScript } from '../components/TaskComments'
 import { requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
 
@@ -429,7 +431,7 @@ app.get('/admin/projects/:id', async (c) => {
   if (!project) return c.redirect('/admin/projects?error=not_found')
 
   // Get tasks (sortering via querystring — orderBy is een whitelist-mapping)
-  const tasks = await queryAll(
+  const tasks = await queryAll<any>(
     c.env.DB,
     `SELECT t.*, u.id as user_id, p.voornaam, p.achternaam
      FROM concert_project_tasks t
@@ -439,6 +441,21 @@ app.get('/admin/projects/:id', async (c) => {
      ORDER BY ${orderBy}`,
     [projectId]
   )
+
+  // Comment counts per task (één enkele aggregate-query)
+  const commentCounts: Record<number, number> = {}
+  try {
+    const rows = await queryAll<any>(
+      c.env.DB,
+      `SELECT task_id, COUNT(*) as n
+       FROM task_comments
+       WHERE task_type = 'project_task' AND deleted_at IS NULL
+         AND task_id IN (SELECT id FROM concert_project_tasks WHERE project_id = ?)
+       GROUP BY task_id`,
+      [projectId]
+    )
+    rows.forEach((r: any) => { commentCounts[Number(r.task_id)] = Number(r.n) })
+  } catch (e) { /* table maybe new, ignore */ }
 
   // Get budget items
   const budgetItems = await queryAll(
@@ -766,9 +783,10 @@ app.get('/admin/projects/:id', async (c) => {
                       <tbody class="divide-y divide-gray-200 bg-white">
                          {tasks.map((task: any) => (
                             <tr>
-                               <td class="px-6 py-4">
+                               <td class="px-6 py-4 align-top">
                                   <div class="text-sm font-medium text-gray-900">{task.titel}</div>
                                   {task.beschrijving && <div class="text-xs text-gray-500">{task.beschrijving}</div>}
+                                  <TaskCommentsCollapsible taskType="project_task" taskId={task.id} initialCount={commentCounts[task.id] || 0} />
                                </td>
                                <td class="px-6 py-4 text-sm text-gray-500">
                                   {task.voornaam ? (
@@ -877,12 +895,8 @@ app.get('/admin/projects/:id', async (c) => {
                              </div>
                              <div class="mb-3">
                                <label class="block text-sm font-medium text-gray-700 mb-1">Toewijzen aan</label>
-                               <select name="verantwoordelijke_id" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
-                                 <option value="">Niemand</option>
-                                 {users.map((u: any) => (
-                                   <option value={u.id}>{u.voornaam} {u.achternaam} ({u.role})</option>
-                                 ))}
-                               </select>
+                               <MemberPicker name="verantwoordelijke_id" users={users} inputId="add-task-verantwoordelijke" placeholder="Typ om te zoeken..." />
+                               <p class="text-xs text-gray-500 mt-1">Tip: typ een paar letters om snel een lid te vinden.</p>
                              </div>
                              <div class="mb-3">
                                <label class="block text-sm font-medium text-gray-700 mb-1">Prioriteit</label>
@@ -931,12 +945,7 @@ app.get('/admin/projects/:id', async (c) => {
                              </div>
                              <div class="mb-3">
                                <label class="block text-sm font-medium text-gray-700 mb-1">Toewijzen aan</label>
-                               <select name="verantwoordelijke_id" id="edit-task-verantwoordelijke" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
-                                 <option value="">Niemand</option>
-                                 {users.map((u: any) => (
-                                   <option value={u.id}>{u.voornaam} {u.achternaam} ({u.role})</option>
-                                 ))}
-                               </select>
+                               <MemberPicker name="verantwoordelijke_id" users={users} inputId="edit-task-verantwoordelijke" placeholder="Typ om te zoeken..." />
                              </div>
                              <div class="mb-3">
                                <label class="block text-sm font-medium text-gray-700 mb-1">Prioriteit</label>
@@ -1038,6 +1047,10 @@ app.get('/admin/projects/:id', async (c) => {
                                         {new Date(task.deadline).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })}
                                       </span>
                                     )}
+                                  </div>
+                                  {/* Stop drag-propagation: kliks in comment-block mogen niet de card-drag starten */}
+                                  <div class="mt-2 pt-2 border-t border-gray-100" onmousedown="event.stopPropagation()" draggable={false as any}>
+                                    <TaskCommentsCollapsible taskType="project_task" taskId={task.id} initialCount={commentCounts[task.id] || 0} />
                                   </div>
                                 </div>
                               )
@@ -1692,8 +1705,9 @@ app.get('/admin/projects/:id', async (c) => {
               document.getElementById('edit-task-beschrijving').value = task.beschrijving || '';
               document.getElementById('edit-task-deadline').value = task.deadline ? task.deadline.split('T')[0] : '';
 
-              const respSelect = document.getElementById('edit-task-verantwoordelijke');
-              if (respSelect) respSelect.value = task.verantwoordelijke_id || '';
+              if (window.__setMemberPicker) {
+                window.__setMemberPicker('edit-task-verantwoordelijke', task.verantwoordelijke_id || '');
+              }
 
               const priorSelect = document.getElementById('edit-task-prioriteit');
               if (priorSelect) priorSelect.value = task.prioriteit || 'medium';
@@ -1788,6 +1802,9 @@ app.get('/admin/projects/:id', async (c) => {
 
         </div>
       </div>
+      <MemberPickerScript />
+      <TaskCommentsScript />
+      <script dangerouslySetInnerHTML={{ __html: `window.__currentUserId = ${Number(user.id) || 0}; window.__isAdmin = ${user.role === 'admin' || user.role === 'moderator' ? 'true' : 'false'};` }} />
     </Layout>
   )
 })

@@ -2,6 +2,8 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
+import { MemberPicker, MemberPickerScript } from '../components/MemberPicker'
+import { TaskCommentsCollapsible, TaskCommentsScript } from '../components/TaskComments'
 import { requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
 
@@ -294,7 +296,7 @@ app.get('/admin/meetings/:id', async (c) => {
   )
 
   // Get action items
-  const actionItems = await queryAll(
+  const actionItems = await queryAll<any>(
     c.env.DB,
     `SELECT a.*, p.voornaam, p.achternaam
      FROM meeting_action_items a
@@ -304,6 +306,21 @@ app.get('/admin/meetings/:id', async (c) => {
      ORDER BY a.created_at DESC`,
     [meetingId]
   )
+
+  // Comment counts per action item
+  const commentCounts: Record<number, number> = {}
+  try {
+    const rows = await queryAll<any>(
+      c.env.DB,
+      `SELECT task_id, COUNT(*) as n
+       FROM task_comments
+       WHERE task_type = 'meeting_action' AND deleted_at IS NULL
+         AND task_id IN (SELECT id FROM meeting_action_items WHERE meeting_id = ?)
+       GROUP BY task_id`,
+      [meetingId]
+    )
+    rows.forEach((r: any) => { commentCounts[Number(r.task_id)] = Number(r.n) })
+  } catch (e) { /* ignore */ }
   
   // Get users for assignment - for board meetings, only show board members + admin/moderator
   const isBoardMeeting = meeting.type === 'bestuur'
@@ -761,11 +778,12 @@ app.get('/admin/meetings/:id', async (c) => {
                            <tbody class="divide-y divide-gray-200">
                               {actionItems.map((action: any) => (
                                  <tr>
-                                    <td class="px-4 py-3 text-sm text-gray-900">
+                                    <td class="px-4 py-3 text-sm text-gray-900 align-top">
                                        <span class="font-medium">{action.titel}</span>
                                        {action.beschrijving && action.beschrijving !== '' && (
                                          <p class="text-xs text-gray-500 mt-0.5">{action.beschrijving}</p>
                                        )}
+                                       <TaskCommentsCollapsible taskType="meeting_action" taskId={action.id} initialCount={commentCounts[action.id] || 0} />
                                     </td>
                                     <td class="px-4 py-3 text-sm text-gray-500">{action.voornaam || '-'}</td>
                                     <td class="px-4 py-3 text-sm text-gray-500">{action.deadline ? new Date(action.deadline).toLocaleDateString('nl-BE') : '-'}</td>
@@ -831,12 +849,8 @@ app.get('/admin/meetings/:id', async (c) => {
                                   </div>
                                   <div class="mb-3">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Verantwoordelijke</label>
-                                    <select name="verantwoordelijke_id" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
-                                      <option value="">Selecteer...</option>
-                                      {users.map((u: any) => (
-                                        <option value={u.id}>{u.voornaam} {u.achternaam}</option>
-                                      ))}
-                                    </select>
+                                    <MemberPicker name="verantwoordelijke_id" users={users} inputId="add-action-verantwoordelijke" placeholder="Typ om te zoeken..." />
+                                    <p class="text-xs text-gray-500 mt-1">Tip: typ een paar letters om snel een lid te vinden.</p>
                                   </div>
                                   <div class="mb-3">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Deadline</label>
@@ -876,12 +890,7 @@ app.get('/admin/meetings/:id', async (c) => {
                                   </div>
                                   <div class="mb-3">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Verantwoordelijke</label>
-                                    <select name="verantwoordelijke_id" id="edit-action-verantwoordelijke" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
-                                      <option value="">Selecteer...</option>
-                                      {users.map((u: any) => (
-                                        <option value={u.id}>{u.voornaam} {u.achternaam}</option>
-                                      ))}
-                                    </select>
+                                    <MemberPicker name="verantwoordelijke_id" users={users} inputId="edit-action-verantwoordelijke" placeholder="Typ om te zoeken..." />
                                   </div>
                                   <div class="mb-3">
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Deadline</label>
@@ -1242,7 +1251,9 @@ app.get('/admin/meetings/:id', async (c) => {
           form.action = '/api/admin/meetings/actions/' + ds.actionId + '/update';
           document.getElementById('edit-action-titel').value = ds.actionTitel || '';
           document.getElementById('edit-action-beschrijving').value = ds.actionBeschrijving || '';
-          document.getElementById('edit-action-verantwoordelijke').value = ds.actionVerantwoordelijke || '';
+          if (window.__setMemberPicker) {
+            window.__setMemberPicker('edit-action-verantwoordelijke', ds.actionVerantwoordelijke || '');
+          }
           document.getElementById('edit-action-deadline').value = ds.actionDeadline || '';
           document.getElementById('edit-action-modal').classList.remove('hidden');
         }
@@ -1345,6 +1356,10 @@ app.get('/admin/meetings/:id', async (c) => {
           });
         })();
       ` }} />
+      <MemberPickerScript />
+      <TaskCommentsScript />
+      {/* expose huidige user voor delete-rechten */}
+      <script dangerouslySetInnerHTML={{ __html: `window.__currentUserId = ${Number(user.id) || 0}; window.__isAdmin = ${user.role === 'admin' || user.role === 'moderator' ? 'true' : 'false'};` }} />
     </Layout>
   )
 })

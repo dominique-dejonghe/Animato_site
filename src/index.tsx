@@ -34,6 +34,7 @@ import adminActivityRoutes from './routes/admin-activity'
 import voiceAnalyzerRoutes from './routes/voice-analyzer'
 import adminProjectsRoutes from './routes/admin-projects'
 import adminMeetingsRoutes from './routes/admin-meetings'
+import taskCommentsRoutes from './routes/task-comments'
 import adminSettingsRoutes from './routes/admin-settings'
 import adminFinanceRoutes from './routes/admin-finance'
 import adminPrintsRoutes from './routes/admin-prints'
@@ -177,6 +178,7 @@ app.route('/', adminVoorstellenRoutes)
 app.route('/', adminActivityRoutes)
 app.route('/', adminProjectsRoutes)
 app.route('/', adminMeetingsRoutes)
+app.route('/', taskCommentsRoutes)
 app.route('/', adminSettingsRoutes)
 app.route('/', adminFinanceRoutes)
 app.route('/', adminPrintsRoutes)

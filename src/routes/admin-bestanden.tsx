@@ -354,6 +354,16 @@ app.get('/admin/bestanden', async (c) => {
                         >
                           <i class="fas fa-external-link-alt"></i>
                         </a>
+                        {/* PDF? Toon knop "Verspreid naar Full-leden" */}
+                        {mat.type === 'pdf' && (
+                          <button
+                            onclick={`openDistributeModal(${mat.id}, ${JSON.stringify(mat.titel)})`}
+                            class="text-purple-600 hover:text-purple-800 mr-4"
+                            title="Verspreid deze PDF naar alle Full-leden van het actieve seizoen"
+                          >
+                            <i class="fas fa-share-square"></i>
+                          </button>
+                        )}
                         <a
                           href={`/admin/bestanden/${mat.id}/edit`}
                           class="text-blue-600 hover:text-blue-900 mr-4"
@@ -379,6 +389,141 @@ app.get('/admin/bestanden', async (c) => {
           </div>
         </div>
       </div>
+
+      {/* =====================================================
+          Distribute-to-Full-leden Modal
+          Toont preview WIE er een print_request zou krijgen,
+          en bevestigt dat je écht wil verspreiden.
+          ===================================================== */}
+      <div id="distributeModal" class="fixed inset-0 z-50 hidden overflow-y-auto" role="dialog" aria-modal="true">
+        <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+          <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onclick="closeDistributeModal()"></div>
+          <span class="hidden sm:inline-block sm:align-middle sm:h-screen">&#8203;</span>
+          <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full">
+            <div class="bg-purple-50 px-4 py-3 border-b border-purple-100">
+              <h3 class="text-lg font-bold text-purple-900">
+                <i class="fas fa-share-square mr-2"></i>
+                Partituur verspreiden naar Full-leden
+              </h3>
+              <p class="text-sm text-purple-700 mt-1" id="distributeMaterialTitle">—</p>
+            </div>
+            <div class="bg-white px-4 py-4 sm:p-6 max-h-[60vh] overflow-y-auto">
+              <div id="distributeLoading" class="text-center py-8 text-gray-500">
+                <i class="fas fa-spinner fa-spin text-2xl mb-2"></i>
+                <div>Bezig met preview laden...</div>
+              </div>
+              <div id="distributeContent" class="hidden">
+                <div id="distributeSummary" class="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-800"></div>
+                <div id="distributeWarning" class="hidden mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800"></div>
+                <div id="distributeUnpaidWarn" class="hidden mb-4 p-3 rounded-lg bg-orange-50 border border-orange-200 text-sm text-orange-800"></div>
+                <div id="distributeMemberList" class="border border-gray-200 rounded-lg divide-y divide-gray-100 text-sm"></div>
+              </div>
+              <div id="distributeError" class="hidden p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-800"></div>
+            </div>
+            <div class="bg-gray-50 px-4 py-3 sm:px-6 flex justify-end gap-2">
+              <button
+                type="button"
+                onclick="closeDistributeModal()"
+                class="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >Annuleer</button>
+              <button
+                type="button"
+                id="distributeConfirmBtn"
+                onclick="confirmDistribute()"
+                class="px-4 py-2 bg-purple-600 text-white rounded-md text-sm font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled
+              >
+                <i class="fas fa-paper-plane mr-1"></i>
+                Bevestig verspreiding
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        let _distMaterialId = null;
+        async function openDistributeModal(materialId, materialTitel) {
+          _distMaterialId = materialId;
+          document.getElementById('distributeMaterialTitle').textContent = materialTitel;
+          document.getElementById('distributeModal').classList.remove('hidden');
+          document.getElementById('distributeLoading').classList.remove('hidden');
+          document.getElementById('distributeContent').classList.add('hidden');
+          document.getElementById('distributeError').classList.add('hidden');
+          document.getElementById('distributeConfirmBtn').disabled = true;
+          try {
+            const res = await fetch('/api/admin/prints/distribute-preview/' + materialId, { credentials: 'same-origin' });
+            const data = await res.json();
+            if (!res.ok || data.error) throw new Error(data.error || 'preview_failed');
+            renderDistributePreview(data);
+          } catch (e) {
+            document.getElementById('distributeLoading').classList.add('hidden');
+            document.getElementById('distributeError').classList.remove('hidden');
+            document.getElementById('distributeError').textContent = 'Kon preview niet laden: ' + e.message;
+          }
+        }
+        function renderDistributePreview(d) {
+          document.getElementById('distributeLoading').classList.add('hidden');
+          document.getElementById('distributeContent').classList.remove('hidden');
+          const summary = document.getElementById('distributeSummary');
+          summary.innerHTML = '<strong>Seizoen:</strong> ' + d.season.season + ' &middot; '
+            + '<strong>' + d.will_create_count + '</strong> nieuwe print-taken'
+            + (d.already_have_count > 0 ? ' (' + d.already_have_count + ' Full-leden hebben deze partituur al)' : '')
+            + ' &middot; Totaal Full-leden: ' + d.total_full_members;
+          const warn = document.getElementById('distributeWarning');
+          if (d.warning) {
+            warn.classList.remove('hidden');
+            warn.innerHTML = '<i class="fas fa-exclamation-triangle mr-1"></i>' + d.warning;
+          } else { warn.classList.add('hidden'); }
+          const unpaid = document.getElementById('distributeUnpaidWarn');
+          if (d.unpaid_count > 0) {
+            unpaid.classList.remove('hidden');
+            unpaid.innerHTML = '<i class="fas fa-info-circle mr-1"></i><strong>' + d.unpaid_count + '</strong> van deze leden heeft zijn lidgeld nog niet betaald. Print-taken worden toch aangemaakt maar je ziet ze met een waarschuwing in de Printservice.';
+          } else { unpaid.classList.add('hidden'); }
+          const list = document.getElementById('distributeMemberList');
+          if (d.will_create_count === 0) {
+            list.innerHTML = '<div class="p-3 text-gray-500 italic">Geen nieuwe print-taken nodig — alle Full-leden hebben deze partituur al.</div>';
+            document.getElementById('distributeConfirmBtn').disabled = true;
+            document.getElementById('distributeConfirmBtn').innerHTML = '<i class="fas fa-check mr-1"></i>Niets te doen';
+          } else {
+            list.innerHTML = d.will_create.map(m =>
+              '<div class="px-3 py-2 flex items-center justify-between">' +
+                '<span>' + m.naam + ' <span class="text-gray-400 text-xs">' + m.email + '</span></span>' +
+                (m.lidgeld_paid
+                  ? '<span class="text-xs text-green-600"><i class="fas fa-check-circle"></i> Lidgeld betaald</span>'
+                  : '<span class="text-xs text-orange-600"><i class="fas fa-exclamation-circle"></i> Lidgeld open</span>') +
+              '</div>'
+            ).join('');
+            document.getElementById('distributeConfirmBtn').disabled = false;
+            document.getElementById('distributeConfirmBtn').innerHTML = '<i class="fas fa-paper-plane mr-1"></i>Maak ' + d.will_create_count + ' print-taken aan';
+          }
+        }
+        function closeDistributeModal() {
+          document.getElementById('distributeModal').classList.add('hidden');
+          _distMaterialId = null;
+        }
+        async function confirmDistribute() {
+          if (!_distMaterialId) return;
+          const btn = document.getElementById('distributeConfirmBtn');
+          btn.disabled = true;
+          btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Bezig...';
+          try {
+            const fd = new FormData();
+            fd.append('material_id', String(_distMaterialId));
+            const res = await fetch('/api/admin/prints/distribute-pdf', {
+              method: 'POST', credentials: 'same-origin', body: fd
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) throw new Error(data.error || 'distribute_failed');
+            alert('✅ ' + data.message);
+            closeDistributeModal();
+          } catch (e) {
+            alert('❌ Fout: ' + e.message);
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-paper-plane mr-1"></i>Probeer opnieuw';
+          }
+        }
+      ` }} />
 
       {/* Delete Confirmation Modal */}
       <div id="deleteModal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">

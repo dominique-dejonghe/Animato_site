@@ -156,12 +156,21 @@ app.get('/admin/prints', async (c) => {
            m.titel as material_titel, m.page_count,
            w.titel as werk_titel,
            (SELECT COUNT(*) FROM print_email_log WHERE print_request_id = pr.id) as mail_count,
-           (SELECT MAX(sent_at) FROM print_email_log WHERE print_request_id = pr.id) as last_mail_at
+           (SELECT MAX(sent_at) FROM print_email_log WHERE print_request_id = pr.id) as last_mail_at,
+           my.season AS season_label,
+           -- Lidgeld-status van het lid voor het seizoen dat bij deze print hoort.
+           -- Toont "Full betaald ✅" of "Lidgeld nog open ⚠️" naast de naam zodat
+           -- de printservice in één oogopslag ziet of er gedrukt mag worden.
+           (SELECT um.status FROM user_memberships um
+            WHERE um.user_id = pr.user_id AND um.year_id = pr.season_id LIMIT 1) AS lidgeld_status,
+           (SELECT um.type FROM user_memberships um
+            WHERE um.user_id = pr.user_id AND um.year_id = pr.season_id LIMIT 1) AS lidgeld_type
     FROM print_requests pr
     JOIN users u ON pr.user_id = u.id
     LEFT JOIN profiles p ON p.user_id = u.id
     LEFT JOIN works w ON pr.work_id = w.id
     LEFT JOIN materials m ON pr.material_id = m.id
+    LEFT JOIN membership_years my ON my.id = pr.season_id
     WHERE ${statusFilter} ${extra}
     ORDER BY pr.created_at DESC
   `, params)
@@ -322,6 +331,26 @@ app.get('/admin/prints', async (c) => {
                         <td class="px-6 py-4">
                           <div class="text-sm font-bold text-gray-900">{naam}</div>
                           <div class="text-xs text-gray-500">{req.email}</div>
+                          {/* Lidgeld-context: alleen tonen als er een seizoen-koppeling is */}
+                          {req.season_id && (
+                            <div class="mt-1">
+                              {req.lidgeld_status === 'paid' && req.lidgeld_type === 'full' && (
+                                <span class="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded bg-green-100 text-green-800" title={`Full-lidgeld voor ${req.season_label} is betaald — vrij om te drukken`}>
+                                  <i class="fas fa-check-circle mr-1"></i>Full {req.season_label} betaald
+                                </span>
+                              )}
+                              {req.lidgeld_status === 'paid' && req.lidgeld_type === 'basis' && (
+                                <span class="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded bg-yellow-100 text-yellow-800" title={`Dit lid heeft Basis-formule (digitaal) maar heeft toch een print-taak — controleer`}>
+                                  <i class="fas fa-question-circle mr-1"></i>Basis (geen papier?)
+                                </span>
+                              )}
+                              {req.lidgeld_status !== 'paid' && req.lidgeld_type && (
+                                <span class="inline-flex items-center text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 text-red-800" title={`Lidgeld ${req.season_label} nog niet betaald — overweeg om eerst de betaling af te wachten`}>
+                                  <i class="fas fa-exclamation-triangle mr-1"></i>Lidgeld {req.season_label} open
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td class="px-6 py-4">
                           <div class="text-sm text-gray-900">{req.werk_titel || <em class="text-gray-400">— geen werk —</em>}</div>
@@ -985,6 +1014,231 @@ app.post('/api/admin/prints/mark-completed', async (c) => {
     await execute(c.env.DB, `UPDATE print_requests SET status='completed', completed_at=COALESCE(completed_at,CURRENT_TIMESTAMP), updated_at=CURRENT_TIMESTAMP WHERE id=?`, [id])
   }
   return c.redirect(flashRedirect('history', 'ok', 'Markeerd als overhandigd.'))
+})
+
+// =============================================================
+// FULL-LIDGELD DISTRIBUTIE ENDPOINTS
+// =============================================================
+// Deze endpoints koppelen het Full-lidgeld (€50, papieren partituren)
+// aan de printservice. Een Full-lid heeft recht op alle PDFs van het
+// actieve seizoen. Wanneer een PDF wordt verspreid, krijgen alle
+// Full-leden een print_request met is_subscription_covered=1 en de
+// season_id van het actieve seizoen.
+
+// -----------------------------------------------------------
+// GET /api/admin/prints/distribute-preview/:materialId
+// Toont WIE er een print_request zou krijgen als je nu zou verspreiden.
+// Slaat niets op — dit is een veiligheidscheck VÓÓR de POST.
+// -----------------------------------------------------------
+app.get('/api/admin/prints/distribute-preview/:materialId', async (c) => {
+  const materialId = parseInt(c.req.param('materialId'))
+  if (!materialId) return c.json({ error: 'material_id_required' }, 400)
+
+  const db = c.env.DB
+
+  // Welk materiaal — moet PDF zijn (papieren druk)
+  const material = await queryOne<any>(db, `
+    SELECT m.id, m.titel, m.type, m.page_count, p.titel AS piece_titel
+    FROM materials m
+    LEFT JOIN pieces p ON p.id = m.piece_id
+    WHERE m.id = ?
+  `, [materialId])
+  if (!material) return c.json({ error: 'material_not_found' }, 404)
+
+  // Actief seizoen
+  const activeSeason = await queryOne<any>(db,
+    `SELECT id, season, fee_full FROM membership_years WHERE is_active = 1 LIMIT 1`)
+  if (!activeSeason) return c.json({ error: 'no_active_season' }, 400)
+
+  // Alle Full-leden voor dit seizoen, met betalingsstatus
+  const fullMembers = await queryAll<any>(db, `
+    SELECT u.id AS user_id, u.email, p.voornaam, p.achternaam,
+           um.status AS lidgeld_status, um.paid_at
+    FROM user_memberships um
+    JOIN users u ON u.id = um.user_id
+    LEFT JOIN profiles p ON p.user_id = u.id
+    WHERE um.year_id = ? AND um.type = 'full'
+    ORDER BY p.achternaam, p.voornaam
+  `, [activeSeason.id])
+
+  // Welke Full-leden hebben REEDS een print_request voor dit material+seizoen?
+  // (idempotentie — voorkomt dubbele rijen als je twee keer op 'Verspreid' klikt)
+  const existing = await queryAll<any>(db, `
+    SELECT user_id FROM print_requests
+    WHERE material_id = ? AND season_id = ?
+  `, [materialId, activeSeason.id])
+  const existingUserIds = new Set(existing.map((r: any) => r.user_id))
+
+  const willCreate = fullMembers.filter((m: any) => !existingUserIds.has(m.user_id))
+  const alreadyHave = fullMembers.filter((m: any) => existingUserIds.has(m.user_id))
+  const unpaidWillCreate = willCreate.filter((m: any) => m.lidgeld_status !== 'paid')
+
+  return c.json({
+    material: { id: material.id, titel: material.titel, piece_titel: material.piece_titel, type: material.type, page_count: material.page_count },
+    season: { id: activeSeason.id, season: activeSeason.season },
+    total_full_members: fullMembers.length,
+    will_create_count: willCreate.length,
+    already_have_count: alreadyHave.length,
+    unpaid_count: unpaidWillCreate.length,
+    will_create: willCreate.map((m: any) => ({
+      user_id: m.user_id,
+      naam: `${m.voornaam || ''} ${m.achternaam || ''}`.trim() || m.email,
+      email: m.email,
+      lidgeld_paid: m.lidgeld_status === 'paid'
+    })),
+    is_pdf: material.type === 'pdf',
+    warning: material.type !== 'pdf' ? `Dit is een ${material.type}-bestand, geen PDF. Wil je dat écht verspreiden als papieren print?` : null
+  })
+})
+
+// -----------------------------------------------------------
+// POST /api/admin/prints/distribute-pdf
+// Body: material_id
+// Maakt voor elk Full-lid van het actieve seizoen een print_request
+// (status=pending, is_subscription_covered=1, cost=0, season_id=X).
+// Idempotent: als een Full-lid al een rij heeft voor dit material+seizoen,
+// wordt die overgeslagen — je kan dus veilig dubbelklikken.
+// -----------------------------------------------------------
+app.post('/api/admin/prints/distribute-pdf', async (c) => {
+  const body = await c.req.parseBody()
+  const materialId = parseInt(String(body.material_id || ''))
+  if (!materialId) return c.json({ error: 'material_id_required' }, 400)
+
+  const db = c.env.DB
+  const adminUser = c.get('user') as any
+
+  // Material bestaat?
+  const material = await queryOne<any>(db,
+    `SELECT id, titel, type, piece_id FROM materials WHERE id = ?`, [materialId])
+  if (!material) return c.json({ error: 'material_not_found' }, 404)
+
+  // Actief seizoen?
+  const activeSeason = await queryOne<any>(db,
+    `SELECT id, season FROM membership_years WHERE is_active = 1 LIMIT 1`)
+  if (!activeSeason) return c.json({ error: 'no_active_season' }, 400)
+
+  // work_id afleiden uit piece (als de piece-link bestaat)
+  const workId = material.piece_id || null
+
+  // Welke Full-leden hebben nog GEEN print_request voor dit material+seizoen?
+  const toCreate = await queryAll<any>(db, `
+    SELECT u.id AS user_id, u.email
+    FROM user_memberships um
+    JOIN users u ON u.id = um.user_id
+    WHERE um.year_id = ? AND um.type = 'full'
+      AND NOT EXISTS (
+        SELECT 1 FROM print_requests pr
+        WHERE pr.user_id = u.id
+          AND pr.material_id = ?
+          AND pr.season_id = ?
+      )
+  `, [activeSeason.id, materialId, activeSeason.id])
+
+  let createdCount = 0
+  for (const member of toCreate) {
+    try {
+      await execute(db, `
+        INSERT INTO print_requests
+          (user_id, material_id, work_id, status, cost, is_subscription_covered,
+           payment_status, season_id, opmerking, created_at, updated_at)
+        VALUES (?, ?, ?, 'pending', 0, 1, 'paid', ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `, [member.user_id, materialId, workId, activeSeason.id,
+          `Auto-verdeeld via Full-lidgeld ${activeSeason.season}`])
+      createdCount++
+    } catch (e) {
+      console.warn(`Could not create print_request for user ${member.user_id}:`, e)
+    }
+  }
+
+  // Audit-log entry voor de admin-actie
+  try {
+    await execute(db, `
+      INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
+      VALUES (?, 'prints_distributed', 'material', ?, ?)
+    `, [adminUser.id, materialId, JSON.stringify({
+      material_titel: material.titel,
+      season: activeSeason.season,
+      created_count: createdCount,
+      already_existed_count: toCreate.length === 0 ? 'all' : undefined
+    })])
+  } catch (_) { /* niet kritiek */ }
+
+  return c.json({
+    success: true,
+    material_titel: material.titel,
+    season: activeSeason.season,
+    created_count: createdCount,
+    message: createdCount === 0
+      ? `Geen nieuwe print-taken aangemaakt — alle Full-leden hadden deze partituur al toegewezen gekregen.`
+      : `${createdCount} print-taken aangemaakt voor de Full-leden van seizoen ${activeSeason.season}.`
+  })
+})
+
+// -----------------------------------------------------------
+// POST /api/admin/prints/mark-package-delivered/:userId
+// "Heel pakket overhandigd voor dit lid" — markeert ALLE openstaande
+// (pending|ready) print_requests van het actieve seizoen voor één lid
+// als completed in één klik.
+// -----------------------------------------------------------
+app.post('/api/admin/prints/mark-package-delivered/:userId', async (c) => {
+  const userId = parseInt(c.req.param('userId'))
+  if (!userId) return c.json({ error: 'user_id_required' }, 400)
+
+  const db = c.env.DB
+  const seasonId = parseInt(String((await c.req.parseBody()).season_id || '')) || null
+
+  // Default: actief seizoen als er geen meegestuurd is
+  let activeSeasonId = seasonId
+  if (!activeSeasonId) {
+    const row = await queryOne<any>(db,
+      `SELECT id FROM membership_years WHERE is_active = 1 LIMIT 1`)
+    activeSeasonId = row?.id
+  }
+  if (!activeSeasonId) return c.json({ error: 'no_season' }, 400)
+
+  // Markeer alle open print_requests van dit lid voor dit seizoen als geleverd
+  const result = await execute(db, `
+    UPDATE print_requests
+    SET status = 'completed',
+        completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP),
+        updated_at = CURRENT_TIMESTAMP
+    WHERE user_id = ?
+      AND season_id = ?
+      AND status IN ('pending', 'ready')
+  `, [userId, activeSeasonId])
+
+  return c.json({
+    success: true,
+    marked_count: result?.meta?.changes ?? 0,
+    user_id: userId,
+    season_id: activeSeasonId
+  })
+})
+
+// -----------------------------------------------------------
+// POST /api/admin/prints/toggle-delivered/:id
+// Per-partituur per-lid toggle. Wisselt status pending↔completed.
+// Gebruikt door de detail-view "wat heeft Maria allemaal precies gehad".
+// -----------------------------------------------------------
+app.post('/api/admin/prints/toggle-delivered/:id', async (c) => {
+  const id = parseInt(c.req.param('id'))
+  if (!id) return c.json({ error: 'id_required' }, 400)
+
+  const db = c.env.DB
+  const current = await queryOne<any>(db,
+    `SELECT status FROM print_requests WHERE id = ?`, [id])
+  if (!current) return c.json({ error: 'not_found' }, 404)
+
+  const newStatus = current.status === 'completed' ? 'pending' : 'completed'
+  await execute(db, `
+    UPDATE print_requests
+    SET status = ?,
+        completed_at = CASE WHEN ? = 'completed' THEN COALESCE(completed_at, CURRENT_TIMESTAMP) ELSE NULL END,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `, [newStatus, newStatus, id])
+
+  return c.json({ success: true, id, new_status: newStatus })
 })
 
 export default app

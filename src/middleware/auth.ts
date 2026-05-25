@@ -144,10 +144,51 @@ export function requireRole(...roles: UserRole[]) {
     }
 
     if (!hasRole(user, roles)) {
-      return c.json({ 
-        error: 'Onvoldoende rechten', 
+      // Stale-token detectie: token zegt 'lid' maar DB zegt iets hogers.
+      // Gebeurt na "Bekijk als lid" of na een role-upgrade door een andere
+      // admin. Vriendelijke re-login pagina i.p.v. rauwe JSON-403.
+      const path = c.req.path
+      const wantsHtml = (c.req.header('Accept') || '').includes('text/html') &&
+                        !path.startsWith('/api/')
+
+      let dbRole: string | null = null
+      try {
+        const row = await c.env.DB.prepare(
+          'SELECT role FROM users WHERE id = ?'
+        ).bind(user.id).first<{ role: string }>()
+        dbRole = row?.role ?? null
+      } catch (_) { /* niet kritiek */ }
+
+      const tokenIsStale = dbRole && dbRole !== user.role &&
+                           roles.includes(dbRole as UserRole)
+
+      if (tokenIsStale && wantsHtml) {
+        // Wis stale cookies → schone re-login
+        const { setCookie } = await import('hono/cookie')
+        setCookie(c, 'auth_token', '', { maxAge: 0, path: '/', httpOnly: true, secure: true, sameSite: 'Lax' })
+        setCookie(c, 'admin_impersonate_token', '', { maxAge: 0, path: '/', httpOnly: true, secure: true, sameSite: 'Lax' })
+        return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sessie verouderd</title>
+          <script src="https://cdn.tailwindcss.com"></script>
+          <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+          </head>
+          <body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+            <div class="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center">
+              <i class="fas fa-sync-alt text-amber-500 text-5xl mb-4"></i>
+              <h1 class="text-2xl font-bold text-gray-800 mb-2">Sessie verouderd</h1>
+              <p class="text-gray-600 mb-2">Je rechten zijn ondertussen aangepast (nu: <strong>${dbRole}</strong>), maar je sessie bevat nog de oude rol (<strong>${user.role}</strong>).</p>
+              <p class="text-gray-500 text-sm mb-6">Dit gebeurt typisch na "Bekijk als lid" of na een rol-upgrade. Log opnieuw in om verder te gaan.</p>
+              <a href="/login?redirect=${encodeURIComponent(path)}" class="inline-block px-6 py-3 text-white rounded-lg font-medium hover:opacity-90 transition" style="background-color:#00A9CE">
+                <i class="fas fa-sign-in-alt mr-2"></i>Opnieuw inloggen
+              </a>
+            </div>
+          </body></html>`, 403)
+      }
+
+      return c.json({
+        error: 'Onvoldoende rechten',
         requiredRole: roles,
-        yourRole: user.role 
+        yourRole: user.role,
+        ...(tokenIsStale ? { hint: 'token-stale', dbRole } : {})
       }, 403)
     }
 

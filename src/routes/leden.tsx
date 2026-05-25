@@ -350,12 +350,21 @@ app.get('/leden', async (c) => {
   try {
     dashNotifs = await getNotificationsForUser(c.env.DB, user.id, 10, true) // unreadOnly=true
   } catch (e) { /* ignore */ }
-  // BUG-FIX (Dominique, 23 mei): bel-melding "staat open" enkel als er
-  // ECHT een pending row is. Onderscheid:
-  //   - "staat open" / "te betalen" notifs zijn alleen relevant met pending row;
-  //     anders zijn ze stale (bv. na reset-season).
-  //   - "ontvangen — bedankt!" / paid-confirmation notifs blijven altijd zichtbaar.
-  // Heuristiek: titel bevat "open", "openstaand" of "te betalen" → invitation-style.
+  // BUG-FIX (Dominique, 23 mei → 25 mei):
+  // Dubbele lidgeld-melding wegfilteren.
+  // Stap 1 hierboven voegt al een directe "Lidgeld YYYY-YYYY nog te betalen"
+  // kaart toe uit user_memberships (= bron van waarheid). Daarnaast bestaat
+  // er een notifications-tabel die per lid een notif "Lidgeld YYYY (€X) staat
+  // open" inplant (via admin-finance.tsx). Vroeger toonden we ze allebei,
+  // wat een dubbel-bericht gaf in het "Wat staat er open?"-blok.
+  //
+  // Regels nu:
+  //   - Lidgeld confirmation/thanks (paid, ontvangen): ALTIJD tonen
+  //   - Lidgeld invitation/reminder (open, te betalen, herinnering, betaalverzoek):
+  //       * NIET tonen als er al een directe lidgeld-kaart in dashboardActions zit
+  //         (zou exact dezelfde info zijn, dubbel)
+  //       * NIET tonen als er GEEN pending row meer is (stale na reset-season)
+  //       * Wel tonen in alle andere edge cases (zou zelden voorkomen)
   const hasOpenLidgeldCard = dashboardActions.some(a => a.titel.startsWith('Lidgeld ') && a.titel.includes('nog te betalen'))
   function isInvitationLidgeld(n: any): boolean {
     if (n.type !== 'lidgeld') return false
@@ -367,8 +376,12 @@ app.get('/leden', async (c) => {
     if (n.type !== 'lidgeld') return true
     // Lidgeld confirmation/thanks: altijd tonen
     if (!isInvitationLidgeld(n)) return true
-    // Lidgeld invitation: alleen tonen als er ECHT een pending row is
-    return hasOpenLidgeldCard
+    // Lidgeld invitation: WEGLATEN als de directe kaart al getoond wordt
+    // (anders krijg je twee keer dezelfde melding, eens compact en eens uitgebreid)
+    if (hasOpenLidgeldCard) return false
+    // Geen kaart maar wel een invitation-notif: laat zien (edge case waar
+    // notif gemaakt is zonder bijhorende user_memberships row)
+    return true
   }).slice(0, 4)
   for (const n of unreadNotifs) {
     const style = getNotificationStyle(n.type)

@@ -405,6 +405,83 @@ app.get('/leden', async (c) => {
     return true
   }).slice(0, 6)
 
+  // 🗂️ Mijn taken — uit vergaderingen + concertprojecten
+  // Toon enkel taken die nog NIET afgewerkt zijn (open / in_progress / blocked / todo)
+  let myTasks: any[] = []
+  try {
+    const meetingTasks = await queryAll<any>(
+      c.env.DB,
+      `SELECT
+         'meeting' AS bron,
+         mai.id AS id,
+         mai.titel AS titel,
+         mai.beschrijving AS beschrijving,
+         mai.deadline AS deadline,
+         mai.status AS status,
+         mai.created_at AS created_at,
+         m.id AS bron_id,
+         m.titel AS bron_titel,
+         m.datum AS bron_datum
+       FROM meeting_action_items mai
+       JOIN meetings m ON m.id = mai.meeting_id
+       WHERE mai.verantwoordelijke_id = ?
+         AND mai.status NOT IN ('done', 'cancelled')
+       ORDER BY
+         CASE WHEN mai.deadline IS NULL THEN 1 ELSE 0 END,
+         mai.deadline ASC`,
+      [user.id]
+    )
+    const projectTasks = await queryAll<any>(
+      c.env.DB,
+      `SELECT
+         'project' AS bron,
+         cpt.id AS id,
+         cpt.titel AS titel,
+         cpt.beschrijving AS beschrijving,
+         cpt.deadline AS deadline,
+         cpt.status AS status,
+         cpt.prioriteit AS prioriteit,
+         cpt.created_at AS created_at,
+         cp.id AS bron_id,
+         cp.titel AS bron_titel,
+         cp.concert_datum AS bron_datum
+       FROM concert_project_tasks cpt
+       JOIN concert_projects cp ON cp.id = cpt.project_id
+       WHERE cpt.verantwoordelijke_id = ?
+         AND cpt.status NOT IN ('done')
+       ORDER BY
+         CASE WHEN cpt.deadline IS NULL THEN 1 ELSE 0 END,
+         cpt.deadline ASC`,
+      [user.id]
+    )
+    myTasks = [...(meetingTasks || []), ...(projectTasks || [])]
+    // Algemene sortering: deadline ASC, NULLs achteraan
+    myTasks.sort((a, b) => {
+      if (!a.deadline && !b.deadline) return 0
+      if (!a.deadline) return 1
+      if (!b.deadline) return -1
+      return String(a.deadline).localeCompare(String(b.deadline))
+    })
+  } catch (e) {
+    console.error('[mijn-taken] query mislukt:', e)
+  }
+
+  // Helper: deadline visueel
+  const today = new Date().toISOString().slice(0, 10)
+  function deadlineLabel(d: string | null) {
+    if (!d) return { label: 'Geen deadline', cls: 'text-gray-500 bg-gray-100' }
+    const isOverdue = d < today
+    const isToday = d === today
+    if (isOverdue) return { label: 'Achterstand sinds ' + d, cls: 'text-red-700 bg-red-100' }
+    if (isToday) return { label: 'Vandaag', cls: 'text-orange-700 bg-orange-100' }
+    // Within 7 days?
+    const dt = new Date(d).getTime()
+    const now = new Date(today).getTime()
+    const days = Math.round((dt - now) / 86400000)
+    if (days <= 7) return { label: 'Binnen ' + days + 'd', cls: 'text-amber-700 bg-amber-100' }
+    return { label: d, cls: 'text-gray-600 bg-gray-100' }
+  }
+
   return c.html(
     <Layout title="Ledenportaal" user={user} impersonating={impersonating}>
       <div class="py-12 bg-gray-50">
@@ -711,6 +788,89 @@ app.get('/leden', async (c) => {
                   });
                 })();
               ` }} />
+            </div>
+          )}
+
+          {/* 🗂️ Mijn taken — uit vergaderingen en projecten */}
+          {myTasks.length > 0 && (
+            <div class="mb-8 bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden">
+              <div class="bg-gradient-to-r from-purple-50 to-indigo-50 px-5 py-4 border-b border-gray-100 flex items-center justify-between flex-wrap gap-2">
+                <div class="flex items-center gap-3">
+                  <div class="w-9 h-9 bg-purple-600 text-white rounded-full flex items-center justify-center shadow-sm">
+                    <i class="fas fa-clipboard-check"></i>
+                  </div>
+                  <div>
+                    <h2 class="text-lg font-bold text-gray-800" style="font-family: 'Playfair Display', serif;">
+                      Mijn taken
+                    </h2>
+                    <p class="text-xs text-gray-500 mt-0.5">
+                      {myTasks.length} {myTasks.length === 1 ? 'openstaande taak' : 'openstaande taken'} toegewezen aan jou
+                    </p>
+                  </div>
+                </div>
+                <a href="/leden/taken" class="text-xs text-purple-700 hover:underline whitespace-nowrap font-medium">
+                  Alle taken <i class="fas fa-arrow-right ml-0.5 text-[10px]"></i>
+                </a>
+              </div>
+              <ul class="divide-y divide-gray-100">
+                {myTasks.slice(0, 6).map((t: any) => {
+                  const isMeeting = t.bron === 'meeting'
+                  const sourceLink = isMeeting
+                    ? `/admin/meetings/${t.bron_id}`
+                    : `/admin/projects/${t.bron_id}`
+                  const sourceIcon = isMeeting ? 'fa-users' : 'fa-music'
+                  const sourceLabel = isMeeting ? 'Vergadering' : 'Project'
+                  const sourceColor = isMeeting ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-pink-50 text-pink-700 border-pink-200'
+                  const dl = deadlineLabel(t.deadline)
+                  const statusBadge = t.status === 'in_progress'
+                    ? { label: 'Bezig', cls: 'bg-amber-100 text-amber-800' }
+                    : t.status === 'blocked'
+                      ? { label: 'Geblokkeerd', cls: 'bg-red-100 text-red-800' }
+                      : t.status === 'todo' || t.status === 'open'
+                        ? { label: 'Open', cls: 'bg-gray-100 text-gray-700' }
+                        : { label: t.status, cls: 'bg-gray-100 text-gray-700' }
+                  return (
+                    <li class="px-5 py-3 hover:bg-gray-50 transition">
+                      <div class="flex items-start gap-3">
+                        <div class="flex-shrink-0 w-9 h-9 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center mt-0.5">
+                          <i class="fas fa-tasks text-sm"></i>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <div class="flex items-start justify-between gap-2 flex-wrap">
+                            <p class="text-sm font-semibold text-gray-800">{t.titel}</p>
+                            <div class="flex items-center gap-1.5 flex-wrap">
+                              <span class={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${sourceColor}`}>
+                                <i class={`fas ${sourceIcon}`}></i> {sourceLabel}
+                              </span>
+                              <span class={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${statusBadge.cls}`}>
+                                {statusBadge.label}
+                              </span>
+                              <span class={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${dl.cls}`}>
+                                <i class="far fa-clock"></i> {dl.label}
+                              </span>
+                            </div>
+                          </div>
+                          {t.beschrijving && (
+                            <p class="text-xs text-gray-500 mt-1 line-clamp-2">{t.beschrijving}</p>
+                          )}
+                          <p class="text-[11px] text-gray-400 mt-1">
+                            <i class={`fas ${sourceIcon} mr-1`}></i>
+                            Uit: <a href={sourceLink} class="text-purple-700 hover:underline">{t.bron_titel}</a>
+                            {t.bron_datum && <span class="text-gray-400"> · {t.bron_datum}</span>}
+                          </p>
+                        </div>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+              {myTasks.length > 6 && (
+                <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 text-center">
+                  <a href="/leden/taken" class="text-sm text-purple-700 hover:underline font-medium">
+                    Bekijk alle {myTasks.length} taken <i class="fas fa-arrow-right ml-1 text-[10px]"></i>
+                  </a>
+                </div>
+              )}
             </div>
           )}
 
@@ -1030,6 +1190,248 @@ app.get('/leden', async (c) => {
       {/* Nieuwe-lid aankondiging popup \u2014 fetcht /api/leden/new-members, toont
           confetti-modal als er ongelezen nieuwe leden zijn van laatste 14 dagen */}
       <script src="/static/js/new-members-popup.js" defer></script>
+    </Layout>
+  )
+})
+
+// =====================================================
+// MIJN TAKEN PAGE
+// =====================================================
+
+app.get('/leden/taken', async (c) => {
+  const user = c.get('user') as SessionUser
+  const filter = c.req.query('filter') || 'open'  // open | done | all
+  const bronFilter = c.req.query('bron') || 'all'  // all | meeting | project
+
+  let allTasks: any[] = []
+  try {
+    const meetingTasks = await queryAll<any>(
+      c.env.DB,
+      `SELECT
+         'meeting' AS bron,
+         mai.id AS id,
+         mai.titel AS titel,
+         mai.beschrijving AS beschrijving,
+         mai.deadline AS deadline,
+         mai.status AS status,
+         mai.completed_at AS completed_at,
+         mai.created_at AS created_at,
+         m.id AS bron_id,
+         m.titel AS bron_titel,
+         m.datum AS bron_datum
+       FROM meeting_action_items mai
+       JOIN meetings m ON m.id = mai.meeting_id
+       WHERE mai.verantwoordelijke_id = ?
+       ORDER BY
+         CASE WHEN mai.deadline IS NULL THEN 1 ELSE 0 END,
+         mai.deadline ASC`,
+      [user.id]
+    )
+    const projectTasks = await queryAll<any>(
+      c.env.DB,
+      `SELECT
+         'project' AS bron,
+         cpt.id AS id,
+         cpt.titel AS titel,
+         cpt.beschrijving AS beschrijving,
+         cpt.deadline AS deadline,
+         cpt.status AS status,
+         cpt.prioriteit AS prioriteit,
+         cpt.completed_at AS completed_at,
+         cpt.created_at AS created_at,
+         cp.id AS bron_id,
+         cp.titel AS bron_titel,
+         cp.concert_datum AS bron_datum
+       FROM concert_project_tasks cpt
+       JOIN concert_projects cp ON cp.id = cpt.project_id
+       WHERE cpt.verantwoordelijke_id = ?
+       ORDER BY
+         CASE WHEN cpt.deadline IS NULL THEN 1 ELSE 0 END,
+         cpt.deadline ASC`,
+      [user.id]
+    )
+    allTasks = [...(meetingTasks || []), ...(projectTasks || [])]
+  } catch (e) {
+    console.error('[leden/taken] query mislukt:', e)
+  }
+
+  const isDone = (t: any) => t.status === 'done' || t.status === 'cancelled'
+  const openTasks = allTasks.filter(t => !isDone(t))
+  const doneTasks = allTasks.filter(t => isDone(t))
+
+  let visibleTasks = allTasks
+  if (filter === 'open') visibleTasks = openTasks
+  else if (filter === 'done') visibleTasks = doneTasks
+
+  if (bronFilter === 'meeting') visibleTasks = visibleTasks.filter(t => t.bron === 'meeting')
+  else if (bronFilter === 'project') visibleTasks = visibleTasks.filter(t => t.bron === 'project')
+
+  // Sort: open first by deadline, done last
+  visibleTasks.sort((a, b) => {
+    if (isDone(a) !== isDone(b)) return isDone(a) ? 1 : -1
+    if (!a.deadline && !b.deadline) return 0
+    if (!a.deadline) return 1
+    if (!b.deadline) return -1
+    return String(a.deadline).localeCompare(String(b.deadline))
+  })
+
+  const today = new Date().toISOString().slice(0, 10)
+  function deadlineLabel(d: string | null) {
+    if (!d) return { label: 'Geen deadline', cls: 'text-gray-500 bg-gray-100' }
+    const isOverdue = d < today
+    const isToday = d === today
+    if (isOverdue) return { label: 'Achterstand sinds ' + d, cls: 'text-red-700 bg-red-100' }
+    if (isToday) return { label: 'Vandaag', cls: 'text-orange-700 bg-orange-100' }
+    const dt = new Date(d).getTime()
+    const now = new Date(today).getTime()
+    const days = Math.round((dt - now) / 86400000)
+    if (days <= 7) return { label: 'Binnen ' + days + 'd · ' + d, cls: 'text-amber-700 bg-amber-100' }
+    return { label: d, cls: 'text-gray-600 bg-gray-100' }
+  }
+
+  const meetingCount = openTasks.filter(t => t.bron === 'meeting').length
+  const projectCount = openTasks.filter(t => t.bron === 'project').length
+
+  return c.html(
+    <Layout title="Mijn taken" user={user}>
+      <div class="py-10 bg-gray-50 min-h-screen">
+        <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+
+          {/* Header */}
+          <div class="mb-6">
+            <h1 class="text-3xl font-bold text-gray-800 mb-1" style="font-family: 'Playfair Display', serif;">
+              <i class="fas fa-clipboard-check text-purple-600 mr-2"></i>
+              Mijn taken
+            </h1>
+            <p class="text-sm text-gray-600">
+              Alle actiepunten en projecttaken die aan jou zijn toegewezen.
+            </p>
+          </div>
+
+          {/* KPI tiles */}
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            <div class="bg-white border border-gray-200 rounded-xl p-4">
+              <div class="text-2xl font-bold text-purple-700">{openTasks.length}</div>
+              <div class="text-xs text-gray-500 uppercase tracking-wide">Openstaand</div>
+            </div>
+            <div class="bg-white border border-blue-200 rounded-xl p-4">
+              <div class="text-2xl font-bold text-blue-700">{meetingCount}</div>
+              <div class="text-xs text-gray-500 uppercase tracking-wide"><i class="fas fa-users mr-1"></i>Uit vergaderingen</div>
+            </div>
+            <div class="bg-white border border-pink-200 rounded-xl p-4">
+              <div class="text-2xl font-bold text-pink-700">{projectCount}</div>
+              <div class="text-xs text-gray-500 uppercase tracking-wide"><i class="fas fa-music mr-1"></i>Uit projecten</div>
+            </div>
+            <div class="bg-white border border-emerald-200 rounded-xl p-4">
+              <div class="text-2xl font-bold text-emerald-700">{doneTasks.length}</div>
+              <div class="text-xs text-gray-500 uppercase tracking-wide"><i class="fas fa-check mr-1"></i>Afgewerkt</div>
+            </div>
+          </div>
+
+          {/* Filters */}
+          <div class="bg-white border border-gray-200 rounded-xl p-4 mb-4 flex flex-wrap gap-3 items-center">
+            <div class="flex items-center gap-2 text-sm">
+              <span class="text-gray-600 font-medium">Status:</span>
+              <a href={`/leden/taken?filter=open&bron=${bronFilter}`} class={`px-3 py-1.5 rounded-lg text-xs font-medium ${filter === 'open' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                Openstaand ({openTasks.length})
+              </a>
+              <a href={`/leden/taken?filter=done&bron=${bronFilter}`} class={`px-3 py-1.5 rounded-lg text-xs font-medium ${filter === 'done' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                Afgewerkt ({doneTasks.length})
+              </a>
+              <a href={`/leden/taken?filter=all&bron=${bronFilter}`} class={`px-3 py-1.5 rounded-lg text-xs font-medium ${filter === 'all' ? 'bg-purple-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                Alles ({allTasks.length})
+              </a>
+            </div>
+            <div class="flex items-center gap-2 text-sm ml-auto">
+              <span class="text-gray-600 font-medium">Bron:</span>
+              <a href={`/leden/taken?filter=${filter}&bron=all`} class={`px-3 py-1.5 rounded-lg text-xs font-medium ${bronFilter === 'all' ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+                Alles
+              </a>
+              <a href={`/leden/taken?filter=${filter}&bron=meeting`} class={`px-3 py-1.5 rounded-lg text-xs font-medium ${bronFilter === 'meeting' ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-700 hover:bg-blue-100'}`}>
+                <i class="fas fa-users mr-1"></i> Vergadering
+              </a>
+              <a href={`/leden/taken?filter=${filter}&bron=project`} class={`px-3 py-1.5 rounded-lg text-xs font-medium ${bronFilter === 'project' ? 'bg-pink-600 text-white' : 'bg-pink-50 text-pink-700 hover:bg-pink-100'}`}>
+                <i class="fas fa-music mr-1"></i> Project
+              </a>
+            </div>
+          </div>
+
+          {/* Task list */}
+          {visibleTasks.length === 0 ? (
+            <div class="bg-white border border-gray-200 rounded-xl p-10 text-center">
+              <i class="fas fa-clipboard-check text-5xl text-gray-300 mb-3"></i>
+              <p class="text-gray-600 font-medium">Geen taken in deze filter.</p>
+              <p class="text-xs text-gray-500 mt-1">
+                {filter === 'open' ? 'Joepie — niets staat open!' : 'Probeer een andere filter.'}
+              </p>
+            </div>
+          ) : (
+            <div class="bg-white border border-gray-200 rounded-xl divide-y divide-gray-100 overflow-hidden">
+              {visibleTasks.map((t: any) => {
+                const done = isDone(t)
+                const isMeeting = t.bron === 'meeting'
+                const sourceLink = isMeeting
+                  ? `/admin/meetings/${t.bron_id}`
+                  : `/admin/projects/${t.bron_id}`
+                const sourceIcon = isMeeting ? 'fa-users' : 'fa-music'
+                const sourceLabel = isMeeting ? 'Vergadering' : 'Project'
+                const sourceColor = isMeeting ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-pink-50 text-pink-700 border-pink-200'
+                const dl = deadlineLabel(t.deadline)
+                const statusBadge = done
+                  ? { label: t.status === 'cancelled' ? 'Geannuleerd' : 'Afgewerkt', cls: 'bg-emerald-100 text-emerald-800' }
+                  : t.status === 'in_progress'
+                    ? { label: 'Bezig', cls: 'bg-amber-100 text-amber-800' }
+                    : t.status === 'blocked'
+                      ? { label: 'Geblokkeerd', cls: 'bg-red-100 text-red-800' }
+                      : t.status === 'todo' || t.status === 'open'
+                        ? { label: 'Open', cls: 'bg-gray-100 text-gray-700' }
+                        : { label: t.status, cls: 'bg-gray-100 text-gray-700' }
+                return (
+                  <div class={`px-5 py-4 hover:bg-gray-50 transition ${done ? 'opacity-60' : ''}`}>
+                    <div class="flex items-start gap-3">
+                      <div class={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center mt-0.5 ${done ? 'bg-emerald-100 text-emerald-700' : 'bg-purple-100 text-purple-700'}`}>
+                        <i class={`fas ${done ? 'fa-check' : 'fa-tasks'}`}></i>
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <div class="flex items-start justify-between gap-2 flex-wrap mb-1">
+                          <h3 class={`text-sm font-semibold ${done ? 'text-gray-500 line-through' : 'text-gray-800'}`}>{t.titel}</h3>
+                          <div class="flex items-center gap-1.5 flex-wrap">
+                            <span class={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${sourceColor}`}>
+                              <i class={`fas ${sourceIcon}`}></i> {sourceLabel}
+                            </span>
+                            <span class={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${statusBadge.cls}`}>
+                              {statusBadge.label}
+                            </span>
+                            <span class={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${dl.cls}`}>
+                              <i class="far fa-clock"></i> {dl.label}
+                            </span>
+                          </div>
+                        </div>
+                        {t.beschrijving && (
+                          <p class="text-sm text-gray-600 mb-2 whitespace-pre-line">{t.beschrijving}</p>
+                        )}
+                        <p class="text-[11px] text-gray-400">
+                          <i class={`fas ${sourceIcon} mr-1`}></i>
+                          Uit: <a href={sourceLink} class="text-purple-700 hover:underline font-medium">{t.bron_titel}</a>
+                          {t.bron_datum && <span> · {t.bron_datum}</span>}
+                          {done && t.completed_at && <span class="ml-2 text-emerald-600">· afgewerkt op {String(t.completed_at).slice(0, 10)}</span>}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Tips */}
+          <div class="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4 text-sm text-blue-800">
+            <i class="fas fa-info-circle mr-2"></i>
+            Taken markeren als afgewerkt? Dat gebeurt vanuit de vergadering of het project zelf.
+            Klik op de bron-link bij een taak om naar de juiste pagina te gaan.
+          </div>
+        </div>
+      </div>
     </Layout>
   )
 })

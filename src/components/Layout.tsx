@@ -242,22 +242,29 @@ export const Layout: FC<LayoutProps> = ({
             }
           })();
 
-          // #116 — Laad ongelezen notificatie-count en update badge in header
+          // #116 — Laad ongelezen notificatie-count en update badge in header (desktop + mobile)
           (function(){
             var bell = document.getElementById('notif-bell-link');
             var badge = document.getElementById('notif-badge');
-            if (!bell || !badge) return;
+            var badgeMobile = document.getElementById('notif-badge-mobile');
+            // Werk ook als enkel mobile badge bestaat (kleine viewports)
+            if (!badge && !badgeMobile) return;
+            function setBadge(el, n) {
+              if (!el) return;
+              if (n > 0) {
+                el.textContent = n > 99 ? '99+' : String(n);
+                el.classList.remove('hidden');
+              } else {
+                el.classList.add('hidden');
+              }
+            }
             function loadCount(){
               fetch('/api/leden/notifications/unread-count', { credentials: 'same-origin' })
                 .then(function(r){ return r.ok ? r.json() : { count: 0 }; })
                 .then(function(d){
                   var n = (d && d.count) || 0;
-                  if (n > 0) {
-                    badge.textContent = n > 99 ? '99+' : String(n);
-                    badge.classList.remove('hidden');
-                  } else {
-                    badge.classList.add('hidden');
-                  }
+                  setBadge(badge, n);
+                  setBadge(badgeMobile, n);
                 })
                 .catch(function(){ /* stil */ });
             }
@@ -297,8 +304,10 @@ export const Layout: FC<LayoutProps> = ({
                 </a>
               </div>
 
-              {/* Desktop Navigation — dynamisch op basis van editable_pages + statische items */}
-              <nav class="hidden md:flex items-center space-x-6 lg:space-x-8">
+              {/* Desktop Navigation — pas vanaf lg (1024px) tonen.
+                  Op md/tablet/iPhone-landscape (768-1023px) was deze nav krap
+                  en duwde hij de rechter auth-cluster van het scherm. */}
+              <nav class="hidden lg:flex items-center space-x-6 lg:space-x-8">
                 {visibleNav.map(item => (
                   <a
                     href={item.href}
@@ -337,13 +346,13 @@ export const Layout: FC<LayoutProps> = ({
                   <>
                     {/* Admin/Bestuur link — admins, moderators én bestuursleden */}
                     {(user.role === 'admin' || user.role === 'moderator' || user.is_bestuurslid === 1) && (
-                      <a href="/admin" class="hidden md:block text-gray-700 hover:text-animato-primary transition">
+                      <a href="/admin" class="hidden lg:block text-gray-700 hover:text-animato-primary transition">
                         <i class="fas fa-shield-alt mr-2"></i>
                         {(user.role === 'admin' || user.role === 'moderator') ? 'Admin' : 'Bestuur'}
                       </a>
                     )}
                     {/* #116 — Notificatie-belletje met badge (voor ingelogde leden) */}
-                    <a href="/leden/profiel#notifications-card" class="hidden md:inline-flex relative items-center text-gray-700 hover:text-animato-primary transition px-2" title="Mijn meldingen" id="notif-bell-link">
+                    <a href="/leden/profiel#notifications-card" class="hidden lg:inline-flex relative items-center text-gray-700 hover:text-animato-primary transition px-2" title="Mijn meldingen" id="notif-bell-link">
                       <i class="fas fa-bell text-lg"></i>
                       <span
                         id="notif-badge"
@@ -351,18 +360,18 @@ export const Layout: FC<LayoutProps> = ({
                       ></span>
                     </a>
                     {/* Leden portal link */}
-                    <a href="/leden" class="hidden md:block text-gray-700 hover:text-animato-primary transition">
+                    <a href="/leden" class="hidden lg:block text-gray-700 hover:text-animato-primary transition">
                       <i class="fas fa-user-circle mr-2"></i>
                       {user.voornaam}
                     </a>
                     {/* Uitloggen - Desktop only (hidden on mobile to prevent accidental clicks) */}
-                    <a href="/api/auth/logout" class="hidden md:block text-sm text-gray-600 hover:text-gray-900">
+                    <a href="/api/auth/logout" class="hidden lg:block text-sm text-gray-600 hover:text-gray-900">
                       Uitloggen
                     </a>
                   </>
                 ) : (
                   <>
-                    <a href="/word-lid" class="hidden md:block bg-animato-accent text-white px-4 py-2 rounded-lg hover:bg-yellow-600 transition font-semibold">
+                    <a href="/word-lid" class="hidden lg:block bg-animato-accent text-white px-4 py-2 rounded-lg hover:bg-yellow-600 transition font-semibold">
                       Word Lid
                     </a>
                     {/* Login link - visible on both mobile and desktop */}
@@ -374,16 +383,16 @@ export const Layout: FC<LayoutProps> = ({
                   </>
                 )}
                 
-                {/* Mobile menu button */}
-                <button id="mobile-menu-button" class="md:hidden text-gray-700 hover:text-animato-primary">
+                {/* Mobile menu button — getoond tot lg (1024px), dus ook in iPhone-landscape en iPad-portrait */}
+                <button id="mobile-menu-button" class="lg:hidden text-gray-700 hover:text-animato-primary" aria-label="Menu openen">
                   <i class="fas fa-bars text-xl"></i>
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Mobile Navigation — alle items plat onder elkaar, geen overflow-dropdown */}
-          <div id="mobile-menu" class="hidden md:hidden border-t border-gray-200">
+          {/* Mobile Navigation — getoond tot lg (1024px). Bevat alle nav-items én auth-items. */}
+          <div id="mobile-menu" class="hidden lg:hidden border-t border-gray-200">
             <div class="px-4 py-4 space-y-3">
               {allNavItems.map(item => (
                 <a
@@ -407,6 +416,12 @@ export const Layout: FC<LayoutProps> = ({
                   <a href="/leden" class="block text-gray-700 hover:text-animato-primary">
                     <i class="fas fa-users mr-2"></i>
                     Ledenpagina
+                  </a>
+                  {/* Notificaties in mobile menu */}
+                  <a href="/leden/profiel#notifications-card" class="flex items-center text-gray-700 hover:text-animato-primary">
+                    <i class="fas fa-bell mr-2"></i>
+                    <span>Mijn meldingen</span>
+                    <span id="notif-badge-mobile" class="hidden ml-2 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-none"></span>
                   </a>
                   {/* Divider */}
                   <div class="border-t border-gray-300 my-2"></div>

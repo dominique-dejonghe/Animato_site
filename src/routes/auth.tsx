@@ -643,8 +643,131 @@ app.get('/api/auth/logout', async (c) => {
     // Continue with logout even if session tracking fails
   }
   
+  // Wis ALLE auth-gerelateerde cookies (auth_token + impersonate stash).
+  // Vroeger werd alleen auth_token gewist, waardoor admin_impersonate_token
+  // bleef hangen en bij de volgende request alsnog werd gepromoveerd. Dat
+  // veroorzaakte vreemde "ik ben uitgelogd maar nog ingelogd"-gedragingen.
   deleteCookie(c, 'auth_token', { path: '/' })
+  deleteCookie(c, 'admin_impersonate_token', { path: '/' })
   return c.redirect('/?logout=1')
+})
+
+// =====================================================
+// DIAGNOSTICS — /api/auth/whoami
+// =====================================================
+// Toont WAT de server in jouw cookies/JWT ziet versus WAT er in de DB
+// staat. Onmisbaar voor het debuggen van "ik ben admin in DB maar krijg
+// 'Onvoldoende rechten' op /admin" scenario's.
+//
+// Veilig: toont geen wachtwoorden of secrets, alleen je eigen rol-info.
+app.get('/api/auth/whoami', async (c) => {
+  const { getCookie } = await import('hono/cookie')
+  const { verifyToken } = await import('../utils/auth')
+
+  const authToken = getCookie(c, 'auth_token')
+  const impersonateToken = getCookie(c, 'admin_impersonate_token')
+  const jwtSecret = c.env.JWT_SECRET
+
+  const result: any = {
+    cookies_present: {
+      auth_token: !!authToken,
+      admin_impersonate_token: !!impersonateToken,
+    },
+    auth_token: null,
+    impersonate_token: null,
+    db_record: null,
+    diagnosis: ''
+  }
+
+  if (authToken) {
+    const user = await verifyToken(authToken, jwtSecret)
+    if (user) {
+      result.auth_token = {
+        valid: true,
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        is_bestuurslid: user.is_bestuurslid,
+        stemgroep: user.stemgroep,
+      }
+      // Match met DB
+      try {
+        const dbRow = await c.env.DB.prepare(
+          'SELECT id, email, role, is_bestuurslid, status FROM users WHERE id = ?'
+        ).bind(user.id).first<any>()
+        result.db_record = dbRow || { error: 'user_id_not_in_db' }
+      } catch (e: any) {
+        result.db_record = { error: e.message }
+      }
+    } else {
+      result.auth_token = { valid: false, reason: 'JWT verification failed (expired or wrong secret)' }
+    }
+  }
+
+  if (impersonateToken) {
+    const adminUser = await verifyToken(impersonateToken, jwtSecret)
+    if (adminUser) {
+      result.impersonate_token = {
+        valid: true,
+        id: adminUser.id,
+        email: adminUser.email,
+        role: adminUser.role,
+      }
+    } else {
+      result.impersonate_token = { valid: false, reason: 'JWT verification failed' }
+    }
+  }
+
+  // Diagnose
+  if (!authToken && !impersonateToken) {
+    result.diagnosis = 'Niet ingelogd — geen cookies.'
+  } else if (result.auth_token?.valid && result.db_record && !result.db_record.error) {
+    const tokenRole = result.auth_token.role
+    const dbRole = result.db_record.role
+    if (tokenRole !== dbRole) {
+      result.diagnosis = `MISMATCH: token zegt '${tokenRole}', DB zegt '${dbRole}'. Token is stale — log uit via /api/auth/force-logout en log opnieuw in.`
+    } else {
+      result.diagnosis = `OK: token en DB beide '${tokenRole}'.`
+    }
+  } else if (!result.auth_token?.valid && result.impersonate_token?.valid) {
+    result.diagnosis = `auth_token is ongeldig of weg, maar admin_impersonate_token is geldig (admin ${result.impersonate_token.email}). Bij volgende request wordt deze automatisch gepromoveerd.`
+  } else if (result.auth_token?.valid === false) {
+    result.diagnosis = 'auth_token bestaat maar JWT-verify faalt — verlopen of secret rotated.'
+  }
+
+  return c.json(result, 200, {
+    'Cache-Control': 'no-store, no-cache, must-revalidate'
+  })
+})
+
+// =====================================================
+// FORCE LOGOUT — wist ALLE auth cookies onvoorwaardelijk
+// =====================================================
+// Gebruik dit als de gewone /api/auth/logout je niet helpt (bv. omdat
+// admin_impersonate_token in een vorige bug-versie bleef hangen).
+app.get('/api/auth/force-logout', async (c) => {
+  const { deleteCookie } = await import('hono/cookie')
+  deleteCookie(c, 'auth_token', { path: '/' })
+  deleteCookie(c, 'admin_impersonate_token', { path: '/' })
+  // Setter met maxAge=0 voor extra zekerheid (sommige browsers gedragen
+  // zich anders bij delete vs expire)
+  const { setCookie } = await import('hono/cookie')
+  setCookie(c, 'auth_token', '', { maxAge: 0, path: '/', httpOnly: true, secure: true, sameSite: 'Lax' })
+  setCookie(c, 'admin_impersonate_token', '', { maxAge: 0, path: '/', httpOnly: true, secure: true, sameSite: 'Lax' })
+  return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Uitgelogd</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+      <div class="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center">
+        <i class="fas fa-broom text-green-500 text-5xl mb-4"></i>
+        <h1 class="text-2xl font-bold text-gray-800 mb-2">Alle sessies gewist</h1>
+        <p class="text-gray-600 mb-6">Alle authenticatie-cookies zijn gewist. Je kan nu opnieuw inloggen met een schone lei.</p>
+        <a href="/login" class="inline-block px-6 py-3 text-white rounded-lg font-medium hover:opacity-90 transition" style="background-color:#00A9CE">
+          <i class="fas fa-sign-in-alt mr-2"></i>Naar inloggen
+        </a>
+      </div>
+    </body></html>`)
 })
 
 // =====================================================

@@ -5306,15 +5306,16 @@ app.get('/leden/materiaal', async (c) => {
                               <span class="hidden sm:inline">Openen</span>
                             </a>
                             {(info.label === 'PDF' || info.label === 'Google Drive') && (
-                              <form action="/api/leden/materiaal/print-aanvraag" method="POST" class="inline">
+                              <form action="/api/leden/materiaal/print-aanvraag" method="POST" class="inline"
+                                    onsubmit={`return confirm('Wil je een papieren versie van \\'${(mat.titel || '').replace(/'/g, "\\'")}\\' bestellen?\\n\\nDe printservice drukt het voor je af en je krijgt het op de eerstvolgende repetitie. Dit is GEEN browser-print — gebruik daarvoor de \\'Openen\\' knop en print via je eigen pc.');`}>
                                 <input type="hidden" name="material_id" value={mat.id} />
                                 <button
                                   type="submit"
-                                  class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-600 bg-gray-100 hover:bg-amber-100 hover:text-amber-700 transition border border-gray-200"
-                                  title="Papieren versie aanvragen"
+                                  class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 hover:text-amber-800 transition border border-amber-200"
+                                  title="Bestel een papieren afdruk via de Printservice — je krijgt het op de eerstvolgende repetitie"
                                 >
-                                  <i class="fas fa-print text-xs"></i>
-                                  <span class="hidden lg:inline">Print</span>
+                                  <i class="fas fa-file-invoice text-xs"></i>
+                                  <span class="hidden md:inline">Bestel afdruk</span>
                                 </button>
                               </form>
                             )}

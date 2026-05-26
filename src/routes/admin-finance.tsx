@@ -907,23 +907,79 @@ app.get('/admin/lidgelden', async (c) => {
                 </div>
               )}
 
+              {/* Search bar boven de tabel */}
+              {visibleMemberships.length > 0 && (
+                <div class="mb-3 flex flex-col sm:flex-row gap-2 sm:items-center sm:justify-between">
+                  <div class="relative flex-1 max-w-md">
+                    <i class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm"></i>
+                    <input
+                      type="text"
+                      id="lidgeldenSearch"
+                      placeholder="Zoek op naam of email..."
+                      class="w-full pl-9 pr-9 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-animato-primary focus:border-animato-primary"
+                      autocomplete="off"
+                    />
+                    <button id="lidgeldenSearchClear"
+                      class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-sm hidden"
+                      title="Wis zoekterm"
+                      type="button">
+                      <i class="fas fa-times-circle"></i>
+                    </button>
+                  </div>
+                  <div class="text-xs text-gray-500 flex items-center gap-3">
+                    <span id="lidgeldenCount">{visibleMemberships.length} {visibleMemberships.length === 1 ? 'lid' : 'leden'}</span>
+                    <span class="text-gray-300">|</span>
+                    <span class="text-gray-400">Klik op kolomtitels om te sorteren</span>
+                  </div>
+                </div>
+              )}
+
               {/* Table */}
               <div class="bg-white rounded-lg shadow overflow-hidden">
-                <table class="w-full">
+                <table class="w-full" id="lidgeldenTable">
                   <thead class="bg-gray-100">
                     <tr>
-                      <th class="px-6 py-3 text-left font-medium text-gray-500">Lid</th>
-                      <th class="px-6 py-3 text-left font-medium text-gray-500">Formule</th>
-                      <th class="px-6 py-3 text-left font-medium text-gray-500">Bedrag</th>
-                      <th class="px-6 py-3 text-left font-medium text-gray-500" title="Partituur-distributie status (alleen Full-leden)">Partituren</th>
-                      <th class="px-6 py-3 text-left font-medium text-gray-500">Status</th>
-                      <th class="px-6 py-3 text-left font-medium text-gray-500">Tijd</th>
+                      <th class="px-6 py-3 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="lid" data-sort-type="string">
+                        Lid <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
+                      </th>
+                      <th class="px-6 py-3 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="formule" data-sort-type="string">
+                        Formule <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
+                      </th>
+                      <th class="px-6 py-3 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="bedrag" data-sort-type="number">
+                        Bedrag <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
+                      </th>
+                      <th class="px-6 py-3 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="partituren" data-sort-type="number" title="Partituur-distributie status (alleen Full-leden) — sorteert op aantal geleverd">
+                        Partituren <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
+                      </th>
+                      <th class="px-6 py-3 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="status" data-sort-type="string">
+                        Status <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
+                      </th>
+                      <th class="px-6 py-3 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="tijd" data-sort-type="number" title="Sorteer op dagen (open dagen of dagen tot betaling)">
+                        Tijd <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
+                      </th>
                       <th class="px-6 py-3 text-right font-medium text-gray-500">Actie</th>
                     </tr>
                   </thead>
-                  <tbody class="divide-y divide-gray-200">
-                    {visibleMemberships.length > 0 ? visibleMemberships.map((m: any) => (
-                      <tr>
+                  <tbody class="divide-y divide-gray-200" id="lidgeldenTbody">
+                    {visibleMemberships.length > 0 ? visibleMemberships.map((m: any) => {
+                      const stats = m.print_stats || { total: 0, completed: 0, open: 0 }
+                      const fullName = `${m.voornaam || ''} ${m.achternaam || ''}`.trim()
+                      // Sort-key voor "Tijd": negatieve waarden voor 'open' (langer open = hoger), positieve voor 'paid' (sneller betaald = lager)
+                      // We gebruiken: open = m.daysOpen (positief, hoger = ouder), paid = -1 * (10000 - daysToPay) zodat snel-betalers bovenaan staan bij asc
+                      // Simpeler: open-leden krijgen daysOpen, paid-leden krijgen -1 zodat ze sorteren onderaan
+                      const tijdSortValue = m.status === 'paid'
+                        ? (m.daysToPay !== null ? m.daysToPay : -1)
+                        : (m.daysOpen || 0) + 10000  // open lidgelden hoger, zodat ze bij desc bovenaan komen
+                      return (
+                      <tr
+                        data-search={`${fullName} ${m.email || ''}`.toLowerCase()}
+                        data-sort-lid={fullName.toLowerCase()}
+                        data-sort-formule={m.type === 'full' ? 'full' : 'basis'}
+                        data-sort-bedrag={Number(m.amount) || 0}
+                        data-sort-partituren={stats.total === 0 ? -1 : stats.completed}
+                        data-sort-status={m.status === 'paid' ? '1-paid' : '2-open'}
+                        data-sort-tijd={tijdSortValue}
+                      >
                         <td class="px-6 py-4">
                           <div class="font-medium text-gray-900">{m.voornaam} {m.achternaam}</div>
                           <div class="text-sm text-gray-500">{m.email}</div>
@@ -1067,9 +1123,10 @@ app.get('/admin/lidgelden', async (c) => {
                           </div>
                         </td>
                       </tr>
-                    )) : (
+                      )
+                    }) : (
                         <tr>
-                            <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                            <td colspan="7" class="px-6 py-8 text-center text-gray-500">
                                 {filter === 'all' ? (
                                   <>
                                     Geen lidmaatschappen gevonden voor dit seizoen.
@@ -1458,6 +1515,103 @@ app.get('/admin/lidgelden', async (c) => {
             alert('❌ Fout: ' + e.message);
           }
         }
+      ` }} />
+
+      {/* Client-side filter + sort voor de Lidgelden-tabel */}
+      <script dangerouslySetInnerHTML={{ __html: `
+        (function() {
+          const searchInput = document.getElementById('lidgeldenSearch');
+          const searchClear = document.getElementById('lidgeldenSearchClear');
+          const tbody = document.getElementById('lidgeldenTbody');
+          const countEl = document.getElementById('lidgeldenCount');
+          const table = document.getElementById('lidgeldenTable');
+          if (!searchInput || !tbody || !table) return;
+
+          // Bewaar oorspronkelijke volgorde voor reset
+          const allRows = Array.from(tbody.querySelectorAll('tr')).filter(r => r.hasAttribute('data-search'));
+          if (allRows.length === 0) return;
+
+          let currentSort = { col: null, dir: 'asc' };
+
+          function applyFilter() {
+            const q = (searchInput.value || '').trim().toLowerCase();
+            searchClear.classList.toggle('hidden', q.length === 0);
+            let visibleCount = 0;
+            allRows.forEach(row => {
+              const haystack = row.getAttribute('data-search') || '';
+              const match = !q || haystack.indexOf(q) !== -1;
+              row.style.display = match ? '' : 'none';
+              if (match) visibleCount++;
+            });
+            if (countEl) {
+              countEl.textContent = visibleCount + ' ' + (visibleCount === 1 ? 'lid' : 'leden') + (q ? ' (gefilterd)' : '');
+            }
+          }
+
+          function applySort(col, type) {
+            // Toggle richting indien dezelfde kolom
+            if (currentSort.col === col) {
+              currentSort.dir = currentSort.dir === 'asc' ? 'desc' : 'asc';
+            } else {
+              currentSort.col = col;
+              currentSort.dir = 'asc';
+            }
+
+            // Reset alle icoontjes
+            table.querySelectorAll('th[data-sort-col] .sort-icon').forEach(icon => {
+              icon.className = 'fas fa-sort text-gray-300 ml-1 text-xs sort-icon';
+            });
+            // Set actieve kolom-icoon
+            const activeHeader = table.querySelector('th[data-sort-col="' + col + '"]');
+            if (activeHeader) {
+              const icon = activeHeader.querySelector('.sort-icon');
+              if (icon) {
+                icon.className = 'fas fa-sort-' + (currentSort.dir === 'asc' ? 'up' : 'down') + ' text-animato-primary ml-1 text-xs sort-icon';
+              }
+            }
+
+            // Sorteer
+            const dirMul = currentSort.dir === 'asc' ? 1 : -1;
+            const sorted = allRows.slice().sort((a, b) => {
+              const av = a.getAttribute('data-sort-' + col) || '';
+              const bv = b.getAttribute('data-sort-' + col) || '';
+              if (type === 'number') {
+                return (parseFloat(av) - parseFloat(bv)) * dirMul;
+              }
+              return av.localeCompare(bv, 'nl', { numeric: true, sensitivity: 'base' }) * dirMul;
+            });
+
+            // Re-append in volgorde
+            sorted.forEach(row => tbody.appendChild(row));
+          }
+
+          // Wire up search
+          searchInput.addEventListener('input', applyFilter);
+          if (searchClear) {
+            searchClear.addEventListener('click', () => {
+              searchInput.value = '';
+              applyFilter();
+              searchInput.focus();
+            });
+          }
+
+          // Wire up sort headers
+          table.querySelectorAll('th[data-sort-col]').forEach(th => {
+            th.addEventListener('click', () => {
+              const col = th.getAttribute('data-sort-col');
+              const type = th.getAttribute('data-sort-type') || 'string';
+              applySort(col, type);
+            });
+          });
+
+          // Sneltoets: '/' om snel naar zoekveld te springen
+          document.addEventListener('keydown', (e) => {
+            if (e.key === '/' && document.activeElement !== searchInput && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)) {
+              e.preventDefault();
+              searchInput.focus();
+            }
+          });
+        })();
       ` }} />
 
     </Layout>

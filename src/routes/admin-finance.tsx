@@ -133,11 +133,12 @@ app.get('/admin/lidgelden', async (c) => {
     .sort((a: any, b: any) => (b.daysOpen || 0) - (a.daysOpen || 0))
     .slice(0, 5)
 
-  // Recente betalingen (laatste 10)
-  const recentPayments = [...paid]
+  // Alle betalingen, gesorteerd op datum (nieuwste eerst).
+  // We tonen standaard 10 maar laden alles client-side voor "Toon alle X"-toggle.
+  const allPaidPayments = [...paid]
     .filter((m: any) => m.paid_at)
     .sort((a: any, b: any) => new Date(b.paid_at).getTime() - new Date(a.paid_at).getTime())
-    .slice(0, 10)
+  const recentPayments = allPaidPayments.slice(0, 10)
 
   // Weekly trend (laatste 8 weken: nieuwe betalingen per week)
   const weeklyTrend: { week: string; count: number; amount: number }[] = []
@@ -704,35 +705,83 @@ app.get('/admin/lidgelden', async (c) => {
                 </div>
               </div>
 
-              {/* Recente betalingen tijdlijn */}
-              {recentPayments.length > 0 && (
+              {/* Alle betalingen tijdlijn — standaard 10, uitklapbaar naar volledige lijst */}
+              {allPaidPayments.length > 0 && (
                 <div class="bg-white p-4 rounded-lg shadow mb-6">
-                  <h3 class="font-bold text-gray-800 mb-3 text-sm flex items-center">
-                    <i class="fas fa-history text-purple-500 mr-2"></i> Recente Betalingen (laatste 10)
-                  </h3>
-                  <div class="space-y-1.5">
-                    {recentPayments.map((m: any) => {
+                  <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                    <h3 class="font-bold text-gray-800 text-sm flex items-center">
+                      <i class="fas fa-history text-purple-500 mr-2"></i> Betalingen
+                      <span class="ml-2 text-xs font-normal text-gray-500" id="paymentsCount">
+                        ({allPaidPayments.length} totaal — top 10 zichtbaar)
+                      </span>
+                    </h3>
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <div class="relative">
+                        <i class="fas fa-search absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
+                        <input
+                          type="text"
+                          id="paymentsSearch"
+                          placeholder="Zoek naam of email..."
+                          class="pl-7 pr-2 py-1 text-xs border border-gray-300 rounded focus:ring-1 focus:ring-animato-primary focus:border-animato-primary w-40 sm:w-48"
+                          autocomplete="off"
+                        />
+                      </div>
+                      <a
+                        href={`/api/admin/lidgelden/export?season_id=${activeSeason.id}&filter=paid`}
+                        class="inline-flex items-center px-2 py-1 text-xs bg-green-50 hover:bg-green-100 text-green-700 rounded border border-green-200 transition"
+                        title="Download alle betalingen als CSV"
+                      >
+                        <i class="fas fa-file-csv mr-1"></i> CSV
+                      </a>
+                    </div>
+                  </div>
+                  <div class="space-y-1.5" id="paymentsList">
+                    {allPaidPayments.map((m: any, idx: number) => {
                       const d = new Date(m.paid_at)
                       const dateStr = d.toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: 'numeric' })
                       const timeStr = d.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })
+                      const fullName = `${m.voornaam || ''} ${m.achternaam || ''}`.trim()
                       return (
-                        <div class="flex items-center gap-3 text-sm py-1.5 border-b border-gray-100 last:border-0">
+                        <div
+                          class="payment-row flex items-center gap-3 text-sm py-1.5 border-b border-gray-100 last:border-0"
+                          data-payment-search={`${fullName} ${m.email || ''}`.toLowerCase()}
+                          data-payment-index={idx}
+                          style={idx >= 10 ? 'display:none' : ''}
+                        >
                           <i class="fas fa-check-circle text-green-500 text-xs"></i>
-                          <span class="font-medium flex-1 truncate">{m.voornaam} {m.achternaam}</span>
+                          <span class="font-medium flex-1 truncate" title={m.email}>{fullName}</span>
                           <span class={`text-xs px-1.5 py-0.5 rounded ${m.type === 'full' ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-700'}`}>
                             {m.type === 'full' ? 'Full' : 'Basis'}
                           </span>
                           <span class="font-mono text-xs text-gray-700">€{m.amount.toFixed(2)}</span>
-                          <span class="text-xs text-gray-500 whitespace-nowrap">
+                          <span class="text-xs text-gray-500 whitespace-nowrap hidden sm:inline">
                             {dateStr} {timeStr}
                           </span>
-                          <span class="text-xs text-gray-400 whitespace-nowrap">
+                          <span class="text-xs text-gray-500 whitespace-nowrap sm:hidden">
+                            {dateStr}
+                          </span>
+                          <span class="text-xs text-gray-400 whitespace-nowrap hidden md:inline">
                             {m.daysToPay === 0 ? 'zelfde dag' : `na ${m.daysToPay}d`}
                           </span>
                         </div>
                       )
                     })}
+                    <div id="paymentsNoResults" class="hidden text-center text-sm text-gray-400 italic py-4">
+                      <i class="fas fa-search mr-2"></i>Geen betalingen gevonden voor deze zoekterm
+                    </div>
                   </div>
+                  {allPaidPayments.length > 10 && (
+                    <div class="mt-3 pt-3 border-t border-gray-100 flex items-center justify-center">
+                      <button
+                        type="button"
+                        id="paymentsToggle"
+                        class="inline-flex items-center gap-2 px-4 py-1.5 text-xs font-medium text-animato-primary hover:bg-blue-50 rounded transition"
+                      >
+                        <i class="fas fa-chevron-down" id="paymentsToggleIcon"></i>
+                        <span id="paymentsToggleLabel">Toon alle {allPaidPayments.length} betalingen</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1611,6 +1660,94 @@ app.get('/admin/lidgelden', async (c) => {
               searchInput.focus();
             }
           });
+        })();
+
+        // === Betalingen-sectie: toggle "Toon alle X" + zoekveld ===
+        (function() {
+          const list = document.getElementById('paymentsList');
+          const toggle = document.getElementById('paymentsToggle');
+          const toggleLabel = document.getElementById('paymentsToggleLabel');
+          const toggleIcon = document.getElementById('paymentsToggleIcon');
+          const search = document.getElementById('paymentsSearch');
+          const countEl = document.getElementById('paymentsCount');
+          const noResults = document.getElementById('paymentsNoResults');
+          if (!list) return;
+
+          const allRows = Array.from(list.querySelectorAll('.payment-row'));
+          if (allRows.length === 0) return;
+
+          const totalCount = allRows.length;
+          let expanded = false;
+          let activeQuery = '';
+
+          function refresh() {
+            const q = activeQuery.trim().toLowerCase();
+            let visibleCount = 0;
+            allRows.forEach((row, idx) => {
+              const haystack = row.getAttribute('data-payment-search') || '';
+              const matchesSearch = !q || haystack.indexOf(q) !== -1;
+              // Wanneer er gezocht wordt: toon alles dat matcht, ongeacht expanded.
+              // Anders: respecteer expanded (alle) vs ingeklapt (top 10).
+              const visible = q
+                ? matchesSearch
+                : (expanded || idx < 10);
+              row.style.display = visible ? '' : 'none';
+              if (visible) visibleCount++;
+            });
+
+            // Update teller
+            if (countEl) {
+              if (q) {
+                countEl.textContent = '(' + visibleCount + ' van ' + totalCount + ' gevonden)';
+              } else if (expanded) {
+                countEl.textContent = '(' + totalCount + ' totaal — alles zichtbaar)';
+              } else {
+                countEl.textContent = '(' + totalCount + ' totaal — top 10 zichtbaar)';
+              }
+            }
+
+            // Geen-resultaten boodschap
+            if (noResults) {
+              noResults.classList.toggle('hidden', visibleCount > 0);
+            }
+
+            // Toggle-knop label + zichtbaarheid
+            if (toggle) {
+              if (q) {
+                // Tijdens zoeken: verberg toggle-knop (zoek toont al alles wat matcht)
+                toggle.style.display = 'none';
+              } else if (totalCount > 10) {
+                toggle.style.display = '';
+                if (toggleLabel) toggleLabel.textContent = expanded
+                  ? 'Toon enkel laatste 10'
+                  : 'Toon alle ' + totalCount + ' betalingen';
+                if (toggleIcon) toggleIcon.className = expanded
+                  ? 'fas fa-chevron-up'
+                  : 'fas fa-chevron-down';
+              }
+            }
+          }
+
+          if (toggle) {
+            toggle.addEventListener('click', () => {
+              expanded = !expanded;
+              refresh();
+              if (!expanded) {
+                // Scroll terug naar boven van de lijst voor UX
+                list.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+              }
+            });
+          }
+
+          if (search) {
+            search.addEventListener('input', (e) => {
+              activeQuery = e.target.value || '';
+              refresh();
+            });
+          }
+
+          // Initial state
+          refresh();
         })();
       ` }} />
 

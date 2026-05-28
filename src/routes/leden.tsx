@@ -13,6 +13,7 @@ import { processBodyLinks } from '../utils/text'
 import { getNotificationsForUser, getUnreadCount, markAsRead, markAllAsRead, getNotificationStyle, notifyUserIfEnabled, getUserNotificationPrefs, setUserNotificationPrefs } from '../utils/notifications'
 import type { NotificationType } from '../utils/notifications'
 import { pickSpotlight } from '../utils/spotlight'
+import { formatBrusselsDateTime } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -2154,7 +2155,7 @@ app.get('/leden/board/:id', async (c) => {
                             {reply.auteur_voornaam} {reply.auteur_achternaam}
                           </div>
                           <div class="text-xs text-gray-600">
-                            {new Date(reply.created_at).toLocaleDateString('nl-BE', {
+                            {formatBrusselsDateTime(reply.created_at, {
                               day: 'numeric',
                               month: 'short',
                               year: 'numeric',

@@ -8,6 +8,7 @@ import { Layout } from '../components/Layout'
 import { optionalAuth } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
 import { processBodyLinks } from '../utils/text'
+import { formatBrusselsTime, formatBrusselsDate, formatBrusselsDateTime } from '../utils/time'
 import { notifyUserIfEnabled } from '../utils/notifications'
 import { getReactionsForTargets } from '../utils/comment-reactions'
 
@@ -541,9 +542,9 @@ app.get('/agenda', async (c) => {
                                 <div class="flex items-center">
                                   <i class="far fa-clock w-5 text-animato-primary mr-3"></i>
                                   <span>
-                                    {new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}
+                                    {formatBrusselsTime(event.start_at)}
                                     {' - '}
-                                    {event.end_at ? new Date(event.end_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' }) : '?'}
+                                    {event.end_at ? formatBrusselsTime(event.end_at) : '?'}
                                   </span>
                                 </div>
                                 <div class="flex items-center">
@@ -1020,7 +1021,7 @@ app.get('/concerten', async (c) => {
                         </div>
                         <div class="flex items-center">
                           <i class="far fa-clock mr-3 text-animato-primary"></i>
-                          {new Date(concert.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })} uur
+                          {formatBrusselsTime(concert.start_at)} uur
                         </div>
                         <div class="flex items-center">
                           <i class="fas fa-map-marker-alt mr-3 text-animato-primary"></i>
@@ -1251,7 +1252,7 @@ app.get('/concerten/:slug', async (c) => {
   // "Nog niet beschikbaar"-modus is actief als: admin heeft expliciet aangevinkt OF er is een toekomstige datum
   const voorverkoopNogNietOpen = ticketsAangekondigd || voorverkoopDatumInToekomst
   const voorverkoopStartFormatted = voorverkoopStart
-    ? voorverkoopStart.toLocaleString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+    ? formatBrusselsDateTime(voorverkoopStart, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
     : ''
   // ISO string voor client-side countdown (alleen als er een toekomstige datum is)
   const voorverkoopStartIso = voorverkoopDatumInToekomst && voorverkoopStart
@@ -1358,7 +1359,7 @@ app.get('/concerten/:slug', async (c) => {
                     <div>
                       <div class="text-sm text-gray-500">Aanvang</div>
                       <div class="font-semibold">
-                        {new Date(concert.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })} uur
+                        {formatBrusselsTime(concert.start_at)} uur
                       </div>
                     </div>
                   </div>
@@ -2355,8 +2356,8 @@ app.get('/agenda/:slug', async (c) => {
                 <div>
                   <div class="text-sm text-gray-500">Tijd</div>
                   <div class="font-semibold">
-                    {new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}
-                    {event.end_at && ` - ${new Date(event.end_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}`}
+                    {formatBrusselsTime(event.start_at)}
+                    {event.end_at && ` - ${formatBrusselsTime(event.end_at)}`}
                   </div>
                 </div>
               </div>
@@ -2455,7 +2456,7 @@ app.get('/agenda/:slug', async (c) => {
                               <div>
                                 <span class="font-semibold text-gray-900">{naam}</span>
                                 <span class="text-xs text-gray-500 ml-2">
-                                  {new Date(r.created_at).toLocaleString('nl-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                  {formatBrusselsDateTime(r.created_at, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                                 </span>
                               </div>
                               {canDelete && (
@@ -2707,9 +2708,9 @@ function renderCalendarGrid(events: any[], year: number, month: number, birthday
                           event.type === 'uitstap'     ? 'bg-pink-200 text-pink-900 border-l-4 border-pink-500' :
                           'bg-gray-200 text-gray-800 border-l-4 border-gray-500'
                         }`}
-                        title={`${event.titel} - ${new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}`}
+                        title={`${event.titel} - ${formatBrusselsTime(event.start_at)}`}
                       >
-                        {new Date(event.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })} {event.titel}
+                        {formatBrusselsTime(event.start_at)} {event.titel}
                       </span>
                       )
                     })}

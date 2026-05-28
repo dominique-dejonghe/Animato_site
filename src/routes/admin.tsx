@@ -11,6 +11,7 @@ import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 import { setCookie } from 'hono/cookie'
 import { generateToken, hashPassword } from '../utils/auth'
 import { notifyAllActiveMembers } from '../utils/notifications'
+import { formatBrusselsDate, formatBrusselsTime, formatBrusselsDateTime } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -604,7 +605,7 @@ app.get('/admin', async (c) => {
                       ? `${activity.voornaam} ${activity.achternaam}`
                       : activity.email
                     
-                    const timeAgo = new Date(activity.created_at).toLocaleDateString('nl-NL', {
+                    const timeAgo = formatBrusselsDateTime(activity.created_at, {
                       day: 'numeric',
                       month: 'short',
                       hour: '2-digit',
@@ -1799,10 +1800,10 @@ app.get('/admin/leden', async (c) => {
                         ? new Date(lid.last_login_at.replace(' ', 'T') + 'Z')
                         : null
                       const lastLogin = lastLoginDate
-                        ? lastLoginDate.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short', year: 'numeric' })
+                        ? formatBrusselsDate(lastLoginDate, { day: 'numeric', month: 'short', year: 'numeric' })
                         : 'Nooit'
                       const lastLoginTime = lastLoginDate
-                        ? lastLoginDate.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })
+                        ? formatBrusselsTime(lastLoginDate)
                         : null
                       // Inactivity tracking — bereken dagen sinds laatste login
                       let inactiveDays: number | null = null
@@ -5862,7 +5863,7 @@ app.get('/admin/audit', async (c) => {
                             onclick={`(function(){var el=document.getElementById('${rowId}-details'); if(el) el.classList.toggle('hidden');})()`}
                           >
                             <td class="px-4 py-3 whitespace-nowrap text-xs text-gray-500">
-                              {new Date(log.created_at + 'Z').toLocaleString('nl-BE', {
+                              {formatBrusselsDateTime(log.created_at + 'Z', {
                                 day: '2-digit', month: '2-digit', year: 'numeric',
                                 hour: '2-digit', minute: '2-digit'
                               })}

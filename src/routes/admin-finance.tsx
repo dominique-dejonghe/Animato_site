@@ -9,6 +9,7 @@ import { createMolliePayment, getMollieMode } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { sendEmail } from '../utils/email'
 import { createNotification, createNotificationForUsers } from '../utils/notifications'
+import { formatBrusselsDate, formatBrusselsTime, brusselsToday } from '../utils/time'
 
 const app = new Hono()
 
@@ -404,7 +405,7 @@ app.get('/admin/lidgelden', async (c) => {
             </div>
             {activeSeason && (
               <div class="text-sm text-gray-500">
-                Periode: {new Date(activeSeason.start_date).toLocaleDateString('nl-BE')} - {new Date(activeSeason.end_date).toLocaleDateString('nl-BE')}
+                Periode: {formatBrusselsDate(activeSeason.start_date, { day: '2-digit', month: '2-digit', year: 'numeric' })} - {formatBrusselsDate(activeSeason.end_date, { day: '2-digit', month: '2-digit', year: 'numeric' })}
               </div>
             )}
           </div>
@@ -737,9 +738,8 @@ app.get('/admin/lidgelden', async (c) => {
                   </div>
                   <div class="space-y-1.5" id="paymentsList">
                     {allPaidPayments.map((m: any, idx: number) => {
-                      const d = new Date(m.paid_at)
-                      const dateStr = d.toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: 'numeric' })
-                      const timeStr = d.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })
+                      const dateStr = formatBrusselsDate(m.paid_at)
+                      const timeStr = formatBrusselsTime(m.paid_at)
                       const fullName = `${m.voornaam || ''} ${m.achternaam || ''}`.trim()
                       return (
                         <div
@@ -844,7 +844,7 @@ app.get('/admin/lidgelden', async (c) => {
                     <div class="divide-y divide-gray-100">
                       {recentDonations.map((d: any) => {
                         const dt = d.created_at ? new Date(d.created_at) : null
-                        const dateStr = dt ? dt.toLocaleDateString('nl-BE', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'
+                        const dateStr = dt ? formatBrusselsDate(dt, { day: '2-digit', month: 'short', year: '2-digit' }) : '—'
                         const pub = parsePublicDonor(d.message)
                         let donorLabel: any
                         let donorBadge: any
@@ -1088,7 +1088,7 @@ app.get('/admin/lidgelden', async (c) => {
                           {m.status === 'paid' ? (
                             <div class="flex flex-col">
                                 <span class="text-green-600 font-semibold"><i class="fas fa-check mr-1"></i> Betaald</span>
-                                <span class="text-xs text-gray-400">{new Date(m.paid_at).toLocaleDateString('nl-BE')}</span>
+                                <span class="text-xs text-gray-400">{formatBrusselsDate(m.paid_at, { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                             </div>
                           ) : (
                             <span class="text-amber-600 font-semibold"><i class="fas fa-clock mr-1"></i> Openstaand</span>
@@ -2376,8 +2376,8 @@ app.get('/api/admin/lidgelden/export', async (c) => {
       escape(m.type === 'full' ? 'Full (+partituren)' : 'Basis (digitaal)'),
       escape(typeof m.amount === 'number' ? m.amount.toFixed(2).replace('.', ',') : m.amount),
       escape(m.status === 'paid' ? 'Betaald' : 'Openstaand'),
-      escape(m.created_at ? new Date(m.created_at).toLocaleDateString('nl-BE') : ''),
-      escape(m.paid_at ? new Date(m.paid_at).toLocaleDateString('nl-BE') : ''),
+      escape(m.created_at ? formatBrusselsDate(m.created_at, { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''),
+      escape(m.paid_at ? formatBrusselsDate(m.paid_at, { day: '2-digit', month: '2-digit', year: 'numeric' }) : ''),
       escape(m.daysToPay !== null ? m.daysToPay : ''),
       escape(m.daysOpen || ''),
       escape(m.mollie_payment_id || ''),
@@ -2385,7 +2385,7 @@ app.get('/api/admin/lidgelden/export', async (c) => {
   }
   const csv = '\uFEFF' + lines.join('\r\n')
 
-  const dateStamp = new Date().toISOString().slice(0, 10)
+  const dateStamp = brusselsToday()
   const filename = `lidgelden_${year.season}_${filter}_${dateStamp}.csv`
 
   return new Response(csv, {
@@ -2712,7 +2712,7 @@ app.get('/api/admin/donations/export', async (c) => {
 
   // BOM voor Excel-compatibiliteit (UTF-8 accenten)
   const csv = '\uFEFF' + lines.join('\n')
-  const today = new Date().toISOString().slice(0, 10)
+  const today = brusselsToday()
   return new Response(csv, {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',

@@ -7,6 +7,7 @@ import { Layout } from '../components/Layout'
 import { optionalAuth } from '../middleware/auth'
 import { queryOne, queryAll, paginate } from '../utils/db'
 import { processBodyLinks } from '../utils/text'
+import { formatBrusselsDateTime } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -687,7 +688,7 @@ app.get('/nieuws/:slug', async (c) => {
                       const initialen = (cm.voornaam?.[0] || '?') + (cm.achternaam?.[0] || '')
                       const canDelete = user.id === cm.user_id || user.role === 'admin' || user.role === 'moderator'
                       const dt = new Date((cm.created_at || '').replace(' ', 'T') + 'Z')
-                      const dtStr = dt.toLocaleString('nl-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+                      const dtStr = formatBrusselsDateTime(dt, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
                       return (
                         <li class="bg-white border border-gray-200 rounded-lg p-4 flex gap-3">
                           {cm.foto_url ? (

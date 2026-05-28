@@ -341,11 +341,11 @@ app.get('/admin/events', async (c) => {
                           </span>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          <div>{new Date(event.start_at).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</div>
+                          <div>{formatBrusselsDate(event.start_at, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</div>
                           <div class="text-gray-500">
-                            {new Date(event.start_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
+                            {formatBrusselsTime(event.start_at)}
                             {' - '}
-                            {new Date(event.end_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
+                            {formatBrusselsTime(event.end_at)}
                           </div>
                         </td>
                         <td class="px-6 py-4 text-sm text-gray-900">
@@ -1769,7 +1769,7 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
           const voorverkoopStart = concert.voorverkoop_start_at ? new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')) : null
           const voorverkoopInToekomst = !!(voorverkoopStart && voorverkoopStart.getTime() > Date.now())
           const fmtDate = voorverkoopStart
-            ? voorverkoopStart.toLocaleString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+            ? formatBrusselsDateTime(voorverkoopStart, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })
             : ''
 
           // Status bepalen — zelfde logica als publieke pagina

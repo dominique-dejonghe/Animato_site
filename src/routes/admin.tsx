@@ -1440,7 +1440,7 @@ app.get('/admin/leden', async (c) => {
     pianist: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'pianist' AND status = 'actief'`),
     dirigent: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'dirigent' AND status = 'actief'`),
     actief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
-    inactief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'inactief'`),
+    inactief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'inactief' AND (is_test_account IS NULL OR is_test_account = 0)`),
     online: await queryOne<any>(c.env.DB, `SELECT COUNT(DISTINCT user_id) as count FROM user_sessions WHERE is_active = 1`),
     bestuur: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE is_bestuurslid = 1 AND status = 'actief'`),
   }
@@ -1497,10 +1497,10 @@ app.get('/admin/leden', async (c) => {
           {/* Stats Bar */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-              <div class="text-center">
+              <a href="/admin/leden?status=actief" class="text-center hover:bg-gray-50 rounded-lg py-1 transition cursor-pointer" title="Toon alle actieve leden">
                 <p class="text-2xl font-bold text-gray-900">{counts.all?.count || 0}</p>
-                <p class="text-sm text-gray-600">Leden</p>
-              </div>
+                <p class="text-sm text-gray-600">Actieve leden</p>
+              </a>
               <a href="/admin/leden?bestuur=yes&status=actief" class="text-center hover:bg-yellow-50 rounded-lg py-1 transition cursor-pointer" title="Toon alleen bestuursleden">
                 <p class="text-2xl font-bold text-yellow-600 flex items-center justify-center">
                   <i class="fas fa-shield-alt text-sm mr-1"></i>
@@ -4554,7 +4554,7 @@ app.get('/admin/content/:id', async (c) => {
 
                   <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">
-                      Categorie
+                      Categorie <span class="text-xs text-gray-500 font-normal">(label voor sortering)</span>
                     </label>
                     <select
                       name="categorie"
@@ -4568,6 +4568,11 @@ app.get('/admin/content/:id', async (c) => {
                       <option value="bas" selected={post?.categorie === 'bas'}>Bas</option>
                       <option value="bestuur" selected={post?.categorie === 'bestuur'}>Bestuur</option>
                     </select>
+                    {/* Bug #193 — Verduidelijking categorie vs zichtbaarheid */}
+                    <p class="mt-1 text-xs text-gray-500">
+                      <i class="fas fa-tag mr-1"></i>
+                      Enkel een <strong>label</strong> voor visuele groepering in lijsten — bepaalt <em>niet</em> wie het ziet.
+                    </p>
                   </div>
                 </div>
 
@@ -4740,34 +4745,43 @@ app.get('/admin/content/:id', async (c) => {
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-1">
-                    Zichtbaarheid *
+                    Zichtbaarheid * <span class="text-xs text-gray-500 font-normal">(wie ziet dit bericht)</span>
                   </label>
                   <select
                     name="zichtbaarheid"
                     required
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                   >
-                    <option value="publiek" selected={post?.zichtbaarheid === 'publiek' || !post}>Publiek</option>
-                    <option value="leden" selected={post?.zichtbaarheid === 'leden'}>Alleen Leden</option>
-                    <option value="sopraan" selected={post?.zichtbaarheid === 'sopraan'}>Alleen Sopraan</option>
-                    <option value="alt" selected={post?.zichtbaarheid === 'alt'}>Alleen Alt</option>
-                    <option value="tenor" selected={post?.zichtbaarheid === 'tenor'}>Alleen Tenor</option>
-                    <option value="bas" selected={post?.zichtbaarheid === 'bas'}>Alleen Bas</option>
+                    <option value="publiek" selected={post?.zichtbaarheid === 'publiek' || !post}>Publiek — iedereen (ook niet-leden)</option>
+                    <option value="leden" selected={post?.zichtbaarheid === 'leden'}>Alleen leden (ingelogd)</option>
+                    <option value="sopraan" selected={post?.zichtbaarheid === 'sopraan'}>Alleen sopranen</option>
+                    <option value="alt" selected={post?.zichtbaarheid === 'alt'}>Alleen alten</option>
+                    <option value="tenor" selected={post?.zichtbaarheid === 'tenor'}>Alleen tenoren</option>
+                    <option value="bas" selected={post?.zichtbaarheid === 'bas'}>Alleen bassen</option>
                   </select>
+                  {/* Bug #193 — Verduidelijking */}
+                  <p class="mt-1 text-xs text-gray-500">
+                    <i class="fas fa-eye mr-1"></i>
+                    Bepaalt <strong>wie</strong> het bericht kan zien.
+                  </p>
                 </div>
 
                 <div>
                   <label class="block text-sm font-medium text-gray-700 mb-1">
-                    Status *
+                    Status * <span class="text-xs text-gray-500 font-normal">(zichtbaar of nog niet)</span>
                   </label>
                   <select
                     name="is_published"
                     required
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                   >
-                    <option value="0" selected={post?.is_published === 0}>Concept (niet gepubliceerd)</option>
-                    <option value="1" selected={post?.is_published === 1 || !post}>Gepubliceerd</option>
+                    <option value="0" selected={post?.is_published === 0}>Concept (nog niet zichtbaar)</option>
+                    <option value="1" selected={post?.is_published === 1 || !post}>Gepubliceerd (live)</option>
                   </select>
+                  <p class="mt-1 text-xs text-gray-500">
+                    <i class="fas fa-toggle-on mr-1"></i>
+                    Concepts staan in de admin maar zijn nog niet zichtbaar voor leden.
+                  </p>
                 </div>
               </div>
 

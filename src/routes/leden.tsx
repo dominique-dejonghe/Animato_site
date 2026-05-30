@@ -1676,10 +1676,20 @@ app.get('/leden/board', async (c) => {
   // Bouw zichtbaarheidsfilter rolafhankelijk:
   // - Iedereen: 'leden' + eigen stemgroep
   // - Admins/bestuursleden: ook 'bestuur'
+  //
+  // Bug #202 — DB slaat stemgroep als 'S','A','T','B' op, posts.zichtbaarheid
+  // gebruikt 'sopraan'/'alt'/'tenor'/'bas'. Map expliciet.
+  const stemMapForum: Record<string, string> = {
+    s: 'sopraan', sopraan: 'sopraan',
+    a: 'alt',     alt:     'alt',
+    t: 'tenor',   tenor:   'tenor',
+    b: 'bas',     bas:     'bas',
+  }
   const isStaff = user.role === 'admin' || user.role === 'bestuur' || (user as any).is_bestuurslid === 1
-  const userStemLower = (user.stemgroep || '').toLowerCase()
+  const userStemKey = (user.stemgroep || '').toLowerCase()
+  const userStemLabel = stemMapForum[userStemKey]
   const visibilityValues: string[] = ['leden']
-  if (userStemLower) visibilityValues.push(userStemLower)
+  if (userStemLabel) visibilityValues.push(userStemLabel)
   if (isStaff) visibilityValues.push('bestuur')
   const visibilityPlaceholders = visibilityValues.map(() => '?').join(',')
 
@@ -4692,7 +4702,7 @@ app.get('/leden/betaling-lidgeld', async (c) => {
                       <input type="hidden" name="donation_amount" id="formDonationAmount" value="0" />
                       <input type="hidden" name="formula_type" id="formFormulaType" value={membership.type} />
                       <button type="submit" class="w-full py-3 px-4 bg-animato-accent text-white text-center rounded-lg hover:bg-amber-600 transition font-bold shadow">
-                        Link Aanmaken & Betalen
+                        <i class="fas fa-credit-card mr-2"></i> Betalen
                       </button>
                     </form>
                   )}
@@ -4876,16 +4886,22 @@ app.post('/api/leden/betaling/online', async (c) => {
       const donationId = insertRes.meta.last_row_id
       
       // 2. Create Payment
+      // Referentie zodat het in Mollie en op bankafschrift makkelijk
+      // terug te vinden is: bv. LID-2026-2027-M42-D17
+      const paymentRef = `LID-${membership.season}-M${membership.id}-D${donationId}`
+      const payerName = `${user.voornaam || ''} ${user.achternaam || ''}`.trim() || user.email
       const payment = await createMolliePayment(await getMollieApiKey(c.env), {
         amount: totalAmount,
-        description: `Lidgeld ${membership.season} + Vrije Gift - ${user.voornaam}`,
+        description: `${payerName} — Lidgeld ${membership.season} + Vrije Gift [${paymentRef}]`,
         redirectUrl: `${siteUrl}/leden/profiel?payment=success`,
         webhookUrl: `${siteUrl}/api/webhooks/mollie`,
         metadata: {
           type: 'membership_donation',
           membership_id: membership.id,
           donation_id: donationId,
-          user_id: user.id
+          user_id: user.id,
+          payer_name: payerName,
+          payment_ref: paymentRef
         }
       })
       

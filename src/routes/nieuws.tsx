@@ -37,13 +37,23 @@ app.get('/nieuws', async (c) => {
   // - niet ingelogd: enkel 'publiek'
   // - lid: 'publiek' + 'leden' + eigen stemgroep (sopraan/alt/tenor/bas)
   // - bestuur/admin: alles
+  //
+  // Bug #202 — DB slaat stemgroep op als 'S', 'A', 'T', 'B' (single letter),
+  // maar zichtbaarheid in posts is 'sopraan'/'alt'/'tenor'/'bas'. We mappen
+  // hier expliciet zodat een Bas-lid wel degelijk berichten met
+  // zichtbaarheid='bas' te zien krijgt.
+  const stemMap: Record<string, string> = {
+    s: 'sopraan', sopraan: 'sopraan',
+    a: 'alt',     alt:     'alt',
+    t: 'tenor',   tenor:   'tenor',
+    b: 'bas',     bas:     'bas',
+  }
   const visibilityValues: string[] = ['publiek']
   if (user) {
     visibilityValues.push('leden')
-    const stem = (user.stemgroep || '').toLowerCase()
-    if (['sopraan', 'alt', 'tenor', 'bas'].includes(stem)) {
-      visibilityValues.push(stem)
-    }
+    const stemKey = (user.stemgroep || '').toLowerCase()
+    const stemLabel = stemMap[stemKey]
+    if (stemLabel) visibilityValues.push(stemLabel)
     if (user.role === 'admin' || user.role === 'bestuur') {
       visibilityValues.push('bestuur')
     }

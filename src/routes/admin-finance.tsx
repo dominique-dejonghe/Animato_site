@@ -60,13 +60,30 @@ app.get('/admin/lidgelden', async (c) => {
     ORDER BY p.achternaam
   `, [activeSeason.id]) : []
 
+  // Bug #200.2 — Tel "betalende leden" (= actief, geen bezoeker/dirigent/pianist, geen testaccount)
+  // versus "totaal actieve leden" — beide voor de uitleg-header bovenaan.
+  const memberCounts = await queryOne<any>(db, `
+    SELECT
+      SUM(CASE WHEN status = 'actief' THEN 1 ELSE 0 END) AS totaal_actief,
+      SUM(CASE WHEN status = 'actief'
+                AND role NOT IN ('bezoeker','dirigent','pianist')
+                AND (is_test_account IS NULL OR is_test_account = 0)
+              THEN 1 ELSE 0 END) AS betalende_leden,
+      SUM(CASE WHEN status = 'actief' AND role = 'dirigent' THEN 1 ELSE 0 END) AS dirigenten,
+      SUM(CASE WHEN status = 'actief' AND role = 'pianist' THEN 1 ELSE 0 END) AS pianisten
+    FROM users
+  `) || { totaal_actief: 0, betalende_leden: 0, dirigenten: 0, pianisten: 0 }
+
   // Get active users WITHOUT membership for this season (to add them manually or bulk)
+  // Bug #200.1 — dirigent + pianist hoeven geen lidgeld te betalen, sluit uit.
+  // Ook test-accounts uitsluiten zodat overzichten en totalen kloppen.
   const usersWithoutMembership: any[] = activeSeason ? await queryAll(db, `
     SELECT u.id, u.email, u.stemgroep, p.voornaam, p.achternaam
     FROM users u
     LEFT JOIN profiles p ON u.id = p.user_id
     WHERE u.status = 'actief'
-    AND u.role != 'bezoeker'
+    AND u.role NOT IN ('bezoeker', 'dirigent', 'pianist')
+    AND (u.is_test_account IS NULL OR u.is_test_account = 0)
     AND u.id NOT IN (
       SELECT um.user_id
       FROM user_memberships um
@@ -412,6 +429,31 @@ app.get('/admin/lidgelden', async (c) => {
 
           {activeSeason ? (
             <>
+              {/* Bug #200.3 — Prominente "Betalende leden"-header bovenaan.
+                  Dirk: "in de zin moet helemaal boven eerder de notitie 'betalende leden'
+                  staan en in het klein 'Totaal aantal leden'". */}
+              <div class="bg-gradient-to-r from-animato-primary/10 to-blue-50 border border-animato-primary/30 rounded-lg p-4 mb-6">
+                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                  <div>
+                    <div class="text-3xl font-bold text-animato-primary">
+                      {memberCounts.betalende_leden || 0} <span class="text-base font-normal text-gray-700">betalende leden</span>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-1">
+                      Totaal aantal actieve leden: <strong>{memberCounts.totaal_actief || 0}</strong>
+                      {(Number(memberCounts.dirigenten) + Number(memberCounts.pianisten)) > 0 && (
+                        <span class="ml-1">
+                          (waarvan {memberCounts.dirigenten} dirigent{Number(memberCounts.dirigenten) === 1 ? '' : 'en'} en {memberCounts.pianisten} pianist{Number(memberCounts.pianisten) === 1 ? '' : 'en'} — geen lidgeld verschuldigd)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div class="text-xs text-gray-600 bg-white/70 rounded-md p-2 max-w-md leading-snug">
+                    <i class="fas fa-circle-info text-animato-primary mr-1"></i>
+                    <strong>Twee formules</strong>: <em>Basis (€{activeSeason.fee_base.toFixed(0)})</em> = digitale partituren, koorlid betaalt het standaard tarief. <em>Full (€{activeSeason.fee_full.toFixed(0)})</em> = bovenop digitaal krijgt het lid ook <strong>papieren partituren</strong> afgedrukt en in een kaft.
+                  </div>
+                </div>
+              </div>
+
               {/* Season Settings */}
               <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6">
                  <div class="flex justify-between items-center mb-2">
@@ -423,22 +465,22 @@ app.get('/admin/lidgelden', async (c) => {
                  <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                     <div><span class="text-gray-500">Naam:</span> <span class="font-medium">{activeSeason.season}</span></div>
                     <div><span class="text-gray-500">Status:</span> <span class={`font-medium ${activeSeason.is_active ? 'text-green-600' : 'text-gray-500'}`}>{activeSeason.is_active ? 'Actief' : 'Gearchiveerd'}</span></div>
-                    <div title="Basis = zonder papieren partituren">
-                      <span class="text-gray-500">Basis Lidgeld <i class="fas fa-info-circle text-gray-400 text-xs"></i>:</span>
+                    <div title="Basis = enkel digitale partituren">
+                      <span class="text-gray-500">Basis lidgeld <i class="fas fa-info-circle text-gray-400 text-xs"></i>:</span>
                       <span class="font-medium ml-1">€ {activeSeason.fee_base.toFixed(2)}</span>
-                      <div class="text-xs text-gray-400 italic">zonder papieren partituren</div>
+                      <div class="text-xs text-gray-400 italic">enkel digitale partituren</div>
                     </div>
-                    <div title="Full = met papieren partituren">
-                      <span class="text-gray-500">Full Lidgeld <i class="fas fa-info-circle text-gray-400 text-xs"></i>:</span>
+                    <div title="Full = digitaal + papieren partituren">
+                      <span class="text-gray-500">Full lidgeld <i class="fas fa-info-circle text-gray-400 text-xs"></i>:</span>
                       <span class="font-medium ml-1">€ {activeSeason.fee_full.toFixed(2)}</span>
-                      <div class="text-xs text-gray-400 italic">met papieren partituren</div>
+                      <div class="text-xs text-gray-400 italic">incl. papieren partituren in kaft</div>
                     </div>
                  </div>
                  {/* #110: Tarief-uitleg */}
                  <div class="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-600 flex items-start gap-2">
                    <i class="fas fa-circle-info text-blue-500 mt-0.5"></i>
                    <span>
-                     <strong>Standaard formule</strong> is <em>Basis</em> (digitale partituren). Leden die papieren partituren willen, kunnen achteraf upgraden naar <em>Full lidgeld</em>.
+                     <strong>Standaard formule</strong> = <em>Basis</em> (digitale partituren). Leden die papieren partituren wensen kunnen later upgraden naar <em>Full</em>; de partituren worden dan afgedrukt en in een kaft bezorgd.
                    </span>
                  </div>
               </div>
@@ -446,9 +488,9 @@ app.get('/admin/lidgelden', async (c) => {
               {/* Stats Cards — klikbaar voor filter */}
               <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                 <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=all`} class={`bg-white p-4 rounded shadow border-l-4 border-blue-500 hover:bg-blue-50 transition cursor-pointer ${filter === 'all' ? 'ring-2 ring-blue-400' : ''}`}>
-                  <p class="text-gray-500 text-sm">Totaal Leden</p>
-                  <p class="text-2xl font-bold">{memberships.length}</p>
-                  <p class="text-xs text-gray-400 mt-1">€ {totalAmount.toFixed(2)}</p>
+                  <p class="text-gray-500 text-sm" title="Aantal lidmaatschappen in dit seizoen (basis + full)">Lidmaatschappen in seizoen</p>
+                  <p class="text-2xl font-bold">{memberships.length} <span class="text-xs font-normal text-gray-400">/ {memberCounts.betalende_leden || 0}</span></p>
+                  <p class="text-xs text-gray-400 mt-1">€ {totalAmount.toFixed(2)} (totaal)</p>
                 </a>
                 <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=paid`} class={`bg-white p-4 rounded shadow border-l-4 border-green-500 hover:bg-green-50 transition cursor-pointer ${filter === 'paid' ? 'ring-2 ring-green-400' : ''}`}>
                   <p class="text-gray-500 text-sm">Betaald ({paid.length}) — {paidPct}%</p>
@@ -569,13 +611,14 @@ app.get('/admin/lidgelden', async (c) => {
                 </div>
               </div>
 
-              {/* === FORMULE-FILTERS (Basis €25 / Full €50) === */}
+              {/* === FORMULE-FILTERS (Basis = digitaal / Full = met papieren partituren) === */}
               <div class="grid grid-cols-2 md:grid-cols-2 gap-3 mb-6">
                 <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=basis`}
-                   class={`bg-white p-3 rounded shadow border-l-4 border-gray-500 hover:bg-gray-50 transition cursor-pointer flex items-center justify-between ${filter === 'basis' ? 'ring-2 ring-gray-400' : ''}`}>
+                   class={`bg-white p-3 rounded shadow border-l-4 border-gray-500 hover:bg-gray-50 transition cursor-pointer flex items-center justify-between ${filter === 'basis' ? 'ring-2 ring-gray-400' : ''}`}
+                   title="Basis = enkel digitale partituren">
                   <div>
-                    <p class="text-gray-500 text-xs"><i class="fas fa-laptop mr-1"></i> Formule Basis (€25 digitaal)</p>
-                    <p class="text-xl font-bold text-gray-700">{basisMemberships.length} <span class="text-xs font-normal text-gray-500">lidmaatschappen</span></p>
+                    <p class="text-gray-500 text-xs"><i class="fas fa-laptop mr-1"></i> Formule Basis (€{activeSeason.fee_base.toFixed(0)} — enkel digitaal)</p>
+                    <p class="text-xl font-bold text-gray-700">{basisMemberships.length} <span class="text-xs font-normal text-gray-500">leden — enkel digitale partituren</span></p>
                   </div>
                   <div class="text-right">
                     <p class="text-[10px] text-gray-500 uppercase tracking-wide">betaald</p>
@@ -583,10 +626,11 @@ app.get('/admin/lidgelden', async (c) => {
                   </div>
                 </a>
                 <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=full`}
-                   class={`bg-white p-3 rounded shadow border-l-4 border-purple-500 hover:bg-purple-50 transition cursor-pointer flex items-center justify-between ${filter === 'full' ? 'ring-2 ring-purple-400' : ''}`}>
+                   class={`bg-white p-3 rounded shadow border-l-4 border-purple-500 hover:bg-purple-50 transition cursor-pointer flex items-center justify-between ${filter === 'full' ? 'ring-2 ring-purple-400' : ''}`}
+                   title="Full = digitaal + papieren partituren in een kaft">
                   <div>
-                    <p class="text-gray-500 text-xs"><i class="fas fa-music mr-1"></i> Formule Full (€50 met partituren)</p>
-                    <p class="text-xl font-bold text-purple-700">{fullMemberships.length} <span class="text-xs font-normal text-gray-500">lidmaatschappen</span></p>
+                    <p class="text-gray-500 text-xs"><i class="fas fa-music mr-1"></i> Formule Full (€{activeSeason.fee_full.toFixed(0)} — met papieren partituren)</p>
+                    <p class="text-xl font-bold text-purple-700">{fullMemberships.length} <span class="text-xs font-normal text-gray-500">leden — wensen papieren partituren</span></p>
                   </div>
                   <div class="text-right">
                     <p class="text-[10px] text-gray-500 uppercase tracking-wide">betaald</p>
@@ -1858,9 +1902,13 @@ app.post('/api/admin/lidgelden/generate-bulk', async (c) => {
     if (!year) return c.redirect('/admin/lidgelden?error=year_not_found')
 
     // Get all active users who don't have a membership for this year
+    // Bug #200.1 — dirigent + pianist krijgen GEEN lidgeld. Ook bezoeker
+    // en test-accounts uitsluiten zodat het bedrag/aantal klopt.
     const users = await queryAll(db, `
         SELECT id FROM users 
         WHERE status = 'actief' 
+        AND role NOT IN ('bezoeker', 'dirigent', 'pianist')
+        AND (is_test_account IS NULL OR is_test_account = 0)
         AND id NOT IN (SELECT user_id FROM user_memberships WHERE year_id = ?)
     `, [yearId])
 
@@ -2209,14 +2257,21 @@ app.post('/api/admin/lidgelden/send-link', async (c) => {
   let paymentUrl = membership.mollie_payment_url
 
   if (!paymentUrl) {
+    // Referentie + naam zodat de penningmeester in Mollie en op het
+    // bankafschrift in één oogopslag ziet wie betaald heeft.
+    const paymentRef = `LID-${membership.season}-M${membership.id}`
+    const payerName = `${membership.voornaam || ''} ${membership.achternaam || ''}`.trim() || membership.email
+    const formuleLabel = membership.type === 'full' ? 'Full + Partituren' : 'Basis'
     const payment = await createMolliePayment(await getMollieApiKey(c.env), {
       amount: membership.amount,
-      description: `Lidgeld Animato ${membership.season} - ${membership.type}`,
+      description: `${payerName} — Lidgeld Animato ${membership.season} (${formuleLabel}) [${paymentRef}]`,
       redirectUrl: `${siteUrl}/leden/profiel?payment=success`,
       webhookUrl: `${siteUrl}/api/webhooks/mollie`,
       metadata: {
         membership_id: membership.id,
-        type: 'membership'
+        type: 'membership',
+        payer_name: payerName,
+        payment_ref: paymentRef
       }
     })
     

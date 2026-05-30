@@ -903,7 +903,7 @@ app.get('/contact', async (c) => {
                   </div>
                   <div class="ml-4">
                     <h3 class="font-semibold text-gray-900">Postadres</h3>
-                    <p class="text-gray-700">Gemengd Koor Animato vzw</p>
+                    <p class="text-gray-700">Gemengd Koor Animato</p>
                     <p class="text-gray-600">p.a. Kattestraat 92</p>
                     <p class="text-gray-600">2890 Puurs-Sint-Amands</p>
                   </div>

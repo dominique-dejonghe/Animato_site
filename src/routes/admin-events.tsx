@@ -12,6 +12,7 @@ import { createEventOccurrences, formatRecurrenceRule } from '../utils/recurring
 import { generateICS, generateBulkICS, generateGoogleCalendarURL } from '../utils/ics'
 import { uploadDataUrlToR2, deleteFromR2, isDataUrl, r2KeyFromUrl } from '../utils/r2-storage'
 import { notifyAllActiveMembers } from '../utils/notifications'
+import { formatBrusselsDate, formatBrusselsTime, formatBrusselsDateTime } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
 

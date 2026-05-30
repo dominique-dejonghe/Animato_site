@@ -263,7 +263,11 @@ app.get('/admin/lidgelden', async (c) => {
               <p class="text-gray-600 mt-1">Beheer seizoenen en betalingen</p>
             </div>
             <div class="flex gap-2 flex-wrap">
-              <button onclick="document.getElementById('createSeasonModal').classList.remove('hidden')" class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-50">
+              <button
+                onclick="document.getElementById('createSeasonModal').classList.remove('hidden')"
+                class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-50"
+                title="Maak een nieuw koorseizoen aan (bv. 2026-2027). Oude seizoenen blijven bewaard in het archief."
+              >
                 <i class="fas fa-calendar-plus mr-2"></i> Nieuw Seizoen
               </button>
               {activeSeason && (
@@ -271,9 +275,22 @@ app.get('/admin/lidgelden', async (c) => {
                   <button onclick="document.getElementById('addModal').classList.remove('hidden')" class="bg-animato-primary text-white px-4 py-2 rounded hover:opacity-90">
                     <i class="fas fa-plus mr-2"></i> Lidmaatschap Toekennen
                   </button>
-                  <button onclick="document.getElementById('resetSeasonModal').classList.remove('hidden')" class="bg-white border border-red-300 text-red-700 px-4 py-2 rounded hover:bg-red-50" title="Verwijder alle lidmaatschappen voor dit seizoen">
-                    <i class="fas fa-eraser mr-2"></i> Reset Seizoen
-                  </button>
+                  {/* Bug #201 — Reset enkel toelaten op ACTIEF seizoen, niet op archief.
+                      Zo kunnen we per ongeluk nooit historische jaren wissen. */}
+                  {activeSeason.is_active ? (
+                    <button onclick="document.getElementById('resetSeasonModal').classList.remove('hidden')" class="bg-white border border-red-300 text-red-700 px-4 py-2 rounded hover:bg-red-50" title="Verwijder alle lidmaatschappen voor dit seizoen (enkel actief seizoen)">
+                      <i class="fas fa-eraser mr-2"></i> Reset Seizoen
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled
+                      class="bg-gray-100 border border-gray-200 text-gray-400 px-4 py-2 rounded cursor-not-allowed"
+                      title="Reset is uitgeschakeld voor archief-seizoenen om historische data te beschermen. Schakel eerst over naar het actieve seizoen."
+                    >
+                      <i class="fas fa-lock mr-2"></i> Reset Seizoen
+                    </button>
+                  )}
                 </>
               )}
               <a href="/admin/mollie-webhook-log" class="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded hover:bg-gray-50" title="Bekijk welke webhook-calls Mollie naar ons stuurde (diagnose)">
@@ -336,6 +353,12 @@ app.get('/admin/lidgelden', async (c) => {
             <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
               <i class="fas fa-exclamation-circle mr-2"></i>
               Reset geannuleerd: de getypte seizoennaam kwam niet overeen.
+            </div>
+          )}
+          {errorMsg === 'archive_locked' && (
+            <div class="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-sm text-red-800">
+              <i class="fas fa-lock mr-2"></i>
+              <strong>Reset geweigerd:</strong> dit is een archief-seizoen. Historische lidmaatschappen en betalingen worden beschermd — alleen het actieve seizoen kan gereset worden.
             </div>
           )}
           {/* #111 banners */}
@@ -404,6 +427,34 @@ app.get('/admin/lidgelden', async (c) => {
             </div>
           )}
 
+          {/* Bug #201 — Korte uitleg over de twee seizoen-acties, expliciet
+              vermelden dat archief bewaard blijft (was zorg in feedback). */}
+          <details class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4 text-sm text-blue-900">
+            <summary class="cursor-pointer font-medium flex items-center gap-2">
+              <i class="fas fa-info-circle"></i>
+              Wat doen <em>Nieuw Seizoen</em> en <em>Reset Seizoen</em>? (klik om uit te klappen)
+            </summary>
+            <div class="mt-3 space-y-2 pl-6">
+              <p>
+                <i class="fas fa-calendar-plus text-gray-600 mr-1"></i>
+                <strong>Nieuw Seizoen</strong> — maakt een volgend koorseizoen aan (bv. 2026-2027) met eigen tarieven.
+                Het lopende seizoen wordt automatisch <em>archief</em> en blijft zichtbaar via de seizoendropdown hieronder.
+                <span class="text-blue-700">Alle leden, lidmaatschappen en betalingen van vorige seizoenen blijven bewaard.</span>
+              </p>
+              <p>
+                <i class="fas fa-eraser text-red-600 mr-1"></i>
+                <strong>Reset Seizoen</strong> — wist <em>alleen</em> de lidmaatschappen + betalingen van het <strong>actieve</strong> seizoen
+                (bv. om opnieuw te bulk-genereren bij een foutje). De knop is uitgeschakeld voor archief-seizoenen
+                zodat historische data niet per ongeluk verloren kan gaan. Het seizoen zelf en zijn tarieven blijven bestaan.
+              </p>
+              <p>
+                <i class="fas fa-archive text-gray-600 mr-1"></i>
+                <strong>Archief raadplegen</strong> — kies in de selector hieronder een oud seizoen om alle betalingen en lidmaatschappen
+                van dat jaar te bekijken. Niet-actieve seizoenen zijn alleen-lezen voor reset-acties.
+              </p>
+            </div>
+          </details>
+
           {/* Season Selector */}
           <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6 flex items-center justify-between">
             <div class="flex items-center gap-4">
@@ -419,6 +470,11 @@ app.get('/admin/lidgelden', async (c) => {
                 ))}
                 {seasons.length === 0 && <option>Geen seizoenen gevonden</option>}
               </select>
+              {activeSeason && !activeSeason.is_active && (
+                <span class="text-xs px-2 py-1 bg-gray-100 text-gray-600 rounded inline-flex items-center gap-1" title="Dit is een archief-seizoen — alleen-lezen voor reset-acties">
+                  <i class="fas fa-lock"></i> Archief
+                </span>
+              )}
             </div>
             {activeSeason && (
               <div class="text-sm text-gray-500">
@@ -499,15 +555,19 @@ app.get('/admin/lidgelden', async (c) => {
                     <div class="bg-green-500 h-1.5 rounded-full" style={`width: ${paidPct}%`}></div>
                   </div>
                 </a>
-                <div class={`bg-white p-4 rounded shadow border-l-4 border-amber-500 hover:bg-amber-50 transition ${filter === 'pending' ? 'ring-2 ring-amber-400' : ''}`}>
-                  <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=pending`} class="block cursor-pointer">
-                    <p class="text-gray-500 text-sm">Openstaand ({pending.length})</p>
-                    <p class="text-2xl font-bold">€ {openAmount.toFixed(2)}</p>
-                    <p class="text-xs text-gray-400 mt-1">Gemiddeld {avgDaysOpen} dagen open</p>
-                  </a>
-                  {/* Bulk-sync knop: bevraagt Mollie voor ALLE pending items in dit seizoen.
-                      Lost het 'webhook kwam nooit door'-probleem op in één klik. */}
-                  {pending.length > 0 && (
+                {/* Bug #195 — Toon de Openstaand-tegel enkel als er écht iets openstaand is.
+                    Bij €0,00 / 0 items was de KPI verwarrend ("klopt niet" volgens feedback).
+                    Als alles betaald is tonen we een rustige "Alles betaald" tegel zonder
+                    bedragteller of details. */}
+                {pending.length > 0 ? (
+                  <div class={`bg-white p-4 rounded shadow border-l-4 border-amber-500 hover:bg-amber-50 transition ${filter === 'pending' ? 'ring-2 ring-amber-400' : ''}`}>
+                    <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=pending`} class="block cursor-pointer">
+                      <p class="text-gray-500 text-sm">Openstaand ({pending.length})</p>
+                      <p class="text-2xl font-bold">€ {openAmount.toFixed(2)}</p>
+                      <p class="text-xs text-gray-400 mt-1">Gemiddeld {avgDaysOpen} dagen open</p>
+                    </a>
+                    {/* Bulk-sync knop: bevraagt Mollie voor ALLE pending items in dit seizoen.
+                        Lost het 'webhook kwam nooit door'-probleem op in één klik. */}
                     <form action="/api/admin/lidgelden/sync-mollie-bulk" method="POST" class="mt-2"
                           onsubmit={`return confirm('Bevraag Mollie voor alle ${pending.length} openstaande lidgelden? Items die intussen bij Mollie betaald zijn worden hier op \\'paid\\' gezet.');`}>
                       <input type="hidden" name="year_id" value={activeSeason.id} />
@@ -516,8 +576,16 @@ app.get('/admin/lidgelden', async (c) => {
                         <i class="fas fa-sync-alt"></i> Sync alle bij Mollie
                       </button>
                     </form>
-                  )}
-                </div>
+                  </div>
+                ) : (
+                  <div class="bg-white p-4 rounded shadow border-l-4 border-green-500">
+                    <p class="text-gray-500 text-sm">Openstaand (0)</p>
+                    <p class="text-2xl font-bold text-green-600">
+                      <i class="fas fa-check-circle mr-1"></i> Alles betaald
+                    </p>
+                    <p class="text-xs text-gray-400 mt-1">Geen openstaande lidgelden voor dit seizoen</p>
+                  </div>
+                )}
                 <div class="bg-white p-4 rounded shadow border-l-4 border-gray-500 flex flex-col justify-center items-start relative" id="bulkGenerateCard">
                    <div class="flex items-center justify-between w-full mb-1">
                      <p class="text-gray-500 text-sm">Actie</p>
@@ -725,12 +793,13 @@ app.get('/admin/lidgelden', async (c) => {
                   )}
                 </div>
 
-                {/* Top 5 langst openstaande */}
-                <div class="bg-white p-4 rounded-lg shadow">
-                  <h3 class="font-bold text-gray-800 mb-3 text-sm flex items-center">
-                    <i class="fas fa-clock text-red-500 mr-2"></i> Langst Openstaand
-                  </h3>
-                  {slowestOpen.length > 0 ? (
+                {/* Top 5 langst openstaande — Bug #195: enkel tonen als er écht
+                    openstaande items zijn. Anders is de widget visuele ruis. */}
+                {slowestOpen.length > 0 && (
+                  <div class="bg-white p-4 rounded-lg shadow">
+                    <h3 class="font-bold text-gray-800 mb-3 text-sm flex items-center">
+                      <i class="fas fa-clock text-red-500 mr-2"></i> Langst Openstaand
+                    </h3>
                     <ul class="space-y-2 text-sm">
                       {slowestOpen.map((m: any, idx: number) => (
                         <li class="flex justify-between items-center">
@@ -744,10 +813,8 @@ app.get('/admin/lidgelden', async (c) => {
                         </li>
                       ))}
                     </ul>
-                  ) : (
-                    <p class="text-xs text-gray-400 italic">Alles betaald! 🎉</p>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
 
               {/* Alle betalingen tijdlijn — standaard 10, uitklapbaar naar volledige lijst */}
@@ -1550,7 +1617,14 @@ app.get('/admin/lidgelden', async (c) => {
       {/* Create Season Modal */}
       <div id="createSeasonModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
         <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
-          <h3 class="text-xl font-bold mb-4">Nieuw Seizoen Aanmaken</h3>
+          <h3 class="text-xl font-bold mb-2">Nieuw Seizoen Aanmaken</h3>
+          {/* Bug #201 — geruststellen dat archief intact blijft */}
+          <div class="bg-blue-50 border border-blue-200 rounded p-3 mb-4 text-xs text-blue-900">
+            <i class="fas fa-info-circle mr-1"></i>
+            Het lopende seizoen wordt automatisch <strong>archief</strong>.
+            Alle bestaande lidmaatschappen, betalingen en giften van vorige seizoenen blijven bewaard
+            en kan je later opvragen via de seizoen-selector.
+          </div>
           <form action="/api/admin/seasons/create" method="POST">
             <div class="mb-4">
               <label class="block text-sm font-medium mb-1">Seizoen Naam</label>
@@ -2324,6 +2398,13 @@ app.post('/api/admin/lidgelden/reset-season', async (c) => {
 
   if (confirmSeason !== year.season) {
     return c.redirect(`/admin/lidgelden?season_id=${seasonId}&error=confirm_mismatch`)
+  }
+
+  // Bug #201 — server-side guard: nooit archief-seizoenen wissen.
+  // Beschermt historische data ook tegen een directe POST (bv. browser-history,
+  // CSRF-replay, of admin die op de verkeerde knop klikt na seizoenwissel).
+  if (!year.is_active) {
+    return c.redirect(`/admin/lidgelden?season_id=${seasonId}&error=archive_locked`)
   }
 
   // Tellen voor de feedback message

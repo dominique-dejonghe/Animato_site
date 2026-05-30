@@ -12,7 +12,7 @@ import { createEventOccurrences, formatRecurrenceRule } from '../utils/recurring
 import { generateICS, generateBulkICS, generateGoogleCalendarURL } from '../utils/ics'
 import { uploadDataUrlToR2, deleteFromR2, isDataUrl, r2KeyFromUrl } from '../utils/r2-storage'
 import { notifyAllActiveMembers } from '../utils/notifications'
-import { formatBrusselsDate, formatBrusselsTime, formatBrusselsDateTime } from '../utils/time'
+import { formatBrusselsDate, formatBrusselsTime, formatBrusselsDateTime, brusselsLocalToUTC, utcToBrusselsLocal } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1372,6 +1372,13 @@ app.post('/admin/events/save', async (c) => {
       .replace(/\s*on\w+\s*=\s*'[^']*'/gi, '')
       : null
 
+    // Bug #208 — datetime-local input geeft een naive string ("2026-06-15T20:00")
+    // zonder timezone. JS interpreteert die later als UTC → uur schuift met 1-2u
+    // op de webpagina. Daarom: converteer hier expliciet van Brussels-tijd naar
+    // UTC voor opslag, zodat de formatBrussels*-helpers correct kunnen renderen.
+    const startAtUTC = start_at ? brusselsLocalToUTC(String(start_at)) : null
+    const endAtUTC = end_at ? brusselsLocalToUTC(String(end_at)) : null
+
     // Generate slug from title if not provided
     let baseSlug = slug || String(titel).toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
@@ -1465,7 +1472,7 @@ app.post('/admin/events/save', async (c) => {
          WHERE id = ?`,
         [
           type, titel, finalSlug, cleanBeschrijving, finalImageUrl, finalLocatie, finalLocationId,
-          start_at, end_at, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0, doelgroep || 'all',
+          startAtUTC, endAtUTC, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0, doelgroep || 'all',
           zichtbaar_publiek === 'on' ? 1 : 0, toon_op_homepage === 'on' ? 1 : 0,
           is_recurring === 'on' ? 1 : 0, recurrenceRule ? JSON.stringify(recurrenceRule) : null,
           id
@@ -1489,7 +1496,7 @@ app.post('/admin/events/save', async (c) => {
         // Generate new occurrences
         const baseEvent = {
           type, titel, beschrijving, locatie: finalLocatie, location_id: finalLocationId,
-          start_at, end_at, max_deelnemers, aanmelden_verplicht: aanmelden_verplicht === 'on',
+          start_at: startAtUTC, end_at: endAtUTC, max_deelnemers, aanmelden_verplicht: aanmelden_verplicht === 'on',
           zichtbaar_publiek: zichtbaar_publiek === 'on', toon_op_homepage: false, // Don't show on homepage
           slug: null // Each occurrence gets unique slug
         }
@@ -1508,7 +1515,7 @@ app.post('/admin/events/save', async (c) => {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           type, titel, finalSlug, cleanBeschrijving, finalImageUrl, finalLocatie, finalLocationId,
-          start_at, end_at, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0, doelgroep || 'all',
+          startAtUTC, endAtUTC, max_deelnemers || null, aanmelden_verplicht === 'on' ? 1 : 0, doelgroep || 'all',
           isPubliekValue, isPubliekValue, toon_op_homepage === 'on' ? 1 : 0,
           is_recurring === 'on' ? 1 : 0, recurrenceRule ? JSON.stringify(recurrenceRule) : null,
           user.id
@@ -1529,7 +1536,7 @@ app.post('/admin/events/save', async (c) => {
       if (is_recurring === 'on' && recurrenceRule && result.meta.last_row_id) {
         const baseEvent = {
           type, titel, beschrijving, locatie: finalLocatie, location_id: finalLocationId,
-          start_at, end_at, max_deelnemers, aanmelden_verplicht: aanmelden_verplicht === 'on',
+          start_at: startAtUTC, end_at: endAtUTC, max_deelnemers, aanmelden_verplicht: aanmelden_verplicht === 'on',
           zichtbaar_publiek: zichtbaar_publiek === 'on', toon_op_homepage: false,
           slug: null
         }
@@ -2123,7 +2130,7 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
                     type="datetime-local"
                     name="start_at"
                     id="start_at"
-                    value={event?.start_at ? event.start_at.slice(0, 16) : ''}
+                    value={event?.start_at ? utcToBrusselsLocal(event.start_at) : ''}
                     required
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary"
                     onchange="checkPastDate()"
@@ -2138,7 +2145,7 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
                   <input
                     type="datetime-local"
                     name="end_at"
-                    value={event?.end_at ? event.end_at.slice(0, 16) : ''}
+                    value={event?.end_at ? utcToBrusselsLocal(event.end_at) : ''}
                     required
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary"
                   />

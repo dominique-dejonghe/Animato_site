@@ -93,6 +93,74 @@ export function brusselsToday(): string {
 }
 
 /**
+ * Converteert een naive datetime-local string ("2026-06-15T20:00") die de
+ * gebruiker invoerde in Brussels-tijd, naar een UTC ISO-string voor
+ * opslag in de DB. Houdt rekening met DST (zomer/winter).
+ *
+ * Voorbeeld: "2026-06-15T20:00" (zomer, CEST = UTC+2) → "2026-06-15T18:00:00.000Z"
+ *           "2026-12-15T20:00" (winter, CET = UTC+1) → "2026-12-15T19:00:00.000Z"
+ *
+ * Werkt door eerst een Date te maken van de naive string (die door JS als
+ * UTC wordt geïnterpreteerd), dan te kijken hoeveel uren Brussels verschuift
+ * t.o.v. UTC op die datum, en dan dat verschil ervan af te trekken.
+ */
+export function brusselsLocalToUTC(localStr: string | null | undefined): string | null {
+  if (!localStr) return null
+  // Forceer formaat "YYYY-MM-DDTHH:MM" (HTML datetime-local input)
+  const s = String(localStr).trim()
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(s)) return s // onbekend formaat → laat staan
+
+  // Stap 1: maak een Date alsof het UTC was (naive string + 'Z')
+  const naiveAsUTC = new Date(s.length === 16 ? s + ':00Z' : s + 'Z')
+  if (isNaN(naiveAsUTC.getTime())) return s
+
+  // Stap 2: bepaal de Brussels-offset op dat moment
+  // We kijken hoe Intl 'this naieve datum' in Brussels zou renderen,
+  // en vergelijken met UTC om de offset (in ms) te krijgen.
+  const brusselsParts = new Intl.DateTimeFormat('en-US', {
+    timeZone: BRUSSELS_TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  }).formatToParts(naiveAsUTC)
+  const get = (t: string) => brusselsParts.find(p => p.type === t)?.value || '00'
+  // Brussels-equivalent van naiveAsUTC (alsof het echt UTC was)
+  const brusselsHour = parseInt(get('hour'), 10)
+  const brusselsAsIfUTC = new Date(Date.UTC(
+    parseInt(get('year'), 10),
+    parseInt(get('month'), 10) - 1,
+    parseInt(get('day'), 10),
+    brusselsHour === 24 ? 0 : brusselsHour,
+    parseInt(get('minute'), 10),
+    parseInt(get('second'), 10)
+  ))
+  const offsetMs = brusselsAsIfUTC.getTime() - naiveAsUTC.getTime()
+
+  // Stap 3: trek de offset af van de naive-as-UTC interpretatie
+  return new Date(naiveAsUTC.getTime() - offsetMs).toISOString()
+}
+
+/**
+ * Inverse van brusselsLocalToUTC: UTC ISO-string → "YYYY-MM-DDTHH:mm" voor
+ * een HTML datetime-local input, in Brussels-tijd.
+ * Voorbeeld: "2026-06-15T18:00:00Z" → "2026-06-15T20:00" (zomer, CEST)
+ */
+export function utcToBrusselsLocal(input: DateInput): string {
+  const d = toDate(input)
+  if (!d) return ''
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: BRUSSELS_TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).formatToParts(d)
+  const get = (t: string) => parts.find(p => p.type === t)?.value || '00'
+  // en-CA geeft "2026-06-15, 20:00" — wij willen "2026-06-15T20:00"
+  let hour = get('hour')
+  if (hour === '24') hour = '00' // Edge case: middernacht wordt soms als 24:00 gerapporteerd
+  return `${get('year')}-${get('month')}-${get('day')}T${hour}:${get('minute')}`
+}
+
+/**
  * Relatief: "vandaag" / "gisteren" / "X dagen geleden".
  * Berekening op basis van Brussels-kalender.
  */

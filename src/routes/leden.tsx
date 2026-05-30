@@ -314,26 +314,29 @@ app.get('/leden', async (c) => {
   }> = []
 
   // 1) Openstaand lidgeld
-  try {
-    const openMembership = await queryOne<any>(c.env.DB,
-      `SELECT um.id, um.amount, um.status, um.mollie_payment_url, my.season
-       FROM user_memberships um
-       JOIN membership_years my ON my.id = um.year_id
-       WHERE um.user_id = ? AND my.is_active = 1
-         AND (um.status IS NULL OR um.status NOT IN ('paid','waived'))
-       LIMIT 1`,
-      [user.id])
-    if (openMembership) {
-      dashboardActions.push({
-        icon: 'fas fa-euro-sign', iconBg: 'bg-orange-100', iconColor: 'text-orange-600',
-        titel: `Lidgeld ${openMembership.season} nog te betalen`,
-        body: openMembership.amount ? `Bedrag: € ${Number(openMembership.amount).toFixed(2)}` : undefined,
-        link: '/leden/profiel#lidgeld',
-        cta: 'Bekijk',
-        priority: 1
-      })
-    }
-  } catch (e) { /* ignore */ }
+  // Bug #207 — dirigent en pianist hoeven geen lidgeld te betalen → overslaan
+  if (!['dirigent', 'pianist'].includes(user.role)) {
+    try {
+      const openMembership = await queryOne<any>(c.env.DB,
+        `SELECT um.id, um.amount, um.status, um.mollie_payment_url, my.season
+         FROM user_memberships um
+         JOIN membership_years my ON my.id = um.year_id
+         WHERE um.user_id = ? AND my.is_active = 1
+           AND (um.status IS NULL OR um.status NOT IN ('paid','waived'))
+         LIMIT 1`,
+        [user.id])
+      if (openMembership) {
+        dashboardActions.push({
+          icon: 'fas fa-euro-sign', iconBg: 'bg-orange-100', iconColor: 'text-orange-600',
+          titel: `Lidgeld ${openMembership.season} nog te betalen`,
+          body: openMembership.amount ? `Bedrag: € ${Number(openMembership.amount).toFixed(2)}` : undefined,
+          link: '/leden/profiel#lidgeld',
+          cta: 'Bekijk',
+          priority: 1
+        })
+      }
+    } catch (e) { /* ignore */ }
+  }
 
   // 2) Recent nieuws (sinds vorige login) — gebruikt previous_login_at; fallback 7d
   try {
@@ -2754,8 +2757,10 @@ app.get('/leden/profiel', async (c) => {
   const profielOpenActies: ProfielActie[] = []
 
   // 1) Openstaand lidgeld — NIET dismissible (moet effectief afgehandeld)
+  // Bug #207 — dirigent en pianist hoeven geen lidgeld te betalen → sla over
   let hasOpenLidgeldActie = false
-  if (activeMembership && activeMembership.is_active &&
+  if (!['dirigent', 'pianist'].includes(user.role) &&
+      activeMembership && activeMembership.is_active &&
       (!activeMembership.status || !['paid','waived'].includes(activeMembership.status))) {
     profielOpenActies.push({
       icon: 'fas fa-euro-sign', iconBg: 'bg-orange-100', iconColor: 'text-orange-600',
@@ -3318,6 +3323,10 @@ app.get('/leden/profiel', async (c) => {
             ` }} />
           </div>
 
+          {/* Bug #207 — Dirigent en pianist hoeven geen lidgeld te betalen
+              dus tonen we hen de hele Lidmaatschappen-sectie niet. */}
+          {!['dirigent', 'pianist'].includes(user.role) && (
+          <>
           {/* Membership Status & History
               BUG-FIX (Claudine, 23 mei): id="lidgeld" staat NU op de buitenkaart
               i.p.v. op het conditionele gele "openstaand"-blok. Reden: notifs
@@ -3418,6 +3427,8 @@ app.get('/leden/profiel', async (c) => {
               </div>
             )}
           </div>
+          </>
+          )}
 
           {/* Activity History Card */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">

@@ -160,15 +160,20 @@ app.post('/api/public/donatie', async (c) => {
     const donationId = insertRes.meta.last_row_id
 
     // 2. Create Payment
+    // Bug #197 — naam + referentie meegeven in Mollie description.
+    const publicRef = `PUBG-D${donationId}`
     const payment = await createMolliePayment(await getMollieApiKey(c.env), {
         amount: amount,
-        description: `Gift Animato - ${name}`,
+        description: `${name} — Publieke Gift Animato [${publicRef}]`,
         redirectUrl: `${siteUrl}/steun-ons?success=true`,
         webhookUrl: `${siteUrl}/api/webhooks/mollie`,
         metadata: {
             type: 'donation',
             donation_id: donationId,
-            is_public: true
+            is_public: true,
+            payer_name: name,
+            payer_email: email,
+            payment_ref: publicRef
         }
     })
 

@@ -112,16 +112,42 @@ app.get('/leden', async (c) => {
   )
 
   // Get latest nieuws for members
+  // Bug #202 — DB slaat stemgroep als 'S','A','T','B' op,
+  // posts.zichtbaarheid gebruikt 'sopraan'/'alt'/'tenor'/'bas'.
+  // Map expliciet zodat een Bas-lid ook posts met zichtbaarheid='bas' ziet.
+  const stemMapDash: Record<string, string> = {
+    s: 'sopraan', sopraan: 'sopraan',
+    a: 'alt',     alt:     'alt',
+    t: 'tenor',   tenor:   'tenor',
+    b: 'bas',     bas:     'bas',
+  }
+  const userStemKeyDash = (user.stemgroep || '').toLowerCase()
+  const userStemLabelDash = stemMapDash[userStemKeyDash]
+  const isStaffDash = user.role === 'admin' || user.role === 'bestuur' || (user as any).is_bestuurslid === 1
+
+  // Voor nieuws: publiek + leden + eigen stemgroep + (indien staff) bestuur
+  const nieuwsVis: string[] = ['publiek', 'leden']
+  if (userStemLabelDash) nieuwsVis.push(userStemLabelDash)
+  if (isStaffDash) nieuwsVis.push('bestuur')
+  const nieuwsVisPh = nieuwsVis.map(() => '?').join(',')
+
   const nieuws = await queryAll(
     c.env.DB,
     `SELECT id, titel, slug, published_at
      FROM posts
      WHERE type = 'nieuws' 
        AND is_published = 1
-       AND (zichtbaarheid = 'publiek' OR zichtbaarheid = 'leden')
+       AND zichtbaarheid IN (${nieuwsVisPh})
      ORDER BY published_at DESC
-     LIMIT 3`
+     LIMIT 3`,
+    nieuwsVis
   )
+
+  // Voor board posts: leden + eigen stemgroep + (indien staff) bestuur
+  const boardVis: string[] = ['leden']
+  if (userStemLabelDash) boardVis.push(userStemLabelDash)
+  if (isStaffDash) boardVis.push('bestuur')
+  const boardVisPh = boardVis.map(() => '?').join(',')
 
   // Get latest board posts
   const boardPosts = await queryAll(
@@ -133,10 +159,10 @@ app.get('/leden', async (c) => {
      LEFT JOIN profiles pr ON pr.user_id = u.id
      WHERE p.type = 'board'
        AND p.is_published = 1
-       AND (p.zichtbaarheid = 'leden' OR p.zichtbaarheid = ?)
+       AND p.zichtbaarheid IN (${boardVisPh})
      ORDER BY p.is_pinned DESC, p.created_at DESC
      LIMIT 5`,
-    [user.stemgroep?.toLowerCase() || 'admin']
+    boardVis
   )
 
   // Get latest materials for user's stemgroep
@@ -319,7 +345,12 @@ app.get('/leden', async (c) => {
       : `AND datetime(p.published_at) >= datetime('now', '-7 days')`
     // LEFT JOIN op user_news_dismissed: items die het lid al weggeklikt
     // of via "Lees" gedismissed heeft, vallen weg uit het widget.
-    const params: any[] = sinceDate ? [user.id, sinceDate] : [user.id]
+    // Bug #202 — gebruik dezelfde zichtbaarheidsmap als boven
+    const visForRecent = [...nieuwsVis]
+    const visPh = visForRecent.map(() => '?').join(',')
+    const params: any[] = sinceDate
+      ? [user.id, ...visForRecent, sinceDate]
+      : [user.id, ...visForRecent]
     const recentNieuws = await queryAll<any>(c.env.DB,
       `SELECT p.id, p.titel, p.slug, p.published_at
        FROM posts p
@@ -327,7 +358,7 @@ app.get('/leden', async (c) => {
          ON und.post_id = p.id AND und.user_id = ?
        WHERE p.type = 'nieuws'
          AND p.is_published = 1
-         AND (p.zichtbaarheid = 'publiek' OR p.zichtbaarheid = 'leden')
+         AND p.zichtbaarheid IN (${visPh})
          AND und.id IS NULL
          ${sinceClause}
        ORDER BY p.published_at DESC
@@ -1593,69 +1624,36 @@ app.post('/api/leden/donatie', async (c) => {
     if (!amount || amount < 1) return c.redirect('/leden/donaties?error=invalid_amount')
 
     const siteUrl = c.env.SITE_URL || 'https://animato.be'
-    const donationRef = 'DON-' + Date.now().toString(36).toUpperCase()
 
-    // Create Payment
-    const payment = await createMolliePayment(await getMollieApiKey(c.env), {
-        amount: amount,
-        description: `Vrije Gift Animato - ${user.voornaam} ${user.achternaam}`,
-        redirectUrl: `${siteUrl}/leden/donaties?success=true`,
-        webhookUrl: `${siteUrl}/api/webhooks/mollie`,
-        metadata: {
-            type: 'donation',
-            user_id: user.id,
-            donation_id: 0 // Will update later
-        }
-    })
-
-    // Insert into DB
-    const res = await execute(c.env.DB, `
-        INSERT INTO donations (user_id, amount, message, is_anonymous, status, payment_id)
-        VALUES (?, ?, ?, ?, 'pending', ?)
-    `, [user.id, amount, body.message, body.anonymous ? 1 : 0, payment.id])
-
-    // Update metadata with real ID (Mollie allows updating metadata on open payments usually, but simpler to just use payment_id in webhook lookup if needed, but we used donation_id in webhook logic previously. Actually wait, the webhook logic used metadata.donation_id. We need to pass it. Since we get ID after insert, maybe we can't pass it in creation? 
-    // Actually, we can rely on payment_id lookup in webhook OR create record first.
-    // Let's create record first with 'preparing' status.
-    
-    // Correction: Let's use the Insert ID strategy.
-    // We already called createMolliePayment. We can't update metadata easily without another API call.
-    // Better strategy for next time: Insert DB -> Create Payment -> Update DB.
-    // For now, let's update the Webhook logic to look up by payment_id if donation_id is missing/0, OR just use payment_id.
-    
-    // Actually, in webhooks.tsx I wrote: UPDATE donations ... WHERE id = ? using metadata.donation_id.
-    // I should update that logic or ensure I pass it.
-    // Let's update the DB record with the payment ID we got.
-    // AND let's rely on finding the donation by payment_id in webhook if possible?
-    // No, standard is metadata.
-    // Let's do: Insert -> Create Payment -> Update DB with payment ID.
-    
-    // RE-DO:
-    // 1. Insert
+    // Bug #197 — naam + referentie meegeven in Mollie description.
+    // We doen INSERT eerst zodat we de donation_id meteen in de description
+    // en metadata kunnen meegeven (was vroeger via een dode dubbele call).
     const insertRes = await execute(c.env.DB, `
         INSERT INTO donations (user_id, amount, message, is_anonymous, status)
         VALUES (?, ?, ?, ?, 'pending')
     `, [user.id, amount, body.message, body.anonymous ? 1 : 0])
-    
-    const donationId = insertRes.meta.last_row_id
 
-    // 2. Payment
-    const payment2 = await createMolliePayment(await getMollieApiKey(c.env), {
+    const donationId = insertRes.meta.last_row_id
+    const donationRef = `GIFT-D${donationId}`
+    const payerName = `${user.voornaam || ''} ${user.achternaam || ''}`.trim() || user.email
+
+    const payment = await createMolliePayment(await getMollieApiKey(c.env), {
         amount: amount,
-        description: `Vrije Gift Animato - ${user.voornaam} ${user.achternaam}`,
+        description: `${payerName} — Vrije Gift Animato [${donationRef}]`,
         redirectUrl: `${siteUrl}/leden/donaties?success=true`,
         webhookUrl: `${siteUrl}/api/webhooks/mollie`,
         metadata: {
             type: 'donation',
             user_id: user.id,
-            donation_id: donationId
+            donation_id: donationId,
+            payer_name: payerName,
+            payment_ref: donationRef
         }
     })
 
-    // 3. Update DB
-    await execute(c.env.DB, `UPDATE donations SET payment_id = ?, status = 'pending' WHERE id = ?`, [payment2.id, donationId])
+    await execute(c.env.DB, `UPDATE donations SET payment_id = ?, status = 'pending' WHERE id = ?`, [payment.id, donationId])
 
-    return c.redirect(payment2.checkoutUrl)
+    return c.redirect(payment.checkoutUrl)
 })
 
 // =====================================================
@@ -2699,7 +2697,17 @@ app.get('/leden/profiel', async (c) => {
     const sinceClause = sinceDate
       ? `AND datetime(p.published_at) >= datetime(?)`
       : `AND datetime(p.published_at) >= datetime('now', '-14 days')`
-    const newsParams: any[] = sinceDate ? [user.id, sinceDate] : [user.id]
+    // Bug #202 — bouw zichtbaarheidsfilter incl. eigen stemgroep
+    const stemMapONews: Record<string, string> = { s:'sopraan', a:'alt', t:'tenor', b:'bas' }
+    const stemLabelONews = stemMapONews[(user.stemgroep || '').toLowerCase()]
+    const isStaffONews = user.role === 'admin' || (user as any).is_bestuurslid === 1
+    const visONews: string[] = ['publiek', 'leden']
+    if (stemLabelONews) visONews.push(stemLabelONews)
+    if (isStaffONews) visONews.push('bestuur')
+    const visPhONews = visONews.map(() => '?').join(',')
+    const newsParams: any[] = sinceDate
+      ? [user.id, ...visONews, sinceDate]
+      : [user.id, ...visONews]
     openNews = await queryAll<any>(c.env.DB,
       `SELECT p.id, p.titel, p.slug, p.published_at
        FROM posts p
@@ -2707,7 +2715,7 @@ app.get('/leden/profiel', async (c) => {
          ON und.post_id = p.id AND und.user_id = ?
        WHERE p.type = 'nieuws'
          AND p.is_published = 1
-         AND (p.zichtbaarheid = 'publiek' OR p.zichtbaarheid = 'leden')
+         AND p.zichtbaarheid IN (${visPhONews})
          AND und.id IS NULL
          ${sinceClause}
        ORDER BY p.published_at DESC
@@ -4691,8 +4699,8 @@ app.get('/leden/betaling-lidgeld', async (c) => {
                           <input type="hidden" name="donation_amount" id="formDonationAmount" value="0" />
                           <input type="hidden" name="formula_type" id="formFormulaType" value={membership.type} />
                           <input type="hidden" name="regenerate" value="1" />
-                          <button type="submit" class="text-xs text-animato-primary hover:underline">
-                            <i class="fas fa-rotate mr-1"></i> Andere formule of bedrag? Maak een nieuwe link
+                          <button type="submit" class="text-xs text-animato-primary hover:underline" title="Genereer een nieuwe Mollie-betaallink met de huidige formule en gift">
+                            <i class="fas fa-rotate mr-1"></i> Formule of gift gewijzigd? Klik hier om opnieuw te betalen
                           </button>
                         </form>
                     </div>
@@ -4916,14 +4924,22 @@ app.post('/api/leden/betaling/online', async (c) => {
       return c.redirect(payment.checkoutUrl)
   } else {
       // Standard membership payment
+      // Bug #197 — naam betaler + referentie meegeven zodat het op Mollie
+      // dashboard én bankafschriften makkelijk terug te vinden is.
+      // Voorbeeld: "Jan Janssens — Lidgeld 2026-2027 (Full) [LID-2026-2027-M42]"
+      const paymentRef = `LID-${membership.season}-M${membership.id}`
+      const payerName = `${user.voornaam || ''} ${user.achternaam || ''}`.trim() || user.email
+      const typeLabel = membership.type === 'full' ? 'Full' : 'Basis'
       const payment = await createMolliePayment(await getMollieApiKey(c.env), {
         amount: membership.amount,
-        description: `Lidgeld Animato ${membership.season} - ${membership.type}`,
+        description: `${payerName} — Lidgeld Animato ${membership.season} (${typeLabel}) [${paymentRef}]`,
         redirectUrl: `${siteUrl}/leden/profiel?payment=success`,
         webhookUrl: `${siteUrl}/api/webhooks/mollie`,
         metadata: {
           membership_id: membership.id,
-          type: 'membership'
+          type: 'membership',
+          payer_name: payerName,
+          payment_ref: paymentRef
         }
       })
       
@@ -6262,7 +6278,18 @@ app.get('/api/leden/notifications/unread-count', async (c) => {
     const sinceClause = sinceDate
       ? `AND datetime(p.published_at) >= datetime(?)`
       : `AND datetime(p.published_at) >= datetime('now', '-14 days')`
-    const params: any[] = sinceDate ? [user.id, sinceDate] : [user.id]
+    // Bug #202 — bouw zichtbaarheidsfilter incl. eigen stemgroep + bestuur
+    // DB stemgroep = 'S'/'A'/'T'/'B' (single letter), posts.zichtbaarheid = 'sopraan'/'alt'/'tenor'/'bas' (full word)
+    const stemMapNC: Record<string, string> = { s: 'sopraan', a: 'alt', t: 'tenor', b: 'bas' }
+    const stemLabelNC = stemMapNC[(user.stemgroep || '').toLowerCase()]
+    const isStaffNC = user.role === 'admin' || (user as any).is_bestuurslid === 1
+    const visNC: string[] = ['publiek', 'leden']
+    if (stemLabelNC) visNC.push(stemLabelNC)
+    if (isStaffNC) visNC.push('bestuur')
+    const visPhNC = visNC.map(() => '?').join(',')
+    const params: any[] = sinceDate
+      ? [user.id, ...visNC, sinceDate]
+      : [user.id, ...visNC]
     const row = await queryOne<{ cnt: number }>(c.env.DB,
       `SELECT COUNT(*) as cnt
        FROM posts p
@@ -6270,7 +6297,7 @@ app.get('/api/leden/notifications/unread-count', async (c) => {
          ON und.post_id = p.id AND und.user_id = ?
        WHERE p.type = 'nieuws'
          AND p.is_published = 1
-         AND (p.zichtbaarheid = 'publiek' OR p.zichtbaarheid = 'leden')
+         AND p.zichtbaarheid IN (${visPhNC})
          AND und.id IS NULL
          ${sinceClause}`,
       params)

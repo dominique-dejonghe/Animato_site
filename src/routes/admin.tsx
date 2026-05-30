@@ -4758,6 +4758,7 @@ app.get('/admin/content/:id', async (c) => {
                     <option value="alt" selected={post?.zichtbaarheid === 'alt'}>Alleen alten</option>
                     <option value="tenor" selected={post?.zichtbaarheid === 'tenor'}>Alleen tenoren</option>
                     <option value="bas" selected={post?.zichtbaarheid === 'bas'}>Alleen bassen</option>
+                    <option value="bestuur" selected={post?.zichtbaarheid === 'bestuur'}>Alleen bestuur</option>
                   </select>
                   {/* Bug #193 — Verduidelijking */}
                   <p class="mt-1 text-xs text-gray-500">

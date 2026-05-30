@@ -823,6 +823,18 @@ app.get('/contact', async (c) => {
     <Layout title="Contact" user={user} currentPath="/contact">
       <div class="py-16">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Terug-knop: bovenaan rechts, gebruikt history.back() met fallback naar homepage */}
+          <div class="mb-4">
+            <button
+              type="button"
+              onclick="if (document.referrer && new URL(document.referrer).origin === window.location.origin) { history.back(); } else { window.location.href = '/'; }"
+              class="inline-flex items-center text-sm text-gray-600 hover:text-animato-primary transition group"
+              title="Terug naar vorige pagina"
+            >
+              <i class="fas fa-arrow-left mr-2 group-hover:-translate-x-0.5 transition-transform"></i>
+              Terug
+            </button>
+          </div>
           <h1 class="text-5xl font-bold text-animato-secondary mb-8" style="font-family: 'Playfair Display', serif;">
             Contact
           </h1>

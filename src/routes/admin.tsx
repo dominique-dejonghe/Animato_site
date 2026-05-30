@@ -1357,8 +1357,13 @@ app.get('/admin/leden', async (c) => {
   const inactief = c.req.query('inactief') || 'all' // 'all' | 'never' | '14d' | '30d' | '90d'
 
   // Build query with online status
+  // Bug #163 — naast last_login_at ook last_seen_at meenemen (heartbeat-kolom
+  // die bij ELKE pageload geupdate wordt, niet enkel bij login-form-submit).
+  // last_seen_at geeft een veel actueler beeld van wanneer iemand "echt"
+  // nog actief was op de site.
   let query = `
-    SELECT u.id, u.email, u.role, u.stemgroep, u.status, u.created_at, u.last_login_at,
+    SELECT u.id, u.email, u.role, u.stemgroep, u.status, u.created_at,
+           u.last_login_at, u.last_seen_at,
            u.is_bestuurslid,
            p.voornaam, p.achternaam, p.telefoon, u.is_test_account, p.foto_url,
            (SELECT COUNT(*) FROM user_sessions WHERE user_id = u.id AND is_active = 1) as is_online
@@ -1794,10 +1799,15 @@ app.get('/admin/leden', async (c) => {
                         'pianist': 'bg-purple-100 text-purple-800'
                       }
                       
-                      // last_login_at is UTC zonder timezone-suffix → expliciet 'Z' toevoegen
-                      // anders interpreteert iOS Safari de string verkeerd (datum kan een dag verschuiven).
-                      const lastLoginDate = lid.last_login_at
-                        ? new Date(lid.last_login_at.replace(' ', 'T') + 'Z')
+                      // Bug #163 — gebruik last_seen_at (heartbeat) ipv last_login_at
+                      // voor de "laatste activiteit"-weergave. last_seen_at wordt bij
+                      // ELKE pageload geupdate (throttled per 5 min), dus het toont
+                      // werkelijk wanneer de gebruiker laatst actief was. last_login_at
+                      // wordt enkel bij formele login-flow geupdate en kan dus weken
+                      // achterop lopen voor mensen met een lang-geldige JWT-cookie.
+                      const lastActivityRaw = lid.last_seen_at || lid.last_login_at
+                      const lastLoginDate = lastActivityRaw
+                        ? new Date(lastActivityRaw.replace(' ', 'T') + 'Z')
                         : null
                       const lastLogin = lastLoginDate
                         ? formatBrusselsDate(lastLoginDate, { day: 'numeric', month: 'short', year: 'numeric' })
@@ -1805,11 +1815,11 @@ app.get('/admin/leden', async (c) => {
                       const lastLoginTime = lastLoginDate
                         ? formatBrusselsTime(lastLoginDate)
                         : null
-                      // Inactivity tracking — bereken dagen sinds laatste login
+                      // Inactivity tracking — bereken dagen sinds laatste activiteit
                       let inactiveDays: number | null = null
                       let inactiveBadge: { label: string; cls: string } | null = null
-                      if (lid.last_login_at) {
-                        const ms = Date.now() - new Date(lid.last_login_at + 'Z').getTime()
+                      if (lastActivityRaw) {
+                        const ms = Date.now() - new Date(lastActivityRaw + 'Z').getTime()
                         inactiveDays = Math.floor(ms / 86400000)
                         if (inactiveDays >= 90) inactiveBadge = { label: `${inactiveDays}d inactief`, cls: 'bg-red-100 text-red-700' }
                         else if (inactiveDays >= 30) inactiveBadge = { label: `${inactiveDays}d inactief`, cls: 'bg-amber-100 text-amber-700' }
@@ -2720,6 +2730,10 @@ app.get('/admin/leden/:id', async (c) => {
               {/* Login Activiteit Card */}
               {(() => {
                 const lastLogin = sessionStats?.last_login || member.last_login_at;
+                // Bug #163 — last_seen_at: heartbeat per pageload (5min throttle)
+                // Toont werkelijk wanneer het lid laatst actief was, ook als ze
+                // niet door de formele login-flow zijn gegaan (lang-geldige JWT).
+                const lastSeen = member.last_seen_at || null;
                 const totalLogins = sessionStats?.total_logins || 0;
                 const totalSeconds = sessionStats?.total_seconds || 0;
                 const totalHours = Math.floor(totalSeconds / 3600);
@@ -2764,7 +2778,10 @@ app.get('/admin/leden/:id', async (c) => {
                 };
 
                 const lastLoginRel = relTime(lastLogin);
+                const lastSeenRel = relTime(lastSeen);
                 const isStale = lastLogin ? (Date.now() - new Date(lastLogin.replace(' ', 'T') + 'Z').getTime()) > 30 * 24 * 60 * 60 * 1000 : false;
+                // Voor "laatst actief" gebruiken we een fijnere drempel: 7d stale
+                const isSeenStale = lastSeen ? (Date.now() - new Date(lastSeen.replace(' ', 'T') + 'Z').getTime()) > 7 * 24 * 60 * 60 * 1000 : true;
 
                 return (
                   <div class="bg-white rounded-lg shadow-md p-6 mb-6">
@@ -2778,10 +2795,29 @@ app.get('/admin/leden/:id', async (c) => {
                       </a>
                     </div>
 
-                    {/* Top KPI strip */}
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                    {/* Top KPI strip — Bug #163: extra "Laatst actief"-tegel toegevoegd
+                        die op last_seen_at (heartbeat) is gebaseerd ipv last_login_at.
+                        Geeft een actueler beeld voor admins die zich afvragen wie er
+                        nu écht recent op de site is geweest. */}
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                      <div class={`rounded-lg border p-3 ${isSeenStale ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
+                        <p class="text-xs uppercase tracking-wide text-gray-500 font-semibold">
+                          <i class="fas fa-wifi mr-1"></i>Laatst actief
+                        </p>
+                        <p class={`text-lg font-bold mt-1 ${isSeenStale ? 'text-amber-800' : 'text-green-800'}`}>
+                          {lastSeenRel || '—'}
+                        </p>
+                        {lastSeen && (
+                          <p class="text-xs text-gray-500 mt-0.5">
+                            {new Date(lastSeen.includes('T') ? lastSeen : lastSeen.replace(' ', 'T') + 'Z').toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' })}
+                          </p>
+                        )}
+                        {!lastSeen && <p class="text-xs text-gray-500 mt-0.5">Nooit actief geweest</p>}
+                      </div>
                       <div class={`rounded-lg border p-3 ${isStale ? 'bg-amber-50 border-amber-200' : 'bg-green-50 border-green-200'}`}>
-                        <p class="text-xs uppercase tracking-wide text-gray-500 font-semibold">Laatste login</p>
+                        <p class="text-xs uppercase tracking-wide text-gray-500 font-semibold">
+                          <i class="fas fa-sign-in-alt mr-1"></i>Laatste login
+                        </p>
                         <p class={`text-lg font-bold mt-1 ${isStale ? 'text-amber-800' : 'text-green-800'}`}>
                           {lastLoginRel || '—'}
                         </p>

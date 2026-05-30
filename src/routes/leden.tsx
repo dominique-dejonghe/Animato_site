@@ -41,9 +41,12 @@ app.use('*', async (c, next) => {
 // Stop impersonating - restore admin session
 // Uses /leden/ path so it's NOT blocked by admin role middleware
 app.get('/leden/stop-impersonate', async (c) => {
-  const adminToken = c.req.header('Cookie')?.match(/admin_impersonate_token=([^;]+)/)?.[1]
+  // Bug #158: gebruik Hono's getCookie i.p.v. regex op header — robuuster
+  // en consistent met de rest van de codebase
+  const adminToken = getCookie(c, 'admin_impersonate_token')
 
   if (adminToken) {
+    // Promoveer gestashte admin-sessie terug naar de live sessie
     setCookie(c, 'auth_token', adminToken, {
       maxAge: 7 * 24 * 60 * 60,
       httpOnly: true,
@@ -58,9 +61,36 @@ app.get('/leden/stop-impersonate', async (c) => {
       sameSite: 'Lax',
       path: '/'
     })
+    return c.redirect('/admin')
   }
 
-  return c.redirect('/admin')
+  // Bug #158: geen impersonate-token meer (cookie verlopen, gewist, of nooit
+  // gezet) — admin-sessie is dan onherstelbaar. Vriendelijke re-login i.p.v.
+  // een verwarrende redirect naar /admin waar de gebruiker dan vastloopt op
+  // een 403 (want hij is nog steeds ingelogd als 'lid' via auth_token).
+  // Wis ook auth_token zodat er geen halve sessie blijft hangen.
+  setCookie(c, 'auth_token', '', {
+    maxAge: 0,
+    httpOnly: true,
+    secure: true,
+    sameSite: 'Lax',
+    path: '/'
+  })
+  return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Bekijk-als-lid afgesloten</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+    </head>
+    <body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+      <div class="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center">
+        <i class="fas fa-user-check text-amber-500 text-5xl mb-4"></i>
+        <h1 class="text-2xl font-bold text-gray-800 mb-2">Bekijk-als-lid afgesloten</h1>
+        <p class="text-gray-600 mb-2">Je beheerderssessie is intussen verlopen. Log opnieuw in om verder te gaan.</p>
+        <p class="text-gray-500 text-sm mb-6">Dit gebeurt als de "Bekijk als lid"-tab langer dan 7 dagen open stond.</p>
+        <a href="/login?redirect=/admin" class="inline-block px-6 py-3 text-white rounded-lg font-medium hover:opacity-90 transition" style="background-color:#00A9CE">
+          <i class="fas fa-sign-in-alt mr-2"></i>Opnieuw inloggen als admin
+        </a>
+      </div>
+    </body></html>`, 401)
 })
 
 // =====================================================

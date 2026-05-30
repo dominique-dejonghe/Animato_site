@@ -456,12 +456,10 @@ app.post('/api/auth/login', async (c) => {
     const ipAddress = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown'
     const userAgent = c.req.header('user-agent') || 'unknown'
 
-    // Update last login
-    await execute(
-      c.env.DB,
-      'UPDATE users SET last_login_at = ? WHERE id = ?',
-      [formatDateForDB(), user.id]
-    )
+    // Bug #163 — verwijderde dubbele UPDATE op last_login_at. De eerste UPDATE
+    // hierboven (regel 423) zet previous_login_at + last_login_at correct in
+    // één atomaire query. Een tweede UPDATE hier zou previous_login_at niet
+    // aanraken (al goed) maar voegt niks toe — dus weggehaald.
 
     // Create user session record
     await execute(

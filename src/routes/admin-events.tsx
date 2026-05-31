@@ -1372,12 +1372,15 @@ app.post('/admin/events/save', async (c) => {
       .replace(/\s*on\w+\s*=\s*'[^']*'/gi, '')
       : null
 
-    // Bug #208 — datetime-local input geeft een naive string ("2026-06-15T20:00")
-    // zonder timezone. JS interpreteert die later als UTC → uur schuift met 1-2u
-    // op de webpagina. Daarom: converteer hier expliciet van Brussels-tijd naar
-    // UTC voor opslag, zodat de formatBrussels*-helpers correct kunnen renderen.
-    const startAtUTC = start_at ? brusselsLocalToUTC(String(start_at)) : null
-    const endAtUTC = end_at ? brusselsLocalToUTC(String(end_at)) : null
+    // Bug #213 — rollback van #208. De rest van de codebase (49 bestaande
+    // events, alle e-mails, oudere ICS-feeds) gaat ervan uit dat start_at en
+    // end_at NAIEVE strings zijn die als Brussels-tijd geïnterpreteerd worden.
+    // #208 brak die conventie door enkel nieuwe records in UTC op te slaan,
+    // wat in een mengelmoes van naieve+UTC strings resulteerde en alle uren
+    // op /agenda met 2u liet schuiven. We slaan dus opnieuw de naieve string
+    // van het datetime-local input op, ZONDER conversie.
+    const startAtUTC = start_at ? String(start_at) : null
+    const endAtUTC = end_at ? String(end_at) : null
 
     // Generate slug from title if not provided
     let baseSlug = slug || String(titel).toLowerCase()

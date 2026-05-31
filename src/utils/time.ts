@@ -21,9 +21,74 @@ export const NL_LOCALE = 'nl-BE'
 
 type DateInput = string | number | Date | null | undefined
 
+/**
+ * Bug #213 — historische conventie in deze codebase: datetime-strings
+ * zonder timezone-suffix (geen 'Z', geen '+02:00') zijn ALTIJD bedoeld als
+ * Brussels-lokale tijd. Cloudflare Workers draait in UTC, en `new Date()`
+ * interpreteert een naive string daar als UTC → uur schuift +1u in winter,
+ * +2u in zomer.
+ *
+ * Deze helper detecteert naive strings en zet er de juiste Brussels-offset
+ * achter (bv. `+01:00` of `+02:00`) zodat `new Date()` ze correct laadt.
+ *
+ * Records mét Z of expliciete offset blijven onaangeraakt.
+ */
+function isNaiveLocalString(s: string): boolean {
+  // "2026-05-09T19:30" of "2026-05-09T19:30:00" — geen Z, geen +HH:MM
+  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(s)
+}
+
+/**
+ * Geeft de Brussels-offset (in minuten t.o.v. UTC) voor een naive
+ * Brussels-tijdstring. Houdt rekening met DST.
+ * Voorbeeld: "2026-07-15T14:00" → 120 (CEST = UTC+2)
+ *           "2026-12-15T14:00" → 60  (CET  = UTC+1)
+ */
+function brusselsOffsetMinutesFor(naiveLocal: string): number {
+  // Interpreteer eerst als UTC om een referentiemoment te krijgen
+  const asUtc = new Date(naiveLocal.length === 16 ? naiveLocal + ':00Z' : naiveLocal + 'Z')
+  if (isNaN(asUtc.getTime())) return 60 // fallback CET
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: BRUSSELS_TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  }).formatToParts(asUtc)
+  const get = (t: string) => parts.find(p => p.type === t)?.value || '00'
+  let brusHour = parseInt(get('hour'), 10)
+  if (brusHour === 24) brusHour = 0
+  const brusAsUtc = Date.UTC(
+    parseInt(get('year'), 10),
+    parseInt(get('month'), 10) - 1,
+    parseInt(get('day'), 10),
+    brusHour,
+    parseInt(get('minute'), 10),
+    parseInt(get('second'), 10)
+  )
+  return Math.round((brusAsUtc - asUtc.getTime()) / 60000)
+}
+
 function toDate(input: DateInput): Date | null {
   if (input === null || input === undefined || input === '') return null
-  const d = input instanceof Date ? input : new Date(input)
+  if (input instanceof Date) return isNaN(input.getTime()) ? null : input
+  if (typeof input === 'number') {
+    const d = new Date(input)
+    return isNaN(d.getTime()) ? null : d
+  }
+  const s = String(input).trim()
+  // Naive Brussels-local string? Hang de juiste offset eraan zodat
+  // `new Date()` 'm niet als UTC interpreteert.
+  if (isNaiveLocalString(s)) {
+    const offsetMin = brusselsOffsetMinutesFor(s)
+    const sign = offsetMin >= 0 ? '+' : '-'
+    const abs = Math.abs(offsetMin)
+    const hh = String(Math.floor(abs / 60)).padStart(2, '0')
+    const mm = String(abs % 60).padStart(2, '0')
+    const padded = s.length === 16 ? s + ':00' : s
+    const d = new Date(`${padded}${sign}${hh}:${mm}`)
+    return isNaN(d.getTime()) ? null : d
+  }
+  const d = new Date(s)
   return isNaN(d.getTime()) ? null : d
 }
 
@@ -146,6 +211,15 @@ export function brusselsLocalToUTC(localStr: string | null | undefined): string 
  * Voorbeeld: "2026-06-15T18:00:00Z" → "2026-06-15T20:00" (zomer, CEST)
  */
 export function utcToBrusselsLocal(input: DateInput): string {
+  // Bug #213 — naive strings ("2026-05-09T19:30") zijn al Brussels-lokaal,
+  // gewoon eerste 16 chars teruggeven. Records mét Z worden via toDate()
+  // correct geparsed en daarna in Brussels-tijd geformatteerd.
+  if (typeof input === 'string') {
+    const s = input.trim()
+    if (isNaiveLocalString(s)) {
+      return s.length >= 16 ? s.substring(0, 16) : s
+    }
+  }
   const d = toDate(input)
   if (!d) return ''
   const parts = new Intl.DateTimeFormat('en-CA', {

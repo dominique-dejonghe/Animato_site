@@ -3370,15 +3370,29 @@ app.get('/leden/profiel', async (c) => {
               Lidmaatschappen
             </h3>
             
-            {/* Active Membership Status */}
-            {activeMembership && activeMembership.is_active && activeMembership.status === 'pending' ? (
+            {/* Active Membership Status
+                Bug #210 (Chris) — vroeger toonden we de "Nu Betalen"-knop
+                enkel bij status='pending'. Maar Mollie kan ook 'cancelled',
+                'expired' of 'failed' terugmelden als het lid de checkout
+                afbreekt. In dat geval bleef de lijn als "Openstaand" in de
+                tabel staan, ZONDER betaalknop — dus geen weg meer naar
+                Mollie. Nu vangen we alle niet-betaalde statussen op. */}
+            {activeMembership && activeMembership.is_active &&
+             ['pending', 'cancelled', 'expired', 'failed'].includes(activeMembership.status) ? (
               <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 mb-6 animate-pulse-slow">
                 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
                   <div class="flex-1">
                     <div class="flex items-center text-yellow-800 font-bold text-lg mb-2">
                       <i class="fas fa-exclamation-circle mr-2"></i>
-                      Lidgeld {activeMembership.season} Openstaand
+                      Lidgeld {activeMembership.season} {activeMembership.status === 'cancelled' ? 'Afgebroken' : activeMembership.status === 'expired' ? 'Verlopen' : activeMembership.status === 'failed' ? 'Mislukt' : 'Openstaand'}
                     </div>
+                    {activeMembership.status !== 'pending' && (
+                      <p class="text-yellow-800 text-sm mb-1 italic">
+                        {activeMembership.status === 'cancelled' && 'Een eerdere betaling werd geannuleerd. Je kan ze opnieuw starten.'}
+                        {activeMembership.status === 'expired' && 'De betaallink is verlopen. Start ze opnieuw om je lidmaatschap af te ronden.'}
+                        {activeMembership.status === 'failed' && 'De vorige betaalpoging is mislukt. Probeer het gerust opnieuw.'}
+                      </p>
+                    )}
                     <p class="text-yellow-800 mb-1">
                       Huidige formule: <strong>{activeMembership.type === 'full' ? 'Met Papieren Partituren' : 'Basis (digitaal)'}</strong>
                       {activeMembership.type !== 'full' && (
@@ -3395,12 +3409,12 @@ app.get('/leden/profiel', async (c) => {
                       </p>
                     )}
                   </div>
-                  <a 
-                    href="/leden/betaling-lidgeld" 
+                  <a
+                    href="/leden/betaling-lidgeld"
                     class="inline-flex items-center justify-center px-6 py-3 bg-animato-primary text-white rounded-lg hover:opacity-90 transition font-semibold shadow-lg transform hover:-translate-y-0.5 whitespace-nowrap"
                   >
                     <i class="fas fa-credit-card mr-2"></i>
-                    Nu Betalen / Wijzigen
+                    {activeMembership.status === 'pending' ? 'Nu Betalen / Wijzigen' : 'Betaling Hervatten'}
                   </a>
                 </div>
               </div>
@@ -3433,9 +3447,23 @@ app.get('/leden/profiel', async (c) => {
                           €{m.amount.toFixed(2)}
                         </td>
                         <td class="px-4 py-3">
+                          {/* Bug #210 — toon de echte status i.p.v. alles
+                              wat niet 'paid' is als "Openstaand" labelen. */}
                           {m.status === 'paid' ? (
                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
                               <i class="fas fa-check mr-1"></i> Betaald
+                            </span>
+                          ) : m.status === 'cancelled' ? (
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                              <i class="fas fa-times mr-1"></i> Afgebroken
+                            </span>
+                          ) : m.status === 'expired' ? (
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                              <i class="fas fa-hourglass-end mr-1"></i> Verlopen
+                            </span>
+                          ) : m.status === 'failed' ? (
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                              <i class="fas fa-exclamation-triangle mr-1"></i> Mislukt
                             </span>
                           ) : (
                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">

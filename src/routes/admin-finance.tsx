@@ -191,7 +191,13 @@ app.get('/admin/lidgelden', async (c) => {
     return { name: m[1].trim(), email: m[2].trim(), cleanMsg: m[3].trim() }
   }
   // Recente donations (laatste 10) — al gesorteerd DESC op created_at
-  const recentDonations = allDonations.slice(0, 10)
+  // Bug #211 — enkel 'paid' tonen. Pending/cancelled/expired/failed-giften zijn
+  // ruis voor de eindgebruiker (admin) die wil zien wat er écht binnenkwam.
+  // Status-checks blijven beschikbaar via de aparte donationsPending counter
+  // en de "Sync Mollie"-knop.
+  const recentDonations = allDonations
+    .filter((d: any) => d.status === 'paid')
+    .slice(0, 10)
 
   // Formule-buckets (basis = €25 digitaal, full = €50 met papieren partituren)
   const basisMemberships = enriched.filter((m: any) => m.type === 'basis')
@@ -923,7 +929,12 @@ app.get('/admin/lidgelden', async (c) => {
                 </div>
 
                 {/* Stats tiles */}
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                {/* Bug #212 — "Openstaand"-tegel verwijderd. Pending giften
+                    zijn meestal Mollie-checkouts die de bezoeker afbrak; het
+                    bedrag heeft geen analytische waarde voor de admin. De
+                    pending-counter blijft zichtbaar via de "Sync Mollie"-knop
+                    bovenaan. Grid teruggebracht naar 3 kolommen. */}
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                   <div class="bg-white rounded-lg p-3 border border-pink-100">
                     <div class="text-xs text-gray-500 uppercase tracking-wide">Totaal ontvangen</div>
                     <div class="text-2xl font-bold text-pink-700 mt-1">€{donationsTotalPaid.toFixed(2)}</div>
@@ -933,11 +944,6 @@ app.get('/admin/lidgelden', async (c) => {
                     <div class="text-xs text-gray-500 uppercase tracking-wide">Gemiddelde gift</div>
                     <div class="text-2xl font-bold text-purple-700 mt-1">€{donationsAvg.toFixed(2)}</div>
                     <div class="text-xs text-gray-500 mt-0.5">per donateur</div>
-                  </div>
-                  <div class="bg-white rounded-lg p-3 border border-pink-100">
-                    <div class="text-xs text-gray-500 uppercase tracking-wide">Openstaand</div>
-                    <div class="text-2xl font-bold text-amber-700 mt-1">€{donationsTotalPending.toFixed(2)}</div>
-                    <div class="text-xs text-gray-500 mt-0.5">{donationsPending.length} pending</div>
                   </div>
                   <div class="bg-white rounded-lg p-3 border border-pink-100">
                     <div class="text-xs text-gray-500 uppercase tracking-wide">Donateurs</div>

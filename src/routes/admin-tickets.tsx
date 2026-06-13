@@ -9,7 +9,9 @@ import { getMollieApiKey } from '../utils/mollie-config'
 const app = new Hono()
 
 // Apply admin authentication to all routes
+// 2026-06-13: ook /api/admin/tickets/* beschermen (was eerder open)
 app.use('/admin/*', requireBestuurslid)
+app.use('/api/admin/*', requireBestuurslid)
 
 // ==========================================
 // CONCERTS OVERVIEW - List all concerts with ticketing

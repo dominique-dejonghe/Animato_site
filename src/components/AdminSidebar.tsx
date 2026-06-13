@@ -33,10 +33,10 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({
     { id: 'pages', label: 'Pagina-beheer', href: '/admin/paginas', icon: 'fas fa-file-alt', adminOnly: true },
     { id: 'quiz', label: 'Wie-is-wie Quiz', href: '/admin/quiz', icon: 'fas fa-question-circle', adminOnly: true },
     { id: 'events', label: 'Agenda & Activiteiten', href: '/admin/events', icon: 'fas fa-calendar-alt', adminOnly: true },
-    { id: 'tickets', label: 'Ticketbeheer', href: '/admin/tickets', icon: 'fas fa-ticket-alt', adminOnly: true },
+    { id: 'tickets', label: 'Ticketbeheer', href: '/admin/tickets', icon: 'fas fa-ticket-alt', boardOnly: true },
     { id: 'attendance', label: 'Aanwezigheid & Streaks', href: '/admin/attendance', icon: 'fas fa-qrcode', adminOnly: true },
-    { id: 'seating', label: 'Zaalplannen', href: '/admin/seating', icon: 'fas fa-chair', adminOnly: true },
-    { id: 'finance', label: 'Financiën & Lidgeld', href: '/admin/lidgelden', icon: 'fas fa-euro-sign', adminOnly: true },
+    { id: 'seating', label: 'Zaalplannen', href: '/admin/seating', icon: 'fas fa-chair', boardOnly: true },
+    { id: 'finance', label: 'Financiën & Lidgeld', href: '/admin/lidgelden', icon: 'fas fa-euro-sign', boardOnly: true },
     // #117: 'Communicatie' wegens niet-gebruikt verborgen — routes blijven bestaan
     // { id: 'communications', label: 'Communicatie', href: '/admin/communicatie', icon: 'fas fa-envelope' },
     { id: 'meetings', label: 'Vergaderingen', href: '/admin/meetings', icon: 'fas fa-handshake', boardOnly: true },

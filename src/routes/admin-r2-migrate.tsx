@@ -55,7 +55,7 @@ app.get('/admin/r2-migrate', async (c) => {
   return c.html(
     <Layout title="R2 Migratie" user={user}>
       <div class="flex">
-        <AdminSidebar currentPath="/admin/r2-migrate" user={user} />
+        <AdminSidebar userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <main class="flex-1 p-8">
           <div class="max-w-4xl">
             <h1 class="text-2xl font-bold mb-2">

@@ -383,7 +383,7 @@ app.get('/admin/ai-nieuws', async (c) => {
   return c.html(
     <Layout title="AI-schrijfassistent" user={user} currentPath="/admin/ai-nieuws">
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="nieuws" />
+        <AdminSidebar activeSection="nieuws" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
 
           <div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

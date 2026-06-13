@@ -45,7 +45,7 @@ app.get('/admin/walkthrough', async (c) => {
       { label: 'Walkthrough', href: '/admin/walkthrough' }
     ]}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="walkthrough" />
+        <AdminSidebar activeSection="walkthrough" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         
         <div class="flex-1 min-w-0">
           <div class="bg-white border-b border-gray-200">

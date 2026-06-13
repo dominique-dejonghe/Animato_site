@@ -67,7 +67,7 @@ app.get('/admin/fotoboek', async (c) => {
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="photos" />
+        <AdminSidebar activeSection="photos" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           {/* Header */}
         <div class="bg-white border-b border-gray-200">
@@ -364,7 +364,7 @@ app.get('/admin/fotoboek/album/nieuw', async (c) => {
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="photos" />
+        <AdminSidebar activeSection="photos" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div class="bg-white rounded-lg shadow-md p-6">
@@ -638,7 +638,7 @@ app.get('/admin/fotoboek/album/:id', async (c) => {
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="photos" />
+        <AdminSidebar activeSection="photos" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           {/* Header */}
         <div class="bg-white border-b border-gray-200">

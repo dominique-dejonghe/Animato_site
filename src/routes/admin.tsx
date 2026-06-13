@@ -56,6 +56,10 @@ app.use('/api/admin/*', requireBestuurslid)
 
 app.get('/admin', async (c) => {
   const user = c.get('user') as SessionUser
+  // 2026-06-13: bepaal of we het volledige admin-dashboard tonen.
+  // Pure bestuursleden (is_bestuurslid=1 zonder admin/moderator role) krijgen
+  // alleen tegels te zien die voor hen relevant zijn (financiën + bestuur).
+  const isFullAdmin = user.role === 'admin' || user.role === 'moderator'
 
   // Disable caching for admin pages
   noCacheHeaders(c)
@@ -251,7 +255,7 @@ app.get('/admin', async (c) => {
           <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-4 2xl:grid-cols-6 gap-4 mb-8">
             
             {/* Pending Registrations Alert Card */}
-            {(stats.total_pending?.count || 0) > 0 && (
+            {isFullAdmin && (stats.total_pending?.count || 0) > 0 && (
               <div class="bg-amber-50 border-l-4 border-amber-500 rounded-lg shadow-md p-6 col-span-1 md:col-span-2">
                 <div class="flex items-center justify-between">
                   <div>
@@ -268,7 +272,8 @@ app.get('/admin', async (c) => {
               </div>
             )}
 
-            <a href="/admin/leden" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg hover:border-animato-primary transition cursor-pointer group">
+            {isFullAdmin && (
+              <a href="/admin/leden" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg hover:border-animato-primary transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Actieve Leden</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-animato-primary/10 rounded-lg flex items-center justify-center">
@@ -280,8 +285,10 @@ app.get('/admin', async (c) => {
                 Bekijk alle leden <i class="fas fa-arrow-right text-xs"></i>
               </span>
             </a>
+            )}
 
-            <a href="/admin/content" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
+            {isFullAdmin && (
+              <a href="/admin/content" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Gepubliceerde Posts</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center">
@@ -293,8 +300,10 @@ app.get('/admin', async (c) => {
                 Beheer content <i class="fas fa-arrow-right text-xs"></i>
               </span>
             </a>
+            )}
 
-            <a href="/admin/events" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
+            {isFullAdmin && (
+              <a href="/admin/events" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Aankomende Activiteiten</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-purple-100 rounded-lg flex items-center justify-center">
@@ -306,8 +315,10 @@ app.get('/admin', async (c) => {
                 Beheer activiteiten <i class="fas fa-arrow-right text-xs"></i>
               </span>
             </a>
+            )}
 
-            <a href="/admin/fotoboek" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
+            {isFullAdmin && (
+              <a href="/admin/fotoboek" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Foto Albums</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-pink-100 rounded-lg flex items-center justify-center">
@@ -319,8 +330,10 @@ app.get('/admin', async (c) => {
                 Beheer fotoboek <i class="fas fa-arrow-right text-xs"></i>
               </span>
             </a>
+            )}
 
-            <a href="/admin/bestanden" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
+            {isFullAdmin && (
+              <a href="/admin/bestanden" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Actieve Materialen</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-amber-100 rounded-lg flex items-center justify-center">
@@ -332,8 +345,10 @@ app.get('/admin', async (c) => {
                 Beheer bestanden <i class="fas fa-arrow-right text-xs"></i>
               </span>
             </a>
+            )}
 
-            <a href="/admin/locaties" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
+            {isFullAdmin && (
+              <a href="/admin/locaties" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Actieve Locaties</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-red-100 rounded-lg flex items-center justify-center">
@@ -345,8 +360,10 @@ app.get('/admin', async (c) => {
                 Beheer locaties <i class="fas fa-arrow-right text-xs"></i>
               </span>
             </a>
+            )}
 
-            <a href="/admin/polls" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
+            {isFullAdmin && (
+              <a href="/admin/polls" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Actieve Polls</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center">
@@ -358,8 +375,10 @@ app.get('/admin', async (c) => {
                 Beheer polls <i class="fas fa-arrow-right text-xs"></i>
               </span>
             </a>
+            )}
 
-            <a href="/admin/attendance" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
+            {isFullAdmin && (
+              <a href="/admin/attendance" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Aanwezigheid</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-orange-100 rounded-lg flex items-center justify-center">
@@ -371,8 +390,10 @@ app.get('/admin', async (c) => {
                 QR Check-in & Streaks <i class="fas fa-arrow-right text-xs"></i>
               </span>
             </a>
+            )}
 
-            <a href="/admin/voorstellen" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
+            {isFullAdmin && (
+              <a href="/admin/voorstellen" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Voorstellen</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-yellow-100 rounded-lg flex items-center justify-center">
@@ -384,6 +405,7 @@ app.get('/admin', async (c) => {
                 Beoordeel voorstellen <i class="fas fa-arrow-right text-xs"></i>
               </span>
             </a>
+            )}
 
             <a href="/admin/projects" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
@@ -446,7 +468,8 @@ app.get('/admin', async (c) => {
               </span>
             </a>
 
-            <a href="/admin/audit" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden border-2 border-animato-accent hover:shadow-lg transition cursor-pointer group">
+            {isFullAdmin && (
+              <a href="/admin/audit" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden border-2 border-animato-accent hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Gebruikers Activiteit</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-animato-accent/10 rounded-lg flex items-center justify-center">
@@ -458,9 +481,11 @@ app.get('/admin', async (c) => {
                 Bekijk login activiteit <i class="fas fa-arrow-right text-xs"></i>
               </span>
             </a>
+            )}
 
             {/* Lid-aanvragen + Contact-berichten (#74) */}
-            <a href="/admin/aanmeldingen" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden border-2 border-green-300 hover:shadow-lg transition cursor-pointer group">
+            {isFullAdmin && (
+              <a href="/admin/aanmeldingen" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden border-2 border-green-300 hover:shadow-lg transition cursor-pointer group">
               <div class="flex items-start justify-between gap-2">
                 <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Aanvragen &amp; Berichten</p>
                 <div class="flex-shrink-0 w-9 h-9 bg-green-100 rounded-lg flex items-center justify-center">
@@ -472,9 +497,13 @@ app.get('/admin', async (c) => {
                 Beheer inbox <i class="fas fa-arrow-right text-xs"></i>
               </span>
             </a>
+            )}
           </div>
 
-          {/* Quick Actions */}
+          {/* Quick Actions — Snelle Acties: alleen voor admin/moderator.
+              Bestuursleden gebruiken de tegels hierboven (lidgelden / giften /
+              tickets / projecten / vergaderingen) en de sidebar-links. */}
+          {isFullAdmin && (
           <div class="bg-white rounded-lg shadow-md p-6 mb-8">
             <h2 class="text-xl font-bold text-gray-900 mb-4">
               <i class="fas fa-bolt text-animato-accent mr-2"></i>
@@ -540,10 +569,12 @@ app.get('/admin', async (c) => {
               </a>
             </div>
           </div>
+          )}
 
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
             
-            {/* Stemgroep Breakdown */}
+            {/* Stemgroep Breakdown — admin/moderator-only */}
+            {isFullAdmin && (
             <div class="bg-white rounded-lg shadow-md p-6">
               <h2 class="text-xl font-bold text-gray-900 mb-4">
                 <i class="fas fa-music text-animato-primary mr-2"></i>
@@ -578,6 +609,7 @@ app.get('/admin', async (c) => {
                 })}
               </div>
             </div>
+            )}
 
             {/* Recent Activity */}
             <div class="bg-white rounded-lg shadow-md p-6">
@@ -753,7 +785,7 @@ app.get('/admin/aanmeldingen', async (c) => {
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="leden" />
+        <AdminSidebar activeSection="leden" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           <div class="bg-white border-b border-gray-200">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
@@ -1054,7 +1086,7 @@ app.get('/admin/aanmeldingen/:id/bewerk', async (c) => {
       { label: 'Bewerken', href: '#' }
     ]}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="leden" />
+        <AdminSidebar activeSection="leden" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <div class="bg-white rounded-xl shadow-md p-8">
@@ -1190,7 +1222,7 @@ app.get('/admin/aanmeldingen/:id/omzetten', async (c) => {
       { label: 'Omzetten', href: '#' }
     ]}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="leden" />
+        <AdminSidebar activeSection="leden" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           <div class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <div class="bg-white rounded-xl shadow-md p-8">
@@ -1460,7 +1492,7 @@ app.get('/admin/leden', async (c) => {
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="leden" pendingRegistrationsCount={pendingRegistrations.length} />
+        <AdminSidebar activeSection="leden" pendingRegistrationsCount={pendingRegistrations.length} userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           {/* Header */}
         <div class="bg-white border-b border-gray-200">
@@ -2176,7 +2208,7 @@ app.get('/admin/leden/nieuw', async (c) => {
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="leden" />
+        <AdminSidebar activeSection="leden" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           {/* Header */}
         <div class="bg-white border-b border-gray-200">
@@ -2609,7 +2641,7 @@ app.get('/admin/leden/:id', async (c) => {
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="leden" />
+        <AdminSidebar activeSection="leden" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           {/* Header */}
         <div class="bg-white border-b border-gray-200">
@@ -3809,7 +3841,7 @@ app.get('/admin/content', async (c) => {
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="content" />
+        <AdminSidebar activeSection="content" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           {/* Header */}
         <div class="bg-white border-b border-gray-200">
@@ -4348,7 +4380,7 @@ app.get('/admin/content/:id', async (c) => {
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="content" />
+        <AdminSidebar activeSection="content" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           {/* Header */}
         <div class="bg-white border-b border-gray-200">
@@ -5762,7 +5794,7 @@ app.get('/admin/audit', async (c) => {
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="dashboard" />
+        <AdminSidebar activeSection="dashboard" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           <div class="bg-white border-b border-gray-200">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">

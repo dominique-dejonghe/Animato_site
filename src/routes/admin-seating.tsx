@@ -20,7 +20,7 @@ app.get('/admin/seating', async (c) => {
   return c.html(
     <Layout title="Zaalplannen Beheer" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="seating" />
+        <AdminSidebar activeSection="seating" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 p-8">
           <div class="flex justify-between items-center mb-6">
             <div>
@@ -705,7 +705,7 @@ function renderEditor(c: any, layout: any) {
   return c.html(
     <Layout title={isNew ? "Nieuw Zaalplan" : "Zaalplan Bewerken"} user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="seating" />
+        <AdminSidebar activeSection="seating" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 p-8">
           <div class="mb-6 flex justify-between items-center">
             <h1 class="text-2xl font-bold text-gray-900">

@@ -48,7 +48,7 @@ app.get('/admin/settings', async (c) => {
   return c.html(
     <Layout title="Instellingen" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="settings" />
+        <AdminSidebar activeSection="settings" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 p-8">
           <h1 class="text-3xl font-bold text-gray-900 mb-6">
             <i class="fas fa-cogs text-animato-primary mr-3"></i>

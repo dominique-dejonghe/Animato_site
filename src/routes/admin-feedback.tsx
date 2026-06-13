@@ -675,7 +675,7 @@ app.get('/admin/feedback', async (c) => {
   return c.html(
     <Layout title="Beta Feedback" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="feedback" />
+        <AdminSidebar activeSection="feedback" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 p-8">
           {/* Header with export buttons */}
           <div class="flex flex-wrap items-start justify-between gap-4 mb-2">
@@ -2170,7 +2170,7 @@ app.get('/admin/feedback/coverage', async (c) => {
   return c.html(
     <Layout title="Retest Coverage" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="feedback" />
+        <AdminSidebar activeSection="feedback" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 p-8">
           <div class="flex justify-between items-center mb-6">
             <div>

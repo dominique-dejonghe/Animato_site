@@ -104,7 +104,7 @@ app.get('/admin/bestanden', async (c) => {
   return c.html(
     <Layout title="Bestanden Beheer" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="materials" />
+        <AdminSidebar activeSection="materials" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           <div class="max-w-7xl mx-auto px-4 py-8">
             {/* Header */}
@@ -463,7 +463,7 @@ app.get('/admin/bestanden/nieuw', async (c) => {
   return c.html(
     <Layout title="Nieuw Bestand Toevoegen" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="materials" />
+        <AdminSidebar activeSection="materials" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           <div class="max-w-4xl mx-auto px-4 py-8">
             <div class="mb-8">
@@ -1180,7 +1180,7 @@ app.get('/admin/bestanden/:id/edit', async (c) => {
   return c.html(
     <Layout title={`Bewerken: ${material.titel}`} user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="materials" />
+        <AdminSidebar activeSection="materials" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           <div class="max-w-4xl mx-auto px-4 py-8">
             <div class="mb-8">

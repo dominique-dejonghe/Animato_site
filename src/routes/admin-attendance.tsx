@@ -223,7 +223,7 @@ app.get('/admin/attendance', async (c) => {
   return c.html(
     <Layout title="Aanwezigheid" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="attendance" />
+        <AdminSidebar activeSection="attendance" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <main class="flex-1 p-8">
           <div class="max-w-6xl mx-auto">
             {/* Header */}
@@ -548,7 +548,7 @@ app.get('/admin/attendance/qr/:id', async (c) => {
   return c.html(
     <Layout title="QR Code" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="attendance" />
+        <AdminSidebar activeSection="attendance" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <main class="flex-1 p-8">
           <div class="max-w-3xl mx-auto">
             {/* Back Button */}
@@ -902,7 +902,7 @@ app.get('/admin/attendance/event/:id', async (c) => {
   return c.html(
     <Layout title="Aanwezigheidsdetail" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="attendance" />
+        <AdminSidebar activeSection="attendance" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <main class="flex-1 p-8">
           <div class="max-w-6xl mx-auto">
             <div class="flex items-center gap-4 mb-6 flex-wrap">
@@ -1319,7 +1319,7 @@ app.get('/admin/attendance/repetities', async (c) => {
   return c.html(
     <Layout title="Repetitie Overzicht" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="attendance" />
+        <AdminSidebar activeSection="attendance" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <main class="flex-1 p-8">
           <div class="max-w-6xl mx-auto">
             {/* Header */}

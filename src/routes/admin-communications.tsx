@@ -27,7 +27,7 @@ app.get('/admin/communicatie', async (c) => {
   return c.html(
     <Layout title="Communicatie Beheer" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="communications" />
+        <AdminSidebar activeSection="communications" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 p-8">
           <div class="flex justify-between items-center mb-6">
             <div>

@@ -97,7 +97,7 @@ app.get('/admin/events', async (c) => {
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="events" />
+        <AdminSidebar activeSection="events" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           {/* Header */}
           <div class="bg-white border-b border-gray-200">
@@ -720,7 +720,7 @@ app.get('/admin/events/nieuw', async (c) => {
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="events" />
+        <AdminSidebar activeSection="events" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           {renderEventForm(null, locations, null, preselectedType)}
         </div>
@@ -827,7 +827,7 @@ app.get('/admin/events/:id', async (c) => {
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="events" />
+        <AdminSidebar activeSection="events" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0">
           {renderEventForm(event, locations, activity, null, null, concert)}
 

@@ -54,7 +54,7 @@ app.get('/admin/modules', async (c) => {
       { label: 'Modules', href: '/admin/modules' }
     ]}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="modules" />
+        <AdminSidebar activeSection="modules" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         
         <div class="flex-1 min-w-0">
           <div class="bg-white border-b border-gray-200">

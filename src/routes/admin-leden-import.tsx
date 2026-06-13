@@ -50,7 +50,7 @@ app.get('/admin/leden/import', async (c) => {
       ]}
     >
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="leden" />
+        <AdminSidebar activeSection="leden" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 p-8 max-w-6xl">
 
           <div class="mb-6 flex justify-between items-center">

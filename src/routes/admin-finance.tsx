@@ -15,11 +15,15 @@ import { formatBrusselsDate, formatBrusselsTime, brusselsToday } from '../utils/
 const app = new Hono()
 
 // Auth Middleware – scoped to /admin/* and /api/admin/* only
+// 2026-06-13: bestuursleden krijgen volledige toegang tot Financi\u00ebn/Lidgeld/Giften.
+// admin/moderator OR is_bestuurslid=1 → toegang. Anders redirect naar /leden.
 const adminAuthMiddleware = async (c: any, next: any) => {
   const token = getCookie(c, 'auth_token')
   if (!token) return c.redirect('/login')
   const user = await verifyToken(token, c.env.JWT_SECRET)
-  if (!user || user.role !== 'admin') return c.redirect('/leden')
+  if (!user) return c.redirect('/login')
+  const hasAccess = user.role === 'admin' || user.role === 'moderator' || user.is_bestuurslid
+  if (!hasAccess) return c.redirect('/leden')
   c.set('user', user)
   await next()
 }
@@ -221,7 +225,7 @@ app.get('/admin/lidgelden', async (c) => {
   return c.html(
     <Layout title="Lidgelden Beheer" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="finance" />
+        <AdminSidebar activeSection="finance" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 p-8">
           <div class="flex justify-between items-center mb-6">
             <div>
@@ -2532,7 +2536,7 @@ app.get('/admin/mollie-webhook-log', async (c) => {
   return c.html(
     <Layout title="Mollie Webhook Log" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="finance" />
+        <AdminSidebar activeSection="finance" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 p-8">
           <div class="flex justify-between items-center mb-6">
             <div>

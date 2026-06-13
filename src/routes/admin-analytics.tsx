@@ -318,7 +318,7 @@ app.get('/admin/analytics', async (c) => {
   return c.html(
     <Layout title="Analytics & Statistieken" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="analytics" />
+        <AdminSidebar activeSection="analytics" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0 p-8">
 
           {/* Header */}
@@ -615,7 +615,7 @@ app.get('/admin/analytics/email-rapport', async (c) => {
   return c.html(
     <Layout title="E-mail Rapport Instellen" user={user}>
       <div class="flex min-h-screen bg-gray-50">
-        <AdminSidebar activeSection="analytics" />
+        <AdminSidebar activeSection="analytics" userRole={user.role} isBestuurslid={user.is_bestuurslid === 1} />
         <div class="flex-1 min-w-0 p-8">
           <div class="max-w-2xl">
             <div class="mb-6">

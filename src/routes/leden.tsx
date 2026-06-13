@@ -5195,7 +5195,7 @@ app.get('/leden/materiaal', async (c) => {
           {successMsg === 'print_requested' && (
             <div class="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg mb-6 flex items-center">
               <i class="fas fa-check-circle text-green-500 mr-3"></i>
-              <span>Je print-aanvraag is verstuurd! Het bestuur zal de papieren versie voor je klaarzetten.</span>
+              <span>Bedankt voor je melding.</span>
             </div>
           )}
           {infoMsg === 'already_requested' && (
@@ -5408,20 +5408,7 @@ app.get('/leden/materiaal', async (c) => {
                               <i class={`${info.icon} text-xs`}></i>
                               <span class="hidden sm:inline">Openen</span>
                             </a>
-                            {(info.label === 'PDF' || info.label === 'Google Drive') && (
-                              <form action="/api/leden/materiaal/print-aanvraag" method="POST" class="inline"
-                                    onsubmit={`return confirm('Wil je een papieren versie van \\'${(mat.titel || '').replace(/'/g, "\\'")}\\' bestellen?\\n\\nDe printservice drukt het voor je af en je krijgt het op de eerstvolgende repetitie. Dit is GEEN browser-print — gebruik daarvoor de \\'Openen\\' knop en print via je eigen pc.');`}>
-                                <input type="hidden" name="material_id" value={mat.id} />
-                                <button
-                                  type="submit"
-                                  class="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 hover:text-amber-800 transition border border-amber-200"
-                                  title="Bestel een papieren afdruk via de Printservice — je krijgt het op de eerstvolgende repetitie"
-                                >
-                                  <i class="fas fa-file-invoice text-xs"></i>
-                                  <span class="hidden md:inline">Bestel afdruk</span>
-                                </button>
-                              </form>
-                            )}
+                            {/* "Bestel afdruk"-knop verwijderd — Printservice afgeschaft (2026-06-13) */}
                           </div>
                         </div>
                       )
@@ -6935,49 +6922,10 @@ app.post('/api/leden/materiaal/track', async (c) => {
 // MATERIAL PRINT REQUEST (#1)
 // =====================================================
 
+// Printservice afgeschaft (2026-06-13). Endpoint blijft als no-op
+// zodat oude bookmarks/links geen 404 geven; redirect terug naar materiaal.
 app.post('/api/leden/materiaal/print-aanvraag', async (c) => {
-  const user = c.get('user') as SessionUser
-  
-  try {
-    const body = await c.req.parseBody()
-    const material_id = body.material_id
-
-    if (!material_id) {
-      return c.redirect('/leden/materiaal?error=missing_material')
-    }
-
-    // Check if material exists and get work_id
-    const material = await queryOne<any>(
-      c.env.DB,
-      `SELECT m.*, pi.work_id FROM materials m JOIN pieces pi ON pi.id = m.piece_id WHERE m.id = ?`,
-      [material_id]
-    )
-
-    if (!material) {
-      return c.redirect('/leden/materiaal?error=material_not_found')
-    }
-
-    // Check for existing pending request to avoid duplicates
-    const existingRequest = await queryOne<any>(
-      c.env.DB,
-      `SELECT id FROM print_requests WHERE user_id = ? AND material_id = ? AND status = 'pending'`,
-      [user.id, material_id]
-    )
-
-    if (existingRequest) {
-      return c.redirect('/leden/materiaal?info=already_requested')
-    }
-
-    // Create print request
-    await c.env.DB.prepare(
-      `INSERT INTO print_requests (user_id, material_id, work_id, status) VALUES (?, ?, ?, 'pending')`
-    ).bind(user.id, material_id, material.work_id).run()
-
-    return c.redirect('/leden/materiaal?success=print_requested')
-  } catch (error) {
-    console.error('Print request error:', error)
-    return c.redirect('/leden/materiaal?error=print_failed')
-  }
+  return c.redirect('/leden/materiaal')
 })
 
 // =====================================================

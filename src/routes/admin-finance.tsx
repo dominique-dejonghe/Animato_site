@@ -204,42 +204,7 @@ app.get('/admin/lidgelden', async (c) => {
   const basisMemberships = enriched.filter((m: any) => m.type === 'basis')
   const fullMemberships = enriched.filter((m: any) => m.type === 'full')
 
-  // === Print-requests aggregaten per Full-lid voor het actieve seizoen ===
-  // Voor elk Full-lid: hoeveel print-taken in totaal, hoeveel reeds geleverd
-  // (status='completed'), en hoeveel nog open (pending/ready).
-  // Hiermee tonen we de "🖨️ X/Y geleverd" badge in de lidgelden-tabel.
-  let printStatsByUser: Record<number, { total: number; completed: number; open: number }> = {}
-  if (activeSeason) {
-    const printRows = await queryAll<any>(db, `
-      SELECT user_id,
-             COUNT(*) AS total,
-             SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
-             SUM(CASE WHEN status IN ('pending','ready') THEN 1 ELSE 0 END) AS open
-      FROM print_requests
-      WHERE season_id = ?
-      GROUP BY user_id
-    `, [activeSeason.id])
-    for (const row of printRows) {
-      printStatsByUser[row.user_id] = {
-        total: Number(row.total) || 0,
-        completed: Number(row.completed) || 0,
-        open: Number(row.open) || 0
-      }
-    }
-  }
-  // Verrijk de Full-memberships met print-stats
-  for (const m of fullMemberships) {
-    m.print_stats = printStatsByUser[m.user_id] || { total: 0, completed: 0, open: 0 }
-    m.pakket_compleet = m.print_stats.total > 0 && m.print_stats.open === 0
-    m.pakket_nog_te_leveren = m.print_stats.open > 0
-    m.pakket_nog_niets_gedrukt = m.print_stats.total === 0
-  }
-
-  // Nieuwe filter-buckets voor partituur-distributie
-  const fullPakketCompleet = fullMemberships.filter((m: any) => m.pakket_compleet)
-  const fullPakketOpen = fullMemberships.filter((m: any) => m.pakket_nog_te_leveren)
-  const fullRiskBetaaldNogNietsGedrukt = fullMemberships.filter((m: any) => m.status === 'paid' && m.pakket_nog_niets_gedrukt)
-  const fullRiskOnbetaaldMetPrints = fullMemberships.filter((m: any) => m.status !== 'paid' && m.print_stats.total > 0)
+  // Print-stats berekening verwijderd (2026-06-13) - Printservice afgeschaft
 
   // Filter de visible memberships op basis van ?filter=
   let visibleMemberships = enriched
@@ -251,10 +216,7 @@ app.get('/admin/lidgelden', async (c) => {
   else if (filter === 'overdue') { visibleMemberships = overdue; filterLabel = 'Overdue (>30 dagen open)' }
   else if (filter === 'basis') { visibleMemberships = basisMemberships; filterLabel = 'Formule Basis (€25 digitaal)' }
   else if (filter === 'full') { visibleMemberships = fullMemberships; filterLabel = 'Formule Full (€50 met partituren)' }
-  else if (filter === 'full_compleet') { visibleMemberships = fullPakketCompleet; filterLabel = 'Full — pakket volledig geleverd' }
-  else if (filter === 'full_open') { visibleMemberships = fullPakketOpen; filterLabel = 'Full — partituren nog te leveren' }
-  else if (filter === 'full_risk_paid_no_prints') { visibleMemberships = fullRiskBetaaldNogNietsGedrukt; filterLabel = 'Full — betaald maar nog geen prints uitgedeeld' }
-  else if (filter === 'full_risk_unpaid_with_prints') { visibleMemberships = fullRiskOnbetaaldMetPrints; filterLabel = 'Full — print-taken aangemaakt maar lidgeld nog open ⚠️' }
+  // Printservice-filters verwijderd (2026-06-13)
 
   return c.html(
     <Layout title="Lidgelden Beheer" user={user}>
@@ -715,45 +677,7 @@ app.get('/admin/lidgelden', async (c) => {
               </div>
 
               {/* === PARTITUUR-DISTRIBUTIE FILTERS (alleen voor Full-leden) === */}
-              {fullMemberships.length > 0 && (
-                <div class="mb-6">
-                  <div class="flex items-center justify-between mb-2">
-                    <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">
-                      <i class="fas fa-print text-purple-500 mr-1"></i>
-                      Partituur-distributie (Full-leden)
-                    </h3>
-                    <a href="/admin/prints" class="text-xs text-purple-600 hover:underline">
-                      <i class="fas fa-external-link-alt mr-1"></i>Naar Printservice →
-                    </a>
-                  </div>
-                  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=full_compleet`}
-                       class={`bg-white p-3 rounded shadow border-l-4 border-green-500 hover:bg-green-50 transition cursor-pointer ${filter === 'full_compleet' ? 'ring-2 ring-green-400' : ''}`}>
-                      <p class="text-gray-500 text-xs"><i class="fas fa-check-double mr-1"></i> Pakket volledig</p>
-                      <p class="text-xl font-bold text-green-700">{fullPakketCompleet.length}</p>
-                      <p class="text-[10px] text-gray-500 mt-0.5">alle partituren geleverd</p>
-                    </a>
-                    <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=full_open`}
-                       class={`bg-white p-3 rounded shadow border-l-4 border-amber-500 hover:bg-amber-50 transition cursor-pointer ${filter === 'full_open' ? 'ring-2 ring-amber-400' : ''}`}>
-                      <p class="text-gray-500 text-xs"><i class="fas fa-clock mr-1"></i> Nog te leveren</p>
-                      <p class="text-xl font-bold text-amber-700">{fullPakketOpen.length}</p>
-                      <p class="text-[10px] text-gray-500 mt-0.5">leden met openstaande prints</p>
-                    </a>
-                    <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=full_risk_paid_no_prints`}
-                       class={`bg-white p-3 rounded shadow border-l-4 border-blue-500 hover:bg-blue-50 transition cursor-pointer ${filter === 'full_risk_paid_no_prints' ? 'ring-2 ring-blue-400' : ''}`}>
-                      <p class="text-gray-500 text-xs"><i class="fas fa-inbox mr-1"></i> Betaald, niets gedrukt</p>
-                      <p class="text-xl font-bold text-blue-700">{fullRiskBetaaldNogNietsGedrukt.length}</p>
-                      <p class="text-[10px] text-gray-500 mt-0.5">verspreiding nog niet gestart</p>
-                    </a>
-                    <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=full_risk_unpaid_with_prints`}
-                       class={`bg-white p-3 rounded shadow border-l-4 border-red-500 hover:bg-red-50 transition cursor-pointer ${filter === 'full_risk_unpaid_with_prints' ? 'ring-2 ring-red-400' : ''}`}>
-                      <p class="text-gray-500 text-xs"><i class="fas fa-exclamation-triangle mr-1"></i> ⚠️ Onbetaald + prints</p>
-                      <p class="text-xl font-bold text-red-700">{fullRiskOnbetaaldMetPrints.length}</p>
-                      <p class="text-[10px] text-gray-500 mt-0.5">lidgeld nog open</p>
-                    </a>
-                  </div>
-                </div>
-              )}
+              {/* Partituur-distributie-tegels verwijderd - Printservice afgeschaft (2026-06-13) */}
 
               {/* Trend + lijsten */}
               <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
@@ -1115,9 +1039,6 @@ app.get('/admin/lidgelden', async (c) => {
                       <th class="px-6 py-3 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="bedrag" data-sort-type="number">
                         Bedrag <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
                       </th>
-                      <th class="px-6 py-3 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="partituren" data-sort-type="number" title="Partituur-distributie status (alleen Full-leden) — sorteert op aantal geleverd">
-                        Partituren <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
-                      </th>
                       <th class="px-6 py-3 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="status" data-sort-type="string">
                         Status <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
                       </th>
@@ -1129,7 +1050,6 @@ app.get('/admin/lidgelden', async (c) => {
                   </thead>
                   <tbody class="divide-y divide-gray-200" id="lidgeldenTbody">
                     {visibleMemberships.length > 0 ? visibleMemberships.map((m: any) => {
-                      const stats = m.print_stats || { total: 0, completed: 0, open: 0 }
                       const fullName = `${m.voornaam || ''} ${m.achternaam || ''}`.trim()
                       // Sort-key voor "Tijd": negatieve waarden voor 'open' (langer open = hoger), positieve voor 'paid' (sneller betaald = lager)
                       // We gebruiken: open = m.daysOpen (positief, hoger = ouder), paid = -1 * (10000 - daysToPay) zodat snel-betalers bovenaan staan bij asc
@@ -1143,7 +1063,6 @@ app.get('/admin/lidgelden', async (c) => {
                         data-sort-lid={fullName.toLowerCase()}
                         data-sort-formule={m.type === 'full' ? 'full' : 'basis'}
                         data-sort-bedrag={Number(m.amount) || 0}
-                        data-sort-partituren={stats.total === 0 ? -1 : stats.completed}
                         data-sort-status={m.status === 'paid' ? '1-paid' : '2-open'}
                         data-sort-tijd={tijdSortValue}
                       >
@@ -1163,45 +1082,6 @@ app.get('/admin/lidgelden', async (c) => {
                           )}
                         </td>
                         <td class="px-6 py-4 font-mono">€ {m.amount.toFixed(2)}</td>
-                        <td class="px-6 py-4 text-sm">
-                          {m.type !== 'full' ? (
-                            <span class="text-gray-400 text-xs" title="Basis-lidgeld krijgt digitale partituren — n.v.t. voor papieren druk">
-                              <i class="fas fa-laptop mr-1"></i>digitaal
-                            </span>
-                          ) : (() => {
-                            const stats = m.print_stats || { total: 0, completed: 0, open: 0 }
-                            if (stats.total === 0) {
-                              return (
-                                <a href={`/admin/prints?q=${encodeURIComponent(m.email)}`}
-                                   class="inline-flex items-center text-xs text-gray-500 hover:text-gray-700"
-                                   title="Nog geen print-taken aangemaakt voor dit lid">
-                                  <i class="fas fa-inbox mr-1"></i>nog niets
-                                </a>
-                              )
-                            }
-                            const color = stats.open === 0
-                              ? 'bg-green-100 text-green-800 hover:bg-green-200'
-                              : 'bg-amber-100 text-amber-800 hover:bg-amber-200'
-                            return (
-                              <div class="flex items-center gap-2">
-                                <a href={`/admin/prints?q=${encodeURIComponent(m.email)}`}
-                                   class={`inline-flex items-center text-xs font-semibold px-2 py-1 rounded ${color}`}
-                                   title={`${stats.completed}/${stats.total} partituren geleverd — klik voor detail in Printservice`}>
-                                  <i class="fas fa-print mr-1"></i>
-                                  {stats.completed}/{stats.total} geleverd
-                                </a>
-                                {stats.open > 0 && (
-                                  <button type="button"
-                                          onclick={`markPackageDelivered(${m.user_id}, ${activeSeason.id}, '${(m.voornaam + ' ' + m.achternaam).replace(/'/g, "\\'")}', ${stats.open})`}
-                                          class="text-xs text-green-600 hover:text-green-800 font-medium"
-                                          title={`Markeer ${stats.open} openstaande partituur(en) als geleverd voor dit lid`}>
-                                    <i class="fas fa-check-double"></i>
-                                  </button>
-                                )}
-                              </div>
-                            )
-                          })()}
-                        </td>
                         <td class="px-6 py-4">
                           {m.status === 'paid' ? (
                             <div class="flex flex-col">
@@ -1671,25 +1551,7 @@ app.get('/admin/lidgelden', async (c) => {
         </div>
       </div>
 
-      {/* Helper-script voor "markeer hele pakket geleverd"-knopjes in de Partituren-kolom */}
-      <script dangerouslySetInnerHTML={{ __html: `
-        async function markPackageDelivered(userId, seasonId, naam, openCount) {
-          if (!confirm('Markeer alle ' + openCount + ' openstaande partituur(en) voor ' + naam + ' als geleverd?\\n\\nDit zet de status op "completed" voor alle pending/ready prints van dit seizoen.')) return;
-          try {
-            const fd = new FormData();
-            fd.append('season_id', String(seasonId));
-            const res = await fetch('/api/admin/prints/mark-package-delivered/' + userId, {
-              method: 'POST', credentials: 'same-origin', body: fd
-            });
-            const data = await res.json();
-            if (!res.ok || data.error) throw new Error(data.error || 'mark_failed');
-            alert('✅ ' + data.marked_count + ' partituren gemarkeerd als geleverd voor ' + naam + '.');
-            location.reload();
-          } catch (e) {
-            alert('❌ Fout: ' + e.message);
-          }
-        }
-      ` }} />
+      {/* markPackageDelivered helper-script verwijderd - Printservice afgeschaft (2026-06-13) */}
 
       {/* Client-side filter + sort voor de Lidgelden-tabel */}
       <script dangerouslySetInnerHTML={{ __html: `

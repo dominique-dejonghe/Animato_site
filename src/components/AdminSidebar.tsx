@@ -41,7 +41,6 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({
     // { id: 'communications', label: 'Communicatie', href: '/admin/communicatie', icon: 'fas fa-envelope' },
     { id: 'meetings', label: 'Vergaderingen', href: '/admin/meetings', icon: 'fas fa-handshake', boardOnly: true },
     { id: 'projects', label: 'Projecten', href: '/admin/projects', icon: 'fas fa-project-diagram', boardOnly: true },
-    { id: 'prints', label: 'Printservice', href: '/admin/prints', icon: 'fas fa-print', adminOnly: true },
     { id: 'materials', label: 'Oefenmateriaal', href: '/admin/bestanden', icon: 'fas fa-music', adminOnly: true },
     { id: 'photos', label: "Foto's & Video's", href: '/admin/fotoboek', icon: 'fas fa-images', adminOnly: true },
     { id: 'modules', label: 'Module Beheer', href: '/admin/modules', icon: 'fas fa-toggle-on', adminOnly: true },

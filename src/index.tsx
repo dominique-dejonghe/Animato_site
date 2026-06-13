@@ -37,7 +37,6 @@ import adminMeetingsRoutes from './routes/admin-meetings'
 import taskCommentsRoutes from './routes/task-comments'
 import adminSettingsRoutes from './routes/admin-settings'
 import adminFinanceRoutes from './routes/admin-finance'
-import adminPrintsRoutes from './routes/admin-prints'
 import adminCommentsRoutes from './routes/admin-comments'
 import editablePagesRoutes from './routes/editable-pages'
 import adminSeatingRoutes from './routes/admin-seating'
@@ -189,7 +188,6 @@ app.route('/', adminMeetingsRoutes)
 app.route('/', taskCommentsRoutes)
 app.route('/', adminSettingsRoutes)
 app.route('/', adminFinanceRoutes)
-app.route('/', adminPrintsRoutes)
 app.route('/', adminCommentsRoutes)
 app.route('/', adminSeatingRoutes)
 app.route('/', adminModulesRoutes)

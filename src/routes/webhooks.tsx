@@ -242,75 +242,73 @@ app.post('/api/webhooks/mollie', async (c) => {
     }
 
     // === TICKET FLOW (Default fallback) ===
-    // Find ticket order with this payment ID
-    const ticket = await queryOne(c.env.DB,
+    // BUG-FIX (#240): één Mollie-payment kan meerdere ticket-rijen omvatten (multi-categorie).
+    // Vroeger gebruikten we queryOne dat slechts één rij updatte → de overige rijen bleven pending hangen.
+    const ticketRows = await (c.env.DB.prepare(
       `SELECT t.*, e.titel, e.start_at, e.locatie
        FROM tickets t
        JOIN concerts c ON c.id = t.concert_id
        JOIN events e ON e.id = c.event_id
-       WHERE t.betaling_id = ?`,
-      [paymentId]
-    )
+       WHERE t.betaling_id = ?
+       ORDER BY t.id ASC`
+    ).bind(paymentId).all<any>())
+    const ticketLines: any[] = ticketRows?.results || []
 
-    if (!ticket) {
+    if (!ticketLines.length) {
       console.error('Ticket not found for payment:', paymentId)
       return c.json({ error: 'Ticket not found' }, 404)
     }
 
+    const ticket = ticketLines[0]  // Header-info gedeeld over alle line-items
+
     // Map Mollie status to our ticket status
-    // Simple mapping: paid -> paid, open -> pending, anything else -> cancelled
     const status = molliePayment.status
     const newStatus = status === 'paid' ? 'paid' : status === 'open' ? 'pending' : 'cancelled'
     const oldStatus = ticket.status
 
     // Only update if status changed
     if (newStatus !== oldStatus) {
-      // Update ticket status
+      // Update ALLE ticket-rijen in deze order in één UPDATE
       await execute(c.env.DB,
-        `UPDATE tickets 
-         SET status = ?, 
+        `UPDATE tickets
+         SET status = ?,
              betaald_at = CASE WHEN ? = 'paid' THEN CURRENT_TIMESTAMP ELSE betaald_at END
-         WHERE id = ?`,
-        [newStatus, newStatus, ticket.id]
+         WHERE betaling_id = ?`,
+        [newStatus, newStatus, paymentId]
       )
 
-      // PHASE 4 FIX: Stoelen synchroon houden met ticket-status
+      // PHASE 4 FIX: Stoelen synchroon houden met ticket-status — alle gekoppelde rijen
       if (newStatus === 'paid') {
-        // locked -> sold, lock_expires_at NULL (stoel is definitief verkocht)
         await execute(c.env.DB,
-          `UPDATE ticket_seats SET status = 'sold', lock_expires_at = NULL WHERE ticket_id = ?`,
-          [ticket.id]
+          `UPDATE ticket_seats SET status = 'sold', lock_expires_at = NULL
+           WHERE ticket_id IN (SELECT id FROM tickets WHERE betaling_id = ?)`,
+          [paymentId]
         )
       } else if (newStatus === 'cancelled') {
-        // Stoelen volledig vrijgeven — verwijder de rij om UNIQUE(seat_id, concert_id) niet te blokkeren
         await execute(c.env.DB,
-          `DELETE FROM ticket_seats WHERE ticket_id = ?`,
-          [ticket.id]
+          `DELETE FROM ticket_seats WHERE ticket_id IN (SELECT id FROM tickets WHERE betaling_id = ?)`,
+          [paymentId]
         )
       }
 
-      // If payment is completed, send ticket email
+      // If payment is completed, send ticket email — één mail voor de hele order
       if (newStatus === 'paid' && oldStatus !== 'paid') {
         const eventDate = new Date(ticket.start_at)
-        
+        const totaalBedrag = ticketLines.reduce((s: number, t: any) => s + (Number(t.prijs_totaal) || 0), 0)
+        const ticketsSummary = ticketLines.map((t: any) => `${t.aantal}× ${t.categorie}`).join(', ')
+        // QR-codes per ticket-rij in een lijst (één lid kan meerdere QR's hebben voor multi-cat)
+        const allQrCodes = ticketLines.map((t: any) => t.qr_code).join(', ')
+
         const emailHtml = ticketEmail({
           orderRef: ticket.order_ref,
           koperNaam: ticket.koper_naam,
           concertTitel: ticket.titel,
-          concertDatum: eventDate.toLocaleDateString('nl-NL', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-          }),
-          concertTijd: eventDate.toLocaleTimeString('nl-NL', {
-            hour: '2-digit',
-            minute: '2-digit'
-          }),
+          concertDatum: eventDate.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+          concertTijd: eventDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }),
           concertLocatie: ticket.locatie,
-          tickets: ticket.categorie,
-          qrCode: ticket.qr_code,
-          totaalBedrag: ticket.prijs_totaal
+          tickets: ticketsSummary,
+          qrCode: allQrCodes,
+          totaalBedrag: totaalBedrag
         })
 
         await sendEmail({
@@ -319,19 +317,18 @@ app.post('/api/webhooks/mollie', async (c) => {
           html: emailHtml
         }, c.env.RESEND_API_KEY)
 
-        // Log success
         await execute(c.env.DB,
           `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
            VALUES (NULL, 'payment_completed', 'tickets', ?, ?)`,
           [ticket.id, JSON.stringify({
             payment_id: paymentId,
             order_ref: ticket.order_ref,
-            amount: ticket.prijs_totaal
+            amount: totaalBedrag,
+            line_count: ticketLines.length
           })]
         )
       }
 
-      // If payment failed, log it
       if (newStatus === 'cancelled') {
         await execute(c.env.DB,
           `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
@@ -339,7 +336,8 @@ app.post('/api/webhooks/mollie', async (c) => {
           [ticket.id, JSON.stringify({
             payment_id: paymentId,
             order_ref: ticket.order_ref,
-            mollie_status: molliePayment.status
+            mollie_status: molliePayment.status,
+            line_count: ticketLines.length
           })]
         )
       }
@@ -347,10 +345,10 @@ app.post('/api/webhooks/mollie', async (c) => {
 
     await logWebhookCall(c.env.DB, {
       paymentId, paymentType: 'ticket', mollieStatus: status,
-      localAction: `ticket_${ticket.id} -> ${newStatus}`,
+      localAction: `order_${ticket.order_ref} (${ticketLines.length} line${ticketLines.length !== 1 ? 's' : ''}) -> ${newStatus}`,
       httpStatus: 200, rawBody: rawForLog,
     })
-    return c.json({ success: true, status: newStatus })
+    return c.json({ success: true, status: newStatus, lines: ticketLines.length })
 
   } catch (error) {
     console.error('Webhook error:', error)

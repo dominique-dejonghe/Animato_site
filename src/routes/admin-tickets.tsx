@@ -2027,9 +2027,9 @@ app.get('/admin/tickets/test-checklist', async (c) => {
   const staleLocks = await queryOne<any>(db,
     `SELECT COUNT(*) as n FROM ticket_seats WHERE status = 'locked' AND lock_expires_at < CURRENT_TIMESTAMP`)
   const upcomingConcerts = await queryAll<any>(db,
-    `SELECT c.id, e.titel, e.start_at, c.ticketverkoop_open
+    `SELECT c.id, e.titel, e.start_at, c.ticketing_enabled
      FROM concerts c JOIN events e ON e.id = c.event_id
-     WHERE e.start_at >= datetime('now') AND c.ticketverkoop_open = 1
+     WHERE e.start_at >= datetime('now') AND c.ticketing_enabled = 1
      ORDER BY e.start_at ASC LIMIT 5`)
 
   const checks = [

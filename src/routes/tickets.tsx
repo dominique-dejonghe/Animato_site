@@ -551,11 +551,8 @@ app.post('/api/tickets/order', async (c) => {
         }
     }
 
-    // Generate order reference
+    // Generate order reference (gedeeld over alle line-items binnen één order)
     const orderRef = 'TIX-' + Date.now().toString(36).toUpperCase() + Math.random().toString(36).substring(2, 7).toUpperCase()
-    
-    // Generate QR code
-    const qrCode = crypto.randomUUID()
 
     // Get event details
     const event = await queryOne(c.env.DB, `SELECT e.titel, e.start_at, e.locatie FROM events e JOIN concerts c ON c.event_id = e.id WHERE c.id = ?`, [concertId])
@@ -616,6 +613,9 @@ app.post('/api/tickets/order', async (c) => {
     }, {});
 
     for (const cat of Object.values(groupedTickets) as any) {
+        // BUG-FIX (#240): elke ticket-rij krijgt een eigen QR-code. Vroeger werd één qr_code
+        // hergebruikt voor alle categorieën in dezelfde order → UNIQUE constraint failed bij multi-cat
+        const qrCode = crypto.randomUUID()
         const res = await execute(c.env.DB, `
           INSERT INTO tickets (
             concert_id, order_ref, koper_email, koper_naam, koper_telefoon,
@@ -625,7 +625,7 @@ app.post('/api/tickets/order', async (c) => {
           concertId, orderRef, koperEmail, koperNaam, koperTelefoon,
           cat.aantal, cat.categorie, cat.aantal * cat.prijs, qrCode, molliePayment.id
         ])
-        
+
         const ticketId = res.meta.last_row_id;
 
         // Link seats if any — lock voor 15 minuten zodat stale locks opgeruimd kunnen worden
@@ -679,16 +679,18 @@ app.get('/tickets/bevestiging/:orderRef', async (c) => {
   const orderRef = c.req.param('orderRef')
   const user = c.get('user') as SessionUser | null
   const isMockPayment = c.req.query('mock') === 'true'
-  
-  const ticket = await queryOne(c.env.DB, `
+
+  // BUG-FIX (#240): multi-cat orders hebben meerdere ticket-rijen onder hetzelfde order_ref
+  const ticketLines = await queryAll<any>(c.env.DB, `
     SELECT t.*, c.programma, e.titel, e.start_at, e.locatie
     FROM tickets t
     JOIN concerts c ON c.id = t.concert_id
     JOIN events e ON e.id = c.event_id
     WHERE t.order_ref = ?
+    ORDER BY t.id ASC
   `, [orderRef])
-  
-  if (!ticket) {
+
+  if (!ticketLines || ticketLines.length === 0) {
     return c.html(
       <Layout title="Bestelling niet gevonden" user={user}>
         <div class="max-w-2xl mx-auto px-4 py-16 text-center">
@@ -700,27 +702,38 @@ app.get('/tickets/bevestiging/:orderRef', async (c) => {
     )
   }
 
-  // Auto-mark mock payments
+  const ticket = ticketLines[0]  // Voor de header-info (concert, naam, etc.)
+
+  // Auto-mark mock payments — werkt sowieso al via order_ref op alle rijen
   if (isMockPayment && ticket.status === 'pending') {
-    await execute(c.env.DB, `UPDATE tickets SET status = 'paid' WHERE order_ref = ?`, [orderRef])
-    // Also update seat locks to sold
+    await execute(c.env.DB, `UPDATE tickets SET status = 'paid', betaald_at = CURRENT_TIMESTAMP WHERE order_ref = ?`, [orderRef])
     await execute(c.env.DB, `
-        UPDATE ticket_seats SET status = 'sold' 
+        UPDATE ticket_seats SET status = 'sold', lock_expires_at = NULL
         WHERE ticket_id IN (SELECT id FROM tickets WHERE order_ref = ?)
     `, [orderRef])
     ticket.status = 'paid'
+    ticketLines.forEach((t: any) => t.status = 'paid')
   }
 
   const eventDate = new Date(ticket.start_at)
+  const totaalAantal = ticketLines.reduce((sum: number, t: any) => sum + (t.aantal || 0), 0)
+  const totaalBedrag = ticketLines.reduce((sum: number, t: any) => sum + (t.prijs_totaal || 0), 0)
+  const isPending = ticketLines.some((t: any) => t.status === 'pending')
 
   return c.html(
     <Layout title="Bestelbevestiging" user={user}>
       <div class="py-12 bg-gray-50">
         <div class="max-w-3xl mx-auto px-4">
-          <div class="bg-green-50 border border-green-200 rounded-lg p-8 mb-8 text-center">
-            <i class="fas fa-check-circle text-6xl text-green-500 mb-4"></i>
-            <h1 class="text-3xl font-bold text-gray-900 mb-2">Bestelling Ontvangen!</h1>
-            <p class="text-gray-700 text-lg mb-4">Je bestelling is succesvol geplaatst.</p>
+          <div class={`${isPending ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200'} border rounded-lg p-8 mb-8 text-center`}>
+            <i class={`fas ${isPending ? 'fa-clock text-yellow-500' : 'fa-check-circle text-green-500'} text-6xl mb-4`}></i>
+            <h1 class="text-3xl font-bold text-gray-900 mb-2">
+              {isPending ? 'Bestelling in verwerking…' : 'Bestelling Bevestigd!'}
+            </h1>
+            <p class="text-gray-700 text-lg mb-4">
+              {isPending
+                ? 'Zodra de betaling bevestigd is, ontvang je per mail je tickets.'
+                : 'Je tickets zijn per mail verzonden.'}
+            </p>
             {isMockPayment && <div class="inline-block bg-yellow-100 border border-yellow-300 rounded-lg px-4 py-2 mb-4 text-sm text-yellow-800">Mock Payment</div>}
             <div class="inline-block bg-white rounded-lg px-6 py-3 shadow-md">
               <div class="text-sm text-gray-600 mb-1">Bestel referentie</div>
@@ -728,10 +741,33 @@ app.get('/tickets/bevestiging/:orderRef', async (c) => {
             </div>
           </div>
 
-          {/* ... existing order details UI ... */}
-          {/* Kept simple for brevity, logic remains same */}
-          
-          <div class="mt-8 text-center">
+          {/* Order details */}
+          <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="font-semibold text-gray-900 mb-4 text-lg"><i class="fas fa-music mr-2 text-animato-primary"></i>{ticket.titel}</h2>
+            <div class="text-sm text-gray-600 mb-4">
+              <div><i class="fas fa-calendar mr-2 w-4"></i>{eventDate.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+              <div><i class="fas fa-map-marker-alt mr-2 w-4"></i>{ticket.locatie}</div>
+              <div><i class="fas fa-user mr-2 w-4"></i>{ticket.koper_naam} ({ticket.koper_email})</div>
+            </div>
+
+            <h3 class="font-semibold text-gray-800 mb-2 text-sm uppercase tracking-wide">Tickets</h3>
+            <table class="w-full text-sm border-t border-gray-200">
+              <tbody>
+                {ticketLines.map((line: any) => (
+                  <tr class="border-b border-gray-100">
+                    <td class="py-2 text-gray-700">{line.aantal}× {line.categorie}</td>
+                    <td class="py-2 text-right font-mono">€ {Number(line.prijs_totaal).toFixed(2)}</td>
+                  </tr>
+                ))}
+                <tr class="font-bold border-t-2 border-gray-300">
+                  <td class="py-2">Totaal ({totaalAantal} ticket{totaalAantal !== 1 ? 's' : ''})</td>
+                  <td class="py-2 text-right font-mono text-lg">€ {totaalBedrag.toFixed(2)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="text-center">
             <a href="/concerten" class="inline-flex items-center bg-gray-100 text-gray-700 px-8 py-3 rounded-lg hover:bg-gray-200 transition mr-4">
               <i class="fas fa-calendar mr-2"></i> Bekijk meer concerten
             </a>

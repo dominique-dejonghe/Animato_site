@@ -199,11 +199,22 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                             <div class="flex items-center"><div class="w-4 h-4 bg-green-500 rounded-t-lg mr-2"></div> Rolstoel</div>
                         </div>
 
-                        <div class="overflow-auto border border-gray-200 rounded-lg bg-gray-100 p-4 flex justify-center" style="max-height: 600px;">
-                            <div id="seatMap" class="relative bg-white shadow-lg mx-auto" style={`width: ${concert.sp_width}px; height: ${concert.sp_height}px;`}>
-                                <div class="absolute top-0 left-0 w-full bg-gray-800 text-white text-xs py-1 text-center font-bold tracking-widest">PODIUM / SCHERM</div>
-                                {/* Seats rendered via JS */}
+                        <div id="seatMapFrame" class="overflow-auto border border-gray-200 rounded-lg bg-gray-100 p-4 flex justify-center" style="max-height: 600px;">
+                            <div id="seatMapScale" style="transform-origin: top center; transition: transform .15s ease;">
+                                <div id="seatMap" class="relative bg-white shadow-lg mx-auto" style={`width: ${concert.sp_width}px; height: ${concert.sp_height}px;`}>
+                                    <div class="absolute top-0 left-0 w-full bg-gray-800 text-white text-xs py-1 text-center font-bold tracking-widest">PODIUM / SCHERM</div>
+                                    {/* Seats rendered via JS */}
+                                </div>
                             </div>
+                        </div>
+
+                        {/* Zoom-controls voor publieke viewer (alleen zichtbaar als zaalplan groter dan beeld is) */}
+                        <div id="seatZoomControls" class="hidden mt-2 flex items-center justify-center gap-2 text-xs">
+                            <button type="button" id="seatZoomFit"  class="px-2 py-1 rounded border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"><i class="fas fa-expand-arrows-alt mr-1"></i>Passend</button>
+                            <button type="button" id="seatZoomOut"  class="w-7 h-7 rounded border border-gray-300 bg-white"><i class="fas fa-minus"></i></button>
+                            <span id="seatZoomLabel" class="font-mono w-12 text-center">100%</span>
+                            <button type="button" id="seatZoomIn"   class="w-7 h-7 rounded border border-gray-300 bg-white"><i class="fas fa-plus"></i></button>
+                            <button type="button" id="seatZoom100"  class="px-2 py-1 rounded border border-gray-300 bg-white">1:1</button>
                         </div>
                         
                         {/* Hidden inputs for selected seats */}
@@ -325,7 +336,28 @@ app.get('/concerten/:eventId/tickets', async (c) => {
             // --- SEATING PLAN LOGIC ---
             if (hasSeatingPlan) {
                 const map = document.getElementById('seatMap');
-                
+
+                // Rij-labels berekenen (groepeer per row_label, vind meest-linkse stoel + gemiddelde y)
+                const rowGroups = {};
+                seats.forEach(seat => {
+                    const lbl = seat.row_label || '';
+                    if (!lbl) return;
+                    if (!rowGroups[lbl]) rowGroups[lbl] = { minX: seat.x, avgY: 0, count: 0 };
+                    if (seat.x < rowGroups[lbl].minX) rowGroups[lbl].minX = seat.x;
+                    rowGroups[lbl].avgY += seat.y;
+                    rowGroups[lbl].count++;
+                });
+                Object.keys(rowGroups).forEach(lbl => {
+                    const g = rowGroups[lbl];
+                    const tag = document.createElement('div');
+                    tag.className = 'absolute text-xs font-bold text-gray-600 pointer-events-none';
+                    tag.style.cssText = 'left:' + Math.max(0, g.minX - 36) + 'px;top:' + ((g.avgY / g.count) + 6) + 'px;'
+                        + 'background:rgba(255,255,255,.9);padding:2px 6px;border-radius:4px;'
+                        + 'border:1px solid #cbd5e1;letter-spacing:.05em;z-index:5;';
+                    tag.innerText = lbl;
+                    map.appendChild(tag);
+                });
+
                 seats.forEach(seat => {
                     const el = document.createElement('div');
                     el.className = 'absolute w-8 h-8 rounded-t-lg flex items-center justify-center text-[10px] text-white font-bold shadow-sm transition-transform';
@@ -357,6 +389,38 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                     }
                     map.appendChild(el);
                 });
+
+                // ── Auto-fit & zoom-controls voor het zaalplan ──
+                const frame = document.getElementById('seatMapFrame');
+                const scale = document.getElementById('seatMapScale');
+                const zoomLabel = document.getElementById('seatZoomLabel');
+                const zoomControls = document.getElementById('seatZoomControls');
+                let seatZoom = 1.0;
+                const planW = ${concert.sp_width || 800};
+                const planH = ${concert.sp_height || 600};
+                function applySeatZoom() {
+                    if (scale) scale.style.transform = 'scale(' + seatZoom + ')';
+                    if (zoomLabel) zoomLabel.innerText = Math.round(seatZoom * 100) + '%';
+                }
+                function fitSeatPlan() {
+                    if (!frame || !scale) return;
+                    const pad = 32; // p-4 = 16px elke kant
+                    const availW = frame.clientWidth  - pad;
+                    const availH = frame.clientHeight - pad;
+                    const sx = availW / planW;
+                    const sy = availH / planH;
+                    seatZoom = Math.min(sx, sy, 1.0);
+                    if (seatZoom < 0.2) seatZoom = 0.2;
+                    applySeatZoom();
+                }
+                if (zoomControls) zoomControls.classList.remove('hidden');
+                document.getElementById('seatZoomFit')?.addEventListener('click', fitSeatPlan);
+                document.getElementById('seatZoom100')?.addEventListener('click', () => { seatZoom = 1.0; applySeatZoom(); });
+                document.getElementById('seatZoomIn')?.addEventListener('click',  () => { seatZoom = Math.min(2.0, seatZoom + 0.1); applySeatZoom(); });
+                document.getElementById('seatZoomOut')?.addEventListener('click', () => { seatZoom = Math.max(0.2, seatZoom - 0.1); applySeatZoom(); });
+                window.addEventListener('resize', fitSeatPlan);
+                // Initieel fitten zodat het zaalplan altijd binnen het kader past
+                setTimeout(fitSeatPlan, 50);
             }
 
             function toggleSeat(seat, el) {

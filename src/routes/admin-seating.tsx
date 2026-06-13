@@ -136,6 +136,74 @@ function renderEditor(c: any, layout: any) {
   var statWheelchair = document.getElementById('statWheelchair');
   var bulkAddBtn   = document.getElementById('bulkAddBtn');
   var bowAddBtn    = document.getElementById('bowAddBtn');
+  var canvasFrame  = document.getElementById('canvasFrame');
+  var canvasScale  = document.getElementById('canvasScale');
+
+  // ── Helper: rij-label sequencer (A, B, ..., Z, AA, AB, ...) ─────
+  // Backward-compatible: als invoer een nummer is ("Rij 1") blijft "Rij N"-stijl werken.
+  function nextRowLabel(start, offset) {
+    if (!start) start = 'A';
+    var s = String(start).trim();
+    // Als het label puur letters is, increment alfabetisch (A→B→...→Z→AA)
+    if (/^[A-Za-z]+$/.test(s)) {
+      return letterIncrement(s, offset);
+    }
+    // Als het label eindigt op een getal ("Rij 1"), increment dat getal (legacy)
+    var m = s.match(/^(.*?)(\\d+)$/);
+    if (m) {
+      var pfx = m[1];
+      var num = parseInt(m[2], 10) + offset;
+      return pfx + num;
+    }
+    // Fallback: prefix + offset
+    return s + (offset ? ' ' + (offset + 1) : '');
+  }
+  function letterIncrement(letters, offset) {
+    var upper = letters === letters.toUpperCase();
+    // Converteer letters → 0-based index (A=0, B=1, ..., Z=25, AA=26, AB=27 ...)
+    var n = 0;
+    var L = letters.toUpperCase();
+    for (var i = 0; i < L.length; i++) n = n * 26 + (L.charCodeAt(i) - 64);
+    n = n - 1 + offset;
+    if (n < 0) n = 0;
+    // Terug naar letters (n+1 omdat we 0-based zijn)
+    var result = '';
+    var x = n;
+    do {
+      var rem = x % 26;
+      result = String.fromCharCode(65 + rem) + result;
+      x = Math.floor(x / 26) - 1;
+    } while (x >= 0);
+    return upper ? result : result.toLowerCase();
+  }
+
+  // ── Zoom state & helpers ───────────────────────────
+  var zoomLevel = 1.0;       // 1.0 = 100%
+  var fitMode = true;        // start met fit-to-frame
+  function applyZoom() {
+    if (!canvasScale) return;
+    canvasScale.style.transform = 'scale(' + zoomLevel + ')';
+    var lbl = document.getElementById('zoomLabel');
+    if (lbl) lbl.innerText = Math.round(zoomLevel * 100) + '%';
+  }
+  function fitToFrame() {
+    if (!canvasFrame || !canvasScale) return;
+    // Beschikbare ruimte = frame minus padding (24px elke kant = 48px totaal)
+    var pad = 48;
+    var availW = canvasFrame.clientWidth  - pad;
+    var availH = canvasFrame.clientHeight - pad;
+    var scaleX = availW / canvasW;
+    var scaleY = availH / canvasH;
+    zoomLevel = Math.min(scaleX, scaleY, 1.0); // niet boven 100% schalen in fit-modus
+    if (zoomLevel < 0.1) zoomLevel = 0.1;
+    fitMode = true;
+    applyZoom();
+  }
+  function zoomBy(delta) {
+    fitMode = false;
+    zoomLevel = Math.max(0.1, Math.min(2.0, zoomLevel + delta));
+    applyZoom();
+  }
 
   // ── Canvas Init ────────────────────────────────────
   function initCanvas() {
@@ -202,13 +270,19 @@ function renderEditor(c: any, layout: any) {
     canvasW = parseInt(document.getElementById('canvasW').value) || canvasW;
     canvasH = parseInt(document.getElementById('canvasH').value) || canvasH;
     initCanvas();
+    if (fitMode) fitToFrame();
   });
 
   // ── Render all seats ───────────────────────────────
   function renderSeats() {
-    // Remove all children except podium bar (first child)
-    var children = Array.from(wrapper.children).slice(1);
-    children.forEach(function(ch) { wrapper.removeChild(ch); });
+    // Remove every child except podium bar (first) and grid overlay
+    var toRemove = [];
+    Array.from(wrapper.children).forEach(function(ch, i) {
+      if (i === 0) return; // podium bar
+      if (ch.id === 'gridOverlay') return;
+      toRemove.push(ch);
+    });
+    toRemove.forEach(function(ch) { wrapper.removeChild(ch); });
 
     var total = 0, wheel = 0;
 
@@ -317,6 +391,30 @@ function renderEditor(c: any, layout: any) {
       total++;
     });
 
+    // ── Rij-label tags links naast elke rij ────────────
+    // Groepeer stoelen per row_label, vind minX per groep en plaats een label links daarvan.
+    var rowGroups = {};
+    seats.forEach(function(seat) {
+      var lbl = seat.row_label || '';
+      if (!lbl) return;
+      if (!rowGroups[lbl]) rowGroups[lbl] = { minX: seat.x, avgY: 0, count: 0 };
+      if (seat.x < rowGroups[lbl].minX) rowGroups[lbl].minX = seat.x;
+      rowGroups[lbl].avgY += seat.y;
+      rowGroups[lbl].count++;
+    });
+    Object.keys(rowGroups).forEach(function(lbl) {
+      var g = rowGroups[lbl];
+      var avgY = g.avgY / g.count;
+      var tag = document.createElement('div');
+      tag.className = 'row-label-tag';
+      tag.innerText = lbl;
+      tag.style.cssText = 'position:absolute;left:' + Math.max(0, g.minX - 36) + 'px;top:' + (avgY + 6) + 'px;'
+        + 'font-size:13px;font-weight:bold;color:#475569;background:rgba(255,255,255,.9);'
+        + 'padding:2px 6px;border-radius:4px;border:1px solid #cbd5e1;pointer-events:none;'
+        + 'z-index:5;letter-spacing:.05em;';
+      wrapper.appendChild(tag);
+    });
+
     statTotal.innerText = total;
     statWheelchair.innerText = wheel;
     updateBulkBtn();
@@ -358,12 +456,10 @@ function renderEditor(c: any, layout: any) {
     if (bulkMode) {
       var rows = parseInt(document.getElementById('bulkRows').value) || 1;
       var cols = parseInt(document.getElementById('bulkCols').value) || 1;
-      var labelVal = rowInput.value.trim() || 'Rij 1';
-      var rowNum = parseInt(labelVal.replace(/[^0-9]/g, '')) || 1;
-      var rowPfx = labelVal.replace(/[0-9]+$/, '').trim() || 'Rij';
+      var labelVal = rowInput.value.trim() || 'A';
 
       for (var r = 0; r < rows; r++) {
-        var rowLabel = rowPfx + ' ' + (rowNum + r);
+        var rowLabel = nextRowLabel(labelVal, r);
         for (var col = 0; col < cols; col++) {
           seats.push({
             x: Math.round(x + col * 40),
@@ -374,6 +470,8 @@ function renderEditor(c: any, layout: any) {
           });
         }
       }
+      // Auto-update rowInput naar de volgende rij voor de volgende plaatsing
+      rowInput.value = nextRowLabel(labelVal, rows);
       // Exit bulk mode after placement
       bulkMode = false;
       wrapper.style.cursor = 'crosshair';
@@ -393,9 +491,7 @@ function renderEditor(c: any, layout: any) {
       var concave = document.getElementById('bowConcave').checked; // true = curve naar podium toe (bovenkant)
       var seatGap = 38; // chord-distance tussen stoelen op de boog
 
-      var labelVal2 = rowInput.value.trim() || 'Rij 1';
-      var rowNum2 = parseInt(labelVal2.replace(/[^0-9]/g, '')) || 1;
-      var rowPfx2 = labelVal2.replace(/[0-9]+$/, '').trim() || 'Rij';
+      var labelVal2 = rowInput.value.trim() || 'A';
 
       var totalAngleRad = angleDeg * Math.PI / 180;
       // Bereken straal zodat de eerste rij van bowCols stoelen met seatGap chord-afstand op de boog past
@@ -440,11 +536,13 @@ function renderEditor(c: any, layout: any) {
             x: Math.round(sx - 16),
             y: Math.round(sy - 16),
             type: currentCategory,
-            row_label: rowPfx2 + ' ' + (rowNum2 + rr),
+            row_label: nextRowLabel(labelVal2, rr),
             seat_number: String(ci + 1)
           });
         }
       }
+      // Auto-incrementeer rij-label voor volgende plaatsing
+      rowInput.value = nextRowLabel(labelVal2, bowRows);
 
       bowMode = false;
       wrapper.style.cursor = 'crosshair';
@@ -455,7 +553,7 @@ function renderEditor(c: any, layout: any) {
     }
 
     // Single seat
-    var label = rowInput.value.trim() || 'Rij 1';
+    var label = rowInput.value.trim() || 'A';
     var numInRow = seats.filter(function(s) { return s.row_label === label; }).length + 1;
     seats.push({
       x: Math.round(x / 8) * 8,
@@ -697,8 +795,25 @@ function renderEditor(c: any, layout: any) {
     }
   });
 
+  // ── Zoom controls wire-up ──────────────────────────
+  var zoomInBtn  = document.getElementById('zoomInBtn');
+  var zoomOutBtn = document.getElementById('zoomOutBtn');
+  var zoomFitBtn = document.getElementById('zoomFitBtn');
+  var zoom100Btn = document.getElementById('zoom100Btn');
+  if (zoomInBtn)  zoomInBtn.addEventListener('click',  function(){ zoomBy(+0.1); });
+  if (zoomOutBtn) zoomOutBtn.addEventListener('click', function(){ zoomBy(-0.1); });
+  if (zoomFitBtn) zoomFitBtn.addEventListener('click', fitToFrame);
+  if (zoom100Btn) zoom100Btn.addEventListener('click', function(){ fitMode = false; zoomLevel = 1.0; applyZoom(); });
+
+  // Auto-fit bij venster-resize
+  window.addEventListener('resize', function() {
+    if (fitMode) fitToFrame();
+  });
+
   // ── Boot ───────────────────────────────────────────
   initCanvas();
+  // Initieel: probeer in beeld te passen
+  setTimeout(fitToFrame, 50);
 })();
 `
 
@@ -835,7 +950,11 @@ function renderEditor(c: any, layout: any) {
 
                   <div class="pt-4 mt-4 border-t">
                     <label class="block text-xs font-bold mb-1">Rij Label</label>
-                    <input type="text" id="currentRow" value="Rij 1" class="w-full border rounded p-1 text-sm" />
+                    <input type="text" id="currentRow" value="A" class="w-full border rounded p-1 text-sm" placeholder="A" />
+                    <p class="text-[11px] text-gray-500 mt-1">
+                      Gebruik letters <strong>A → Z → AA → AB</strong> (concertzaal-conventie). Bij meerdere rijen
+                      lopen ze automatisch door.
+                    </p>
                   </div>
                   
                   <div class="pt-2">
@@ -857,10 +976,35 @@ function renderEditor(c: any, layout: any) {
 
             {/* Visual Editor (Canvas) */}
             <div class="lg:col-span-3">
-              <div class="bg-gray-100 p-6 rounded-lg shadow-inner overflow-auto" style="height:700px;display:flex;align-items:flex-start;justify-content:center;position:relative;">
-                <div id="canvasWrapper" style="position:relative;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.12);cursor:crosshair;">
-                  <div style="position:absolute;top:0;left:0;width:100%;background:#1F2937;color:#fff;font-size:11px;padding:4px 0;text-align:center;font-weight:bold;letter-spacing:.1em;z-index:10;">
-                    PODIUM / SCHERM
+              {/* Zoom toolbar — past zaalplan visueel zonder de werkelijke pixel-maat te veranderen */}
+              <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
+                <div class="flex items-center gap-2">
+                  <span class="text-xs text-gray-600 font-semibold">Weergave:</span>
+                  <button id="zoomFitBtn" type="button" class="text-xs px-2 py-1 rounded border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 font-medium" title="Plan in beeld passen">
+                    <i class="fas fa-expand-arrows-alt mr-1"></i>Passend
+                  </button>
+                  <button id="zoomOutBtn" type="button" class="text-xs w-7 h-7 rounded border border-gray-300 bg-white hover:bg-gray-50" title="Uitzoomen">
+                    <i class="fas fa-minus"></i>
+                  </button>
+                  <span id="zoomLabel" class="text-xs text-gray-700 font-mono w-12 text-center">100%</span>
+                  <button id="zoomInBtn" type="button" class="text-xs w-7 h-7 rounded border border-gray-300 bg-white hover:bg-gray-50" title="Inzoomen">
+                    <i class="fas fa-plus"></i>
+                  </button>
+                  <button id="zoom100Btn" type="button" class="text-xs px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50" title="100%">
+                    1:1
+                  </button>
+                </div>
+                <span class="text-[11px] text-gray-500">
+                  <i class="fas fa-info-circle mr-1"></i>Zoom verandert alleen de weergave, niet de opgeslagen coördinaten.
+                </span>
+              </div>
+
+              <div id="canvasFrame" class="bg-gray-100 p-6 rounded-lg shadow-inner overflow-auto" style="height:700px;display:flex;align-items:flex-start;justify-content:center;position:relative;">
+                <div id="canvasScale" style="transform-origin:top center;transition:transform .15s ease;">
+                  <div id="canvasWrapper" style="position:relative;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.12);cursor:crosshair;">
+                    <div style="position:absolute;top:0;left:0;width:100%;background:#1F2937;color:#fff;font-size:11px;padding:4px 0;text-align:center;font-weight:bold;letter-spacing:.1em;z-index:10;">
+                      PODIUM / SCHERM
+                    </div>
                   </div>
                 </div>
               </div>

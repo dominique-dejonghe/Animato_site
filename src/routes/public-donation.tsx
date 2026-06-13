@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { Layout } from '../components/Layout'
 import { createMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
+import { getSiteUrl } from '../utils/site-url'
 import { execute } from '../utils/db'
 import type { Bindings } from '../types'
 
@@ -145,7 +146,7 @@ app.post('/api/public/donatie', async (c) => {
     
     if (!amount || amount < 1) return c.redirect('/steun-ons?error=invalid_amount')
 
-    const siteUrl = c.env.SITE_URL || 'https://animato.be'
+    const siteUrl = await getSiteUrl(c)
     
     // 1. Create Donation Record (User ID is NULL for public)
     // We store name/email in the message or a JSON field if we had one, 

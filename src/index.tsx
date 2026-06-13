@@ -156,6 +156,14 @@ app.route('/', newMembersRoutes)
 // lidgeld-status zou eeuwig op 'pending' blijven. Zie webhooks.tsx.
 app.route('/', webhooksRoutes)
 
+// ⚠️ KRITIEK: ticketsRoutes MOET ook voor ledenRoutes staan.
+// Tickets zijn een publieke verkoopflow: anonieme bezoekers moeten
+// /concerten/:id/tickets kunnen openen, POST /api/tickets/order
+// kunnen versturen, en /tickets/bevestiging/:orderRef kunnen zien na
+// Mollie-redirect. Anders 401't de leden-wildcard de hele flow en
+// blijft je betaling pending. (Bug ontdekt 2026-06-13)
+app.route('/', ticketsRoutes)
+
 // Leden portal routes
 app.route('/', ledenRoutes)
 
@@ -198,9 +206,8 @@ app.route('/', quizRoutes)
 app.route('/', adminAnalyticsRoutes)
 app.route('/', adminR2MigrateRoutes)
 
-// Tickets (webhooksRoutes is hierboven al gemount vóór ledenRoutes —
+// (ticketsRoutes en webhooksRoutes zijn hierboven al gemount vóór ledenRoutes —
 // zie de KRITIEK-comment daar voor uitleg over de Mollie auth-bypass.)
-app.route('/', ticketsRoutes)
 
 // Polls & Voting
 app.route('/', pollsRoutes)

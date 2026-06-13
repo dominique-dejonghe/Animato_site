@@ -747,8 +747,8 @@ app.post('/api/admin/tickets/:id/mark-paid', async (c) => {
 
     // Audit log
     await execute(c.env.DB, `
-      INSERT INTO audit_logs (user_id, action, table_name, record_id, details)
-      VALUES (?, 'update', 'tickets', ?, ?)
+      INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
+      VALUES (?, 'ticket_mark_paid', 'tickets', ?, ?)
     `, [user.id, ticketId, JSON.stringify({ action: 'marked_as_paid' })])
 
     return c.json({ success: true })
@@ -773,8 +773,8 @@ app.post('/api/admin/tickets/:id/delete', async (c) => {
 
     // Audit log
     await execute(c.env.DB, `
-      INSERT INTO audit_logs (user_id, action, table_name, record_id, details)
-      VALUES (?, 'delete', 'tickets', ?, ?)
+      INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
+      VALUES (?, 'ticket_delete', 'tickets', ?, ?)
     `, [user.id, ticketId, JSON.stringify({ deleted_ticket: ticket })])
 
     if (concertId) {

@@ -7,6 +7,7 @@ import { formatLineBreaks } from '../utils/text'
 import { sendEmail, orderConfirmationEmail } from '../utils/email'
 import { createMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
+import { getSiteUrl } from '../utils/site-url'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -555,7 +556,9 @@ app.post('/api/tickets/order', async (c) => {
     const event = await queryOne(c.env.DB, `SELECT e.titel, e.start_at, e.locatie FROM events e JOIN concerts c ON c.event_id = e.id WHERE c.id = ?`, [concertId])
 
     // Create Mollie payment
-    const siteUrl = c.env.SITE_URL || 'https://animato.be'
+    // getSiteUrl(): system_settings.site_url → env.SITE_URL → request-origin → fallback animato-live.pages.dev
+    // (Was eerder: hardcoded 'https://animato.be' als fallback → resolveerde niet, dus geen redirect terug en geen webhook)
+    const siteUrl = await getSiteUrl(c)
     const mollieKey = await getMollieApiKey(c.env)
     // Mock-modus: geen echte key OF expliciet de sample-key
     const isDevelopment = !mollieKey || mollieKey === 'mock' || mollieKey.includes('test_dHar4XY7LxsDOtmnkVtjNVWXLSlXsM')
@@ -574,7 +577,7 @@ app.post('/api/tickets/order', async (c) => {
         description: `Tickets ${event.titel} - ${orderRef}`,
         redirectUrl: `${siteUrl}/tickets/bevestiging/${orderRef}`,
         webhookUrl: `${siteUrl}/api/webhooks/mollie`,
-        metadata: { order_ref: orderRef, concert_id: concertId }
+        metadata: { type: 'ticket', order_ref: orderRef, concert_id: concertId }
       })
       if (!molliePayment) throw new Error('Kon geen betaling aanmaken')
     }

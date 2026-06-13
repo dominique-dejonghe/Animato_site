@@ -306,7 +306,7 @@ app.post('/api/webhooks/mollie', async (c) => {
 
         // Log success
         await execute(c.env.DB,
-          `INSERT INTO audit_logs (user_id, action, table_name, record_id, details)
+          `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
            VALUES (NULL, 'payment_completed', 'tickets', ?, ?)`,
           [ticket.id, JSON.stringify({
             payment_id: paymentId,
@@ -319,7 +319,7 @@ app.post('/api/webhooks/mollie', async (c) => {
       // If payment failed, log it
       if (newStatus === 'cancelled') {
         await execute(c.env.DB,
-          `INSERT INTO audit_logs (user_id, action, table_name, record_id, details)
+          `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
            VALUES (NULL, 'payment_failed', 'tickets', ?, ?)`,
           [ticket.id, JSON.stringify({
             payment_id: paymentId,

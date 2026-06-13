@@ -5,6 +5,7 @@ import { requireAuth } from '../middleware/auth'
 import { queryOne, queryAll, execute } from '../utils/db'
 import { createMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
+import { getSiteUrl } from '../utils/site-url'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -370,7 +371,7 @@ app.post('/api/leden/activiteiten/rsvp', async (c) => {
 
   // Setup Payment
   if (totalAmount > 0) {
-    const siteUrl = c.env.SITE_URL || 'https://animato.be'
+    const siteUrl = await getSiteUrl(c)
     const payment = await createMolliePayment(await getMollieApiKey(c.env), {
       amount: totalAmount,
       description: `Inschrijving ${activity.intro_text ? 'Activiteit' : 'Event'} - ${user.voornaam}`, // Fallback title

@@ -7,6 +7,7 @@ import { verifyToken } from '../utils/auth'
 
 import { createMolliePayment, getMollieMode } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
+import { getSiteUrl } from '../utils/site-url'
 import { sendEmail } from '../utils/email'
 import { createNotification, createNotificationForUsers } from '../utils/notifications'
 import { formatBrusselsDate, formatBrusselsTime, brusselsToday } from '../utils/time'
@@ -2333,7 +2334,7 @@ app.post('/api/admin/lidgelden/send-link', async (c) => {
   if (!membership || membership.status === 'paid') return c.redirect('/admin/lidgelden')
 
   // Generate Payment Link (if not exists)
-  const siteUrl = c.env.SITE_URL || 'https://animato.be'
+  const siteUrl = await getSiteUrl(c)
   let paymentUrl = membership.mollie_payment_url
 
   if (!paymentUrl) {
@@ -2568,7 +2569,7 @@ app.post('/api/admin/lidgelden/bulk-remind', async (c) => {
     return (now - created) / DAY > 30
   })
 
-  const siteUrl = c.env.SITE_URL || 'https://animato-live.pages.dev'
+  const siteUrl = await getSiteUrl(c)
   const apiKey = await getMollieApiKey(c.env)
   let sent = 0
   let failed = 0

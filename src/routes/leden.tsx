@@ -9,6 +9,7 @@ import { requireAuth } from '../middleware/auth'
 import { queryOne, queryAll, execute } from '../utils/db'
 import { createMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
+import { getSiteUrl } from '../utils/site-url'
 import { processBodyLinks } from '../utils/text'
 import { getNotificationsForUser, getUnreadCount, markAsRead, markAllAsRead, getNotificationStyle, notifyUserIfEnabled, getUserNotificationPrefs, setUserNotificationPrefs } from '../utils/notifications'
 import type { NotificationType } from '../utils/notifications'
@@ -1656,7 +1657,7 @@ app.post('/api/leden/donatie', async (c) => {
     
     if (!amount || amount < 1) return c.redirect('/leden/donaties?error=invalid_amount')
 
-    const siteUrl = c.env.SITE_URL || 'https://animato.be'
+    const siteUrl = await getSiteUrl(c)
 
     // Bug #197 — naam + referentie meegeven in Mollie description.
     // We doen INSERT eerst zodat we de donation_id meteen in de description
@@ -2518,7 +2519,7 @@ app.get('/leden/profiel', async (c) => {
 
   // Auto-confirm mock payments in dev
   if (paymentId && paymentId.startsWith('tr_MOCK_')) {
-      const siteUrl = c.env.SITE_URL || 'http://localhost:3000'
+      const siteUrl = await getSiteUrl(c)
       try {
           // Trigger webhook
           await fetch(`${siteUrl}/api/webhooks/mollie`, {
@@ -4947,7 +4948,7 @@ app.post('/api/leden/betaling/online', async (c) => {
     membership.mollie_payment_url = null
   }
 
-  const siteUrl = c.env.SITE_URL || 'https://animato.be'
+  const siteUrl = await getSiteUrl(c)
   
   // Calculate total
   const totalAmount = membership.amount + donationAmount

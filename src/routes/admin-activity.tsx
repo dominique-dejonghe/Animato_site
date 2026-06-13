@@ -103,7 +103,10 @@ app.post('/api/admin/activities/send-invites', async (c) => {
     ids
   )
 
-  const siteUrl = c.env.SITE_URL || 'https://animato.be'
+  // siteUrl: gebruikt voor e-mail-links naar activiteiten. Niet kritiek-Mollie-flow,
+  // maar consistente helper-aanpak voor één bron van waarheid (zie src/utils/site-url.ts).
+  // Hier zonder context: best-effort uit env, fallback animato-live.pages.dev.
+  const siteUrl = (c.env.SITE_URL && String(c.env.SITE_URL).trim().replace(/\/+$/, '')) || 'https://animato-live.pages.dev'
   const SAFE_LIMIT = 100
   let count = 0
 

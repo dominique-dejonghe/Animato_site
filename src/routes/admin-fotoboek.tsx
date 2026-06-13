@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
 import type { Bindings, SessionUser } from '../types'
-import { requireAuth, requireRole } from '../middleware/auth'
+import { requireAuth, requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
 import { uploadDataUrlToR2, deleteFromR2, isDataUrl, r2KeyFromUrl } from '../utils/r2-storage'
 
@@ -10,7 +10,7 @@ const app = new Hono<{ Bindings: Bindings }>()
 
 // Apply authentication middleware
 app.use('/admin/*', requireAuth)
-app.use('/admin/*', requireRole('admin', 'moderator'))
+app.use('/admin/*', requireBestuurslid)
 
 // =====================================================
 // FOTOBOEK MANAGEMENT - Albums Overview

@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { Layout } from '../components/Layout'
 import { QuillLinkPicker } from '../components/QuillLinkPicker'
-import { requireRole, type SessionUser } from '../middleware/auth'
+import { requireRole, requireBestuurslid, type SessionUser } from '../middleware/auth'
 import { queryAll, queryOne, execute } from '../utils/db'
 import { getMollieMode } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
@@ -9,7 +9,7 @@ import { getMollieApiKey } from '../utils/mollie-config'
 const app = new Hono()
 
 // Apply admin authentication to all routes
-app.use('/admin/*', requireRole('admin', 'moderator'))
+app.use('/admin/*', requireBestuurslid)
 
 // ==========================================
 // CONCERTS OVERVIEW - List all concerts with ticketing

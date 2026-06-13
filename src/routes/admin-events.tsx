@@ -6,7 +6,7 @@ import type { Bindings, SessionUser, Event, Location, RecurrenceRule } from '../
 import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
 import { QuillLinkPicker } from '../components/QuillLinkPicker'
-import { requireAuth, requireRole } from '../middleware/auth'
+import { requireAuth, requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 import { createEventOccurrences, formatRecurrenceRule } from '../utils/recurring-events'
 import { generateICS, generateBulkICS, generateGoogleCalendarURL } from '../utils/ics'
@@ -18,7 +18,7 @@ const app = new Hono<{ Bindings: Bindings }>()
 
 // Apply auth middleware
 app.use('/admin/*', requireAuth)
-app.use('/admin/*', requireRole('admin', 'moderator'))
+app.use('/admin/*', requireBestuurslid)
 
 // =====================================================
 // EVENTS OVERVIEW

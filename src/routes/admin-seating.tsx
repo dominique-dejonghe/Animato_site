@@ -2,13 +2,13 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
-import { requireRole } from '../middleware/auth'
+import { requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryAll, queryOne, execute } from '../utils/db'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Middleware
-app.use('/admin/*', requireRole('admin', 'moderator'))
+app.use('/admin/*', requireBestuurslid)
 
 // =====================================================
 // OVERVIEW

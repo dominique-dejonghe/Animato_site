@@ -4,14 +4,14 @@
 import { Hono } from 'hono'
 import type { Bindings, SessionUser, Location } from '../types'
 import { Layout } from '../components/Layout'
-import { requireAuth, requireRole } from '../middleware/auth'
+import { requireAuth, requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll, execute } from '../utils/db'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Apply auth middleware
 app.use('/admin/*', requireAuth)
-app.use('/admin/*', requireRole('admin', 'moderator'))
+app.use('/admin/*', requireBestuurslid)
 
 // =====================================================
 // HELPER: BUILD MAP EMBED URL (no API key needed)

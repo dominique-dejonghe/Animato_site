@@ -4,14 +4,14 @@
 import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
-import { requireAuth, requireRole } from '../middleware/auth'
+import { requireAuth, requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Apply auth middleware - only admin and moderator
 app.use('/admin/*', requireAuth)
-app.use('/admin/*', requireRole('admin', 'moderator'))
+app.use('/admin/*', requireBestuurslid)
 
 // =====================================================
 // ADMIN VOORSTELLEN OVERZICHT

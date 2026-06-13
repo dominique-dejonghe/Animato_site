@@ -1155,7 +1155,8 @@ app.get('/concerten/:slug', async (c) => {
   const concert = await queryOne<any>(
     c.env.DB,
     `SELECT e.*, c.poster_url, c.programma, c.prijsstructuur, c.capaciteit, c.verkocht, c.uitverkocht, c.ticketing_enabled, c.tickets_aangekondigd, c.voorverkoop_start_at,
-            c.parking, c.toegankelijkheid, c.duur_info, c.sfeer_dresscode, c.extra_info
+            c.parking, c.toegankelijkheid, c.duur_info, c.sfeer_dresscode, c.extra_info,
+            c.doors_open_at, c.concert_start_at
      FROM events e
      LEFT JOIN concerts c ON c.event_id = e.id
      WHERE e.slug = ? AND e.type = 'concert'`,
@@ -1357,10 +1358,19 @@ app.get('/concerten/:slug', async (c) => {
                       <i class="far fa-clock text-animato-primary text-xl"></i>
                     </div>
                     <div>
+                      {/* Bug #214 — gebruik concert_start_at als die gezet is,
+                          anders fallback op events.start_at. Toon deuren apart
+                          als die los is ingesteld. */}
                       <div class="text-sm text-gray-500">Aanvang</div>
                       <div class="font-semibold">
-                        {formatBrusselsTime(concert.start_at)} uur
+                        {formatBrusselsTime(concert.concert_start_at || concert.start_at)} uur
                       </div>
+                      {concert.doors_open_at && (
+                        <div class="text-xs text-gray-500 mt-0.5">
+                          <i class="fas fa-door-open mr-1"></i>
+                          Deuren open: <strong>{formatBrusselsTime(concert.doors_open_at)} uur</strong>
+                        </div>
+                      )}
                     </div>
                   </div>
 

@@ -21,8 +21,11 @@ app.get('/concerten/:eventId/tickets', async (c) => {
   const user = c.get('user') as SessionUser | null
   
   // Get event and concert info with seating plan
+  // Bug #214 — c.doors_open_at en c.concert_start_at meenemen zodat we
+  // ze kunnen tonen als ze gezet zijn (fallback = e.start_at)
   const concert = await queryOne(c.env.DB, `
-    SELECT c.*, e.titel, e.beschrijving, e.start_at, e.locatie, sp.name as seating_plan_name, sp.width as sp_width, sp.height as sp_height
+    SELECT c.*, e.titel, e.beschrijving, e.start_at, e.locatie,
+           sp.name as seating_plan_name, sp.width as sp_width, sp.height as sp_height
     FROM concerts c
     JOIN events e ON e.id = c.event_id
     LEFT JOIN seating_plans sp ON c.seating_plan_id = sp.id
@@ -75,8 +78,18 @@ app.get('/concerten/:eventId/tickets', async (c) => {
     `, [concert.id, concert.seating_plan_id])
   }
 
-  const eventDate = new Date(concert.start_at)
+  // Bug #214 — eigen ticket-uren met fallback op events.start_at
+  const concertStartRaw = concert.concert_start_at || concert.start_at
+  const doorsOpenRaw = concert.doors_open_at
+  const concertStartDate = new Date(String(concertStartRaw).replace(' ', 'T'))
+  const doorsOpenDate = doorsOpenRaw ? new Date(String(doorsOpenRaw).replace(' ', 'T')) : null
+  // Voor "is concert al voorbij?" check: gebruik concert-start (of fallback)
+  const eventDate = concertStartDate
   const isPast = eventDate < new Date()
+  // Toon ook deuren+concert apart als deuren expliciet vóór concert-start liggen
+  const showDoorsLine = !!doorsOpenDate && doorsOpenDate.getTime() < concertStartDate.getTime()
+  const fmtTime = (d: Date) => d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Brussels' })
+  const fmtDate = (d: Date) => d.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Europe/Brussels' })
 
   return c.html(
     <Layout title={`Tickets - ${concert.titel}`} user={user}>
@@ -108,11 +121,26 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                       <i class="fas fa-calendar-alt text-animato-primary mr-3 mt-1"></i>
                       <div>
                         <div class="font-semibold">
-                          {eventDate.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                          {fmtDate(concertStartDate)}
                         </div>
-                        <div class="text-gray-600">
-                          {eventDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })} uur
-                        </div>
+                        {/* Bug #214 — toon deuren-open EN concert-start als ze
+                            verschillend zijn ingesteld. Anders enkel het uur. */}
+                        {showDoorsLine ? (
+                          <div class="text-gray-600 space-y-0.5">
+                            <div>
+                              <i class="fas fa-door-open text-xs mr-1 text-gray-500"></i>
+                              Deuren open: <strong>{fmtTime(doorsOpenDate!)} uur</strong>
+                            </div>
+                            <div>
+                              <i class="fas fa-music text-xs mr-1 text-gray-500"></i>
+                              Concert start: <strong>{fmtTime(concertStartDate)} uur</strong>
+                            </div>
+                          </div>
+                        ) : (
+                          <div class="text-gray-600">
+                            {fmtTime(concertStartDate)} uur
+                          </div>
+                        )}
                       </div>
                     </div>
 

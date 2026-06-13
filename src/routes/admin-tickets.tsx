@@ -982,6 +982,91 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
                 </p>
               </div>
 
+              {/* Bug #214 — Concert-aanvangsuur & deuren-open
+                  Los van events.start_at. Als ze leeg blijven, valt de
+                  publieke pagina + ticket-mails terug op events.start_at
+                  (oud gedrag, niets verandert). */}
+              <div class="border-l-4 border-indigo-400 bg-indigo-50 rounded-r-lg p-4">
+                <div class="flex items-start justify-between gap-3 mb-3 flex-wrap">
+                  <div>
+                    <h3 class="text-sm font-semibold text-indigo-900">
+                      <i class="fas fa-door-open mr-2"></i>
+                      Concerturen (optioneel)
+                    </h3>
+                    <p class="text-xs text-indigo-800 mt-1">
+                      Standaard nemen we het uur over van de agenda-afspraak
+                      (<strong>{concert.start_at ? new Date(String(concert.start_at).replace(' ', 'T')).toLocaleString('nl-BE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Brussels' }) : '—'}</strong>).
+                      Hieronder kan je deuren-open en aanvang apart instellen — handig
+                      voor concertposters of bestellingsmails.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    id="syncConcertTimes"
+                    class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-white border border-indigo-300 text-indigo-700 hover:bg-indigo-100 rounded-lg transition whitespace-nowrap"
+                    title="Vul concert-aanvang in met agenda-uur en zet deuren 1 uur eerder"
+                    data-event-start={concert.start_at ? String(concert.start_at).replace(' ', 'T').substring(0, 16) : ''}
+                  >
+                    <i class="fas fa-sync-alt"></i>
+                    Synchroniseer met agenda
+                  </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label class="block text-xs font-medium text-indigo-900 mb-1">
+                      <i class="fas fa-door-open mr-1"></i> Deuren open om
+                    </label>
+                    <input
+                      type="datetime-local"
+                      name="doors_open_at"
+                      id="doors_open_at"
+                      value={concert.doors_open_at ? String(concert.doors_open_at).replace(' ', 'T').substring(0, 16) : ''}
+                      class="w-full border border-indigo-300 rounded-lg px-3 py-2 bg-white text-sm"
+                    />
+                    <p class="text-[11px] text-indigo-700 mt-1">Wanneer publiek de zaal in mag (typisch 30-60 min vóór aanvang).</p>
+                  </div>
+                  <div>
+                    <label class="block text-xs font-medium text-indigo-900 mb-1">
+                      <i class="fas fa-music mr-1"></i> Concert start om
+                    </label>
+                    <input
+                      type="datetime-local"
+                      name="concert_start_at"
+                      id="concert_start_at"
+                      value={concert.concert_start_at ? String(concert.concert_start_at).replace(' ', 'T').substring(0, 16) : ''}
+                      class="w-full border border-indigo-300 rounded-lg px-3 py-2 bg-white text-sm"
+                    />
+                    <p class="text-[11px] text-indigo-700 mt-1">Officieel aanvangsuur van de muziek. Laat leeg om agenda-uur te gebruiken.</p>
+                  </div>
+                </div>
+
+                <script dangerouslySetInnerHTML={{ __html: `
+                  (function(){
+                    var btn = document.getElementById('syncConcertTimes');
+                    if (!btn) return;
+                    btn.addEventListener('click', function(){
+                      var eventStart = btn.getAttribute('data-event-start');
+                      if (!eventStart) {
+                        alert('Geen agenda-uur gevonden voor dit concert.');
+                        return;
+                      }
+                      var startInput = document.getElementById('concert_start_at');
+                      var doorsInput = document.getElementById('doors_open_at');
+                      // Concert-start = exact event-uur
+                      startInput.value = eventStart;
+                      // Deuren = 1u eerder
+                      var d = new Date(eventStart);
+                      d.setHours(d.getHours() - 1);
+                      var pad = function(n){ return String(n).padStart(2, '0'); };
+                      var doorsStr = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) +
+                                     'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+                      doorsInput.value = doorsStr;
+                    });
+                  })();
+                ` }} />
+              </div>
+
               <div>
                 <label class="block text-sm font-medium text-gray-700 mb-2">
                   Maximale capaciteit
@@ -1583,13 +1668,18 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
       return c.json({ error: 'Concert niet gevonden' }, 404)
     }
 
-    // Normaliseer voorverkoop_start_at: leeg → NULL, 'YYYY-MM-DDTHH:MM' → 'YYYY-MM-DD HH:MM:00'
-    let voorverkoopStart: string | null = null
-    const voorverkoopRaw = String(body.voorverkoop_start_at || '').trim()
-    if (voorverkoopRaw) {
-      // datetime-local levert 'YYYY-MM-DDTHH:MM' op — omzetten naar SQLite-vriendelijk formaat
-      voorverkoopStart = voorverkoopRaw.replace('T', ' ') + (voorverkoopRaw.length === 16 ? ':00' : '')
+    // Normaliseer datetime-local input: leeg → NULL, 'YYYY-MM-DDTHH:MM' → 'YYYY-MM-DD HH:MM:00'
+    // Helper omdat we 'm voor 3 velden nodig hebben (voorverkoop, deuren, concert-start)
+    const normalizeDateTime = (raw: any): string | null => {
+      const s = String(raw || '').trim()
+      if (!s) return null
+      return s.replace('T', ' ') + (s.length === 16 ? ':00' : '')
     }
+
+    const voorverkoopStart = normalizeDateTime(body.voorverkoop_start_at)
+    // Bug #214 — eigen ticket-uren, los van events.start_at
+    const doorsOpenAt = normalizeDateTime(body.doors_open_at)
+    const concertStartAt = normalizeDateTime(body.concert_start_at)
 
     // Update concert settings
     await execute(c.env.DB, `
@@ -1598,6 +1688,8 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
         uitverkocht = ?,
         tickets_aangekondigd = ?,
         voorverkoop_start_at = ?,
+        doors_open_at = ?,
+        concert_start_at = ?,
         capaciteit = ?,
         prijsstructuur = ?,
         programma = ?,
@@ -1612,6 +1704,8 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
       body.uitverkocht ? 1 : 0,
       body.tickets_aangekondigd ? 1 : 0,
       voorverkoopStart,
+      doorsOpenAt,
+      concertStartAt,
       parseInt(String(body.capaciteit)) || 0,
       JSON.stringify(prijzen),
       String(body.programma || ''),

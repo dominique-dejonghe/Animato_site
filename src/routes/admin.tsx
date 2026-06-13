@@ -84,6 +84,8 @@ app.get('/admin', async (c) => {
   const stats = {
     // Alle actieve users tellen mee — lid, stemleider, pianist, dirigent, admin, moderator
     total_leden: await safeCount(`SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
+    // Niet-actieve leden — gestopt maar bewaard voor historie. Test-accounts uitgesloten.
+    total_inactieve_leden: await safeCount(`SELECT COUNT(*) as count FROM users WHERE status = 'inactief' AND (is_test_account IS NULL OR is_test_account = 0)`),
     total_posts: await safeCount(`SELECT COUNT(*) as count FROM posts WHERE is_published = 1`),
     total_events: await safeCount(`SELECT COUNT(*) as count FROM events WHERE datetime(start_at) > datetime('now')`),
     total_albums: await safeCount(`SELECT COUNT(*) as count FROM albums WHERE is_publiek = 1`),
@@ -145,15 +147,21 @@ app.get('/admin', async (c) => {
     console.error('admin recentActivity query failed:', e)
   }
 
-  // Get stemgroep breakdown — defensief
+  // Get stemgroep breakdown — defensief, met aparte tellingen voor actief en inactief
+  // zodat we het verloop per stemgroep zien (bv. 'Sopraan: 12 actief, 3 inactief').
   let stemgroepStats: any[] = []
   try {
     stemgroepStats = await queryAll(
       c.env.DB,
-      `SELECT stemgroep, COUNT(*) as count
+      `SELECT stemgroep,
+              SUM(CASE WHEN status = 'actief'   THEN 1 ELSE 0 END) as count,
+              SUM(CASE WHEN status = 'inactief' THEN 1 ELSE 0 END) as inactief_count
        FROM users
-       WHERE role = 'lid' AND status = 'actief'
-       GROUP BY stemgroep`
+       WHERE role = 'lid'
+         AND status IN ('actief', 'inactief')
+         AND (is_test_account IS NULL OR is_test_account = 0)
+       GROUP BY stemgroep
+       HAVING count > 0 OR inactief_count > 0`
     ) || []
   } catch (e) {
     console.error('admin stemgroepStats query failed:', e)
@@ -280,7 +288,15 @@ app.get('/admin', async (c) => {
                   <i class="fas fa-users text-animato-primary text-base"></i>
                 </div>
               </div>
-              <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_leden?.count || 0}</p>
+              <div>
+                <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_leden?.count || 0}</p>
+                {(stats.total_inactieve_leden?.count || 0) > 0 && (
+                  <p class="text-xs text-gray-500 mt-1">
+                    <i class="fas fa-user-slash mr-1 text-gray-400"></i>
+                    + {stats.total_inactieve_leden?.count || 0} inactief
+                  </p>
+                )}
+              </div>
               <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 Bekijk alle leden <i class="fas fa-arrow-right text-xs"></i>
               </span>
@@ -592,15 +608,23 @@ app.get('/admin', async (c) => {
                     'bas': 'Bas'
                   }
                   
+                  const inactCount = Number(stat.inactief_count) || 0
                   return (
                     <div>
                       <div class="flex items-center justify-between mb-1">
                         <span class="text-sm font-medium text-gray-700">{labels[stat.stemgroep] || stat.stemgroep}</span>
-                        <span class="text-sm text-gray-600">{stat.count} leden ({percentage}%)</span>
+                        <span class="text-sm text-gray-600">
+                          {stat.count} leden ({percentage}%)
+                          {inactCount > 0 && (
+                            <span class="text-xs text-gray-400 ml-1" title={`${inactCount} inactieve leden in deze stemgroep`}>
+                              <i class="fas fa-user-slash mr-0.5"></i>+{inactCount}
+                            </span>
+                          )}
+                        </span>
                       </div>
                       <div class="w-full bg-gray-200 rounded-full h-2">
-                        <div 
-                          class="bg-animato-primary h-2 rounded-full" 
+                        <div
+                          class="bg-animato-primary h-2 rounded-full"
                           style={`width: ${percentage}%`}
                         ></div>
                       </div>
@@ -608,6 +632,17 @@ app.get('/admin', async (c) => {
                   )
                 })}
               </div>
+              {(stats.total_inactieve_leden?.count || 0) > 0 && (
+                <div class="mt-4 pt-3 border-t border-gray-100 text-xs text-gray-500 flex items-center justify-between">
+                  <span>
+                    <i class="fas fa-user-slash text-gray-400 mr-1"></i>
+                    Totaal inactief: <strong>{stats.total_inactieve_leden?.count || 0}</strong>
+                  </span>
+                  <a href="/admin/leden?status=inactief" class="text-animato-primary hover:underline">
+                    Bekijk inactieve leden <i class="fas fa-arrow-right text-[10px]"></i>
+                  </a>
+                </div>
+              )}
             </div>
             )}
 

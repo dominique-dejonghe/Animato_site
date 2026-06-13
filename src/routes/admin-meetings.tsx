@@ -41,17 +41,18 @@ app.get('/admin/meetings', async (c) => {
      LIMIT 10`
   )
 
-  // Get open action items across all meetings
+  // Get open action items across all meetings — gesorteerd op prio dan deadline
   const openActions = await queryAll(
     c.env.DB,
     `SELECT a.*, m.titel as meeting_titel, datetime(m.datum || ' ' || COALESCE(m.start_tijd, '00:00')) as meeting_date,
-            u.id as user_id, p.voornaam, p.achternaam
+            u.id as user_id, p.voornaam, p.achternaam,
+            COALESCE(a.prioriteit, 2) as prioriteit
      FROM meeting_action_items a
      JOIN meetings m ON m.id = a.meeting_id
      LEFT JOIN users u ON u.id = a.verantwoordelijke_id
      LEFT JOIN profiles p ON p.user_id = u.id
      WHERE a.status != 'done'
-     ORDER BY a.deadline ASC`
+     ORDER BY COALESCE(a.prioriteit, 2) ASC, a.deadline ASC`
   )
 
   return c.html(
@@ -179,9 +180,14 @@ app.get('/admin/meetings', async (c) => {
                             <div class={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${
                               action.status === 'in_progress' ? 'bg-blue-500' : 'bg-gray-400'
                             }`}></div>
-                            <div>
-                              <p class="text-sm font-medium text-gray-900">{action.beschrijving}</p>
-                              <div class="flex items-center gap-2 mt-1">
+                            <div class="min-w-0 flex-1">
+                              {/* Titel eerst (1-op-1 met /admin/meetings/:id?tab=actions),
+                                  beschrijving als optionele subtekst */}
+                              <p class="text-sm font-medium text-gray-900 break-words">{action.titel || action.beschrijving || '(zonder titel)'}</p>
+                              {action.titel && action.beschrijving && (
+                                <p class="text-xs text-gray-500 mt-0.5 break-words line-clamp-2">{action.beschrijving}</p>
+                              )}
+                              <div class="flex items-center gap-2 mt-1 flex-wrap">
                                 {action.voornaam && (
                                   <span class="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
                                     {action.voornaam} {action.achternaam?.charAt(0)}.
@@ -305,14 +311,17 @@ app.get('/admin/meetings/:id', async (c) => {
   )
 
   // Get action items
+  // Default-sortering: prioriteit ASC (hoog=1 eerst), dan created_at DESC.
+  // Client-side JS doet de echte sortering bij klik op kolomheaders.
   const actionItems = await queryAll<any>(
     c.env.DB,
-    `SELECT a.*, p.voornaam, p.achternaam
+    `SELECT a.*, p.voornaam, p.achternaam,
+            COALESCE(a.prioriteit, 2) as prioriteit
      FROM meeting_action_items a
      LEFT JOIN users u ON u.id = a.verantwoordelijke_id
      LEFT JOIN profiles p ON p.user_id = u.id
      WHERE a.meeting_id = ?
-     ORDER BY a.created_at DESC`,
+     ORDER BY COALESCE(a.prioriteit, 2) ASC, a.created_at DESC`,
     [meetingId]
   )
 
@@ -774,19 +783,55 @@ app.get('/admin/meetings/:id', async (c) => {
                       </div>
 
                       <div class="overflow-x-auto">
-                        <table class="min-w-full divide-y divide-gray-200">
+                        <table class="min-w-full divide-y divide-gray-200" id="actiepunten-table">
                            <thead class="bg-gray-50">
                               <tr>
-                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actiepunt</th>
-                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Wie</th>
-                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Deadline</th>
-                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer select-none hover:bg-gray-100 transition" data-sort-col="prio" data-sort-type="number">
+                                    Prio <i class="fas fa-sort text-gray-300 ml-1 sort-icon"></i>
+                                 </th>
+                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer select-none hover:bg-gray-100 transition" data-sort-col="actiepunt" data-sort-type="string">
+                                    Actiepunt <i class="fas fa-sort text-gray-300 ml-1 sort-icon"></i>
+                                 </th>
+                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer select-none hover:bg-gray-100 transition" data-sort-col="wie" data-sort-type="string">
+                                    Wie <i class="fas fa-sort text-gray-300 ml-1 sort-icon"></i>
+                                 </th>
+                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer select-none hover:bg-gray-100 transition" data-sort-col="deadline" data-sort-type="number">
+                                    Deadline <i class="fas fa-sort text-gray-300 ml-1 sort-icon"></i>
+                                 </th>
+                                 <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer select-none hover:bg-gray-100 transition" data-sort-col="status" data-sort-type="number">
+                                    Status <i class="fas fa-sort text-gray-300 ml-1 sort-icon"></i>
+                                 </th>
                                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actie</th>
                               </tr>
                            </thead>
                            <tbody class="divide-y divide-gray-200">
-                              {actionItems.map((action: any) => (
-                                 <tr>
+                              {actionItems.map((action: any) => {
+                                const prio = Number(action.prioriteit) || 2
+                                const prioLabel = prio === 1 ? 'Hoog' : prio === 3 ? 'Laag' : 'Normaal'
+                                const prioClass = prio === 1 ? 'bg-red-100 text-red-700' : prio === 3 ? 'bg-gray-100 text-gray-600' : 'bg-yellow-100 text-yellow-700'
+                                // Status-sort: open=1, in_progress=2, done=3 (zodat open eerst komt bij asc)
+                                const statusSort = action.status === 'open' ? 1 : action.status === 'in_progress' ? 2 : 3
+                                // Deadline-sort: timestamp (ms) — geen deadline = ver in de toekomst
+                                const deadlineSort = action.deadline ? new Date(action.deadline).getTime() : 99999999999999
+                                return (
+                                 <tr
+                                   data-sort-prio={prio}
+                                   data-sort-actiepunt={(action.titel || '').toLowerCase()}
+                                   data-sort-wie={(action.voornaam || '').toLowerCase()}
+                                   data-sort-deadline={deadlineSort}
+                                   data-sort-status={statusSort}
+                                 >
+                                    <td class="px-4 py-3 align-top">
+                                       <form action="/api/admin/meetings/actions/prioriteit" method="POST" onchange="this.submit()" class="inline-block">
+                                          <input type="hidden" name="action_id" value={action.id} />
+                                          <input type="hidden" name="meeting_id" value={meetingId} />
+                                          <select name="prioriteit" class={`text-xs rounded-full border-0 py-0.5 pl-2 pr-6 font-semibold ${prioClass}`} title="Prioriteit aanpassen">
+                                             <option value="1" selected={prio === 1}>Hoog</option>
+                                             <option value="2" selected={prio === 2}>Normaal</option>
+                                             <option value="3" selected={prio === 3}>Laag</option>
+                                          </select>
+                                       </form>
+                                    </td>
                                     <td class="px-4 py-3 text-sm text-gray-900 align-top">
                                        <span class="font-medium">{action.titel}</span>
                                        {action.beschrijving && action.beschrijving !== '' && (
@@ -801,7 +846,8 @@ app.get('/admin/meetings/:id', async (c) => {
                                           <input type="hidden" name="action_id" value={action.id} />
                                           <input type="hidden" name="meeting_id" value={meetingId} />
                                           <select name="status" class={`text-xs rounded border-0 py-1 pl-2 pr-6 ring-1 ring-inset ${
-                                             action.status === 'done' ? 'ring-green-600 text-green-700 bg-green-50' : 
+                                             action.status === 'done' ? 'ring-green-600 text-green-700 bg-green-50' :
+                                             action.status === 'in_progress' ? 'ring-blue-400 text-blue-700 bg-blue-50' :
                                              'ring-gray-300 text-gray-700'
                                           }`}>
                                              <option value="open" selected={action.status === 'open'}>Te doen</option>
@@ -818,6 +864,7 @@ app.get('/admin/meetings/:id', async (c) => {
                                           data-action-beschrijving={action.beschrijving || ''}
                                           data-action-verantwoordelijke={action.verantwoordelijke_id || ''}
                                           data-action-deadline={action.deadline ? String(action.deadline).split('T')[0] : ''}
+                                          data-action-prioriteit={prio}
                                           onclick="openEditActionModalFromDataset(this)"
                                           class="text-blue-600 hover:text-blue-900 mr-3"
                                           title="Actiepunt bewerken"
@@ -830,10 +877,46 @@ app.get('/admin/meetings/:id', async (c) => {
                                        </form>
                                     </td>
                                  </tr>
-                              ))}
+                                )
+                              })}
                            </tbody>
                         </table>
                       </div>
+                      {/* Client-side sort script voor de Actiepunten-tabel */}
+                      <script dangerouslySetInnerHTML={{__html: `
+                        (function() {
+                          const table = document.getElementById('actiepunten-table');
+                          if (!table) return;
+                          const tbody = table.querySelector('tbody');
+                          let currentSort = { col: 'prio', dir: 'asc' };
+                          table.querySelectorAll('th[data-sort-col]').forEach(th => {
+                            th.addEventListener('click', () => {
+                              const col = th.dataset.sortCol;
+                              const type = th.dataset.sortType;
+                              const dir = currentSort.col === col && currentSort.dir === 'asc' ? 'desc' : 'asc';
+                              currentSort = { col, dir };
+                              // Update icons
+                              table.querySelectorAll('.sort-icon').forEach(i => { i.className = 'fas fa-sort text-gray-300 ml-1 sort-icon'; });
+                              const icon = th.querySelector('.sort-icon');
+                              if (icon) icon.className = 'fas fa-sort-' + (dir === 'asc' ? 'up' : 'down') + ' text-animato-primary ml-1 sort-icon';
+                              // Sort rows
+                              const rows = Array.from(tbody.querySelectorAll('tr'));
+                              rows.sort((a, b) => {
+                                let av = a.dataset['sort' + col.charAt(0).toUpperCase() + col.slice(1)];
+                                let bv = b.dataset['sort' + col.charAt(0).toUpperCase() + col.slice(1)];
+                                if (type === 'number') { av = Number(av) || 0; bv = Number(bv) || 0; return dir === 'asc' ? av - bv : bv - av; }
+                                av = String(av || ''); bv = String(bv || '');
+                                return dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+                              });
+                              rows.forEach(r => tbody.appendChild(r));
+                            });
+                          });
+                          // Initialiseer pijl op prio (default-sortering server-side)
+                          const initTh = table.querySelector('th[data-sort-col="prio"] .sort-icon');
+                          if (initTh) initTh.className = 'fas fa-sort-up text-animato-primary ml-1 sort-icon';
+                        })();
+                      `}} />
+
 
                       {/* Add Action Modal */}
                       <div id="add-action-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
@@ -861,9 +944,19 @@ app.get('/admin/meetings/:id', async (c) => {
                                     <MemberPicker name="verantwoordelijke_id" users={users} inputId="add-action-verantwoordelijke" placeholder="Typ om te zoeken..." />
                                     <p class="text-xs text-gray-500 mt-1">Tip: typ een paar letters om snel een lid te vinden.</p>
                                   </div>
-                                  <div class="mb-3">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Deadline</label>
-                                    <input type="date" name="deadline" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                                  <div class="grid grid-cols-2 gap-3 mb-3">
+                                    <div>
+                                      <label class="block text-sm font-medium text-gray-700 mb-1">Prioriteit</label>
+                                      <select name="prioriteit" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
+                                        <option value="1">Hoog</option>
+                                        <option value="2" selected>Normaal</option>
+                                        <option value="3">Laag</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label class="block text-sm font-medium text-gray-700 mb-1">Deadline</label>
+                                      <input type="date" name="deadline" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                                    </div>
                                   </div>
                                   <div class="flex justify-end gap-3 mt-6">
                                     <button type="button" onclick="document.getElementById('add-action-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition">Annuleren</button>
@@ -901,9 +994,19 @@ app.get('/admin/meetings/:id', async (c) => {
                                     <label class="block text-sm font-medium text-gray-700 mb-1">Verantwoordelijke</label>
                                     <MemberPicker name="verantwoordelijke_id" users={users} inputId="edit-action-verantwoordelijke" placeholder="Typ om te zoeken..." />
                                   </div>
-                                  <div class="mb-3">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Deadline</label>
-                                    <input type="date" name="deadline" id="edit-action-deadline" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                                  <div class="grid grid-cols-2 gap-3 mb-3">
+                                    <div>
+                                      <label class="block text-sm font-medium text-gray-700 mb-1">Prioriteit</label>
+                                      <select name="prioriteit" id="edit-action-prioriteit" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
+                                        <option value="1">Hoog</option>
+                                        <option value="2">Normaal</option>
+                                        <option value="3">Laag</option>
+                                      </select>
+                                    </div>
+                                    <div>
+                                      <label class="block text-sm font-medium text-gray-700 mb-1">Deadline</label>
+                                      <input type="date" name="deadline" id="edit-action-deadline" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                                    </div>
                                   </div>
                                   <div class="flex justify-end gap-3 mt-6">
                                     <button type="button" onclick="document.getElementById('edit-action-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition">Annuleren</button>
@@ -1264,6 +1367,9 @@ app.get('/admin/meetings/:id', async (c) => {
             window.__setMemberPicker('edit-action-verantwoordelijke', ds.actionVerantwoordelijke || '');
           }
           document.getElementById('edit-action-deadline').value = ds.actionDeadline || '';
+          // Prioriteit instellen (default 2 = Normaal als niet gezet)
+          const prioEl = document.getElementById('edit-action-prioriteit');
+          if (prioEl) prioEl.value = ds.actionPrioriteit || '2';
           document.getElementById('edit-action-modal').classList.remove('hidden');
         }
         window.openEditActionModalFromDataset = openEditActionModalFromDataset;
@@ -1411,12 +1517,14 @@ app.post('/api/admin/meetings/agenda/create', async (c) => {
 
 app.post('/api/admin/meetings/actions/create', async (c) => {
   const body = await c.req.parseBody()
-  const { meeting_id, titel, beschrijving, verantwoordelijke_id, deadline } = body
-  
+  const { meeting_id, titel, beschrijving, verantwoordelijke_id, deadline, prioriteit } = body
+  // Prio default 2 (normaal), 1=hoog, 3=laag
+  const prio = prioriteit ? Math.min(3, Math.max(1, Number(prioriteit))) : 2
+
   await c.env.DB.prepare(
-    `INSERT INTO meeting_action_items (meeting_id, titel, beschrijving, verantwoordelijke_id, deadline)
-     VALUES (?, ?, ?, ?, ?)`
-  ).bind(meeting_id, titel, beschrijving || '', verantwoordelijke_id || null, deadline || null).run()
+    `INSERT INTO meeting_action_items (meeting_id, titel, beschrijving, verantwoordelijke_id, deadline, prioriteit)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(meeting_id, titel, beschrijving || '', verantwoordelijke_id || null, deadline || null, prio).run()
 
   return c.redirect(`/admin/meetings/${meeting_id}?tab=actions`)
 })
@@ -1429,21 +1537,32 @@ app.post('/api/admin/meetings/actions/status', async (c) => {
   return c.redirect(`/admin/meetings/${meeting_id}?tab=actions`)
 })
 
-// Update full action item (titel/beschrijving/verantwoordelijke/deadline)
+// Prioriteit van een actiepunt aanpassen via dropdown in de tabel
+app.post('/api/admin/meetings/actions/prioriteit', async (c) => {
+  const body = await c.req.parseBody()
+  const { action_id, meeting_id, prioriteit } = body
+  const prio = Math.min(3, Math.max(1, Number(prioriteit) || 2))
+  await c.env.DB.prepare(`UPDATE meeting_action_items SET prioriteit = ? WHERE id = ?`).bind(prio, action_id).run()
+  return c.redirect(`/admin/meetings/${meeting_id}?tab=actions`)
+})
+
+// Update full action item (titel/beschrijving/verantwoordelijke/deadline/prioriteit)
 app.post('/api/admin/meetings/actions/:id/update', async (c) => {
   const id = c.req.param('id')
   const body = await c.req.parseBody()
-  const { meeting_id, titel, beschrijving, verantwoordelijke_id, deadline } = body
+  const { meeting_id, titel, beschrijving, verantwoordelijke_id, deadline, prioriteit } = body
+  const prio = prioriteit ? Math.min(3, Math.max(1, Number(prioriteit))) : 2
 
   await c.env.DB.prepare(
     `UPDATE meeting_action_items
-     SET titel = ?, beschrijving = ?, verantwoordelijke_id = ?, deadline = ?
+     SET titel = ?, beschrijving = ?, verantwoordelijke_id = ?, deadline = ?, prioriteit = ?
      WHERE id = ?`
   ).bind(
     titel,
     beschrijving || '',
     verantwoordelijke_id ? Number(verantwoordelijke_id) : null,
     deadline || null,
+    prio,
     id
   ).run()
 

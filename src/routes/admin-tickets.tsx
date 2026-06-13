@@ -6,6 +6,8 @@ import { queryAll, queryOne, execute } from '../utils/db'
 import { getMollieMode } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { releaseStaleLocks } from '../utils/seat-locks'
+import { sendEmail, ticketEmail } from '../utils/email'
+import { generateTicketPdf, uint8ArrayToBase64 } from '../utils/ticket-pdf'
 
 const app = new Hono()
 
@@ -606,10 +608,19 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
                         >
                           <i class="fas fa-qrcode"></i>
                         </button>
+                        {ticket.status === 'paid' && (
+                          <button
+                            onclick={`resendTicketEmail(${ticket.id}, '${ticket.order_ref}')`}
+                            class="text-purple-600 hover:text-purple-900 mr-3"
+                            title="Verstuur ticket opnieuw (PDF + QR)"
+                          >
+                            <i class="fas fa-paper-plane"></i>
+                          </button>
+                        )}
                         <a
                           href={`mailto:${ticket.koper_email}`}
                           class="text-green-600 hover:text-green-900 mr-3"
-                          title="Email"
+                          title="Open mail-client"
                         >
                           <i class="fas fa-envelope"></i>
                         </a>
@@ -747,6 +758,28 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
               alert('Fout: ' + error.message);
             }
           }
+
+          // Verstuur een duplicaat-ticketmail (PDF + QR) naar de koper.
+          // Werkt op order-niveau: alle ticket-rijen met hetzelfde order_ref gaan in één mail.
+          async function resendTicketEmail(ticketId, orderRef) {
+            if (!confirm('Tickets opnieuw versturen naar de koper voor order ' + orderRef + '?\\n\\nDe PDF met QR-code(s) wordt opnieuw aangemaakt en gemaild.')) return;
+            const btn = event && event.currentTarget;
+            const orig = btn ? btn.innerHTML : null;
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; }
+            try {
+              const response = await fetch('/api/admin/tickets/' + ticketId + '/resend', { method: 'POST' });
+              const data = await response.json().catch(function() { return {}; });
+              if (response.ok && data && data.success) {
+                alert('✅ Mail verzonden naar ' + (data.to || 'de koper') + '.');
+              } else {
+                alert('❌ Verzenden mislukt: ' + ((data && data.error) || ('HTTP ' + response.status)));
+              }
+            } catch (error) {
+              alert('Fout: ' + (error && error.message ? error.message : error));
+            } finally {
+              if (btn && orig !== null) { btn.disabled = false; btn.innerHTML = orig; }
+            }
+          }
         ` }} />
       </div>
     </Layout>
@@ -775,6 +808,124 @@ app.post('/api/admin/tickets/:id/mark-paid', async (c) => {
     return c.json({ success: true })
   } catch (error) {
     return c.json({ error: (error as Error).message }, 500)
+  }
+})
+
+// ==========================================
+// RESEND TICKET EMAIL (admin "verstuur opnieuw")
+// ----------------------------------------------
+// Genereert opnieuw de PDF met QR-code(s) voor de hele order
+// (alle ticket-rijen met hetzelfde order_ref) en mailt naar de koper.
+// Werkt enkel voor betaalde orders — anders heeft het geen zin.
+// ==========================================
+app.post('/api/admin/tickets/:id/resend', async (c) => {
+  const user = c.get('user') as SessionUser
+  const ticketId = parseInt(c.req.param('id'))
+
+  try {
+    // Vind de order_ref via dit ticket
+    const ref = await queryOne<any>(c.env.DB,
+      `SELECT order_ref FROM tickets WHERE id = ?`,
+      [ticketId]
+    )
+    if (!ref) {
+      return c.json({ success: false, error: 'Ticket niet gevonden' }, 404)
+    }
+
+    // Haal álle ticket-rijen + concert-info voor deze order op
+    const rows = await queryAll<any>(c.env.DB,
+      `SELECT t.*, e.titel, e.start_at, e.locatie
+       FROM tickets t
+       JOIN concerts c ON c.id = t.concert_id
+       JOIN events e   ON e.id = c.event_id
+       WHERE t.order_ref = ?
+       ORDER BY t.id ASC`,
+      [ref.order_ref]
+    )
+    if (!rows || rows.length === 0) {
+      return c.json({ success: false, error: 'Order niet gevonden' }, 404)
+    }
+
+    const ticket = rows[0]
+    if (ticket.status !== 'paid') {
+      return c.json({
+        success: false,
+        error: `Ticket-status is "${ticket.status}" — duplicaten worden alleen verstuurd voor betaalde orders.`
+      }, 400)
+    }
+
+    // Bouw mail + PDF identiek aan de webhook-flow
+    const eventDate = new Date(ticket.start_at)
+    const concertDatum = eventDate.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+    const concertTijd  = eventDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+    const totaalBedrag = rows.reduce((s: number, t: any) => s + (Number(t.prijs_totaal) || 0), 0)
+    const ticketsSummary = rows.map((t: any) => `${t.aantal}× ${t.categorie}`).join(', ')
+
+    const emailHtml = ticketEmail({
+      orderRef: ticket.order_ref,
+      koperNaam: ticket.koper_naam,
+      concertTitel: ticket.titel,
+      concertDatum,
+      concertTijd,
+      concertLocatie: ticket.locatie,
+      tickets: ticketsSummary,
+      qrCode: rows.map((t: any) => t.qr_code).join(', '),
+      totaalBedrag
+    })
+
+    let attachments: any[] = []
+    try {
+      const pdfBytes = await generateTicketPdf({
+        order_ref: ticket.order_ref,
+        koper_naam: ticket.koper_naam,
+        koper_email: ticket.koper_email,
+        concert_titel: ticket.titel,
+        concert_datum: concertDatum,
+        concert_tijd: concertTijd,
+        concert_locatie: ticket.locatie || '',
+        totaal_bedrag: totaalBedrag,
+        lines: rows.map((t: any) => ({
+          qr_code: t.qr_code,
+          categorie: t.categorie,
+          aantal: t.aantal,
+          prijs_totaal: Number(t.prijs_totaal) || 0
+        }))
+      })
+      attachments = [{
+        filename: `tickets-${ticket.order_ref}.pdf`,
+        content: uint8ArrayToBase64(pdfBytes),
+        contentType: 'application/pdf'
+      }]
+    } catch (pdfErr: any) {
+      console.error('[resend] PDF generation failed:', pdfErr?.message || pdfErr)
+      return c.json({ success: false, error: 'PDF genereren mislukt: ' + (pdfErr?.message || 'onbekend') }, 500)
+    }
+
+    const ok = await sendEmail({
+      to: ticket.koper_email,
+      subject: `🎫 (Duplicaat) Je tickets voor ${ticket.titel} - ${ticket.order_ref}`,
+      html: emailHtml,
+      attachments
+    }, c.env.RESEND_API_KEY)
+
+    if (!ok) {
+      return c.json({ success: false, error: 'Mail kon niet verzonden worden (Resend faalde — check RESEND_API_KEY).' }, 500)
+    }
+
+    // Audit-log
+    await execute(c.env.DB, `
+      INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
+      VALUES (?, 'ticket_email_resent', 'tickets', ?, ?)
+    `, [user.id, ticketId, JSON.stringify({
+      order_ref: ticket.order_ref,
+      to: ticket.koper_email,
+      lines: rows.length
+    })])
+
+    return c.json({ success: true, to: ticket.koper_email, lines: rows.length })
+  } catch (error: any) {
+    console.error('[resend] EXCEPTION:', error?.message || error, error?.stack)
+    return c.json({ success: false, error: error?.message || String(error) }, 500)
   }
 })
 

@@ -3,6 +3,7 @@ import { queryOne, execute } from '../utils/db'
 import { getMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { sendEmail, ticketEmail } from '../utils/email'
+import { generateTicketPdf, uint8ArrayToBase64 } from '../utils/ticket-pdf'
 import { createNotification } from '../utils/notifications'
 import type { Bindings } from '../types'
 
@@ -292,29 +293,59 @@ app.post('/api/webhooks/mollie', async (c) => {
       }
 
       // If payment is completed, send ticket email — één mail voor de hele order
+      // + PDF in bijlage met scanbare QR-code per ticket-line.
       if (newStatus === 'paid' && oldStatus !== 'paid') {
         const eventDate = new Date(ticket.start_at)
         const totaalBedrag = ticketLines.reduce((s: number, t: any) => s + (Number(t.prijs_totaal) || 0), 0)
         const ticketsSummary = ticketLines.map((t: any) => `${t.aantal}× ${t.categorie}`).join(', ')
-        // QR-codes per ticket-rij in een lijst (één lid kan meerdere QR's hebben voor multi-cat)
-        const allQrCodes = ticketLines.map((t: any) => t.qr_code).join(', ')
+        const concertDatum = eventDate.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+        const concertTijd = eventDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
 
         const emailHtml = ticketEmail({
           orderRef: ticket.order_ref,
           koperNaam: ticket.koper_naam,
           concertTitel: ticket.titel,
-          concertDatum: eventDate.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
-          concertTijd: eventDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }),
+          concertDatum,
+          concertTijd,
           concertLocatie: ticket.locatie,
           tickets: ticketsSummary,
-          qrCode: allQrCodes,
+          qrCode: ticketLines.map((t: any) => t.qr_code).join(', '),
           totaalBedrag: totaalBedrag
         })
+
+        // PDF-bijlage genereren — best-effort, mail moet ook vertrekken als PDF crasht
+        let attachments: any[] = []
+        try {
+          const pdfBytes = await generateTicketPdf({
+            order_ref: ticket.order_ref,
+            koper_naam: ticket.koper_naam,
+            koper_email: ticket.koper_email,
+            concert_titel: ticket.titel,
+            concert_datum: concertDatum,
+            concert_tijd: concertTijd,
+            concert_locatie: ticket.locatie || '',
+            totaal_bedrag: totaalBedrag,
+            lines: ticketLines.map((t: any) => ({
+              qr_code: t.qr_code,
+              categorie: t.categorie,
+              aantal: t.aantal,
+              prijs_totaal: Number(t.prijs_totaal) || 0
+            }))
+          })
+          attachments = [{
+            filename: `tickets-${ticket.order_ref}.pdf`,
+            content: uint8ArrayToBase64(pdfBytes),
+            contentType: 'application/pdf'
+          }]
+        } catch (pdfErr: any) {
+          console.error('[webhooks] PDF generation failed (continuing without attachment):', pdfErr?.message || pdfErr)
+        }
 
         await sendEmail({
           to: ticket.koper_email,
           subject: `✅ Je Tickets voor ${ticket.titel} - ${ticket.order_ref}`,
-          html: emailHtml
+          html: emailHtml,
+          attachments
         }, c.env.RESEND_API_KEY)
 
         await execute(c.env.DB,

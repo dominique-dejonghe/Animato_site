@@ -3,12 +3,21 @@
 
 import type { D1Database } from '@cloudflare/workers-types'
 
+interface EmailAttachment {
+  filename: string
+  /** Base64-encoded content (Resend-compat) */
+  content: string
+  contentType?: string
+}
+
 interface EmailOptions {
   to: string
   subject: string
   html: string
   from?: string
   replyTo?: string
+  /** Bijlagen — bv. PDF-tickets. Resend slikt base64-content. */
+  attachments?: EmailAttachment[]
 }
 
 export async function sendEmail(options: EmailOptions, resendApiKey: string | undefined): Promise<boolean> {
@@ -19,19 +28,28 @@ export async function sendEmail(options: EmailOptions, resendApiKey: string | un
   }
 
   try {
+    const payload: any = {
+      from: options.from || 'Gemengd Koor Animato <noreply@animato.be>',
+      to: [options.to],
+      reply_to: options.replyTo || undefined,
+      subject: options.subject,
+      html: options.html
+    }
+    if (options.attachments && options.attachments.length > 0) {
+      payload.attachments = options.attachments.map(a => ({
+        filename: a.filename,
+        content: a.content,
+        content_type: a.contentType || undefined
+      }))
+    }
+
     const response = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${resendApiKey}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        from: options.from || 'Gemengd Koor Animato <noreply@animato.be>',
-        to: [options.to],
-        reply_to: options.replyTo || undefined,
-        subject: options.subject,
-        html: options.html
-      })
+      body: JSON.stringify(payload)
     })
 
     if (!response.ok) {
@@ -237,11 +255,13 @@ export function ticketEmail(data: {
     </div>
     
     <div class="qr-section">
-      <h3 style="margin: 0 0 15px 0; color: #10B981;">📱 Je Toegangscode</h3>
-      <p style="margin: 0 0 15px 0;">Toon deze QR-code bij de ingang:</p>
-      <div class="qr-code">
-        ${data.qrCode}
-      </div>
+      <h3 style="margin: 0 0 15px 0; color: #10B981;">📎 Je tickets zitten in bijlage</h3>
+      <p style="margin: 0 0 10px 0;">
+        Je vindt <strong>${data.tickets}</strong> als PDF-bijlage bij deze mail. Elk ticket heeft een eigen scanbare QR-code.
+      </p>
+      <p style="margin: 0; font-size: 13px; color: #555;">
+        Print de PDF uit óf toon de QR-code op je smartphone bij de ingang.
+      </p>
       <div style="font-size: 12px; color: #666; margin-top: 15px;">
         Order: ${data.orderRef}
       </div>
@@ -250,10 +270,10 @@ export function ticketEmail(data: {
     <div style="background: #DBEAFE; border-left: 4px solid #3B82F6; padding: 15px; border-radius: 6px; margin: 20px 0;">
       <h4 style="margin: 0 0 10px 0;">💡 Belangrijke informatie</h4>
       <ul style="margin: 0; padding-left: 20px;">
-        <li>Bewaar deze email goed - je hebt hem nodig bij de ingang</li>
+        <li>Bewaar de PDF-bijlage goed — je hebt hem nodig bij de ingang</li>
         <li>Print je ticket uit OF toon de QR-code op je smartphone</li>
-        <li>Kom op tijd - deuren openen 30 minuten voor aanvang</li>
-        <li>Bij verlies: neem contact op met <a href="mailto:tickets@animato.be">tickets@animato.be</a></li>
+        <li>Kom op tijd — deuren openen ca. 30 minuten voor aanvang</li>
+        <li>Bij verlies: neem contact op met <a href="mailto:tickets@animato.be">tickets@animato.be</a> (vermeld je ordernummer)</li>
       </ul>
     </div>
     

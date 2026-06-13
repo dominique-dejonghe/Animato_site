@@ -2265,7 +2265,7 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
   await releaseStaleLocks(c.env.DB, concertId)
 
   const concert = await queryOne<any>(c.env.DB, `
-    SELECT c.*, e.titel, e.start_at, e.locatie, sp.naam as plan_naam
+    SELECT c.*, e.titel, e.start_at, e.locatie, sp.name as plan_naam
     FROM concerts c
     JOIN events e ON e.id = c.event_id
     LEFT JOIN seating_plans sp ON sp.id = c.seating_plan_id

@@ -813,6 +813,7 @@ app.post('/api/admin/tickets/:id/delete', async (c) => {
 app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
   const user = c.get('user') as SessionUser
   const concertId = parseInt(c.req.param('concertId'))
+  const justSaved = c.req.query('saved') === '1'
   
   const concert = await queryOne(c.env.DB, `
     SELECT c.*, e.id as event_id, e.slug, e.titel, e.start_at, e.locatie, e.image_url as afbeelding
@@ -907,6 +908,17 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
             <a href="/admin/settings#mollie_api_key" class="flex-shrink-0 text-xs font-semibold bg-white/70 hover:bg-white px-3 py-1.5 rounded border border-current/20 transition">
               <i class="fas fa-cog mr-1"></i>Mollie instellen
             </a>
+          </div>
+        )}
+
+        {/* Saved-banner: verschijnt na een geslaagde opslag */}
+        {justSaved && (
+          <div class="mb-6 bg-green-50 border-2 border-green-300 rounded-lg p-4 flex items-center gap-3 animate-pulse">
+            <i class="fas fa-check-circle text-2xl text-green-600"></i>
+            <div class="flex-1">
+              <strong class="text-green-900">Instellingen bewaard.</strong>
+              <p class="text-sm text-green-800">De wijzigingen zijn opgeslagen in de database.</p>
+            </div>
           </div>
         )}
 
@@ -1736,6 +1748,11 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
   const concertId = parseInt(c.req.param('concertId'))
   const body = await c.req.parseBody()
   
+  // DEBUG: log alles wat binnenkomt zodat we kunnen zien of de form data klopt
+  console.log('[settings-POST] concertId =', concertId, 'user =', user?.email)
+  console.log('[settings-POST] body keys =', Object.keys(body))
+  console.log('[settings-POST] body =', JSON.stringify(body).slice(0, 1000))
+
   try {
     // Parse prijsstructuur from form
     const prijzen: any[] = []
@@ -1757,6 +1774,7 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
     const concert = await queryOne(c.env.DB, `SELECT event_id FROM concerts WHERE id = ?`, [concertId])
     
     if (!concert) {
+      console.error('[settings-POST] Concert niet gevonden:', concertId)
       return c.json({ error: 'Concert niet gevonden' }, 404)
     }
 
@@ -1778,7 +1796,8 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
     const seatingPlanId: number | null = rawSeatingPlanId === '' ? null : (parseInt(rawSeatingPlanId) || null)
 
     // Update concert settings
-    await execute(c.env.DB, `
+    console.log('[settings-POST] About to UPDATE concert', concertId, 'with capaciteit=', parseInt(String(body.capaciteit)) || 0)
+    const updateResult: any = await execute(c.env.DB, `
       UPDATE concerts SET
         ticketing_enabled = ?,
         uitverkocht = ?,
@@ -1814,6 +1833,7 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
       String(body.extra_info || ''),
       concertId
     ])
+    console.log('[settings-POST] UPDATE result:', JSON.stringify(updateResult).slice(0, 300))
 
     // Update event image (stored in events.image_url)
     if (body.afbeelding !== undefined) {
@@ -1827,9 +1847,11 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
       ])
     }
 
-    return c.redirect('/admin/tickets')
+    console.log('[settings-POST] Done — redirecting back to settings page for visual feedback')
+    return c.redirect(`/admin/tickets/concert/${concertId}/settings?saved=1`)
   } catch (error) {
-    return c.json({ error: (error as Error).message }, 500)
+    console.error('[settings-POST] EXCEPTION:', (error as Error).message, (error as Error).stack)
+    return c.json({ error: (error as Error).message, stack: (error as Error).stack }, 500)
   }
 })
 

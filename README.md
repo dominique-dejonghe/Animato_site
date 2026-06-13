@@ -7,10 +7,32 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - **Production**: https://animato-live.pages.dev ✅ **ALL SYSTEMS OPERATIONAL**
 - **GitHub**: https://github.com/dominique-dejonghe/Animato_site
 - **D1 Database**: animato-production (id `758eef10-f55b-428f-81ca-4d7f87862811`)
-- **Current Version**: v1.5 (Notifications hub op /leden + /leden/profiel)
-- **Last Updated**: 2026-05-17
+- **Current Version**: v1.6 (Phase 4 zaalplan ↔ ticketbeheer integratie)
+- **Last Updated**: 2026-06-13
 
-## 📰 Recent (mei 2026)
+## 📰 Recent (juni 2026)
+
+- **Phase 4 — zaalplan ↔ ticketbeheer (juni 2026)**
+  - Kritieke bug gefixt: Mollie webhook update nu `ticket_seats` van `locked` → `sold`
+    bij paid (vroeger bleven stoelen voor altijd locked na echte betaling)
+  - Stale-lock cleanup: stoelen waarvan Mollie-checkout afgebroken werd komen na 15 min
+    automatisch terug in de verkoop (`lock_expires_at` + `releaseStaleLocks()`)
+  - Nieuwe admin-view `/admin/tickets/concert/:id/zaalplan`: live zaalplan-visualisatie
+    met klikbare stoelen, koper-info en handmatige reservatie/vrijgave
+  - Nieuwe diagnostiek-pagina `/admin/tickets/test-checklist` met 6 live-checks +
+    8-stappen test-scenario voor Mollie live-tests
+  - Migration 0094: `lock_expires_at`, `created_by_user_id`, `note` op `ticket_seats`
+- **Actiepunten verbeterd**: titels in zijbalk-widget gefixt (was: beschrijving),
+  prioriteit-kolom + sortable headers op alle velden (migration 0093)
+- **Niet-actieve leden in dashboards**: tile + per-stemgroep breakdown toont nu ook
+  "+ N inactief" naast de actieve count
+- **Berichtenmodule volledig verwijderd**: redundant met nieuws (bundle -23 kB)
+- **Printservice verwijderd op verzoek** (papieren partituren-flow)
+- **Bestuursleden krijgen toegang** tot Financien/Lidgelden/Kaartverkoop/Projecten
+- **Drie UI-bugs gefixt**: chart kolommen (admin-feedback), lidgelden-tabel compacter,
+  vergadering-balk volledig klikbaar
+
+## 📰 Eerder (mei 2026)
 
 - **Meldingen-hub op /leden/profiel** met 3 tabs: Openstaand, Archief, Alles.
   Synchroon met het "Wat staat er voor jou open?"-widget op /leden. Items

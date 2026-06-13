@@ -174,27 +174,8 @@ app.get('/leden', async (c) => {
     nieuwsVis
   )
 
-  // Voor board posts: leden + eigen stemgroep + (indien staff) bestuur
-  const boardVis: string[] = ['leden']
-  if (userStemLabelDash) boardVis.push(userStemLabelDash)
-  if (isStaffDash) boardVis.push('bestuur')
-  const boardVisPh = boardVis.map(() => '?').join(',')
-
-  // Get latest board posts
-  const boardPosts = await queryAll(
-    c.env.DB,
-    `SELECT p.id, p.titel, p.slug, p.created_at, p.categorie, p.is_pinned,
-            u.id as auteur_id, pr.voornaam as auteur_voornaam
-     FROM posts p
-     LEFT JOIN users u ON u.id = p.auteur_id
-     LEFT JOIN profiles pr ON pr.user_id = u.id
-     WHERE p.type = 'board'
-       AND p.is_published = 1
-       AND p.zichtbaarheid IN (${boardVisPh})
-     ORDER BY p.is_pinned DESC, p.created_at DESC
-     LIMIT 5`,
-    boardVis
-  )
+  // MESSAGEBOARD VERWIJDERD (2026-06-13): boardVis/boardPosts query weggehaald.
+  // Berichtenmodule is afgeschaft - redundant met /leden/nieuws. Zie comment lager.
 
   // Get latest materials for user's stemgroep
   const materials = await queryAll(
@@ -227,22 +208,19 @@ app.get('/leden', async (c) => {
   // "Nieuw sinds vorige bezoek"-tellingen per sectie voor dashboard-tegels.
   // Lichte queries (1 COUNT(*) per sectie) en alleen ophalen, niet bumpen.
   // Bumpen gebeurt op de sectie-pagina zelf.
-  const newCounts: Record<string, number> = { agenda: 0, materiaal: 0, board: 0, nieuws: 0 }
+  const newCounts: Record<string, number> = { agenda: 0, materiaal: 0, nieuws: 0 }
   try {
     const { countNewSince } = await import('../utils/section-visits')
-    const [nAgenda, nMaterials, nBoard, nNieuws] = await Promise.all([
+    const [nAgenda, nMaterials, nNieuws] = await Promise.all([
       countNewSince(c.env.DB, user.id, 'agenda', 'events',
         { extraWhere: 'COALESCE(is_cancelled,0)=0' }),
       countNewSince(c.env.DB, user.id, 'bestanden', 'materials',
         { extraWhere: 'COALESCE(is_deleted,0)=0' }).catch(() => 0),
-      countNewSince(c.env.DB, user.id, 'forum', 'posts',
-        { extraWhere: "COALESCE(is_deleted,0)=0 AND post_type='board'" }).catch(() => 0),
       countNewSince(c.env.DB, user.id, 'nieuws', 'posts',
         { extraWhere: "COALESCE(is_deleted,0)=0 AND post_type='nieuws' AND status='gepubliceerd'" }).catch(() => 0),
     ])
     newCounts.agenda = nAgenda
     newCounts.materiaal = nMaterials
-    newCounts.board = nBoard  // 'board' module-key is "Berichten" tegel
     newCounts.nieuws = nNieuws
   } catch (_) { /* tabel ontbreekt? laat default 0 */ }
 
@@ -305,7 +283,7 @@ app.get('/leden', async (c) => {
               `SELECT COUNT(*) AS n FROM materials WHERE created_at > ? AND COALESCE(is_deleted,0)=0`,
               [cutoff]).then(r => r?.n || 0).catch(() => 0),
             queryOne<any>(c.env.DB,
-              `SELECT COUNT(*) AS n FROM posts WHERE created_at > ? AND COALESCE(is_deleted,0)=0`,
+              `SELECT COUNT(*) AS n FROM posts WHERE created_at > ? AND type = 'nieuws' AND COALESCE(is_deleted,0)=0`,
               [cutoff]).then(r => r?.n || 0).catch(() => 0),
           ])
           welcomeBack = {
@@ -685,9 +663,9 @@ app.get('/leden', async (c) => {
                       </a>
                     )}
                     {welcomeBack.missed.posts > 0 && (
-                      <a href="/leden/board" class="inline-flex items-center gap-2 px-3 py-1.5 bg-white text-sky-700 text-sm rounded-full border border-sky-200 hover:bg-sky-50 transition">
-                        <i class="fas fa-comments"></i>
-                        <span><span class="font-semibold">{welcomeBack.missed.posts}</span> nieuw{welcomeBack.missed.posts === 1 ? '' : 'e'} bericht{welcomeBack.missed.posts === 1 ? '' : 'en'}</span>
+                      <a href="/nieuws" class="inline-flex items-center gap-2 px-3 py-1.5 bg-white text-sky-700 text-sm rounded-full border border-sky-200 hover:bg-sky-50 transition">
+                        <i class="fas fa-newspaper"></i>
+                        <span><span class="font-semibold">{welcomeBack.missed.posts}</span> nieuw{welcomeBack.missed.posts === 1 ? '' : 's'}bericht{welcomeBack.missed.posts === 1 ? '' : 'en'}</span>
                       </a>
                     )}
                     {welcomeBack.missed.events === 0 && welcomeBack.missed.materials === 0 && welcomeBack.missed.posts === 0 && (
@@ -1034,7 +1012,7 @@ app.get('/leden', async (c) => {
             const allModules = [
               { key: 'agenda',       href: '/leden/agenda',        icon: 'far fa-calendar',     iconBg: 'bg-animato-primary bg-opacity-10', iconColor: 'text-animato-primary text-xl', title: 'Agenda',         desc: 'Repetities & concerten',        border: '' },
               { key: 'materiaal',    href: '/leden/materiaal',     icon: 'fas fa-file-audio',   iconBg: 'bg-animato-primary bg-opacity-10', iconColor: 'text-animato-primary text-2xl', title: 'Oefenmateriaal', desc: 'Partituren & oefentracks',      border: '' },
-              { key: 'nieuws',       href: '/leden/board',         icon: 'fas fa-comments',     iconBg: 'bg-animato-primary bg-opacity-10', iconColor: 'text-animato-primary text-xl', title: 'Berichten',      desc: 'Nieuws & discussies',           border: '' },
+              { key: 'nieuws',       href: '/nieuws',              icon: 'fas fa-newspaper',    iconBg: 'bg-animato-primary bg-opacity-10', iconColor: 'text-animato-primary text-xl', title: 'Nieuws',         desc: 'Updates & aankondigingen',      border: '' },
               { key: null,           href: '/leden/smoelenboek',   icon: 'fas fa-users',        iconBg: 'bg-pink-100',                      iconColor: 'text-pink-600 text-xl',        title: 'Onze Zangers',   desc: 'Leer je mede-leden kennen',     border: '' },
               { key: 'activiteiten', href: '/leden/activiteiten',  icon: 'fas fa-glass-cheers', iconBg: 'bg-animato-primary text-white shadow-sm', iconColor: 'text-xl',             title: 'Inschrijvingen', desc: 'Feesten & Activiteiten',        border: 'border-2 border-animato-primary border-opacity-20' },
               { key: 'polls',        href: '/leden/polls',         icon: 'fas fa-poll',         iconBg: 'bg-green-100',                     iconColor: 'text-green-600 text-xl',       title: 'Polls',          desc: 'Stem mee!',                     border: '' },
@@ -1054,7 +1032,7 @@ app.get('/leden', async (c) => {
                   let newCount = 0
                   if (m.key === 'agenda') newCount = newCounts.agenda
                   else if (m.key === 'materiaal') newCount = newCounts.materiaal
-                  else if (m.key === 'nieuws') newCount = newCounts.board + newCounts.nieuws
+                  else if (m.key === 'nieuws') newCount = newCounts.nieuws
                   return (
                   <a href={m.href} class={`bg-white rounded-lg shadow-md hover:shadow-lg transition p-6 text-center relative ${m.border} ${isAdmin && m.key && !enabledModules.has(m.key) ? 'opacity-50 ring-2 ring-red-300' : ''}`}>
                     {/* Admin-only badge for disabled modules */}
@@ -1175,44 +1153,9 @@ app.get('/leden', async (c) => {
               </div>
             </div>
 
-            {/* Right column - Berichten & Materials */}
+            {/* Right column - Materials */}
             <div class="space-y-8">
-              {/* Latest board posts */}
-              <div class="bg-white rounded-lg shadow-md p-6">
-                <div class="flex items-center justify-between mb-4">
-                  <h2 class="text-xl font-bold text-gray-900">
-                    <i class="fas fa-comments mr-2 text-animato-primary"></i>
-                    Berichten
-                  </h2>
-                  <a href="/leden/board" class="text-animato-primary hover:underline text-sm font-semibold">
-                    Bekijk alles
-                  </a>
-                </div>
-                {boardPosts.length > 0 ? (
-                  <div class="space-y-3">
-                    {boardPosts.map((post: any) => (
-                      <a 
-                        href={`/leden/board/${post.id}`}
-                        class="block bg-gray-50 p-3 rounded hover:bg-gray-100 transition"
-                      >
-                        {post.is_pinned && (
-                          <i class="fas fa-thumbtack text-animato-primary text-xs mr-2"></i>
-                        )}
-                        <h4 class="font-semibold text-sm text-gray-900 line-clamp-1">
-                          {post.titel}
-                        </h4>
-                        <p class="text-xs text-gray-600 mt-1">
-                          {post.auteur_voornaam} • {new Date(post.created_at).toLocaleDateString('nl-BE')}
-                        </p>
-                      </a>
-                    ))}
-                  </div>
-                ) : (
-                  <p class="text-gray-500 text-sm text-center py-4">
-                    Geen berichten
-                  </p>
-                )}
-              </div>
+              {/* Berichten-widget verwijderd (2026-06-13) - berichtenmodule afgeschaft */}
 
               {/* Latest materials */}
               <div class="bg-white rounded-lg shadow-md p-6">
@@ -1691,820 +1634,12 @@ app.post('/api/leden/donatie', async (c) => {
 })
 
 // =====================================================
-// MESSAGEBOARD OVERZICHT
+// MESSAGEBOARD VERWIJDERD (2026-06-13)
+// Berichtenmodule afgeschaft op verzoek - redundant met /leden/nieuws.
+// /leden/board overzicht, detail, reply, delete en emoji-reactie endpoints
+// zijn allemaal weggehaald. posts.type='board' records blijven in DB
+// (data-behoud) maar zijn niet meer toegankelijk vanuit de UI.
 // =====================================================
-
-app.get('/leden/board', async (c) => {
-  const user = c.get('user') as SessionUser
-  const categorie = c.req.query('cat') || 'all'
-  const search = c.req.query('search') || ''
-
-  // Markeer dit als sectiebezoek voor "Nieuw sinds vorige bezoek"-badges
-  try {
-    const { markSectionVisit } = await import('../utils/section-visits')
-    await markSectionVisit(c.env.DB, user.id, 'forum')
-  } catch (_) {}
-
-  // Bouw zichtbaarheidsfilter rolafhankelijk:
-  // - Iedereen: 'leden' + eigen stemgroep
-  // - Admins/bestuursleden: ook 'bestuur'
-  //
-  // Bug #202 — DB slaat stemgroep als 'S','A','T','B' op, posts.zichtbaarheid
-  // gebruikt 'sopraan'/'alt'/'tenor'/'bas'. Map expliciet.
-  const stemMapForum: Record<string, string> = {
-    s: 'sopraan', sopraan: 'sopraan',
-    a: 'alt',     alt:     'alt',
-    t: 'tenor',   tenor:   'tenor',
-    b: 'bas',     bas:     'bas',
-  }
-  const isStaff = user.role === 'admin' || user.role === 'bestuur' || (user as any).is_bestuurslid === 1
-  const userStemKey = (user.stemgroep || '').toLowerCase()
-  const userStemLabel = stemMapForum[userStemKey]
-  const visibilityValues: string[] = ['leden']
-  if (userStemLabel) visibilityValues.push(userStemLabel)
-  if (isStaff) visibilityValues.push('bestuur')
-  const visibilityPlaceholders = visibilityValues.map(() => '?').join(',')
-
-  // Build query
-  let query = `
-    SELECT p.id, p.titel, p.slug, p.created_at, p.categorie, p.is_pinned, p.views,
-           u.id as auteur_id, pr.voornaam as auteur_voornaam, pr.achternaam as auteur_achternaam,
-           (SELECT COUNT(*) FROM post_replies WHERE post_id = p.id AND is_deleted = 0) as reply_count
-    FROM posts p
-    LEFT JOIN users u ON u.id = p.auteur_id
-    LEFT JOIN profiles pr ON pr.user_id = u.id
-    WHERE p.type = 'board' 
-      AND p.is_published = 1
-      AND p.zichtbaarheid IN (${visibilityPlaceholders})
-  `
-
-  const filters: any[] = [...visibilityValues]
-
-  if (categorie !== 'all') {
-    query += ` AND p.categorie = ?`
-    filters.push(categorie)
-  }
-
-  if (search) {
-    query += ` AND (p.titel LIKE ? OR p.body LIKE ?)`
-    const searchTerm = `%${search}%`
-    filters.push(searchTerm, searchTerm)
-  }
-
-  query += ` ORDER BY p.is_pinned DESC, p.created_at DESC LIMIT 50`
-
-  const threads = await queryAll(c.env.DB, query, filters)
-
-  return c.html(
-    <Layout title="Berichten" user={user} impersonating={!!(c.get('impersonating' as any))}>
-      <div class="py-12 bg-gray-50">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Header */}
-          <div class="flex items-center justify-between mb-8">
-            <div>
-              <h1 class="text-4xl font-bold text-animato-secondary mb-2" style="font-family: 'Playfair Display', serif;">
-                Berichten
-              </h1>
-              <p class="text-gray-600">
-                Communiceer met andere koorleden
-              </p>
-            </div>
-            <a href="/leden" class="text-animato-primary hover:underline">
-              <i class="fas fa-arrow-left mr-2"></i>
-              Terug naar dashboard
-            </a>
-          </div>
-
-          {/* Search & Filter */}
-          <div class="bg-white rounded-lg shadow-md p-6 mb-8">
-            <div class="flex flex-col md:flex-row gap-4">
-              {/* Search */}
-              <form method="GET" class="flex-1">
-                <input type="hidden" name="cat" value={categorie} />
-                <div class="relative">
-                  <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <i class="fas fa-search text-gray-400"></i>
-                  </div>
-                  <input
-                    type="text"
-                    name="search"
-                    value={search}
-                    placeholder="Zoek in berichten..."
-                    class="pl-10 w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                  />
-                </div>
-              </form>
-
-              {/* Category filter */}
-              <div class="flex flex-wrap gap-2">
-                <a
-                  href="/leden/board?cat=all"
-                  class={`px-4 py-2 rounded-lg font-semibold transition ${
-                    categorie === 'all'
-                      ? 'bg-animato-primary text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Alle
-                </a>
-                <a
-                  href="/leden/board?cat=algemeen"
-                  class={`px-4 py-2 rounded-lg font-semibold transition ${
-                    categorie === 'algemeen'
-                      ? 'bg-animato-primary text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Algemeen
-                </a>
-                <a
-                  href="/leden/board?cat=sopraan"
-                  class={`px-4 py-2 rounded-lg font-semibold transition ${
-                    categorie === 'sopraan'
-                      ? 'bg-animato-primary text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Sopraan
-                </a>
-                <a
-                  href="/leden/board?cat=alt"
-                  class={`px-4 py-2 rounded-lg font-semibold transition ${
-                    categorie === 'alt'
-                      ? 'bg-animato-primary text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Alt
-                </a>
-                <a
-                  href="/leden/board?cat=tenor"
-                  class={`px-4 py-2 rounded-lg font-semibold transition ${
-                    categorie === 'tenor'
-                      ? 'bg-animato-primary text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Tenor
-                </a>
-                <a
-                  href="/leden/board?cat=bas"
-                  class={`px-4 py-2 rounded-lg font-semibold transition ${
-                    categorie === 'bas'
-                      ? 'bg-animato-primary text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Bas
-                </a>
-                {isStaff && (
-                  <a
-                    href="/leden/board?cat=bestuur"
-                    class={`px-4 py-2 rounded-lg font-semibold transition ${
-                      categorie === 'bestuur'
-                        ? 'bg-purple-600 text-white'
-                        : 'bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-200'
-                    }`}
-                    title="Alleen zichtbaar voor bestuur en admins"
-                  >
-                    <i class="fas fa-shield-alt mr-1"></i>
-                    Bestuur
-                  </a>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Threads list */}
-          {threads.length > 0 ? (
-            <div class="space-y-4">
-              {threads.map((thread: any) => (
-                <a
-                  href={`/leden/board/${thread.id}`}
-                  class="block bg-white rounded-lg shadow-md hover:shadow-lg transition p-6"
-                >
-                  <div class="flex items-start justify-between">
-                    <div class="flex-1">
-                      <div class="flex items-center gap-3 mb-2">
-                        {thread.is_pinned && (
-                          <i class="fas fa-thumbtack text-animato-primary"></i>
-                        )}
-                        <span class={`px-3 py-1 rounded-full text-xs font-semibold ${
-                          thread.categorie === 'algemeen' ? 'bg-gray-100 text-gray-800' :
-                          thread.categorie === 'sopraan' ? 'bg-pink-100 text-pink-800' :
-                          thread.categorie === 'alt' ? 'bg-purple-100 text-purple-800' :
-                          thread.categorie === 'tenor' ? 'bg-blue-100 text-blue-800' :
-                          thread.categorie === 'bas' ? 'bg-green-100 text-green-800' :
-                          'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {thread.categorie.charAt(0).toUpperCase() + thread.categorie.slice(1)}
-                        </span>
-                      </div>
-                      <h3 class="text-xl font-bold text-gray-900 mb-2 hover:text-animato-primary">
-                        {thread.titel}
-                      </h3>
-                      <div class="flex items-center text-sm text-gray-600 gap-4">
-                        <span>
-                          <i class="far fa-user mr-1"></i>
-                          {thread.auteur_voornaam} {thread.auteur_achternaam}
-                        </span>
-                        <span>
-                          <i class="far fa-calendar mr-1"></i>
-                          {new Date(thread.created_at).toLocaleDateString('nl-BE', {
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric'
-                          })}
-                        </span>
-                        <span>
-                          <i class="far fa-comment mr-1"></i>
-                          {thread.reply_count} reacties
-                        </span>
-                        <span>
-                          <i class="far fa-eye mr-1"></i>
-                          {thread.views} views
-                        </span>
-                      </div>
-                    </div>
-                    <i class="fas fa-chevron-right text-gray-400 ml-4"></i>
-                  </div>
-                </a>
-              ))}
-            </div>
-          ) : (
-            <div class="bg-white rounded-lg shadow-md p-12 text-center">
-              <i class="fas fa-comments text-gray-300 text-6xl mb-4"></i>
-              <h3 class="text-xl font-semibold text-gray-900 mb-2">
-                Geen berichten gevonden
-              </h3>
-              <p class="text-gray-600">
-                {search ? 'Probeer een andere zoekopdracht' : 'Nog geen berichten in deze categorie'}
-              </p>
-            </div>
-          )}
-        </div>
-      </div>
-    </Layout>
-  )
-})
-
-// =====================================================
-// MESSAGEBOARD THREAD DETAIL
-// =====================================================
-
-app.get('/leden/board/:id', async (c) => {
-  const user = c.get('user') as SessionUser
-  const threadId = c.req.param('id')
-
-  // Get thread
-  const thread = await queryOne<any>(
-    c.env.DB,
-    `SELECT p.*, 
-            u.id as auteur_id, 
-            pr.voornaam as auteur_voornaam, 
-            pr.achternaam as auteur_achternaam,
-            pr.foto_url as auteur_foto
-     FROM posts p
-     LEFT JOIN users u ON u.id = p.auteur_id
-     LEFT JOIN profiles pr ON pr.user_id = u.id
-     WHERE p.id = ? AND p.type = 'board'`,
-    [threadId]
-  )
-
-  if (!thread) {
-    return c.notFound()
-  }
-
-  // Check visibility — admins/bestuur zien alles; leden zien 'leden' + eigen stemgroep + 'bestuur' alleen als ze bestuurslid zijn
-  const isStaff = user.role === 'admin' || user.role === 'bestuur' || user.is_bestuurslid === 1
-  const userStemLower = (user.stemgroep || '').toLowerCase()
-  const allowedVisibilities = ['leden']
-  if (userStemLower) allowedVisibilities.push(userStemLower)
-  if (isStaff) allowedVisibilities.push('bestuur')
-  if (!isStaff && !allowedVisibilities.includes(thread.zichtbaarheid)) {
-    return c.json({ error: 'Geen toegang tot dit bericht' }, 403)
-  }
-
-  // Increment views
-  await c.env.DB.prepare(
-    'UPDATE posts SET views = views + 1 WHERE id = ?'
-  ).bind(threadId).run()
-
-  // Get replies
-  const replies = await queryAll<any>(
-    c.env.DB,
-    `SELECT r.*, 
-            u.id as auteur_id, 
-            pr.voornaam as auteur_voornaam, 
-            pr.achternaam as auteur_achternaam,
-            pr.foto_url as auteur_foto
-     FROM post_replies r
-     LEFT JOIN users u ON u.id = r.auteur_id
-     LEFT JOIN profiles pr ON pr.user_id = u.id
-     WHERE r.post_id = ? AND r.is_deleted = 0
-     ORDER BY r.created_at ASC`,
-    [threadId]
-  )
-
-  // Comment-reactions (6 emoji's) op individuele post_replies — bulk-fetch
-  {
-    const { getReactionsForTargets } = await import('../utils/comment-reactions')
-    const replyMap = replies.length > 0
-      ? await getReactionsForTargets(c.env.DB, 'post_reply', replies.map((r: any) => r.id), user.id)
-      : new Map()
-    for (const r of replies) {
-      const s = replyMap.get(r.id)
-      r._reactions_counts = s ? s.counts : { like:0,love:0,laugh:0,music:0,clap:0,pray:0 }
-      r._reactions_mine = s ? Array.from(s.mine) : []
-    }
-  }
-
-  // 📣 @mentions: bulk-resolve over reply-bodies (Quill HTML, dus geen extra escape)
-  if (replies.length > 0) {
-    try {
-      const { extractMentionTokens, resolveMentions, renderMentions } = await import('../utils/mentions')
-      const allTokens = new Set<string>()
-      for (const r of replies) {
-        for (const t of extractMentionTokens(r.body)) allTokens.add(t)
-      }
-      if (allTokens.size > 0) {
-        const mentionMap = await resolveMentions(c.env.DB, Array.from(allTokens))
-        for (const r of replies) {
-          r._body_with_mentions = renderMentions(r.body, mentionMap)
-        }
-      }
-    } catch (_) { /* graceful */ }
-  }
-
-  // === Emoji-reacties op het board-bericht ===
-  // Aggregaat per type én de eigen reactie van de gebruiker (om te tonen welke al gekozen is)
-  const reactionCountsRaw = await queryAll<any>(
-    c.env.DB,
-    `SELECT type, COUNT(*) as n FROM post_reactions WHERE post_id = ? GROUP BY type`,
-    [threadId]
-  )
-  const reactionCounts: Record<string, number> = {}
-  for (const row of reactionCountsRaw) reactionCounts[row.type] = row.n
-
-  const myReaction = await queryOne<any>(
-    c.env.DB,
-    `SELECT type FROM post_reactions WHERE post_id = ? AND user_id = ? LIMIT 1`,
-    [threadId, user.id]
-  )
-  const myReactionType: string | null = myReaction?.type || null
-
-  // === Reactions per reply zijn al opgehaald hierboven in _reactions_counts ===
-
-  return c.html(
-    <Layout title={thread.titel} user={user} impersonating={!!(c.get('impersonating' as any))}>
-      <div class="py-12 bg-gray-50">
-        <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          {/* Back button */}
-          <a href="/leden/board" class="inline-flex items-center text-animato-primary hover:underline mb-6">
-            <i class="fas fa-arrow-left mr-2"></i>
-            Terug naar berichten
-          </a>
-
-          {/* Thread */}
-          <div class="bg-white rounded-lg shadow-md p-8 mb-6">
-            <div class="flex items-center gap-3 mb-4">
-              {thread.is_pinned && (
-                <i class="fas fa-thumbtack text-animato-primary"></i>
-              )}
-              <span class={`px-3 py-1 rounded-full text-xs font-semibold ${
-                thread.categorie === 'algemeen' ? 'bg-gray-100 text-gray-800' :
-                thread.categorie === 'sopraan' ? 'bg-pink-100 text-pink-800' :
-                thread.categorie === 'alt' ? 'bg-purple-100 text-purple-800' :
-                thread.categorie === 'tenor' ? 'bg-blue-100 text-blue-800' :
-                thread.categorie === 'bas' ? 'bg-green-100 text-green-800' :
-                'bg-yellow-100 text-yellow-800'
-              }`}>
-                {thread.categorie.charAt(0).toUpperCase() + thread.categorie.slice(1)}
-              </span>
-            </div>
-
-            <h1 class="text-3xl font-bold text-gray-900 mb-4">
-              {thread.titel}
-            </h1>
-
-            <div class="flex items-center text-sm text-gray-600 gap-4 mb-6 pb-6 border-b">
-              <div class="flex items-center">
-                <div class="w-10 h-10 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center mr-2">
-                  <i class="fas fa-user text-animato-primary"></i>
-                </div>
-                <div>
-                  <div class="font-medium text-gray-900">
-                    {thread.auteur_voornaam} {thread.auteur_achternaam}
-                  </div>
-                  <div class="text-xs">
-                    {new Date(thread.created_at).toLocaleDateString('nl-BE', {
-                      day: 'numeric',
-                      month: 'long',
-                      year: 'numeric'
-                    })}
-                  </div>
-                </div>
-              </div>
-              <span class="text-gray-300">•</span>
-              <span>
-                <i class="far fa-eye mr-1"></i>
-                {thread.views + 1} views
-              </span>
-            </div>
-
-            <div 
-              class="prose prose-lg max-w-none"
-              dangerouslySetInnerHTML={{ __html: processBodyLinks(thread.body, [new URL(c.req.url).hostname, 'animato-live.pages.dev', 'animato.be']) }}
-            />
-          </div>
-
-          {/* ======================================================== */}
-          {/* EMOJI-REACTIES — duim/hartje/etc. op het board-bericht    */}
-          {/* ======================================================== */}
-          {(() => {
-            const reactionTypes = [
-              { key: 'like',  emoji: '👍', label: 'Duim' },
-              { key: 'love',  emoji: '❤️', label: 'Hartje' },
-              { key: 'laugh', emoji: '😄', label: 'Lachen' },
-              { key: 'wow',   emoji: '😮', label: 'Wow' },
-              { key: 'sad',   emoji: '😢', label: 'Verdrietig' },
-            ]
-            const totalReactions = Object.values(reactionCounts).reduce((a, b) => a + b, 0)
-            return (
-              <div class="bg-white rounded-lg shadow-md p-5 mb-6">
-                <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
-                  <h3 class="text-sm font-semibold text-gray-700 flex items-center">
-                    <i class="fas fa-smile-beam text-animato-primary mr-2"></i>
-                    Hoe vind je dit bericht?
-                  </h3>
-                  {totalReactions > 0 && (
-                    <span class="text-xs text-gray-500">
-                      {totalReactions} reactie{totalReactions === 1 ? '' : 's'}
-                    </span>
-                  )}
-                </div>
-                <div class="flex flex-wrap gap-2" id="emoji-reactions-bar" data-thread-id={threadId}>
-                  {reactionTypes.map(rt => {
-                    const count = reactionCounts[rt.key] || 0
-                    const isMine = myReactionType === rt.key
-                    return (
-                      <button
-                        type="button"
-                        data-reaction-type={rt.key}
-                        class={`emoji-reaction-btn inline-flex items-center gap-1.5 px-3 py-2 rounded-full border-2 transition text-sm font-medium ${
-                          isMine
-                            ? 'bg-animato-primary/10 border-animato-primary text-animato-primary'
-                            : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100 hover:border-gray-300'
-                        }`}
-                        title={rt.label}
-                        aria-pressed={isMine ? 'true' : 'false'}
-                      >
-                        <span class="text-base leading-none" aria-hidden="true">{rt.emoji}</span>
-                        <span class="emoji-count tabular-nums">{count}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )
-          })()}
-
-          {/* Replies */}
-          <div class="space-y-4">
-            <h2 class="text-2xl font-bold text-gray-900">
-              {replies.length} Reacties
-            </h2>
-
-            {replies.map((reply: any) => {
-              const canDelete = user.id === reply.auteur_id || user.role === 'admin' || user.role === 'moderator' || user.is_bestuurslid === 1
-              const initialen = (reply.auteur_voornaam?.[0] || '?') + (reply.auteur_achternaam?.[0] || '')
-              return (
-                <div class="bg-white rounded-lg shadow-md p-6">
-                  <div class="flex items-start gap-4">
-                    {reply.auteur_foto ? (
-                      <img src={reply.auteur_foto}
-                           alt={`${reply.auteur_voornaam} ${reply.auteur_achternaam}`}
-                           class="w-10 h-10 rounded-full object-cover border border-gray-200 flex-shrink-0" />
-                    ) : (
-                      <div class="w-10 h-10 rounded-full bg-gradient-to-br from-animato-primary to-animato-secondary text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
-                        {initialen}
-                      </div>
-                    )}
-                    <div class="flex-1 min-w-0">
-                      <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
-                        <div>
-                          <div class="font-semibold text-gray-900">
-                            {reply.auteur_voornaam} {reply.auteur_achternaam}
-                          </div>
-                          <div class="text-xs text-gray-600">
-                            {formatBrusselsDateTime(reply.created_at, {
-                              day: 'numeric',
-                              month: 'short',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </div>
-                        </div>
-                        {canDelete && (
-                          <form method="POST" action={`/leden/board/${threadId}/reply/${reply.id}/delete`}
-                                onsubmit="return confirm('Reactie verwijderen?')"
-                                class="inline-block">
-                            <button type="submit" class="text-xs text-red-500 hover:text-red-700 hover:underline">
-                              <i class="fas fa-trash-alt mr-1"></i> Verwijderen
-                            </button>
-                          </form>
-                        )}
-                      </div>
-                      <div class="prose" dangerouslySetInnerHTML={{
-                        __html: processBodyLinks(
-                          reply._body_with_mentions || reply.body,
-                          [new URL(c.req.url).hostname, 'animato-live.pages.dev', 'animato.be']
-                        )
-                      }} />
-                      {/* Emoji-reacties op deze reply (auto-init door /static/js/comment-reactions.js) */}
-                      <div
-                        class="comment-reactions mt-2"
-                        data-target-type="post_reply"
-                        data-target-id={reply.id}
-                        data-counts={JSON.stringify(reply._reactions_counts || {})}
-                        data-mine={JSON.stringify(reply._reactions_mine || [])}
-                      />
-                    </div>
-                  </div>
-                </div>
-              )
-            })}
-
-            {/* Reactie toevoegen */}
-            <form method="POST" action={`/leden/board/${threadId}/reply`}
-                  class="bg-white rounded-lg shadow-md p-6">
-              <h3 class="text-lg font-semibold text-gray-900 mb-4">
-                Plaats een reactie
-              </h3>
-              <textarea name="body" required rows={4} maxlength={5000}
-                        placeholder="Schrijf hier je reactie..."
-                        class="w-full border-gray-300 rounded-lg p-3 border focus:ring-animato-primary focus:border-animato-primary text-sm"></textarea>
-              <div class="flex items-center justify-between mt-3 flex-wrap gap-2">
-                <p class="text-xs text-gray-400">
-                  <i class="fas fa-info-circle mr-1"></i>
-                  Je naam en foto worden bij de reactie getoond.
-                </p>
-                <button type="submit"
-                        class="inline-flex items-center bg-animato-primary hover:bg-animato-secondary text-white px-4 py-2 rounded-lg font-semibold text-sm transition">
-                  <i class="fas fa-paper-plane mr-2"></i> Plaatsen
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
-
-      {/* ========================================================== */}
-      {/* CLIENT-SIDE JS — emoji-reacties (toggle, switch, count)     */}
-      {/* ========================================================== */}
-      <script dangerouslySetInnerHTML={{ __html: `
-        (function() {
-          var bar = document.getElementById('emoji-reactions-bar');
-          if (!bar) return;
-          var threadId = bar.dataset.threadId;
-          var draggedCard = null;
-
-          bar.addEventListener('click', function(e) {
-            var btn = e.target.closest('.emoji-reaction-btn');
-            if (!btn) return;
-            e.preventDefault();
-
-            var type = btn.dataset.reactionType;
-            btn.disabled = true;
-            btn.style.opacity = '0.6';
-
-            fetch('/leden/board/' + encodeURIComponent(threadId) + '/reactie-emoji', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-              body: JSON.stringify({ type: type }),
-              credentials: 'same-origin'
-            })
-            .then(function(r) {
-              if (!r.ok) throw new Error('HTTP ' + r.status);
-              return r.json();
-            })
-            .then(function(data) {
-              var allBtns = bar.querySelectorAll('.emoji-reaction-btn');
-              allBtns.forEach(function(b) {
-                var t = b.dataset.reactionType;
-                var n = (data.counts && data.counts[t]) || 0;
-                var countEl = b.querySelector('.emoji-count');
-                if (countEl) countEl.textContent = n;
-
-                if (data.myReaction === t) {
-                  b.classList.remove('bg-gray-50', 'border-gray-200', 'text-gray-700', 'hover:bg-gray-100', 'hover:border-gray-300');
-                  b.classList.add('bg-animato-primary/10', 'border-animato-primary', 'text-animato-primary');
-                  b.setAttribute('aria-pressed', 'true');
-                } else {
-                  b.classList.remove('bg-animato-primary/10', 'border-animato-primary', 'text-animato-primary');
-                  b.classList.add('bg-gray-50', 'border-gray-200', 'text-gray-700', 'hover:bg-gray-100', 'hover:border-gray-300');
-                  b.setAttribute('aria-pressed', 'false');
-                }
-              });
-            })
-            .catch(function(err) {
-              console.warn('Reactie opslaan mislukt:', err);
-            })
-            .finally(function() {
-              btn.disabled = false;
-              btn.style.opacity = '1';
-            });
-          });
-        })();
-      ` }} />
-      {/* Bootstrap voor polymorphic comment_reactions op replies */}
-      <script src="/static/js/comment-reactions.js" defer></script>
-    </Layout>
-  )
-})
-
-// =====================================================
-// BOARD — Reply POST + Delete + Emoji-reactie endpoints
-// =====================================================
-
-// Plaats een reactie op een board-thread
-app.post('/leden/board/:id/reply', async (c) => {
-  const user = c.get('user') as SessionUser
-  const threadId = parseInt(c.req.param('id'))
-  const body = await c.req.parseBody()
-  const raw = String(body.body || '').trim()
-
-  if (!raw || !threadId) {
-    return c.redirect(`/leden/board/${threadId}`)
-  }
-  const safeBody = raw.length > 5000 ? raw.substring(0, 5000) : raw
-
-  // Verifieer dat de thread bestaat en dat user toegang heeft (zelfde check als de detail-page)
-  const thread = await queryOne<any>(
-    c.env.DB,
-    `SELECT id, titel, auteur_id, zichtbaarheid FROM posts WHERE id = ? AND type = 'board' LIMIT 1`,
-    [threadId]
-  )
-  if (!thread) return c.notFound()
-
-  const isStaff = user.role === 'admin' || user.role === 'bestuur' || user.is_bestuurslid === 1
-  const userStemLower = (user.stemgroep || '').toLowerCase()
-  const allowedVisibilities = ['leden']
-  if (userStemLower) allowedVisibilities.push(userStemLower)
-  if (isStaff) allowedVisibilities.push('bestuur')
-  if (!isStaff && !allowedVisibilities.includes(thread.zichtbaarheid)) {
-    return c.json({ error: 'Geen toegang tot dit bericht' }, 403)
-  }
-
-  try {
-    await c.env.DB.prepare(
-      `INSERT INTO post_replies (post_id, auteur_id, body) VALUES (?, ?, ?)`
-    ).bind(threadId, user.id, safeBody).run()
-  } catch (e: any) {
-    console.warn('Board reply insert failed:', e?.message)
-  }
-
-  // 🔔 Notify thread-auteur (tenzij hij zelf reageert). Honoreert opt-out 'board'.
-  try {
-    if (thread.auteur_id && thread.auteur_id !== user.id) {
-      const replierName = `${user.voornaam || ''} ${user.achternaam || ''}`.trim() || 'Een lid'
-      const preview = safeBody.length > 100 ? safeBody.substring(0, 97) + '…' : safeBody
-      await notifyUserIfEnabled(
-        c.env.DB,
-        thread.auteur_id,
-        'board',
-        `${replierName} reageerde op je bericht`,
-        `${thread.titel || 'Forum'}: ${preview}`,
-        `/leden/board/${threadId}`
-      )
-    }
-  } catch (e) { console.error('[notif] board-reply notify failed:', e) }
-
-  // 📣 @mentions in board reply
-  try {
-    const { extractMentionTokens, resolveMentions, notifyMentionedUsers } = await import('../utils/mentions')
-    const tokens = extractMentionTokens(safeBody)
-    if (tokens.length > 0) {
-      const mentionMap = await resolveMentions(c.env.DB, tokens)
-      // Sluit thread-auteur uit (al genotificeerd hierboven)
-      if (thread.auteur_id) {
-        for (const [k, v] of mentionMap) {
-          if (v.userId === thread.auteur_id) mentionMap.delete(k)
-        }
-      }
-      const replierName = `${user.voornaam || ''} ${user.achternaam || ''}`.trim() || 'Een lid'
-      const preview = safeBody.length > 120 ? safeBody.substring(0, 117) + '…' : safeBody
-      await notifyMentionedUsers(c.env.DB, mentionMap, {
-        authorId: user.id,
-        authorName: replierName,
-        title: `${replierName} noemde je in '${thread.titel || 'een bericht'}'`,
-        bodySnippet: preview,
-        link: `/leden/board/${threadId}`,
-      })
-    }
-  } catch (e) { console.error('[mentions] board-reply failed:', e) }
-
-  return c.redirect(`/leden/board/${threadId}`)
-})
-
-// Verwijder een reactie (eigenaar of admin/moderator/bestuur)
-app.post('/leden/board/:id/reply/:replyId/delete', async (c) => {
-  const user = c.get('user') as SessionUser
-  const threadId = c.req.param('id')
-  const replyId = c.req.param('replyId')
-
-  const reply = await queryOne<any>(
-    c.env.DB,
-    `SELECT auteur_id FROM post_replies WHERE id = ? LIMIT 1`,
-    [replyId]
-  )
-  if (!reply) return c.redirect(`/leden/board/${threadId}`)
-
-  const isOwner = reply.auteur_id === user.id
-  const isStaff = user.role === 'admin' || user.role === 'moderator' || user.role === 'bestuur' || user.is_bestuurslid === 1
-  if (!isOwner && !isStaff) {
-    return c.redirect(`/leden/board/${threadId}`)
-  }
-
-  try {
-    // Soft delete — behoudt thread-history
-    await c.env.DB.prepare(
-      `UPDATE post_replies SET is_deleted = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`
-    ).bind(replyId).run()
-  } catch (e: any) {
-    console.warn('Board reply delete failed:', e?.message)
-  }
-
-  return c.redirect(`/leden/board/${threadId}`)
-})
-
-// Emoji-reactie op een board-thread (toggle/switch)
-const BOARD_REACTION_TYPES = ['like', 'love', 'laugh', 'wow', 'sad']
-app.post('/leden/board/:id/reactie-emoji', async (c) => {
-  const user = c.get('user') as SessionUser
-  const threadId = parseInt(c.req.param('id'))
-
-  let body: any
-  try { body = await c.req.json() } catch { body = {} }
-  const type = String(body?.type || '').trim()
-  if (!BOARD_REACTION_TYPES.includes(type)) {
-    return c.json({ error: 'Ongeldig type' }, 400)
-  }
-
-  // Verifieer dat de board-thread bestaat
-  const thread = await queryOne<any>(
-    c.env.DB,
-    `SELECT id FROM posts WHERE id = ? AND type = 'board' LIMIT 1`,
-    [threadId]
-  )
-  if (!thread) return c.json({ error: 'Bericht niet gevonden' }, 404)
-
-  // Bestaande reactie?
-  const existing = await queryOne<any>(
-    c.env.DB,
-    `SELECT id, type FROM post_reactions WHERE post_id = ? AND user_id = ? LIMIT 1`,
-    [threadId, user.id]
-  )
-
-  try {
-    if (!existing) {
-      await c.env.DB.prepare(
-        `INSERT INTO post_reactions (post_id, user_id, type) VALUES (?, ?, ?)`
-      ).bind(threadId, user.id, type).run()
-    } else if (existing.type === type) {
-      await c.env.DB.prepare(
-        `DELETE FROM post_reactions WHERE id = ?`
-      ).bind(existing.id).run()
-    } else {
-      await c.env.DB.prepare(
-        `UPDATE post_reactions SET type = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?`
-      ).bind(type, existing.id).run()
-    }
-  } catch (e: any) {
-    console.warn('Board reactie mislukt:', e?.message)
-    return c.json({ error: 'Opslaan mislukt' }, 500)
-  }
-
-  const countsRaw = await queryAll<any>(
-    c.env.DB,
-    `SELECT type, COUNT(*) as n FROM post_reactions WHERE post_id = ? GROUP BY type`,
-    [threadId]
-  )
-  const counts: Record<string, number> = {}
-  for (const row of countsRaw) counts[row.type] = row.n
-
-  const mine = await queryOne<any>(
-    c.env.DB,
-    `SELECT type FROM post_reactions WHERE post_id = ? AND user_id = ? LIMIT 1`,
-    [threadId, user.id]
-  )
-
-  return c.json({
-    counts,
-    myReaction: mine?.type || null
-  })
-})
 
 // =====================================================
 // PROFIEL BEWERKEN
@@ -4265,7 +3400,7 @@ app.get('/leden/profiel', async (c) => {
                   { key: 'concert',   label: 'Nieuwe concerten',       desc: 'Wanneer een concert wordt toegevoegd aan de agenda.',    icon: 'fas fa-music',         canDisable: true },
                   { key: 'repetitie', label: 'Nieuwe repetities',      desc: 'Wanneer een repetitie wordt toegevoegd aan de agenda.',  icon: 'fas fa-calendar-alt',  canDisable: true },
                   { key: 'materiaal', label: 'Nieuw materiaal',        desc: 'Nieuwe partituren of oefentracks (filter op stemgroep).', icon: 'fas fa-file-audio',    canDisable: true },
-                  { key: 'board',     label: 'Reacties op je posts',   desc: 'Wanneer iemand reageert op jouw forum-bericht of agenda.', icon: 'fas fa-comments',      canDisable: true },
+                  // 'board' (Reacties op je posts) verwijderd 2026-06-13: berichtenmodule afgeschaft
                   { key: 'systeem',   label: 'Systeem-meldingen',      desc: 'Overige aankondigingen vanuit het bestuur.',              icon: 'fas fa-bullhorn',      canDisable: true },
                   { key: 'lidgeld',   label: 'Lidgeld-herinneringen',  desc: 'Verplicht — kan niet uitgezet worden.',                   icon: 'fas fa-euro-sign',     canDisable: false },
                   { key: 'profiel',   label: 'Profiel-meldingen',      desc: 'Verplicht — kan niet uitgezet worden.',                   icon: 'fas fa-user-edit',     canDisable: false },
@@ -6406,7 +5541,7 @@ app.post('/api/leden/notification-prefs', async (c) => {
   // Whitelist: enkel keys die in NotificationType passen accepteren.
   // 'lidgeld' en 'profiel' zijn 'verplichte' types die niet uitgezet
   // kunnen worden — we negeren stilletjes pogingen om die op false te zetten.
-  const allowedTypes: NotificationType[] = ['nieuws','materiaal','repetitie','concert','board','systeem']
+  const allowedTypes: NotificationType[] = ['nieuws','materiaal','repetitie','concert','systeem']
   const sanitized: Partial<Record<NotificationType, boolean>> = {}
   for (const t of allowedTypes) {
     if (t in body) sanitized[t] = !!body[t]

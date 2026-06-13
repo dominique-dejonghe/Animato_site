@@ -24,13 +24,15 @@ app.use('/admin/comments', adminAuthMiddleware)
 app.use('/admin/comments/*', adminAuthMiddleware)
 
 // ---------- HELPERS ----------
-type Source = 'nieuws' | 'board' | 'agenda'
+type Source = 'nieuws' | 'agenda'
+// 'board' source verwijderd 2026-06-13: berichtenmodule afgeschaft. post_replies
+// tabel blijft bestaan voor data-behoud, maar wordt niet meer getoond in admin.
 type Status = 'visible' | 'flagged' | 'deleted' | 'all'
 
 interface UnifiedComment {
   source: Source
   id: number
-  parent_id: number | null // post.id, event.id of post.id (board)
+  parent_id: number | null // post.id of event.id
   parent_slug: string | null
   parent_title: string | null
   user_id: number
@@ -66,14 +68,12 @@ function sourceLink(c: UnifiedComment): string {
   // Genereer de link naar de bronpagina waar de comment leeft.
   if (c.source === 'nieuws' && c.parent_slug) return `/nieuws/${c.parent_slug}#reacties`
   if (c.source === 'agenda' && c.parent_slug) return `/agenda/${c.parent_slug}#reacties`
-  if (c.source === 'board' && c.parent_id) return `/leden/board/${c.parent_id}#reacties`
   return '#'
 }
 
 function sourceBadge(source: Source): { label: string; color: string; icon: string } {
   switch (source) {
     case 'nieuws': return { label: 'Nieuws', color: 'bg-blue-100 text-blue-800', icon: 'fa-newspaper' }
-    case 'board':  return { label: 'Board',  color: 'bg-purple-100 text-purple-800', icon: 'fa-chalkboard' }
     case 'agenda': return { label: 'Agenda', color: 'bg-green-100 text-green-800', icon: 'fa-calendar' }
   }
 }
@@ -144,29 +144,7 @@ async function fetchAllComments(DB: D1Database, filters: {
     if (searchPattern) { params.push(searchPattern, searchPattern) }
   }
 
-  // --- BOARD (post_replies — board posts via posts.type='board') ---
-  if (source === 'all' || source === 'board') {
-    parts.push(`
-      SELECT 'board' AS source,
-             r.id AS id,
-             r.post_id AS parent_id,
-             NULL AS parent_slug,
-             posts.titel AS parent_title,
-             r.auteur_id AS user_id,
-             COALESCE(p.voornaam,'')||' '||COALESCE(p.achternaam,'') AS author_name,
-             r.body AS body,
-             r.created_at AS created_at,
-             r.is_deleted AS is_deleted,
-             COALESCE(r.is_flagged,0) AS is_flagged,
-             r.flagged_reason AS flagged_reason,
-             r.flagged_at AS flagged_at
-      FROM post_replies r
-      LEFT JOIN profiles p ON p.user_id = r.auteur_id
-      LEFT JOIN posts    ON posts.id = r.post_id
-      WHERE 1=1 ${statusClauseReplies} ${searchClauseReplies}
-    `)
-    if (searchPattern) { params.push(searchPattern, searchPattern) }
-  }
+  // --- BOARD verwijderd 2026-06-13: berichtenmodule afgeschaft ---
 
   // --- AGENDA (event_replies) ---
   if (source === 'all' || source === 'agenda') {
@@ -391,7 +369,7 @@ app.get('/admin/comments', async (c) => {
                 Comment-moderatie
               </h1>
               <p class="text-gray-600">
-                Centraal overzicht van alle reacties op nieuws, board en agenda. Verwijderingen zijn soft —
+                Centraal overzicht van alle reacties op nieuws en agenda. Verwijderingen zijn soft —
                 je kan altijd herstellen vanuit de "Verwijderd" tab.
               </p>
             </div>
@@ -493,7 +471,6 @@ app.get('/admin/comments', async (c) => {
                 <select name="source" class="w-full border border-gray-300 rounded px-3 py-2 text-sm">
                   <option value="all"    selected={source === 'all'}>Alle bronnen</option>
                   <option value="nieuws" selected={source === 'nieuws'}>Nieuws</option>
-                  <option value="board"  selected={source === 'board'}>Board</option>
                   <option value="agenda" selected={source === 'agenda'}>Agenda</option>
                 </select>
               </div>

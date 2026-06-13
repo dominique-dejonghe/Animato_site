@@ -3768,7 +3768,7 @@ app.get('/admin/content', async (c) => {
   let content: any[] = []
 
   if (tab === 'posts') {
-    // Get posts (nieuws + board)
+    // Get posts (alleen nieuws - berichtenmodule afgeschaft 2026-06-13)
     let query = `
       SELECT p.id, p.type, p.titel, p.slug, p.excerpt, p.public_share,
              p.is_published, p.zichtbaarheid, p.categorie, p.created_at, p.published_at,
@@ -3778,7 +3778,7 @@ app.get('/admin/content', async (c) => {
       FROM posts p
       LEFT JOIN users u ON u.id = p.auteur_id
       LEFT JOIN profiles pr ON pr.user_id = u.id
-      WHERE 1=1
+      WHERE p.type = 'nieuws'
     `
     const params: any[] = []
 
@@ -3787,10 +3787,7 @@ app.get('/admin/content', async (c) => {
       params.push(`%${search}%`, `%${search}%`)
     }
 
-    if (type !== 'all') {
-      query += ` AND p.type = ?`
-      params.push(type)
-    }
+    // 'type' filter genegeerd - berichtenmodule weg, alleen nieuws over
 
     query += ` ORDER BY p.created_at DESC LIMIT 50`
 
@@ -3819,12 +3816,11 @@ app.get('/admin/content', async (c) => {
     content = await queryAll(c.env.DB, query, params)
   }
 
-  // Get counts
+  // Get counts (berichtenmodule afgeschaft - posts_board verwijderd 2026-06-13)
   const counts = {
-    posts_all: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM posts`),
+    posts_all: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM posts WHERE type = 'nieuws'`),
     posts_nieuws: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM posts WHERE type = 'nieuws'`),
-    posts_board: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM posts WHERE type = 'board'`),
-    posts_published: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM posts WHERE is_published = 1`),
+    posts_published: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM posts WHERE is_published = 1 AND type = 'nieuws'`),
     events_all: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM events`),
     events_repetitie: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM events WHERE type = 'repetitie'`),
     events_concert: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM events WHERE type = 'concert'`),
@@ -3907,7 +3903,7 @@ app.get('/admin/content', async (c) => {
             {/* Stats Bar */}
             <div class="p-6 border-b border-gray-200">
               {tab === 'posts' ? (
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
                   <div class="text-center">
                     <p class="text-2xl font-bold text-gray-900">{counts.posts_all?.count || 0}</p>
                     <p class="text-sm text-gray-600">Totaal</p>
@@ -3915,10 +3911,6 @@ app.get('/admin/content', async (c) => {
                   <div class="text-center">
                     <p class="text-2xl font-bold text-blue-600">{counts.posts_nieuws?.count || 0}</p>
                     <p class="text-sm text-gray-600">Nieuws</p>
-                  </div>
-                  <div class="text-center">
-                    <p class="text-2xl font-bold text-purple-600">{counts.posts_board?.count || 0}</p>
-                    <p class="text-sm text-gray-600">Board Posts</p>
                   </div>
                   <div class="text-center">
                     <p class="text-2xl font-bold text-green-600">{counts.posts_published?.count || 0}</p>
@@ -3971,7 +3963,6 @@ app.get('/admin/content', async (c) => {
                     {tab === 'posts' ? (
                       <>
                         <option value="nieuws" selected={type === 'nieuws'}>Nieuws</option>
-                        <option value="board" selected={type === 'board'}>Board</option>
                       </>
                     ) : (
                       <>
@@ -4616,7 +4607,7 @@ app.get('/admin/content/:id', async (c) => {
                     >
                       <option value="nieuws" selected={post?.type === 'nieuws' || (!post && contentType !== 'event')}>Nieuws</option>
                       <option value="event" selected={post?.type === 'event' || (!post && contentType === 'event')}>Activiteit</option>
-                      <option value="board" selected={post?.type === 'board'}>Board Post</option>
+                      {/* 'board' optie verwijderd 2026-06-13: berichtenmodule afgeschaft */}
                     </select>
                   </div>
 

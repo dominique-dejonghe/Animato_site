@@ -1089,6 +1089,12 @@ const postDetailHandler = async (c: any) => {
     return c.redirect(`/nieuws/${slug}`, 301)
   }
 
+  // Berichtenmodule afgeschaft 2026-06-13: board-posts zijn alleen nog
+  // bereikbaar via oude WhatsApp deeplinks (public_share=1). Anders 404.
+  if (post.type === 'board' && post.public_share !== 1) {
+    return c.notFound()
+  }
+
   // Visibility check — public_share=1 omzeilt de leden/bestuur-restrictie
   // (admin heeft expliciet aangevinkt: "🔓 Maak deze post publiek deelbaar via WhatsApp")
   const isPubliclyShared = post.public_share === 1

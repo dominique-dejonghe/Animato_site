@@ -97,79 +97,111 @@ app.get('/concerten/:eventId/tickets', async (c) => {
 
   return c.html(
     <Layout title={`Tickets - ${concert.titel}`} user={user}>
-      <div class="py-12 bg-gray-50">
-        <div class="max-w-6xl mx-auto px-4"> {/* Wider layout for seating plan */}
+      <div class="py-8 bg-gray-50">
+        {/* Bij zaalplan-mode breder zodat het plan écht ademruimte heeft.
+            Bij quantity-mode behouden we de smallere layout. */}
+        <div class={concert.seating_plan_id ? "max-w-7xl mx-auto px-4" : "max-w-6xl mx-auto px-4"}>
           {/* Header */}
-          <div class="mb-8">
-            <a href={`/concerten/${eventId}`} class="text-animato-primary hover:underline inline-flex items-center mb-4">
+          <div class="mb-6">
+            <a href={`/concerten/${eventId}`} class="text-animato-primary hover:underline inline-flex items-center mb-3">
               <i class="fas fa-arrow-left mr-2"></i>
               Terug naar concert details
             </a>
-            <h1 class="text-4xl font-bold text-animato-secondary mb-4" style="font-family: 'Playfair Display', serif;">
+            <h1 class="text-4xl font-bold text-animato-secondary mb-2" style="font-family: 'Playfair Display', serif;">
               Tickets Bestellen
             </h1>
           </div>
 
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Concert Info Sidebar */}
-            <div class="lg:col-span-1">
-              <div class="bg-white rounded-lg shadow-md overflow-hidden sticky top-8">
-                {concert.poster_url && (
-                  <img src={concert.poster_url} alt={concert.titel} class="w-full h-48 object-cover" />
-                )}
-                <div class="p-6">
-                  <h2 class="text-xl font-bold text-gray-900 mb-4">{concert.titel}</h2>
-                  
-                  <div class="space-y-3 text-sm">
-                    <div class="flex items-start">
-                      <i class="fas fa-calendar-alt text-animato-primary mr-3 mt-1"></i>
-                      <div>
-                        <div class="font-semibold">
-                          {fmtDate(concertStartDate)}
-                        </div>
-                        {/* Bug #214 — toon deuren-open EN concert-start als ze
-                            verschillend zijn ingesteld. Anders enkel het uur. */}
-                        {showDoorsLine ? (
-                          <div class="text-gray-600 space-y-0.5">
-                            <div>
-                              <i class="fas fa-door-open text-xs mr-1 text-gray-500"></i>
-                              Deuren open: <strong>{fmtTime(doorsOpenDate!)} uur</strong>
-                            </div>
-                            <div>
-                              <i class="fas fa-music text-xs mr-1 text-gray-500"></i>
-                              Concert start: <strong>{fmtTime(concertStartDate)} uur</strong>
-                            </div>
-                          </div>
-                        ) : (
-                          <div class="text-gray-600">
-                            {fmtTime(concertStartDate)} uur
-                          </div>
-                        )}
-                      </div>
-                    </div>
+          {/* Concert-info: bij zaalplan-mode bovenaan als compacte horizontale balk
+              (gaf voorheen één halflege verticale kolom), bij quantity-mode klassieke sidebar. */}
+          {concert.seating_plan_id && (
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 md:p-5 mb-6 flex flex-wrap items-center gap-x-8 gap-y-3 text-sm">
+              <div class="flex items-center gap-2">
+                <i class="fas fa-music text-animato-primary"></i>
+                <strong class="text-gray-900">{concert.titel}</strong>
+              </div>
+              <div class="flex items-center gap-2 text-gray-700">
+                <i class="fas fa-calendar-alt text-animato-primary"></i>
+                <span><strong>{fmtDate(concertStartDate)}</strong></span>
+              </div>
+              {showDoorsLine ? (
+                <>
+                  <div class="flex items-center gap-2 text-gray-700">
+                    <i class="fas fa-door-open text-animato-primary"></i>
+                    <span>Deuren open: <strong>{fmtTime(doorsOpenDate!)} uur</strong></span>
+                  </div>
+                  <div class="flex items-center gap-2 text-gray-700">
+                    <i class="fas fa-music text-animato-primary"></i>
+                    <span>Concert start: <strong>{fmtTime(concertStartDate)} uur</strong></span>
+                  </div>
+                </>
+              ) : (
+                <div class="flex items-center gap-2 text-gray-700">
+                  <i class="fas fa-clock text-animato-primary"></i>
+                  <span><strong>{fmtTime(concertStartDate)} uur</strong></span>
+                </div>
+              )}
+              <div class="flex items-center gap-2 text-gray-700">
+                <i class="fas fa-map-marker-alt text-animato-primary"></i>
+                <span>{concert.locatie}</span>
+              </div>
+              {concert.capaciteit > 0 && (
+                <div class="flex items-center gap-2 text-gray-700">
+                  <i class="fas fa-users text-animato-primary"></i>
+                  <span>{concert.capaciteit - concert.verkocht} tickets beschikbaar</span>
+                </div>
+              )}
+            </div>
+          )}
 
-                    <div class="flex items-start">
-                      <i class="fas fa-map-marker-alt text-animato-primary mr-3 mt-1"></i>
-                      <div class="text-gray-700">{concert.locatie}</div>
-                    </div>
-
-                    {concert.capaciteit > 0 && (
+          {/* Grid: bij zaalplan-mode ÉÉN volle kolom (zaalplan eet de breedte op).
+              Bij quantity-mode behouden we de klassieke 1/3 — 2/3 sidebar+form. */}
+          <div class={concert.seating_plan_id
+            ? "grid grid-cols-1 gap-6"
+            : "grid grid-cols-1 lg:grid-cols-3 gap-8"}>
+            {/* Concert Info Sidebar — alleen tonen in quantity-mode (in zaalplan-mode
+                staat de info bovenaan als horizontale balk) */}
+            {!concert.seating_plan_id && (
+              <div class="lg:col-span-1">
+                <div class="bg-white rounded-lg shadow-md overflow-hidden sticky top-8">
+                  {concert.poster_url && (
+                    <img src={concert.poster_url} alt={concert.titel} class="w-full h-48 object-cover" />
+                  )}
+                  <div class="p-6">
+                    <h2 class="text-xl font-bold text-gray-900 mb-4">{concert.titel}</h2>
+                    <div class="space-y-3 text-sm">
                       <div class="flex items-start">
-                        <i class="fas fa-users text-animato-primary mr-3 mt-1"></i>
+                        <i class="fas fa-calendar-alt text-animato-primary mr-3 mt-1"></i>
                         <div>
-                          <div class="text-gray-700">
-                            {concert.capaciteit - concert.verkocht} tickets beschikbaar
-                          </div>
+                          <div class="font-semibold">{fmtDate(concertStartDate)}</div>
+                          {showDoorsLine ? (
+                            <div class="text-gray-600 space-y-0.5">
+                              <div><i class="fas fa-door-open text-xs mr-1 text-gray-500"></i>Deuren open: <strong>{fmtTime(doorsOpenDate!)} uur</strong></div>
+                              <div><i class="fas fa-music text-xs mr-1 text-gray-500"></i>Concert start: <strong>{fmtTime(concertStartDate)} uur</strong></div>
+                            </div>
+                          ) : (
+                            <div class="text-gray-600">{fmtTime(concertStartDate)} uur</div>
+                          )}
                         </div>
                       </div>
-                    )}
+                      <div class="flex items-start">
+                        <i class="fas fa-map-marker-alt text-animato-primary mr-3 mt-1"></i>
+                        <div class="text-gray-700">{concert.locatie}</div>
+                      </div>
+                      {concert.capaciteit > 0 && (
+                        <div class="flex items-start">
+                          <i class="fas fa-users text-animato-primary mr-3 mt-1"></i>
+                          <div class="text-gray-700">{concert.capaciteit - concert.verkocht} tickets beschikbaar</div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Order Form */}
-            <div class="lg:col-span-2">
+            {/* Order Form — bij zaalplan-mode neemt dit alle ruimte, anders 2/3 */}
+            <div class={concert.seating_plan_id ? "" : "lg:col-span-2"}>
               {isSoldOut ? (
                 <div class="bg-white rounded-lg shadow-md p-12 text-center">
                   <i class="fas fa-times-circle text-6xl text-red-500 mb-4"></i>
@@ -189,38 +221,43 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                   {concert.seating_plan_id ? (
                     // --- SEAT SELECTION MODE ---
                     <div class="mb-8">
-                        <h2 class="text-2xl font-bold text-gray-900 mb-2">Kies je plaatsen</h2>
-                        <p class="text-sm text-gray-600 mb-4">Klik op de stoelen die je wilt reserveren.</p>
-                        
-                        <div class="flex flex-wrap gap-4 mb-4 text-xs">
+                        <div class="flex items-start justify-between gap-4 mb-5 flex-wrap">
+                          <div>
+                            <h2 class="text-3xl font-bold text-gray-900 mb-1">Kies je plaatsen</h2>
+                            <p class="text-sm text-gray-600">Klik op een vrije stoel om te selecteren. Klik opnieuw om af te selecteren.</p>
+                          </div>
+
+                          {/* Legenda compact rechts naast titel */}
+                          <div class="flex flex-wrap gap-x-4 gap-y-2 text-xs items-center bg-gray-50 rounded-lg px-4 py-2 border border-gray-200">
                             <div class="flex items-center"><div class="w-4 h-4 bg-blue-500 rounded-t-lg mr-2"></div> Beschikbaar</div>
                             <div class="flex items-center"><div class="w-4 h-4 bg-gray-300 rounded-t-lg mr-2"></div> Bezet</div>
                             <div class="flex items-center"><div class="w-4 h-4 bg-animato-accent rounded-t-lg mr-2"></div> Geselecteerd</div>
                             <div class="flex items-center"><div class="w-4 h-4 bg-green-500 rounded-t-lg mr-2"></div> Rolstoel</div>
+                          </div>
                         </div>
 
-                        {/* Frame: hoogte volgt automatisch uit aspect-ratio van het zaalplan
-                            (geen vaste 600px-deksel meer die alles wegduwde) */}
+                        {/* Frame: aspect-ratio uit DB, mag tot 85vh voor wow-effect.
+                            Subtiel theater-gradient + dikkere border zodat het oog er meteen heen gaat. */}
                         <div
                             id="seatMapFrame"
-                            class="relative overflow-auto border border-gray-200 rounded-lg bg-gray-100 p-4"
-                            style={`aspect-ratio: ${concert.sp_width || 800} / ${concert.sp_height || 600}; max-height: 80vh;`}
+                            class="relative overflow-auto border-2 border-gray-200 rounded-xl bg-gradient-to-b from-gray-50 to-gray-100 p-6 shadow-inner"
+                            style={`aspect-ratio: ${concert.sp_width || 800} / ${concert.sp_height || 600}; max-height: 85vh; min-height: 500px;`}
                         >
                             <div id="seatMapScale" class="origin-top-left" style="transition: transform .15s ease;">
                                 <div id="seatMap" class="relative bg-white shadow-lg" style={`width: ${concert.sp_width}px; height: ${concert.sp_height}px;`}>
-                                    <div class="absolute top-0 left-0 w-full bg-gray-800 text-white text-xs py-1 text-center font-bold tracking-widest">PODIUM / SCHERM</div>
+                                    <div class="absolute top-0 left-0 w-full bg-gray-800 text-white text-xs py-1.5 text-center font-bold tracking-widest">PODIUM / SCHERM</div>
                                     {/* Seats rendered via JS */}
                                 </div>
                             </div>
                         </div>
 
                         {/* Zoom-controls voor publieke viewer (alleen zichtbaar als zaalplan groter dan beeld is) */}
-                        <div id="seatZoomControls" class="hidden mt-2 flex items-center justify-center gap-2 text-xs">
-                            <button type="button" id="seatZoomFit"  class="px-2 py-1 rounded border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"><i class="fas fa-expand-arrows-alt mr-1"></i>Passend</button>
-                            <button type="button" id="seatZoomOut"  class="w-7 h-7 rounded border border-gray-300 bg-white"><i class="fas fa-minus"></i></button>
-                            <span id="seatZoomLabel" class="font-mono w-12 text-center">100%</span>
-                            <button type="button" id="seatZoomIn"   class="w-7 h-7 rounded border border-gray-300 bg-white"><i class="fas fa-plus"></i></button>
-                            <button type="button" id="seatZoom100"  class="px-2 py-1 rounded border border-gray-300 bg-white">1:1</button>
+                        <div id="seatZoomControls" class="hidden mt-3 flex items-center justify-center gap-2 text-xs">
+                            <button type="button" id="seatZoomFit"  class="px-3 py-1.5 rounded border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 font-medium"><i class="fas fa-expand-arrows-alt mr-1"></i>Passend</button>
+                            <button type="button" id="seatZoomOut"  class="w-8 h-8 rounded border border-gray-300 bg-white hover:bg-gray-50"><i class="fas fa-minus"></i></button>
+                            <span id="seatZoomLabel" class="font-mono w-14 text-center">100%</span>
+                            <button type="button" id="seatZoomIn"   class="w-8 h-8 rounded border border-gray-300 bg-white hover:bg-gray-50"><i class="fas fa-plus"></i></button>
+                            <button type="button" id="seatZoom100"  class="px-3 py-1.5 rounded border border-gray-300 bg-white hover:bg-gray-50">1:1</button>
                         </div>
                         
                         {/* Hidden inputs for selected seats */}

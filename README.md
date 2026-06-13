@@ -7,11 +7,36 @@ Moderne, veilige en beheersbare koorwebsite met publieke site, ledenportaal en a
 - **Production**: https://animato-live.pages.dev ✅ **ALL SYSTEMS OPERATIONAL**
 - **GitHub**: https://github.com/dominique-dejonghe/Animato_site
 - **D1 Database**: animato-production (id `758eef10-f55b-428f-81ca-4d7f87862811`)
-- **Current Version**: v1.6 (Phase 4 zaalplan ↔ ticketbeheer integratie)
+- **Current Version**: v1.7 (Phase 5 concert↔zaalplan + UX-polish zaalplan)
 - **Last Updated**: 2026-06-13
 
 ## 📰 Recent (juni 2026)
 
+- **Phase 5 — concert ↔ zaalplan koppeling (juni 2026)**
+  - Nieuwe dropdown "Zaalplan & Stoelreservatie" in `/admin/tickets/concert/:id/settings`
+    waarmee bestuur per concert kiest welk zaalplan gebruikt wordt
+  - Drie ticket-modi automatisch ondersteund:
+    - **Modus A** — zaalplan + meerdere prijscategorieën (klant kiest stoel + tarief)
+    - **Modus B** — zaalplan + 1 prijs (klant kiest enkel stoel)
+    - **Modus C** — geen zaalplan = vrije zit (aantal per categorie zoals voorheen)
+  - Concerten zonder zaalplan blijven werken (default = vrije zit)
+- **Zaalplan-editor UX-polish (juni 2026)**
+  - **Fit-to-frame**: zaalplannen passen automatisch in beeld via `scale()`-transform
+    (geen rechts-scrolling meer voor de 522-stoelen-zaal van Ter Dilft)
+  - **Zoom-controls** in zowel admin als publieke viewer (Passend / 1:1 / +/−)
+  - **Rij-labels A→Z→AA** (concertzaal-conventie ipv "Rij 1, Rij 2"). Auto-increment
+    bij bulk-plaatsing, backward-compatible voor legacy data
+  - **Rij-letter-tags** zichtbaar links naast iedere rij in editor én publieke viewer
+  - Migration 0096: bestaande "Rij N" labels in plan 1 + 2 geconverteerd naar A→Z
+    op basis van y-coördinaat (630 rijen, plan 4 / Ter Dilft overgeslagen omdat al
+    correct)
+- **Multi-categorie ticket-order bug-fix (juni 2026)**
+  - Crash bij bestellen van 2+ categorieën in één order opgelost
+  - Root cause: dubbele UNIQUE constraint (`order_ref` + `qr_code`) op `tickets`
+  - Migration 0095: UNIQUE op `order_ref` weg via tabel-rebuild (qr_code blijft UNIQUE)
+  - `qr_code` nu per regel gegenereerd (was vóór de loop → duplicate)
+  - Webhook handelt nu meerdere ticket-rijen per `betaling_id` correct af
+  - Confirmation-pagina toont alle lijn-items met totaal
 - **Phase 4 — zaalplan ↔ ticketbeheer (juni 2026)**
   - Kritieke bug gefixt: Mollie webhook update nu `ticket_seats` van `locked` → `sold`
     bij paid (vroeger bleven stoelen voor altijd locked na echte betaling)

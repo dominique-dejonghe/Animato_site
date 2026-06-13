@@ -274,6 +274,21 @@ app.post('/api/webhooks/mollie', async (c) => {
         [newStatus, newStatus, ticket.id]
       )
 
+      // PHASE 4 FIX: Stoelen synchroon houden met ticket-status
+      if (newStatus === 'paid') {
+        // locked -> sold, lock_expires_at NULL (stoel is definitief verkocht)
+        await execute(c.env.DB,
+          `UPDATE ticket_seats SET status = 'sold', lock_expires_at = NULL WHERE ticket_id = ?`,
+          [ticket.id]
+        )
+      } else if (newStatus === 'cancelled') {
+        // Stoelen volledig vrijgeven — verwijder de rij om UNIQUE(seat_id, concert_id) niet te blokkeren
+        await execute(c.env.DB,
+          `DELETE FROM ticket_seats WHERE ticket_id = ?`,
+          [ticket.id]
+        )
+      }
+
       // If payment is completed, send ticket email
       if (newStatus === 'paid' && oldStatus !== 'paid') {
         const eventDate = new Date(ticket.start_at)
@@ -378,10 +393,22 @@ app.get('/api/tickets/:orderRef/payment-status', async (c) => {
         if (newStatus !== ticket.status) {
           // Update in database
           await execute(c.env.DB,
-            `UPDATE tickets SET status = ? WHERE order_ref = ?`,
-            [newStatus, orderRef]
+            `UPDATE tickets SET status = ?, betaald_at = CASE WHEN ? = 'paid' THEN CURRENT_TIMESTAMP ELSE betaald_at END WHERE order_ref = ?`,
+            [newStatus, newStatus, orderRef]
           )
-          
+          // PHASE 4 FIX: Stoelen synchroon houden ook hier (fallback voor wanneer webhook faalt)
+          if (newStatus === 'paid') {
+            await execute(c.env.DB,
+              `UPDATE ticket_seats SET status = 'sold', lock_expires_at = NULL
+               WHERE ticket_id IN (SELECT id FROM tickets WHERE order_ref = ?)`,
+              [orderRef]
+            )
+          } else if (newStatus === 'cancelled') {
+            await execute(c.env.DB,
+              `DELETE FROM ticket_seats WHERE ticket_id IN (SELECT id FROM tickets WHERE order_ref = ?)`,
+              [orderRef]
+            )
+          }
           return c.json({ status: newStatus, updated: true })
         }
       }

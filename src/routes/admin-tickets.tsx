@@ -5,6 +5,7 @@ import { requireRole, requireBestuurslid, type SessionUser } from '../middleware
 import { queryAll, queryOne, execute } from '../utils/db'
 import { getMollieMode } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
+import { releaseStaleLocks } from '../utils/seat-locks'
 
 const app = new Hono()
 
@@ -107,13 +108,22 @@ app.get('/admin/tickets', async (c) => {
               )}
             </p>
           </div>
-          <a
-            href="/admin/events/nieuw?type=concert"
-            class="bg-animato-primary text-white px-6 py-3 rounded-lg hover:bg-opacity-90 transition inline-flex items-center"
-          >
-            <i class="fas fa-plus mr-2"></i>
-            Nieuw Concert
-          </a>
+          <div class="flex flex-wrap gap-2">
+            <a
+              href="/admin/tickets/test-checklist"
+              class="bg-white border border-gray-300 text-gray-700 px-4 py-3 rounded-lg hover:bg-gray-50 transition inline-flex items-center"
+              title="Diagnostiek + stappenplan voor live Mollie-test"
+            >
+              <i class="fas fa-vial mr-2"></i>Test-checklist
+            </a>
+            <a
+              href="/admin/events/nieuw?type=concert"
+              class="bg-animato-primary text-white px-6 py-3 rounded-lg hover:bg-opacity-90 transition inline-flex items-center"
+            >
+              <i class="fas fa-plus mr-2"></i>
+              Nieuw Concert
+            </a>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -457,22 +467,31 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
             <li class="text-gray-900 font-medium">Bestellingen</li>
           </ol>
         </nav>
-        <div class="mb-8">
-          <h1 class="text-3xl font-bold text-animato-secondary mb-2" style="font-family: 'Playfair Display', serif;">
-            Bestellingen: {concert.titel}
-          </h1>
-          <div class="flex flex-wrap gap-4 text-gray-600">
-            <span>
-              <i class="fas fa-calendar mr-2"></i>
-              {new Date(concert.start_at).toLocaleDateString('nl-NL', { 
-                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
-              })}
-            </span>
-            <span>
-              <i class="fas fa-map-marker-alt mr-2"></i>
-              {concert.locatie}
-            </span>
+        <div class="mb-8 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 class="text-3xl font-bold text-animato-secondary mb-2" style="font-family: 'Playfair Display', serif;">
+              Bestellingen: {concert.titel}
+            </h1>
+            <div class="flex flex-wrap gap-4 text-gray-600">
+              <span>
+                <i class="fas fa-calendar mr-2"></i>
+                {new Date(concert.start_at).toLocaleDateString('nl-NL', {
+                  weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+                })}
+              </span>
+              <span>
+                <i class="fas fa-map-marker-alt mr-2"></i>
+                {concert.locatie}
+              </span>
+            </div>
           </div>
+          {concert.seating_plan_id && (
+            <a href={`/admin/tickets/concert/${concertId}/zaalplan`}
+               class="inline-flex items-center bg-animato-primary text-white px-4 py-2 rounded-lg hover:bg-opacity-90 shadow-sm"
+               title="Visueel zaalplan met live bezetting per stoel">
+              <i class="fas fa-map mr-2"></i> Zaalplan-view
+            </a>
+          )}
         </div>
 
         {/* Quick Stats */}
@@ -1984,6 +2003,533 @@ app.post('/api/admin/tickets/validate-qr', async (c) => {
     })
   } catch (error) {
     return c.json({ valid: false, message: (error as Error).message }, 500)
+  }
+})
+
+// ==========================================
+// PHASE 4: MOLLIE TICKET-FLOW TEST-CHECKLIST
+// ==========================================
+// Statische pagina met stappenplan + diagnostiek-links zodat een bestuurder
+// snel een live test-aankoop kan doen en de gezondheid van de flow kan checken.
+app.get('/admin/tickets/test-checklist', async (c) => {
+  const user = c.get('user') as SessionUser
+  const db = c.env.DB
+
+  // Verzamel diagnostiek-info live
+  const mollieMode = await getMollieMode(c.env)
+  const webhookCalls24h = await queryOne<any>(db,
+    `SELECT COUNT(*) as n FROM mollie_webhook_log WHERE created_at >= datetime('now', '-1 day')`)
+  const errors24h = await queryOne<any>(db,
+    `SELECT COUNT(*) as n FROM mollie_webhook_log
+     WHERE created_at >= datetime('now', '-1 day') AND (http_status >= 400 OR error_message IS NOT NULL)`)
+  const pendingTickets = await queryOne<any>(db,
+    `SELECT COUNT(*) as n FROM tickets WHERE status = 'pending' AND created_at >= datetime('now', '-1 day')`)
+  const staleLocks = await queryOne<any>(db,
+    `SELECT COUNT(*) as n FROM ticket_seats WHERE status = 'locked' AND lock_expires_at < CURRENT_TIMESTAMP`)
+  const upcomingConcerts = await queryAll<any>(db,
+    `SELECT c.id, e.titel, e.start_at, c.ticketverkoop_open
+     FROM concerts c JOIN events e ON e.id = c.event_id
+     WHERE e.start_at >= datetime('now') AND c.ticketverkoop_open = 1
+     ORDER BY e.start_at ASC LIMIT 5`)
+
+  const checks = [
+    {
+      ok: mollieMode === 'live',
+      label: 'Mollie staat in LIVE-mode',
+      detail: mollieMode === 'live'
+        ? 'Live-key actief — echte betalingen mogelijk'
+        : `Mode is "${mollieMode}" — Mollie test-mode geeft géén echt geld`,
+      action: { label: 'Beheer Mollie keys', href: '/admin/settings#mollie' }
+    },
+    {
+      ok: (webhookCalls24h?.n || 0) > 0,
+      label: 'Mollie webhook-calls ontvangen in de laatste 24u',
+      detail: `${webhookCalls24h?.n || 0} calls vandaag, ${errors24h?.n || 0} errors`,
+      action: { label: 'Bekijk webhook-log', href: '/admin/mollie-webhook-log' }
+    },
+    {
+      ok: (errors24h?.n || 0) === 0,
+      label: 'Geen webhook-errors',
+      detail: (errors24h?.n || 0) === 0 ? 'Alle calls 2xx' : `${errors24h?.n} errors — actie nodig`,
+      action: { label: 'Bekijk errors', href: '/admin/mollie-webhook-log' }
+    },
+    {
+      ok: (pendingTickets?.n || 0) < 5,
+      label: 'Weinig pending tickets',
+      detail: `${pendingTickets?.n || 0} pending in laatste 24u`,
+      action: { label: 'Bekijk tickets', href: '/admin/tickets' }
+    },
+    {
+      ok: (staleLocks?.n || 0) === 0,
+      label: 'Geen verlopen seat-locks (worden auto opgeruimd)',
+      detail: `${staleLocks?.n || 0} stale locks — worden automatisch opgeruimd bij volgende seat-listing`,
+      action: null
+    },
+    {
+      ok: upcomingConcerts && upcomingConcerts.length > 0,
+      label: 'Minstens één concert heeft ticketverkoop open',
+      detail: upcomingConcerts && upcomingConcerts.length > 0
+        ? `${upcomingConcerts.length} concert(en) actief`
+        : 'Geen concerten met open ticketverkoop',
+      action: { label: 'Beheer concerten', href: '/admin/tickets' }
+    }
+  ]
+  const allGreen = checks.every(c => c.ok)
+
+  return c.html(
+    <Layout title="Ticket-flow test-checklist" user={user}>
+      <div class="max-w-4xl mx-auto px-4 py-8">
+        <nav class="text-sm text-gray-600 mb-4">
+          <a href="/admin" class="hover:underline"><i class="fas fa-home mr-1"></i>Admin</a>
+          <span class="mx-2">/</span>
+          <a href="/admin/tickets" class="hover:underline">Ticketbeheer</a>
+          <span class="mx-2">/</span>
+          <span class="text-gray-900 font-medium">Test-checklist</span>
+        </nav>
+
+        <h1 class="text-3xl font-bold text-animato-secondary mb-2" style="font-family: 'Playfair Display', serif;">
+          <i class="fas fa-vial mr-2"></i>Ticket-flow test-checklist
+        </h1>
+        <p class="text-gray-600 mb-6">Lopen voor je een echte testbetaling met je eigen kaart doet.</p>
+
+        <div class={`p-4 mb-6 rounded-lg border-2 ${allGreen ? 'bg-green-50 border-green-400' : 'bg-yellow-50 border-yellow-400'}`}>
+          <p class="font-semibold">
+            {allGreen ? (
+              <><i class="fas fa-check-circle text-green-600 mr-2"></i>Alle checks groen — je kan veilig testen</>
+            ) : (
+              <><i class="fas fa-exclamation-triangle text-yellow-700 mr-2"></i>Niet alles groen — los eerst onderstaande items op</>
+            )}
+          </p>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md overflow-hidden mb-8">
+          <h2 class="bg-gray-50 px-4 py-3 font-semibold text-gray-800 border-b">Diagnostiek (live)</h2>
+          <ul class="divide-y divide-gray-100">
+            {checks.map((chk: any) => (
+              <li class="px-4 py-3 flex items-center justify-between gap-4">
+                <div class="flex items-start gap-3 flex-1">
+                  <i class={`fas mt-1 ${chk.ok ? 'fa-check-circle text-green-600' : 'fa-times-circle text-red-600'}`}></i>
+                  <div>
+                    <div class="font-medium text-gray-900">{chk.label}</div>
+                    <div class="text-sm text-gray-600">{chk.detail}</div>
+                  </div>
+                </div>
+                {chk.action && (
+                  <a href={chk.action.href} class="text-sm text-animato-primary hover:underline whitespace-nowrap">{chk.action.label} →</a>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md overflow-hidden mb-8">
+          <h2 class="bg-gray-50 px-4 py-3 font-semibold text-gray-800 border-b">Test-scenario (~5 min)</h2>
+          <ol class="px-6 py-4 space-y-3 list-decimal list-inside text-gray-800">
+            <li><strong>Open een privé venster</strong> (anders ben je nog ingelogd als admin)</li>
+            <li>Ga naar <code class="bg-gray-100 px-1 rounded">/concerten</code> en kies een concert met ticketverkoop open</li>
+            <li>Klik op een stoel (of kies aantal bij vrije zit) en klik <em>Bestellen</em></li>
+            <li>Vul je gegevens in en betaal met een <strong>echte kaart</strong> (Mollie test-betalingen lopen anders)</li>
+            <li>Na betaling: kom terug op <code class="bg-gray-100 px-1 rounded">/tickets/bevestiging/...</code></li>
+            <li>Wacht ~10 sec en herlaad — status moet "Betaald" tonen, e-mail moet binnenkomen</li>
+            <li>Check <a href="/admin/mollie-webhook-log" class="text-animato-primary hover:underline">webhook log</a> — je payment-ID moet er staan met <code class="bg-green-100 px-1 rounded">200 paid</code></li>
+            <li>Open <a href="/admin/tickets" class="text-animato-primary hover:underline">/admin/tickets</a> → concert → <em>Zaalplan-view</em>: je stoel staat rood (verkocht)</li>
+          </ol>
+        </div>
+
+        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+          <h3 class="font-semibold text-blue-900 mb-2"><i class="fas fa-info-circle mr-2"></i>Als iets faalt</h3>
+          <ul class="text-sm text-blue-900 list-disc list-inside space-y-1">
+            <li><strong>Bevestigingspagina blijft "Pending":</strong> kijk in webhook-log of de payment-ID daar staat. Zo niet → Mollie bereikt ons niet (DNS/firewall/wrong URL).</li>
+            <li><strong>Wel paid maar stoel blijft locked:</strong> bug in webhook handler (Phase 4 fix moet dit oplossen — als het toch gebeurt, check audit_logs).</li>
+            <li><strong>Geen bevestigingsmail:</strong> check RESEND_API_KEY in admin-instellingen.</li>
+            <li><strong>Stoel toont nog "locked" 15 min later:</strong> auto-cleanup verwijdert ze bij volgende seat-listing. Of forceer via "Zaalplan-view" → vrijgeven.</li>
+          </ul>
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
+// ==========================================
+// PHASE 4: ZAALPLAN PER CONCERT - "WIE ZIT WAAR"
+// ==========================================
+// Toont per concert het volledige zaalplan met live bezetting:
+// - Beschikbare stoelen (groen/blauw)
+// - Gelockte stoelen (oranje, met aftellen)
+// - Verkochte stoelen (rood, met koper-info bij hover/klik)
+// Admin kan stoelen handmatig blokkeren (vb. papieren reservatie) of vrijgeven.
+app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
+  const user = c.get('user') as SessionUser
+  const concertId = parseInt(c.req.param('concertId'))
+
+  // Ruim stale locks op vooraleer we de view tonen
+  await releaseStaleLocks(c.env.DB, concertId)
+
+  const concert = await queryOne<any>(c.env.DB, `
+    SELECT c.*, e.titel, e.start_at, e.locatie, sp.naam as plan_naam
+    FROM concerts c
+    JOIN events e ON e.id = c.event_id
+    LEFT JOIN seating_plans sp ON sp.id = c.seating_plan_id
+    WHERE c.id = ?
+  `, [concertId])
+
+  if (!concert) {
+    return c.text('Concert niet gevonden', 404)
+  }
+
+  if (!concert.seating_plan_id) {
+    return c.html(
+      <Layout title={`Zaalplan - ${concert.titel}`} user={user}>
+        <div class="max-w-4xl mx-auto px-4 py-8">
+          <nav class="text-sm text-gray-600 mb-4">
+            <a href="/admin/tickets" class="hover:underline">Ticketbeheer</a>
+            <span class="mx-2">/</span>
+            <a href={`/admin/tickets/concert/${concertId}/settings`} class="hover:underline">{concert.titel}</a>
+            <span class="mx-2">/</span>
+            <span class="text-gray-900">Zaalplan</span>
+          </nav>
+          <div class="bg-yellow-50 border-l-4 border-yellow-400 p-6 rounded">
+            <h2 class="text-xl font-bold text-yellow-800 mb-2">
+              <i class="fas fa-exclamation-triangle mr-2"></i>
+              Geen zaalplan gekoppeld
+            </h2>
+            <p class="text-gray-700 mb-4">Dit concert gebruikt geen genummerde stoelen (vrije zit of staanplaatsen).</p>
+            <a href={`/admin/tickets/concert/${concertId}/settings`} class="inline-block bg-animato-primary text-white px-4 py-2 rounded hover:bg-opacity-90">
+              <i class="fas fa-cog mr-1"></i> Koppel een zaalplan in instellingen
+            </a>
+          </div>
+        </div>
+      </Layout>
+    )
+  }
+
+  // Alle stoelen + huidige status voor dit concert + koper-info
+  const seats = await queryAll<any>(c.env.DB, `
+    SELECT
+      s.id, s.row_label, s.seat_number, s.x, s.y, s.type, s.status as base_status,
+      ts.status as booking_status,
+      ts.lock_expires_at,
+      ts.note as admin_note,
+      ts.created_by_user_id,
+      t.id as ticket_id,
+      t.order_ref,
+      t.koper_naam,
+      t.koper_email,
+      t.status as ticket_status,
+      t.categorie
+    FROM seats s
+    LEFT JOIN ticket_seats ts ON ts.seat_id = s.id AND ts.concert_id = ? AND ts.status IN ('locked', 'sold')
+    LEFT JOIN tickets t ON t.id = ts.ticket_id
+    WHERE s.plan_id = ?
+    ORDER BY s.row_label, s.seat_number
+  `, [concertId, concert.seating_plan_id])
+
+  // Tellingen
+  const total = seats.length
+  const sold = seats.filter(s => s.booking_status === 'sold').length
+  const locked = seats.filter(s => s.booking_status === 'locked').length
+  const blocked = seats.filter(s => s.base_status === 'blocked' && !s.booking_status).length
+  const available = total - sold - locked - blocked
+
+  return c.html(
+    <Layout title={`Zaalplan - ${concert.titel}`} user={user}>
+      <div class="max-w-7xl mx-auto px-4 py-8">
+        <nav class="text-sm text-gray-600 mb-4">
+          <a href="/admin" class="hover:underline"><i class="fas fa-home mr-1"></i>Admin</a>
+          <span class="mx-2">/</span>
+          <a href="/admin/tickets" class="hover:underline">Ticketbeheer</a>
+          <span class="mx-2">/</span>
+          <a href={`/admin/tickets/concert/${concertId}/settings`} class="hover:underline">{concert.titel}</a>
+          <span class="mx-2">/</span>
+          <span class="text-gray-900 font-medium">Zaalplan</span>
+        </nav>
+
+        <div class="mb-6">
+          <h1 class="text-3xl font-bold text-animato-secondary mb-2" style="font-family: 'Playfair Display', serif;">
+            Zaalplan: {concert.titel}
+          </h1>
+          <div class="flex flex-wrap gap-4 text-gray-600 text-sm">
+            <span><i class="fas fa-calendar mr-2"></i>{new Date(concert.start_at).toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+            <span><i class="fas fa-map-marker-alt mr-2"></i>{concert.locatie}</span>
+            <span><i class="fas fa-chair mr-2"></i>{concert.plan_naam}</span>
+          </div>
+        </div>
+
+        {/* Telling-cards */}
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <div class="bg-white rounded-lg shadow p-3"><div class="text-xs text-gray-600">Totaal</div><div class="text-2xl font-bold text-gray-900">{total}</div></div>
+          <div class="bg-green-50 rounded-lg shadow p-3"><div class="text-xs text-gray-700">Beschikbaar</div><div class="text-2xl font-bold text-green-700">{available}</div></div>
+          <div class="bg-red-50 rounded-lg shadow p-3"><div class="text-xs text-gray-700">Verkocht</div><div class="text-2xl font-bold text-red-700">{sold}</div></div>
+          <div class="bg-orange-50 rounded-lg shadow p-3"><div class="text-xs text-gray-700">Gereserveerd</div><div class="text-2xl font-bold text-orange-700">{locked}</div></div>
+          <div class="bg-gray-100 rounded-lg shadow p-3"><div class="text-xs text-gray-700">Geblokkeerd</div><div class="text-2xl font-bold text-gray-700">{blocked}</div></div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* Zaalplan visualisatie */}
+          <div class="lg:col-span-3">
+            <div class="bg-white rounded-lg shadow-md p-4">
+              <div class="flex justify-between items-center mb-3">
+                <h2 class="font-semibold text-gray-900"><i class="fas fa-map mr-2 text-gray-500"></i>Klik op een stoel voor details</h2>
+                <div class="flex gap-3 text-xs">
+                  <span class="flex items-center"><span class="inline-block w-3 h-3 bg-blue-500 rounded-sm mr-1"></span>Beschikbaar</span>
+                  <span class="flex items-center"><span class="inline-block w-3 h-3 bg-orange-500 rounded-sm mr-1"></span>Locked</span>
+                  <span class="flex items-center"><span class="inline-block w-3 h-3 bg-red-600 rounded-sm mr-1"></span>Verkocht</span>
+                  <span class="flex items-center"><span class="inline-block w-3 h-3 bg-gray-400 rounded-sm mr-1"></span>Geblokkeerd</span>
+                </div>
+              </div>
+              <div class="border border-gray-200 rounded bg-gray-50 overflow-auto" style="min-height: 500px;">
+                <div id="seatMap" class="relative" style="width: 1200px; height: 800px; margin: 0 auto;"></div>
+              </div>
+              <div class="mt-3 text-center text-xs text-gray-500 border-t pt-2">
+                <i class="fas fa-arrow-up mr-1"></i> Podium
+              </div>
+            </div>
+          </div>
+
+          {/* Detail-panel */}
+          <div class="lg:col-span-1">
+            <div id="seat-detail" class="bg-white rounded-lg shadow-md p-4 sticky top-4">
+              <div class="text-sm text-gray-500 text-center py-8">
+                <i class="fas fa-hand-pointer text-3xl mb-2 block"></i>
+                Selecteer een stoel
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        const seats = ${JSON.stringify(seats)};
+        const concertId = ${concertId};
+        const map = document.getElementById('seatMap');
+        const detail = document.getElementById('seat-detail');
+        let selected = null;
+
+        function colorFor(s) {
+          if (s.booking_status === 'sold') return { bg: '#DC2626', fg: 'white' };
+          if (s.booking_status === 'locked') return { bg: '#F97316', fg: 'white' };
+          if (s.base_status === 'blocked') return { bg: '#9CA3AF', fg: 'white' };
+          if (s.type === 'wheelchair') return { bg: '#10B981', fg: 'white' };
+          return { bg: '#3B82F6', fg: 'white' };
+        }
+
+        function render() {
+          map.innerHTML = '';
+          seats.forEach(seat => {
+            const el = document.createElement('div');
+            el.className = 'absolute w-8 h-8 rounded-t-lg flex items-center justify-center text-[10px] font-bold shadow-sm cursor-pointer hover:scale-110 transition-transform';
+            el.style.left = seat.x + 'px';
+            el.style.top = seat.y + 'px';
+            el.innerText = seat.seat_number;
+            const c = colorFor(seat);
+            el.style.backgroundColor = c.bg;
+            el.style.color = c.fg;
+            el.title = (seat.row_label || '') + '-' + seat.seat_number + (seat.koper_naam ? ' — ' + seat.koper_naam : '');
+            if (selected && selected.id === seat.id) {
+              el.style.outline = '3px solid #F59E0B';
+              el.style.outlineOffset = '1px';
+              el.style.zIndex = '20';
+            }
+            el.onclick = () => { selected = seat; render(); showDetail(seat); };
+            map.appendChild(el);
+          });
+        }
+
+        function showDetail(s) {
+          const status = s.booking_status === 'sold' ? 'Verkocht'
+                       : s.booking_status === 'locked' ? 'Gereserveerd (locked)'
+                       : s.base_status === 'blocked' ? 'Geblokkeerd door admin'
+                       : 'Beschikbaar';
+          let html = '<div class="border-b pb-3 mb-3"><div class="text-xs text-gray-500 uppercase">Stoel</div><div class="text-2xl font-bold">' + (s.row_label || '?') + '-' + s.seat_number + '</div><div class="text-sm text-gray-600 mt-1">Type: ' + (s.type || 'standard') + '</div></div>';
+          html += '<div class="mb-3"><div class="text-xs text-gray-500 uppercase mb-1">Status</div><div class="font-semibold">' + status + '</div>';
+          if (s.booking_status === 'locked' && s.lock_expires_at) {
+            html += '<div class="text-xs text-orange-700 mt-1">Vervalt: ' + new Date(s.lock_expires_at.replace(' ', 'T') + 'Z').toLocaleTimeString('nl-NL') + '</div>';
+          }
+          html += '</div>';
+          if (s.koper_naam) {
+            html += '<div class="mb-3 bg-gray-50 rounded p-2"><div class="text-xs text-gray-500 uppercase mb-1">Koper</div><div class="font-medium text-sm">' + escapeHtml(s.koper_naam) + '</div><div class="text-xs text-gray-600">' + escapeHtml(s.koper_email || '') + '</div>';
+            if (s.order_ref) html += '<div class="text-xs text-gray-500 mt-1 font-mono">' + s.order_ref + '</div>';
+            if (s.categorie) html += '<div class="text-xs text-gray-600">' + escapeHtml(s.categorie) + '</div>';
+            html += '</div>';
+          }
+          if (s.admin_note) {
+            html += '<div class="mb-3 bg-yellow-50 border border-yellow-200 rounded p-2"><div class="text-xs text-gray-600 uppercase mb-1">Notitie</div><div class="text-sm">' + escapeHtml(s.admin_note) + '</div></div>';
+          }
+          // Actie-knoppen
+          html += '<div class="space-y-2 pt-2 border-t">';
+          if (!s.booking_status && s.base_status !== 'blocked') {
+            html += '<button onclick="manualReserve(' + s.id + ')" class="w-full bg-orange-500 text-white text-sm px-3 py-2 rounded hover:bg-orange-600"><i class="fas fa-bookmark mr-1"></i>Handmatig reserveren</button>';
+          }
+          if (s.booking_status === 'locked' || s.booking_status === 'sold') {
+            html += '<button onclick="releaseSeat(' + s.id + ')" class="w-full bg-gray-200 text-gray-800 text-sm px-3 py-2 rounded hover:bg-gray-300"><i class="fas fa-unlock mr-1"></i>Vrijgeven</button>';
+          }
+          if (s.ticket_id) {
+            html += '<a href="/admin/tickets/concert/' + concertId + '/orders" class="block w-full text-center bg-blue-50 text-blue-700 text-sm px-3 py-2 rounded hover:bg-blue-100"><i class="fas fa-receipt mr-1"></i>Bekijk bestelling</a>';
+          }
+          html += '</div>';
+          detail.innerHTML = html;
+        }
+
+        function escapeHtml(s) {
+          return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        }
+
+        window.manualReserve = async function(seatId) {
+          const naam = prompt('Naam van de gast (verschijnt in zaalplan):');
+          if (!naam) return;
+          const note = prompt('Notitie (optioneel, bv. "papieren reservatie via mail"):') || '';
+          try {
+            const res = await fetch('/api/admin/tickets/concert/' + concertId + '/seats/' + seatId + '/manual-reserve', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ naam: naam, note: note })
+            });
+            if (!res.ok) throw new Error(await res.text());
+            location.reload();
+          } catch (e) {
+            alert('Fout: ' + e.message);
+          }
+        };
+
+        window.releaseSeat = async function(seatId) {
+          if (!confirm('Stoel echt vrijgeven? Dit verwijdert de reservatie/verkoop.')) return;
+          try {
+            const res = await fetch('/api/admin/tickets/concert/' + concertId + '/seats/' + seatId + '/release', {
+              method: 'POST'
+            });
+            if (!res.ok) throw new Error(await res.text());
+            location.reload();
+          } catch (e) {
+            alert('Fout: ' + e.message);
+          }
+        };
+
+        render();
+      `}} />
+    </Layout>
+  )
+})
+
+// ==========================================
+// PHASE 4: HANDMATIGE STOEL-RESERVATIE
+// ==========================================
+// Voor papieren/telefoon-reservaties: admin reserveert handmatig een stoel.
+// Maakt een 'ticket' aan met status='paid' (geen Mollie-flow) en een ticket_seats
+// rij met status='sold'. De stoel telt onmiddellijk mee in de telling.
+app.post('/api/admin/tickets/concert/:concertId/seats/:seatId/manual-reserve', async (c) => {
+  const user = c.get('user') as SessionUser
+  const concertId = parseInt(c.req.param('concertId'))
+  const seatId = parseInt(c.req.param('seatId'))
+
+  try {
+    const { naam, note } = await c.req.json().catch(() => ({} as any))
+    if (!naam || typeof naam !== 'string') {
+      return c.json({ error: 'Naam is verplicht' }, 400)
+    }
+
+    // Check of de stoel echt vrij is
+    const existing = await queryOne<any>(c.env.DB,
+      `SELECT id FROM ticket_seats WHERE seat_id = ? AND concert_id = ? AND status IN ('locked', 'sold')`,
+      [seatId, concertId])
+    if (existing) {
+      return c.json({ error: 'Stoel is al bezet' }, 409)
+    }
+
+    // Concert + stoel info ophalen
+    const concert = await queryOne<any>(c.env.DB, `SELECT id, prijsstructuur FROM concerts WHERE id = ?`, [concertId])
+    if (!concert) return c.json({ error: 'Concert niet gevonden' }, 404)
+    const seat = await queryOne<any>(c.env.DB, `SELECT id, row_label, seat_number FROM seats WHERE id = ?`, [seatId])
+    if (!seat) return c.json({ error: 'Stoel niet gevonden' }, 404)
+
+    // Genereer order_ref
+    const orderRef = 'ADM-' + Math.random().toString(36).slice(2, 8).toUpperCase()
+    const qrCode = 'QR-' + Math.random().toString(36).slice(2, 12).toUpperCase()
+
+    // Maak ticket (status=paid, geen Mollie)
+    const ticketRes: any = await execute(c.env.DB, `
+      INSERT INTO tickets (
+        concert_id, order_ref, koper_email, koper_naam, koper_telefoon,
+        aantal, categorie, prijs_totaal, status, qr_code, betaling_id, betaald_at
+      ) VALUES (?, ?, ?, ?, '', 1, ?, 0, 'paid', ?, NULL, CURRENT_TIMESTAMP)
+    `, [
+      concertId, orderRef, `admin-${user.id}@animato.local`, naam,
+      'Handmatige reservatie', qrCode
+    ])
+    const ticketId = ticketRes?.meta?.last_row_id
+    if (!ticketId) throw new Error('Ticket kon niet aangemaakt worden')
+
+    // Koppel stoel — status='sold', lock_expires_at NULL
+    await execute(c.env.DB, `
+      INSERT INTO ticket_seats (ticket_id, seat_id, concert_id, status, lock_expires_at, created_by_user_id, note)
+      VALUES (?, ?, ?, 'sold', NULL, ?, ?)
+    `, [ticketId, seatId, concertId, user.id, note || null])
+
+    // Capaciteit-teller bijwerken
+    await execute(c.env.DB, `UPDATE concerts SET verkocht = verkocht + 1 WHERE id = ?`, [concertId])
+
+    // Audit log
+    await execute(c.env.DB,
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta) VALUES (?, 'manual_seat_reserve', 'tickets', ?, ?)`,
+      [user.id, ticketId, JSON.stringify({ concert_id: concertId, seat: `${seat.row_label}-${seat.seat_number}`, naam, note })]
+    )
+
+    return c.json({ ok: true, ticket_id: ticketId, order_ref: orderRef })
+  } catch (e: any) {
+    console.error('manual-reserve faalde:', e)
+    return c.json({ error: e.message || 'Onbekende fout' }, 500)
+  }
+})
+
+// ==========================================
+// PHASE 4: STOEL VRIJGEVEN (admin)
+// ==========================================
+// Verwijdert de ticket_seats-rij en als het de enige stoel was van het ticket,
+// markeert het ticket als 'cancelled'. Verlaagt de verkocht-teller.
+app.post('/api/admin/tickets/concert/:concertId/seats/:seatId/release', async (c) => {
+  const user = c.get('user') as SessionUser
+  const concertId = parseInt(c.req.param('concertId'))
+  const seatId = parseInt(c.req.param('seatId'))
+
+  try {
+    const link = await queryOne<any>(c.env.DB, `
+      SELECT ts.id, ts.ticket_id, ts.status, t.aantal, t.status as ticket_status
+      FROM ticket_seats ts
+      JOIN tickets t ON t.id = ts.ticket_id
+      WHERE ts.seat_id = ? AND ts.concert_id = ? AND ts.status IN ('locked', 'sold')
+    `, [seatId, concertId])
+    if (!link) return c.json({ error: 'Geen actieve reservatie op deze stoel' }, 404)
+
+    // Tel hoeveel stoelen er nog gekoppeld zijn aan dit ticket
+    const otherSeats = await queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as n FROM ticket_seats WHERE ticket_id = ? AND id != ?`,
+      [link.ticket_id, link.id])
+    const wasSold = link.status === 'sold'
+
+    // Verwijder de seat-link (UNIQUE-constraint vraagt DELETE ipv UPDATE)
+    await execute(c.env.DB, `DELETE FROM ticket_seats WHERE id = ?`, [link.id])
+
+    // Als dit de enige stoel was, ticket op cancelled zetten
+    if ((otherSeats?.n ?? 0) === 0) {
+      await execute(c.env.DB, `UPDATE tickets SET status = 'cancelled' WHERE id = ?`, [link.ticket_id])
+    } else {
+      // Verlaag aantal op het ticket
+      await execute(c.env.DB, `UPDATE tickets SET aantal = MAX(0, aantal - 1) WHERE id = ?`, [link.ticket_id])
+    }
+
+    // Verlaag verkocht-teller als de stoel ook effectief verkocht was
+    if (wasSold) {
+      await execute(c.env.DB, `UPDATE concerts SET verkocht = MAX(0, verkocht - 1) WHERE id = ?`, [concertId])
+    }
+
+    await execute(c.env.DB,
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta) VALUES (?, 'manual_seat_release', 'tickets', ?, ?)`,
+      [user.id, link.ticket_id, JSON.stringify({ concert_id: concertId, seat_id: seatId, was_status: link.status })]
+    )
+
+    return c.json({ ok: true })
+  } catch (e: any) {
+    console.error('release-seat faalde:', e)
+    return c.json({ error: e.message || 'Onbekende fout' }, 500)
   }
 })
 

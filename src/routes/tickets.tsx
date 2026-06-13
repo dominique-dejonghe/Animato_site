@@ -8,6 +8,7 @@ import { sendEmail, orderConfirmationEmail } from '../utils/email'
 import { createMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { getSiteUrl } from '../utils/site-url'
+import { releaseStaleLocks, lockExpiryTimestamp } from '../utils/seat-locks'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -68,6 +69,8 @@ app.get('/concerten/:eventId/tickets', async (c) => {
   // Seating Plan Data
   let seats: any[] = []
   if (concert.seating_plan_id) {
+    // Ruim eerst stale locks op zodat afgebroken bestellingen niet eeuwig geblokkeerd blijven
+    await releaseStaleLocks(c.env.DB, concert.id)
     // Fetch seats and their status for this concert
     // We check ticket_seats table to see which are sold/locked
     seats = await queryAll(c.env.DB, `
@@ -534,6 +537,8 @@ app.post('/api/tickets/order', async (c) => {
 
     // Double check seat availability if seat-based
     if (seatKeys.length > 0) {
+        // Ruim stale locks op vóór de check, anders blokkeren afgebroken bestellingen nieuwe orders
+        await releaseStaleLocks(c.env.DB, concertId)
         for (const ticket of tickets) {
             if (ticket.seat_id) {
                 const isSold = await queryOne(c.env.DB, `SELECT id FROM ticket_seats WHERE seat_id = ? AND concert_id = ? AND status IN ('sold', 'locked')`, [ticket.seat_id, concertId]);
@@ -623,10 +628,11 @@ app.post('/api/tickets/order', async (c) => {
         
         const ticketId = res.meta.last_row_id;
 
-        // Link seats if any
+        // Link seats if any — lock voor 15 minuten zodat stale locks opgeruimd kunnen worden
         if (cat.seat_ids && cat.seat_ids.length > 0) {
-            const stmt = c.env.DB.prepare(`INSERT INTO ticket_seats (ticket_id, seat_id, concert_id, status) VALUES (?, ?, ?, 'locked')`);
-            const batch = cat.seat_ids.map((sid: number) => stmt.bind(ticketId, sid, concertId));
+            const expiresAt = lockExpiryTimestamp()
+            const stmt = c.env.DB.prepare(`INSERT INTO ticket_seats (ticket_id, seat_id, concert_id, status, lock_expires_at) VALUES (?, ?, ?, 'locked', ?)`);
+            const batch = cat.seat_ids.map((sid: number) => stmt.bind(ticketId, sid, concertId, expiresAt));
             await c.env.DB.batch(batch);
         }
     }

@@ -6,6 +6,7 @@ import { queryAll, queryOne, execute } from '../utils/db'
 import { verifyToken } from '../utils/auth'
 import { getMollieMode, validateMollieApiKey } from '../utils/mollie'
 import { getMollieApiKey, invalidateMollieApiKeyCache } from '../utils/mollie-config'
+import { getSiteUrl } from '../utils/site-url'
 
 const app = new Hono()
 
@@ -33,6 +34,10 @@ app.get('/admin/settings', async (c) => {
   // Bepaal actieve Mollie-status (zonder échte API-call, puur modus-check)
   const activeMollieKey = await getMollieApiKey(c.env)
   const mollieMode = getMollieMode(activeMollieKey)
+
+  // Effectieve site-URL voor de webhook info-box (zelfde helper als overal: DB → env → request-origin → fallback)
+  const effectiveSiteUrl = await getSiteUrl(c)
+
   const mollieStatusBadge = {
     live:    { label: 'LIVE',    color: 'bg-green-100 text-green-800 border-green-300',  icon: 'fa-circle-check' },
     test:    { label: 'TEST',    color: 'bg-amber-100 text-amber-800 border-amber-300',  icon: 'fa-vial' },
@@ -130,9 +135,9 @@ app.get('/admin/settings', async (c) => {
                   <div class="bg-blue-50 border border-blue-200 rounded p-3 text-xs text-blue-900">
                     <div class="font-semibold mb-1"><i class="fas fa-link mr-1"></i>Webhook URL (info voor Mollie-configuratie)</div>
                     <code class="block bg-white border border-blue-100 px-2 py-1 rounded font-mono text-[11px] break-all">
-                      {c.env.SITE_URL || 'https://animato-live.pages.dev'}/api/webhooks/mollie
+                      {effectiveSiteUrl}/api/webhooks/mollie
                     </code>
-                    <p class="mt-1 opacity-80">Mollie gebruikt deze URL automatisch per betaling — geen aparte configuratie nodig in het Mollie-dashboard, tenzij je expliciet een vast adres wenst.</p>
+                    <p class="mt-1 opacity-80">Mollie gebruikt deze URL automatisch per betaling — geen aparte configuratie nodig in het Mollie-dashboard, tenzij je expliciet een vast adres wenst. Bovenstaande URL wordt afgeleid van de instelling "Publieke Site URL" hierboven (sectie Algemeen).</p>
                   </div>
 
                   <button type="submit" class="bg-animato-primary text-white px-4 py-2 rounded hover:bg-opacity-90 w-full">
@@ -155,6 +160,25 @@ app.get('/admin/settings', async (c) => {
                   <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Site Naam</label>
                     <input type="text" name="site_name" value={settingsMap.site_name || 'Gemengd Koor Animato'} class="w-full border rounded px-3 py-2" />
+                  </div>
+
+                  <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                      <i class="fas fa-globe-europe text-gray-500 mr-1"></i>
+                      Publieke Site URL
+                    </label>
+                    <input
+                      type="url"
+                      name="site_url"
+                      value={settingsMap.site_url || ''}
+                      placeholder="https://www.animato.be"
+                      class="w-full border rounded px-3 py-2 font-mono text-sm"
+                    />
+                    <p class="text-xs text-gray-500 mt-1">
+                      Wordt gebruikt voor Mollie redirect-URLs, webhook-URLs en e-mail-links.
+                      Laat leeg om automatisch het huidige domein te detecteren.
+                      Voorbeeld: <code class="bg-gray-100 px-1 rounded">https://www.animato.be</code> of <code class="bg-gray-100 px-1 rounded">https://animato-live.pages.dev</code>
+                    </p>
                   </div>
 
                   <div>
@@ -301,7 +325,7 @@ app.post('/api/admin/settings/update', async (c) => {
   if (body.section === 'finance') {
     keys = ['current_season', 'membership_fee_base', 'membership_fee_paper', 'price_per_page', 'mollie_api_key']
   } else if (body.section === 'general') {
-    keys = ['site_name', 'contact_email', 'contact_phone', 'social_facebook', 'social_instagram', 'social_youtube', 'beta_features']
+    keys = ['site_name', 'site_url', 'contact_email', 'contact_phone', 'social_facebook', 'social_instagram', 'social_youtube', 'beta_features']
   } else if (body.section === 'hero') {
     keys = ['hero_video_type', 'hero_video_id', 'hero_video_url', 'hero_video_start_sec', 'hero_video_end_sec', 'hero_titel', 'hero_subtitel']
   }

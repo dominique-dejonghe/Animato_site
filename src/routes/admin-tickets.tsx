@@ -836,6 +836,14 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
   // Bepaal actieve Mollie-modus (voor status-banner)
   const mollieMode = getMollieMode(await getMollieApiKey(c.env))
 
+  // Phase 5 — Beschikbare zaalplannen voor concert↔zaalplan koppeling
+  const seatingPlans = await queryAll<any>(c.env.DB, `
+    SELECT sp.id, sp.name, sp.description,
+           (SELECT COUNT(*) FROM seats WHERE plan_id = sp.id) as seat_count
+    FROM seating_plans sp
+    ORDER BY sp.name ASC
+  `)
+
   return c.html(
     <Layout title={`Instellingen - ${concert.titel}`} user={user}>
       <div class="max-w-4xl mx-auto px-4 py-8">
@@ -1103,6 +1111,69 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
                 <p class="text-sm text-gray-500 mt-1">
                   Stel in op 0 voor onbeperkte capaciteit
                 </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Phase 5 — Zaalplan koppeling */}
+          <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-bold text-gray-900 mb-2">
+              <i class="fas fa-chair text-animato-primary mr-2"></i>
+              Zaalplan & Stoelreservatie
+            </h2>
+            <p class="text-sm text-gray-600 mb-5">
+              Koppel een zaalplan om bezoekers hun stoel te laten kiezen. Zonder zaalplan werkt het concert
+              met <strong>vrije zit</strong> (klant kiest aantal per prijscategorie, zoals nu).
+            </p>
+
+            <div class="border-l-4 border-animato-primary bg-blue-50 rounded-r-lg p-4">
+              <label class="block text-sm font-semibold text-animato-secondary mb-2">
+                <i class="fas fa-map mr-2"></i>
+                Welk zaalplan gebruiken?
+              </label>
+              <select
+                name="seating_plan_id"
+                class="w-full border border-blue-300 rounded-lg px-4 py-2 bg-white text-sm"
+              >
+                <option value="" selected={!concert.seating_plan_id}>
+                  — Geen zaalplan / vrije zit —
+                </option>
+                {seatingPlans.map((sp: any) => (
+                  <option value={sp.id} selected={concert.seating_plan_id === sp.id}>
+                    {sp.name} ({sp.seat_count} stoelen)
+                  </option>
+                ))}
+              </select>
+
+              <div class="mt-3 text-xs text-gray-700 space-y-1.5">
+                <p>
+                  <i class="fas fa-info-circle mr-1 text-blue-600"></i>
+                  <strong>Vrije zit</strong> — klant kiest hoeveel tickets per categorie. Geen vaste stoel.
+                </p>
+                <p>
+                  <i class="fas fa-chair mr-1 text-blue-600"></i>
+                  <strong>Met zaalplan</strong> — klant klikt zelf zijn stoel op het plan. Als er meerdere
+                  prijscategorieën zijn kiest de klant ook welk tarief van toepassing is.
+                </p>
+                {seatingPlans.length === 0 && (
+                  <p class="text-amber-700 mt-2">
+                    <i class="fas fa-exclamation-triangle mr-1"></i>
+                    Er zijn nog geen zaalplannen aangemaakt.
+                    <a href="/admin/seating" class="underline ml-1 font-semibold">Beheer zaalplannen →</a>
+                  </p>
+                )}
+                {seatingPlans.length > 0 && (
+                  <p class="mt-2">
+                    <a href="/admin/seating" class="text-animato-primary hover:underline text-xs">
+                      <i class="fas fa-cog mr-1"></i>Zaalplannen beheren →
+                    </a>
+                    {concert.seating_plan_id && (
+                      <a href={`/admin/tickets/concert/${concertId}/zaalplan`} class="text-animato-primary hover:underline text-xs ml-3">
+                        <i class="fas fa-eye mr-1"></i>Live bezetting bekijken →
+                      </a>
+                    )}
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -1702,6 +1773,10 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
     const doorsOpenAt = normalizeDateTime(body.doors_open_at)
     const concertStartAt = normalizeDateTime(body.concert_start_at)
 
+    // Phase 5 — Zaalplan koppeling: leeg = NULL (vrije zit), anders FK naar seating_plans.id
+    const rawSeatingPlanId = String(body.seating_plan_id || '').trim()
+    const seatingPlanId: number | null = rawSeatingPlanId === '' ? null : (parseInt(rawSeatingPlanId) || null)
+
     // Update concert settings
     await execute(c.env.DB, `
       UPDATE concerts SET
@@ -1713,6 +1788,7 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
         concert_start_at = ?,
         capaciteit = ?,
         prijsstructuur = ?,
+        seating_plan_id = ?,
         programma = ?,
         parking = ?,
         toegankelijkheid = ?,
@@ -1729,6 +1805,7 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
       concertStartAt,
       parseInt(String(body.capaciteit)) || 0,
       JSON.stringify(prijzen),
+      seatingPlanId,
       String(body.programma || ''),
       String(body.parking || ''),
       String(body.toegankelijkheid || ''),

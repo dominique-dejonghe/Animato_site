@@ -1029,27 +1029,27 @@ app.get('/admin/lidgelden', async (c) => {
                 </div>
               )}
 
-              {/* Table */}
+              {/* Table — compacte padding zodat actie-kolom zonder horizontaal scrollen leesbaar is */}
               <div class="bg-white rounded-lg shadow overflow-hidden">
-                <table class="w-full" id="lidgeldenTable">
+                <table class="w-full text-sm" id="lidgeldenTable">
                   <thead class="bg-gray-100">
                     <tr>
-                      <th class="px-6 py-3 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="lid" data-sort-type="string">
+                      <th class="px-3 py-2 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="lid" data-sort-type="string">
                         Lid <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
                       </th>
-                      <th class="px-6 py-3 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="formule" data-sort-type="string">
+                      <th class="px-3 py-2 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="formule" data-sort-type="string">
                         Formule <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
                       </th>
-                      <th class="px-6 py-3 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="bedrag" data-sort-type="number">
+                      <th class="px-3 py-2 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="bedrag" data-sort-type="number">
                         Bedrag <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
                       </th>
-                      <th class="px-6 py-3 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="status" data-sort-type="string">
+                      <th class="px-3 py-2 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="status" data-sort-type="string">
                         Status <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
                       </th>
-                      <th class="px-6 py-3 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="tijd" data-sort-type="number" title="Sorteer op dagen (open dagen of dagen tot betaling)">
+                      <th class="px-3 py-2 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="tijd" data-sort-type="number" title="Sorteer op dagen (open dagen of dagen tot betaling)">
                         Tijd <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
                       </th>
-                      <th class="px-6 py-3 text-right font-medium text-gray-500">Actie</th>
+                      <th class="px-3 py-2 text-right font-medium text-gray-500">Actie</th>
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-gray-200" id="lidgeldenTbody">
@@ -1070,33 +1070,33 @@ app.get('/admin/lidgelden', async (c) => {
                         data-sort-status={m.status === 'paid' ? '1-paid' : '2-open'}
                         data-sort-tijd={tijdSortValue}
                       >
-                        <td class="px-6 py-4">
+                        <td class="px-3 py-2">
                           <div class="font-medium text-gray-900">{m.voornaam} {m.achternaam}</div>
-                          <div class="text-sm text-gray-500">{m.email}</div>
+                          <div class="text-xs text-gray-500">{m.email}</div>
                         </td>
-                        <td class="px-6 py-4">
+                        <td class="px-3 py-2">
                           {m.type === 'full' ? (
-                            <span class="bg-purple-100 text-purple-800 text-xs font-semibold px-2 py-1 rounded" title="Full lidgeld — met papieren partituren">
-                              <i class="fas fa-print mr-1"></i> Full (+ papieren partituren)
+                            <span class="bg-purple-100 text-purple-800 text-xs font-semibold px-2 py-0.5 rounded whitespace-nowrap" title="Full lidgeld — met papieren partituren">
+                              <i class="fas fa-print mr-1"></i> Full
                             </span>
                           ) : (
-                            <span class="bg-gray-100 text-gray-800 text-xs font-semibold px-2 py-1 rounded" title="Basis lidgeld — zonder papieren partituren (digitaal)">
-                              <i class="fas fa-tablet-alt mr-1"></i> Basis (digitaal)
+                            <span class="bg-gray-100 text-gray-800 text-xs font-semibold px-2 py-0.5 rounded whitespace-nowrap" title="Basis lidgeld — zonder papieren partituren (digitaal)">
+                              <i class="fas fa-tablet-alt mr-1"></i> Basis
                             </span>
                           )}
                         </td>
-                        <td class="px-6 py-4 font-mono">€ {m.amount.toFixed(2)}</td>
-                        <td class="px-6 py-4">
+                        <td class="px-3 py-2 font-mono whitespace-nowrap">€ {m.amount.toFixed(2)}</td>
+                        <td class="px-3 py-2">
                           {m.status === 'paid' ? (
                             <div class="flex flex-col">
-                                <span class="text-green-600 font-semibold"><i class="fas fa-check mr-1"></i> Betaald</span>
+                                <span class="text-green-600 font-semibold whitespace-nowrap"><i class="fas fa-check mr-1"></i> Betaald</span>
                                 <span class="text-xs text-gray-400">{formatBrusselsDate(m.paid_at, { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                             </div>
                           ) : (
-                            <span class="text-amber-600 font-semibold"><i class="fas fa-clock mr-1"></i> Openstaand</span>
+                            <span class="text-amber-600 font-semibold whitespace-nowrap"><i class="fas fa-clock mr-1"></i> Openstaand</span>
                           )}
                         </td>
-                        <td class="px-6 py-4 text-xs">
+                        <td class="px-3 py-2 text-xs">
                           {m.status === 'paid' ? (
                             m.daysToPay !== null ? (
                               <span class={`px-2 py-1 rounded ${m.daysToPay <= 7 ? 'bg-emerald-100 text-emerald-700' : m.daysToPay <= 30 ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700'}`} title={`Betaald na ${m.daysToPay} dagen`}>
@@ -1111,14 +1111,15 @@ app.get('/admin/lidgelden', async (c) => {
                             </span>
                           )}
                         </td>
-                        <td class="px-6 py-4 text-right">
-                          <div class="flex flex-col gap-2 items-end">
+                        <td class="px-3 py-2 text-right">
+                          {/* Acties als icon-only knoppen — tooltip op hover, compact zodat geen horizontaal scrollen nodig is */}
+                          <div class="flex flex-wrap gap-1 justify-end">
                             {m.status === 'paid' ? (
                               <form action="/api/admin/lidgelden/status" method="POST" class="inline">
                                 <input type="hidden" name="membership_id" value={m.id} />
                                 <input type="hidden" name="status" value="pending" />
-                                <button class="text-amber-600 hover:text-amber-800 text-sm font-medium" title="Markeer als onbetaald">
-                                  <i class="fas fa-undo mr-1"></i> Reset
+                                <button class="w-7 h-7 inline-flex items-center justify-center text-amber-600 hover:bg-amber-50 rounded" title="Reset naar onbetaald">
+                                  <i class="fas fa-undo text-xs"></i>
                                 </button>
                               </form>
                             ) : (
@@ -1126,22 +1127,22 @@ app.get('/admin/lidgelden', async (c) => {
                                 <form action="/api/admin/lidgelden/status" method="POST" class="inline">
                                   <input type="hidden" name="membership_id" value={m.id} />
                                   <input type="hidden" name="status" value="paid" />
-                                  <button class="text-green-600 hover:text-green-800 text-sm font-medium" title="Markeer als handmatig betaald">
-                                    <i class="fas fa-check-circle mr-1"></i> Betaald
+                                  <button class="w-7 h-7 inline-flex items-center justify-center text-green-600 hover:bg-green-50 rounded" title="Markeer als handmatig betaald">
+                                    <i class="fas fa-check-circle text-xs"></i>
                                   </button>
                                 </form>
                                 <form action="/api/admin/lidgelden/send-link" method="POST" class="inline">
                                   <input type="hidden" name="membership_id" value={m.id} />
-                                  <button class="text-blue-600 hover:text-blue-800 text-sm font-medium" title="Stuur betaallink per email">
-                                    <i class="fas fa-envelope mr-1"></i> Stuur Link
+                                  <button class="w-7 h-7 inline-flex items-center justify-center text-blue-600 hover:bg-blue-50 rounded" title="Stuur betaallink per email">
+                                    <i class="fas fa-envelope text-xs"></i>
                                   </button>
                                 </form>
                                 {/* Sync-knop: alleen als er een echte Mollie payment_id is */}
                                 {m.mollie_payment_id && !String(m.mollie_payment_id).startsWith('tr_MOCK_') && (
                                   <form action="/api/admin/lidgelden/sync-mollie" method="POST" class="inline">
                                     <input type="hidden" name="membership_id" value={m.id} />
-                                    <button class="text-cyan-600 hover:text-cyan-800 text-sm font-medium" title="Check status bij Mollie en sync (handig als webhook niet doorkwam)">
-                                      <i class="fas fa-sync mr-1"></i> Sync Mollie
+                                    <button class="w-7 h-7 inline-flex items-center justify-center text-cyan-600 hover:bg-cyan-50 rounded" title="Check status bij Mollie en sync (handig als webhook niet doorkwam)">
+                                      <i class="fas fa-sync text-xs"></i>
                                     </button>
                                   </form>
                                 )}
@@ -1151,24 +1152,23 @@ app.get('/admin/lidgelden', async (c) => {
                             <form action="/api/admin/lidgelden/update-type" method="POST" class="inline">
                               <input type="hidden" name="membership_id" value={m.id} />
                               <input type="hidden" name="type" value={m.type === 'full' ? 'basis' : 'full'} />
-                              <button class="text-purple-600 hover:text-purple-800 text-xs font-medium" title={m.type === 'full' ? 'Wijzig naar Basis (digitaal)' : 'Upgrade naar Full (+ papieren partituren)'}>
-                                <i class={`fas ${m.type === 'full' ? 'fa-arrow-down' : 'fa-arrow-up'} mr-1`}></i>
-                                {m.type === 'full' ? '→ Basis' : '→ Full'}
+                              <button class="w-7 h-7 inline-flex items-center justify-center text-purple-600 hover:bg-purple-50 rounded" title={m.type === 'full' ? 'Wijzig naar Basis (digitaal)' : 'Upgrade naar Full (+ papieren partituren)'}>
+                                <i class={`fas ${m.type === 'full' ? 'fa-arrow-down' : 'fa-arrow-up'} text-xs`}></i>
                               </button>
                             </form>
                             {m.status !== 'paid' && (
                               <form action="/api/admin/lidgelden/update-amount" method="POST" class="inline" onsubmit={`var v = prompt('Nieuw bedrag in € voor ${(m.voornaam || '') + ' ' + (m.achternaam || '')} (huidig: €${Number(m.amount).toFixed(2)}). Mollie betaallink wordt gereset.', '${Number(m.amount).toFixed(2)}'); if (v === null) return false; this.amount.value = v; return true;`}>
                                 <input type="hidden" name="membership_id" value={m.id} />
                                 <input type="hidden" name="amount" value="" />
-                                <button class="text-indigo-600 hover:text-indigo-800 text-xs font-medium" title="Bedrag aanpassen (korting, bijbetaling, correctie)">
-                                  <i class="fas fa-euro-sign mr-1"></i> Bedrag
+                                <button class="w-7 h-7 inline-flex items-center justify-center text-indigo-600 hover:bg-indigo-50 rounded" title="Bedrag aanpassen (korting, bijbetaling, correctie)">
+                                  <i class="fas fa-euro-sign text-xs"></i>
                                 </button>
                               </form>
                             )}
                             <form action="/api/admin/lidgelden/delete" method="POST" class="inline" onsubmit={`return confirm('Lidmaatschap voor ${m.voornaam || ''} ${m.achternaam || ''} verwijderen?');`}>
                               <input type="hidden" name="membership_id" value={m.id} />
-                              <button class="text-red-600 hover:text-red-800 text-xs font-medium" title="Verwijder dit lidmaatschap">
-                                <i class="fas fa-trash mr-1"></i> Verwijder
+                              <button class="w-7 h-7 inline-flex items-center justify-center text-red-600 hover:bg-red-50 rounded" title="Verwijder dit lidmaatschap">
+                                <i class="fas fa-trash text-xs"></i>
                               </button>
                             </form>
                           </div>

@@ -202,12 +202,7 @@ async function fetchTopAuthors(DB: D1Database, days = 7, limit = 10): Promise<an
           AND COALESCE(c.is_deleted,0) = 0
         GROUP BY c.user_id
       UNION ALL
-      SELECT r.auteur_id AS user_id, COUNT(*) AS n, MAX(r.created_at) AS last_at
-        FROM post_replies r
-        WHERE r.created_at >= datetime('now', '-${days} days')
-          AND r.is_deleted = 0
-        GROUP BY r.auteur_id
-      UNION ALL
+      -- post_replies UNION verwijderd 2026-06-13: berichtenmodule afgeschaft
       SELECT r.auteur_id AS user_id, COUNT(*) AS n, MAX(r.created_at) AS last_at
         FROM event_replies r
         WHERE r.created_at >= datetime('now', '-${days} days')
@@ -242,7 +237,7 @@ async function fetchTopAuthors(DB: D1Database, days = 7, limit = 10): Promise<an
 // op de table-name (kan niet als parameter).
 function tableFor(source: string): string | null {
   if (source === 'nieuws') return 'post_comments'
-  if (source === 'board') return 'post_replies'
+  // 'board' verwijderd 2026-06-13: berichtenmodule afgeschaft
   if (source === 'agenda') return 'event_replies'
   return null
 }

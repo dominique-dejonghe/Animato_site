@@ -1129,21 +1129,32 @@ app.get('/admin/feedback', async (c) => {
                         <>
                           <div class="flex items-end gap-1 h-32 border-b border-gray-200 pb-1">
                             {trendRaw.map((w: any) => {
-                              const bugH = maxCnt > 0 ? (w.bug_count / maxCnt) * 100 : 0
-                              const featH = maxCnt > 0 ? (w.feature_count / maxCnt) * 100 : 0
+                              // Totale staaf-hoogte = bug+feature t.o.v. de week met de meeste items.
+                              // Bug onderaan (rood), feature daarbovenop (blauw) — gestapeld zonder gap.
+                              const totalCount = (w.bug_count || 0) + (w.feature_count || 0)
+                              const totalH = maxCnt > 0 ? (totalCount / maxCnt) * 100 : 0
+                              const bugFrac = totalCount > 0 ? (w.bug_count / totalCount) * 100 : 0
+                              const featFrac = totalCount > 0 ? (w.feature_count / totalCount) * 100 : 0
                               const wkLabel = w.week_start ? new Date(w.week_start).toLocaleDateString('nl-BE', { day: '2-digit', month: '2-digit' }) : ''
                               return (
-                                <div class="flex-1 flex flex-col items-center gap-0.5 group relative">
+                                <div class="flex-1 h-full flex flex-col justify-end group relative" title={`${wkLabel}: ${w.bug_count} bugs, ${w.feature_count} ideeën`}>
                                   <div
-                                    class="w-full bg-gradient-to-t from-blue-500 to-blue-300 rounded-t hover:from-blue-600 hover:to-blue-400 transition cursor-pointer"
-                                    style={`height: ${featH}%; min-height: ${w.feature_count > 0 ? '2px' : '0'}`}
-                                    title={`${wkLabel}: ${w.feature_count} ideeën`}
-                                  ></div>
-                                  <div
-                                    class="w-full bg-gradient-to-t from-red-500 to-red-300 hover:from-red-600 hover:to-red-400 transition cursor-pointer"
-                                    style={`height: ${bugH}%; min-height: ${w.bug_count > 0 ? '2px' : '0'}`}
-                                    title={`${wkLabel}: ${w.bug_count} bugs`}
-                                  ></div>
+                                    class="w-full flex flex-col-reverse overflow-hidden rounded-t"
+                                    style={`height: ${totalH}%; min-height: ${totalCount > 0 ? '4px' : '0'}`}
+                                  >
+                                    {w.bug_count > 0 && (
+                                      <div
+                                        class="w-full bg-gradient-to-t from-red-500 to-red-400 hover:from-red-600 hover:to-red-500 transition cursor-pointer"
+                                        style={`height: ${bugFrac}%`}
+                                      ></div>
+                                    )}
+                                    {w.feature_count > 0 && (
+                                      <div
+                                        class="w-full bg-gradient-to-t from-blue-500 to-blue-400 hover:from-blue-600 hover:to-blue-500 transition cursor-pointer"
+                                        style={`height: ${featFrac}%`}
+                                      ></div>
+                                    )}
+                                  </div>
                                   <div class="absolute -top-6 left-1/2 -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-0.5 rounded opacity-0 group-hover:opacity-100 transition pointer-events-none whitespace-nowrap z-10">
                                     {wkLabel}: {w.new_count}
                                   </div>

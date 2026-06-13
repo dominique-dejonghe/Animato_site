@@ -3849,7 +3849,7 @@ app.get('/admin/content', async (c) => {
                   Content Beheer
                 </h1>
                 <p class="mt-2 text-gray-600">
-                  Beheer nieuws, berichten en agenda
+                  Beheer nieuws en agenda
                 </p>
               </div>
               <div class="flex items-center gap-3">

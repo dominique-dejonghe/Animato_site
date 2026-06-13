@@ -84,11 +84,16 @@ app.get('/admin/meetings', async (c) => {
                 {upcomingMeetings.length > 0 ? (
                   <div class="divide-y divide-gray-200">
                     {upcomingMeetings.map((meeting: any) => (
-                      <div class="p-6 hover:bg-gray-50 transition">
+                      // Hele card is klikbaar via onclick \u2014 we navigeren naar de detail-pagina
+                      // bij klik ergens op de balk (behalve op de status-pill, die heeft cursor-default).
+                      <div
+                        class="p-6 hover:bg-gray-50 transition cursor-pointer"
+                        onclick={`window.location.href='/admin/meetings/${meeting.id}'`}
+                      >
                         <div class="flex justify-between items-start">
                           <div>
-                            <h4 class="text-xl font-bold text-gray-900 mb-1">
-                              <a href={`/admin/meetings/${meeting.id}`} class="hover:text-animato-primary">{meeting.titel}</a>
+                            <h4 class="text-xl font-bold text-gray-900 mb-1 hover:text-animato-primary">
+                              {meeting.titel}
                             </h4>
                             <div class="text-sm text-gray-600 mb-2">
                               <i class="far fa-calendar-alt mr-2 w-4"></i>
@@ -110,9 +115,9 @@ app.get('/admin/meetings', async (c) => {
                             }`}>
                               {meeting.status}
                             </span>
-                            <a href={`/admin/meetings/${meeting.id}`} class="text-animato-primary text-sm hover:underline">
+                            <span class="text-animato-primary text-sm">
                               Details <i class="fas fa-arrow-right ml-1"></i>
-                            </a>
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -133,17 +138,21 @@ app.get('/admin/meetings', async (c) => {
                 {pastMeetings.length > 0 ? (
                   <div class="divide-y divide-gray-200">
                     {pastMeetings.map((meeting: any) => (
-                      <div class="p-4 hover:bg-gray-50 transition flex justify-between items-center">
+                      // Hele rij is klikbaar — niet alleen het chevron rechts
+                      <a
+                        href={`/admin/meetings/${meeting.id}`}
+                        class="block p-4 hover:bg-gray-50 transition flex justify-between items-center group"
+                      >
                         <div>
-                          <div class="font-medium text-gray-900">{meeting.titel}</div>
+                          <div class="font-medium text-gray-900 group-hover:text-animato-primary">{meeting.titel}</div>
                           <div class="text-sm text-gray-500">
                             {new Date(meeting.start_at).toLocaleDateString('nl-BE')}
                           </div>
                         </div>
-                        <a href={`/admin/meetings/${meeting.id}`} class="text-gray-400 hover:text-animato-primary">
+                        <span class="text-gray-400 group-hover:text-animato-primary transition">
                           <i class="fas fa-chevron-right"></i>
-                        </a>
-                      </div>
+                        </span>
+                      </a>
                     ))}
                   </div>
                 ) : (

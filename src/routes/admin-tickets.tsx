@@ -1003,8 +1003,17 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
                 </div>
               </div>
 
-              {/* Voorverkoop start-datum */}
-              <div class="border-l-4 border-amber-400 bg-amber-50 rounded-r-lg p-4">
+              {/* Voorverkoop start-datum
+                  Logica: wanneer "Online ticketverkoop inschakelen" reeds aan staat,
+                  heeft een toekomstige start-datum geen zin meer → veld disabled. */}
+              <div
+                id="voorverkoop_start_wrapper"
+                class={`border-l-4 rounded-r-lg p-4 transition-all ${
+                  concert.ticketing_enabled === 1
+                    ? 'border-gray-300 bg-gray-100 opacity-60'
+                    : 'border-amber-400 bg-amber-50'
+                }`}
+              >
                 <label class="block text-sm font-semibold text-amber-900 mb-2">
                   <i class="fas fa-clock mr-2"></i>
                   Voorverkoop start op (optioneel)
@@ -1012,16 +1021,61 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
                 <input
                   type="datetime-local"
                   name="voorverkoop_start_at"
+                  id="voorverkoop_start_at"
                   value={concert.voorverkoop_start_at ? String(concert.voorverkoop_start_at).replace(' ', 'T').substring(0, 16) : ''}
-                  class="w-full border border-amber-300 rounded-lg px-4 py-2 bg-white"
+                  disabled={concert.ticketing_enabled === 1}
+                  class="w-full border border-amber-300 rounded-lg px-4 py-2 bg-white disabled:bg-gray-200 disabled:cursor-not-allowed disabled:text-gray-500"
                 />
-                <p class="text-xs text-amber-800 mt-2 leading-relaxed">
+                <p
+                  id="voorverkoop_start_hint_disabled"
+                  class="text-xs text-red-700 mt-2 leading-relaxed font-medium"
+                  style={concert.ticketing_enabled === 1 ? '' : 'display:none'}
+                >
+                  <i class="fas fa-lock mr-1"></i>
+                  Online ticketverkoop staat al aan — een toekomstige start-datum heeft geen zin.
+                  Schakel de verkoop hierboven uit als je toch een aftelteller wil tonen.
+                </p>
+                <p
+                  id="voorverkoop_start_hint_default"
+                  class="text-xs text-amber-800 mt-2 leading-relaxed"
+                  style={concert.ticketing_enabled === 1 ? 'display:none' : ''}
+                >
                   <i class="fas fa-info-circle mr-1"></i>
                   Datum in de toekomst? Dan toont de publieke pagina een <strong>live aftelteller</strong> tot
                   die datum. Laat leeg als je enkel "Tickets volgen binnenkort" wil tonen zonder specifieke datum,
                   of voor directe verkoop (datum in verleden = verkoop is open).
                 </p>
               </div>
+
+              {/* Client-side koppeling: ticketing_enabled ↔ voorverkoop_start_at */}
+              <script dangerouslySetInnerHTML={{ __html: `
+                (function() {
+                  var cb = document.getElementById('ticketing_enabled');
+                  var input = document.getElementById('voorverkoop_start_at');
+                  var wrap = document.getElementById('voorverkoop_start_wrapper');
+                  var hintOff = document.getElementById('voorverkoop_start_hint_disabled');
+                  var hintOn = document.getElementById('voorverkoop_start_hint_default');
+                  if (!cb || !input || !wrap) return;
+                  function sync() {
+                    if (cb.checked) {
+                      input.disabled = true;
+                      wrap.classList.remove('border-amber-400','bg-amber-50');
+                      wrap.classList.add('border-gray-300','bg-gray-100','opacity-60');
+                      if (hintOff) hintOff.style.display = '';
+                      if (hintOn) hintOn.style.display = 'none';
+                    } else {
+                      input.disabled = false;
+                      wrap.classList.add('border-amber-400','bg-amber-50');
+                      wrap.classList.remove('border-gray-300','bg-gray-100','opacity-60');
+                      if (hintOff) hintOff.style.display = 'none';
+                      if (hintOn) hintOn.style.display = '';
+                    }
+                  }
+                  cb.addEventListener('change', sync);
+                  // initial sync (mocht JSX en runtime uit sync raken)
+                  sync();
+                })();
+              ` }} />
 
               {/* Bug #214 — Concert-aanvangsuur & deuren-open
                   Los van events.start_at. Als ze leeg blijven, valt de
@@ -1786,7 +1840,12 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
       return s.replace('T', ' ') + (s.length === 16 ? ':00' : '')
     }
 
-    const voorverkoopStart = normalizeDateTime(body.voorverkoop_start_at)
+    // Server-side safeguard: als ticketverkoop al aan staat, heeft een
+    // "voorverkoop start op"-datum geen zin meer (de verkoop is immers open).
+    // We forceren hem dan op NULL, ongeacht wat de form stuurt — dekt zowel
+    // browsers zonder JS als stale data uit een eerdere config.
+    const ticketingEnabled = body.ticketing_enabled ? 1 : 0
+    const voorverkoopStart = ticketingEnabled === 1 ? null : normalizeDateTime(body.voorverkoop_start_at)
     // Bug #214 — eigen ticket-uren, los van events.start_at
     const doorsOpenAt = normalizeDateTime(body.doors_open_at)
     const concertStartAt = normalizeDateTime(body.concert_start_at)
@@ -1816,7 +1875,7 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
         extra_info = ?
       WHERE id = ?
     `, [
-      body.ticketing_enabled ? 1 : 0,
+      ticketingEnabled,
       body.uitverkocht ? 1 : 0,
       body.tickets_aangekondigd ? 1 : 0,
       voorverkoopStart,

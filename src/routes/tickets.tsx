@@ -227,17 +227,33 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                             <p class="text-sm text-gray-600">Klik op een vrije stoel om te selecteren. Klik opnieuw om af te selecteren.</p>
                           </div>
 
-                          {/* Legenda compact rechts naast titel */}
-                          <div class="flex flex-wrap gap-x-4 gap-y-2 text-xs items-center bg-gray-50 rounded-lg px-4 py-2 border border-gray-200">
-                            <div class="flex items-center"><div class="w-4 h-4 bg-blue-500 rounded-t-lg mr-2"></div> Beschikbaar</div>
-                            <div class="flex items-center"><div class="w-4 h-4 bg-gray-300 rounded-t-lg mr-2"></div> Bezet</div>
-                            <div class="flex items-center"><div class="w-4 h-4 bg-animato-accent rounded-t-lg mr-2"></div> Geselecteerd</div>
-                            <div class="flex items-center"><div class="w-4 h-4 bg-green-500 rounded-t-lg mr-2"></div> Rolstoel</div>
+                          <div class="flex items-center gap-3 flex-wrap">
+                            {/* Legenda compact rechts naast titel */}
+                            <div class="flex flex-wrap gap-x-4 gap-y-2 text-xs items-center bg-gray-50 rounded-lg px-4 py-2 border border-gray-200">
+                              <div class="flex items-center"><div class="w-4 h-4 bg-blue-500 rounded-t-lg mr-2"></div> Beschikbaar</div>
+                              <div class="flex items-center"><div class="w-4 h-4 bg-gray-300 rounded-t-lg mr-2"></div> Bezet</div>
+                              <div class="flex items-center"><div class="w-4 h-4 bg-animato-accent rounded-t-lg mr-2"></div> Geselecteerd</div>
+                              <div class="flex items-center"><div class="w-4 h-4 bg-green-500 rounded-t-lg mr-2"></div> Rolstoel</div>
+                            </div>
+
+                            {/* Fullscreen-knop — opent een modal die het hele scherm vult */}
+                            <button
+                              type="button"
+                              id="seatFullscreenOpenBtn"
+                              class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-animato-primary text-white text-sm font-semibold hover:bg-opacity-90 transition shadow"
+                              title="Toon zaalplan op volledig scherm (ESC of klik buiten om te sluiten)"
+                            >
+                              <i class="fas fa-expand"></i>
+                              <span class="hidden sm:inline">Toon volledig scherm</span>
+                              <span class="sm:hidden">Volledig scherm</span>
+                            </button>
                           </div>
                         </div>
 
                         {/* Frame: aspect-ratio uit DB, mag tot 85vh voor wow-effect.
-                            Subtiel theater-gradient + dikkere border zodat het oog er meteen heen gaat. */}
+                            Subtiel theater-gradient + dikkere border zodat het oog er meteen heen gaat.
+                            Bij fullscreen-mode verhuist #seatMapScale tijdelijk naar de modal — daarom
+                            staat het hier als kind van #seatMapFrame, en plaatsen we het terug bij sluiten. */}
                         <div
                             id="seatMapFrame"
                             class="relative overflow-auto border-2 border-gray-200 rounded-xl bg-gradient-to-b from-gray-50 to-gray-100 p-6 shadow-inner"
@@ -262,6 +278,81 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                         
                         {/* Hidden inputs for selected seats */}
                         <div id="selectedSeatsInputs"></div>
+
+                        {/* ── Fullscreen modal ──
+                            Verborgen by default. JS verplaatst #seatMapScale erin bij open,
+                            en zet hem terug in #seatMapFrame bij sluit. Zo behouden we alle
+                            event-listeners op de stoelen (verhuizen het DOM-element, niet kopiëren). */}
+                        <div
+                            id="seatFullscreenModal"
+                            class="fixed inset-0 z-50 bg-black/85 hidden flex-col"
+                            role="dialog"
+                            aria-modal="true"
+                            aria-labelledby="seatFullscreenTitle"
+                        >
+                            {/* Topbalk: titel + sluitknop */}
+                            <div class="flex items-center justify-between px-4 sm:px-6 py-3 bg-gray-900 text-white border-b border-gray-800">
+                                <div class="flex items-center gap-3 min-w-0">
+                                    <i class="fas fa-chair text-animato-primary text-lg"></i>
+                                    <div class="min-w-0">
+                                        <h3 id="seatFullscreenTitle" class="text-base sm:text-lg font-bold truncate">
+                                            Kies je plaatsen — {concert.titel}
+                                        </h3>
+                                        <p class="text-xs text-gray-300 hidden sm:block">
+                                            Klik op een stoel om te (de)selecteren · Pinch/zoom met de knoppen · ESC om te sluiten
+                                        </p>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    id="seatFullscreenCloseBtn"
+                                    class="ml-3 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white text-gray-900 text-sm font-semibold hover:bg-gray-100 transition"
+                                    title="Sluiten (ESC)"
+                                >
+                                    <i class="fas fa-times"></i>
+                                    <span class="hidden sm:inline">Sluiten</span>
+                                </button>
+                            </div>
+
+                            {/* Container voor het verplaatste seatMapScale — vult het hele beschikbare scherm */}
+                            <div
+                                id="seatFullscreenStage"
+                                class="flex-1 overflow-auto p-4 sm:p-8 bg-gradient-to-b from-gray-100 to-gray-200"
+                            >
+                                {/* #seatMapScale komt hier in zodra de modal open is */}
+                            </div>
+
+                            {/* Onderbalk: legenda + zoom-controls + tickets-teller */}
+                            <div class="bg-gray-900 text-white border-t border-gray-800 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
+                                {/* Legenda (mobiel verborgen, op sm+ zichtbaar) */}
+                                <div class="hidden sm:flex flex-wrap gap-x-4 gap-y-1 text-xs items-center">
+                                    <div class="flex items-center"><div class="w-3.5 h-3.5 bg-blue-500 rounded-t mr-1.5"></div> Beschikbaar</div>
+                                    <div class="flex items-center"><div class="w-3.5 h-3.5 bg-gray-400 rounded-t mr-1.5"></div> Bezet</div>
+                                    <div class="flex items-center"><div class="w-3.5 h-3.5 bg-animato-accent rounded-t mr-1.5"></div> Geselecteerd</div>
+                                    <div class="flex items-center"><div class="w-3.5 h-3.5 bg-green-500 rounded-t mr-1.5"></div> Rolstoel</div>
+                                </div>
+
+                                {/* Zoom-controls — bewust groter dan die op de pagina */}
+                                <div id="seatFullscreenZoomControls" class="flex items-center gap-2 text-sm">
+                                    <button type="button" id="seatFsZoomFit" class="px-3 py-1.5 rounded border border-blue-400 bg-blue-500 text-white hover:bg-blue-600 font-medium"><i class="fas fa-expand-arrows-alt mr-1"></i>Passend</button>
+                                    <button type="button" id="seatFsZoomOut" class="w-9 h-9 rounded border border-gray-600 bg-gray-800 hover:bg-gray-700"><i class="fas fa-minus"></i></button>
+                                    <span id="seatFsZoomLabel" class="font-mono w-14 text-center text-gray-200">100%</span>
+                                    <button type="button" id="seatFsZoomIn" class="w-9 h-9 rounded border border-gray-600 bg-gray-800 hover:bg-gray-700"><i class="fas fa-plus"></i></button>
+                                    <button type="button" id="seatFsZoom100" class="px-3 py-1.5 rounded border border-gray-600 bg-gray-800 hover:bg-gray-700">1:1</button>
+                                </div>
+
+                                {/* Tickets-teller spiegelt #total-tickets / #total-price van de hoofdpagina */}
+                                <div class="text-sm flex items-center gap-3">
+                                    <span class="text-gray-300">
+                                        <i class="fas fa-ticket-alt mr-1"></i>
+                                        <span id="seatFsTicketCount">0</span> stoelen
+                                    </span>
+                                    <span class="font-bold text-animato-accent">
+                                        <span id="seatFsTicketTotal">€0.00</span>
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                   ) : (
                     // --- QUANTITY MODE ---
@@ -436,20 +527,36 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                 // ── Auto-fit & zoom-controls voor het zaalplan ──
                 // "Passend" = vul het kader volledig (mag voorbij 100% gaan).
                 // Cap op 3x zodat heel kleine zaalplannen niet pixelig opblazen.
-                const frame = document.getElementById('seatMapFrame');
+                const inlineFrame = document.getElementById('seatMapFrame');
                 const scale = document.getElementById('seatMapScale');
                 const zoomLabel = document.getElementById('seatZoomLabel');
                 const zoomControls = document.getElementById('seatZoomControls');
+                const fsLabel = document.getElementById('seatFsZoomLabel');
                 let seatZoom = 1.0;
                 const planW = ${concert.sp_width || 800};
                 const planH = ${concert.sp_height || 600};
+                /** Huidige zichtbare container van #seatMapScale.
+                 *  Wordt naar de modal-stage gewisseld bij fullscreen. */
+                function currentSeatFrame() {
+                    if (!scale) return inlineFrame;
+                    // Loop omhoog tot we het ouder-element vinden dat als 'kader' fungeert
+                    if (scale.parentElement && scale.parentElement.id === 'seatFullscreenStage') {
+                        return scale.parentElement;
+                    }
+                    return inlineFrame;
+                }
                 function applySeatZoom() {
                     if (scale) scale.style.transform = 'scale(' + seatZoom + ')';
-                    if (zoomLabel) zoomLabel.innerText = Math.round(seatZoom * 100) + '%';
+                    const label = Math.round(seatZoom * 100) + '%';
+                    if (zoomLabel) zoomLabel.innerText = label;
+                    if (fsLabel)   fsLabel.innerText   = label;
                 }
                 function fitSeatPlan() {
+                    const frame = currentSeatFrame();
                     if (!frame || !scale) return;
-                    const pad = 32; // p-4 = 16px elke kant
+                    // Padding hangt af van welke container actief is. inlineFrame heeft p-6 (24px),
+                    // fullscreen-stage heeft p-4 of p-8 — we gebruiken 32px als veilige marge.
+                    const pad = 32;
                     const availW = Math.max(50, frame.clientWidth  - pad);
                     const availH = Math.max(50, frame.clientHeight - pad);
                     const sx = availW / planW;
@@ -460,15 +567,60 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                     applySeatZoom();
                 }
                 if (zoomControls) zoomControls.classList.remove('hidden');
+                // Pagina-knoppen
                 document.getElementById('seatZoomFit')?.addEventListener('click', fitSeatPlan);
                 document.getElementById('seatZoom100')?.addEventListener('click', () => { seatZoom = 1.0; applySeatZoom(); });
                 document.getElementById('seatZoomIn')?.addEventListener('click',  () => { seatZoom = Math.min(3.0, seatZoom + 0.1); applySeatZoom(); });
                 document.getElementById('seatZoomOut')?.addEventListener('click', () => { seatZoom = Math.max(0.1, seatZoom - 0.1); applySeatZoom(); });
+                // Modal-knoppen — zelfde acties, andere ID's
+                document.getElementById('seatFsZoomFit')?.addEventListener('click', fitSeatPlan);
+                document.getElementById('seatFsZoom100')?.addEventListener('click', () => { seatZoom = 1.0; applySeatZoom(); });
+                document.getElementById('seatFsZoomIn')?.addEventListener('click',  () => { seatZoom = Math.min(3.0, seatZoom + 0.1); applySeatZoom(); });
+                document.getElementById('seatFsZoomOut')?.addEventListener('click', () => { seatZoom = Math.max(0.1, seatZoom - 0.1); applySeatZoom(); });
                 window.addEventListener('resize', fitSeatPlan);
                 // Initieel fitten zodat het zaalplan altijd binnen het kader past
                 // Twee passes: één direct (ruwe meting) en één na render-flush
                 setTimeout(fitSeatPlan, 50);
                 setTimeout(fitSeatPlan, 250);
+
+                // ── Fullscreen modal: verhuis #seatMapScale heen-en-weer ──
+                // Alle event-listeners op de stoel-divs blijven intact omdat we
+                // het bestaande DOM-element verplaatsen i.p.v. te klonen.
+                const fsModal   = document.getElementById('seatFullscreenModal');
+                const fsStage   = document.getElementById('seatFullscreenStage');
+                const fsOpenBtn = document.getElementById('seatFullscreenOpenBtn');
+                const fsCloseBtn= document.getElementById('seatFullscreenCloseBtn');
+                function openSeatFullscreen() {
+                    if (!fsModal || !fsStage || !scale || !inlineFrame) return;
+                    fsStage.appendChild(scale);              // verhuis scale naar modal-stage
+                    fsModal.classList.remove('hidden');
+                    fsModal.classList.add('flex');           // flex-col (zie className op modal)
+                    document.body.style.overflow = 'hidden'; // body niet meer scrollen
+                    // Re-fit op het nieuwe kader na een tick zodat dimensies kloppen
+                    setTimeout(fitSeatPlan, 30);
+                    setTimeout(fitSeatPlan, 250);
+                }
+                function closeSeatFullscreen() {
+                    if (!fsModal || !inlineFrame || !scale) return;
+                    inlineFrame.appendChild(scale);          // zet scale terug in zijn originele kader
+                    fsModal.classList.add('hidden');
+                    fsModal.classList.remove('flex');
+                    document.body.style.overflow = '';
+                    setTimeout(fitSeatPlan, 30);
+                    setTimeout(fitSeatPlan, 250);
+                }
+                fsOpenBtn?.addEventListener('click', openSeatFullscreen);
+                fsCloseBtn?.addEventListener('click', closeSeatFullscreen);
+                // ESC = sluiten
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape' && fsModal && !fsModal.classList.contains('hidden')) {
+                        closeSeatFullscreen();
+                    }
+                });
+                // Klik op de donkere achtergrond (maar niet op stoelen of UI) = sluiten
+                fsModal?.addEventListener('click', (e) => {
+                    if (e.target === fsModal) closeSeatFullscreen();
+                });
             }
 
             function toggleSeat(seat, el) {
@@ -562,7 +714,12 @@ app.get('/concerten/:eventId/tickets', async (c) => {
 
               document.getElementById('total-tickets').textContent = totalTickets;
               document.getElementById('total-price').textContent = '€' + totalPrice.toFixed(2);
-              
+              // Spiegel naar de fullscreen-modal footer (alleen aanwezig in seating-plan mode)
+              const fsCount = document.getElementById('seatFsTicketCount');
+              const fsTotal = document.getElementById('seatFsTicketTotal');
+              if (fsCount) fsCount.textContent = totalTickets;
+              if (fsTotal) fsTotal.textContent = '€' + totalPrice.toFixed(2);
+
               const submitBtn = document.getElementById('submit-btn');
               if (totalTickets > 0) submitBtn.disabled = false;
               else submitBtn.disabled = true;

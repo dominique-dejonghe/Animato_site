@@ -254,18 +254,19 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                             Subtiel theater-gradient + dikkere border zodat het oog er meteen heen gaat.
                             Bij fullscreen-mode verhuist #seatMapScale tijdelijk naar de modal — daarom
                             staat het hier als kind van #seatMapFrame, en plaatsen we het terug bij sluiten. */}
-                        {/* Frame is flex-centered zodat #seatMapScale altijd in het midden zit.
-                            origin-top-center op de scale zorgt dat zoom-in vanuit het centrum gebeurt
-                            (anders schiet het plan naar de linkerbovenhoek bij in/uitzoomen). */}
+                        {/* Frame: volledige hoogte automatisch zodat het hele plan past, GEEN scrollbars.
+                            JS berekent fitSeatPlan() op basis van breedte → zaalplan past altijd binnen het
+                            beschikbare scherm zonder overflow. flex-center zorgt dat scale-element gecentreerd
+                            blijft staan, ongeacht zoom-niveau. */}
                         <div
                             id="seatMapFrame"
-                            class="relative overflow-auto border-2 border-gray-200 rounded-xl bg-gradient-to-b from-gray-50 to-gray-100 p-6 shadow-inner flex items-start justify-center"
-                            style={`aspect-ratio: ${concert.sp_width || 800} / ${concert.sp_height || 600}; max-height: 85vh; min-height: 500px;`}
+                            class="relative overflow-hidden border-2 border-gray-200 rounded-xl bg-gradient-to-b from-gray-50 to-gray-100 p-4 shadow-inner flex items-center justify-center"
+                            style="min-height: 400px;"
                         >
                             <div id="seatMapScale" style="transform-origin: center center; transition: transform .15s ease;">
-                                <div id="seatMap" class="relative bg-white shadow-lg mx-auto" style={`width: ${concert.sp_width}px; height: ${concert.sp_height}px;`}>
-                                    <div class="absolute top-0 left-0 w-full bg-gray-800 text-white text-xs py-1.5 text-center font-bold tracking-widest">PODIUM / SCHERM</div>
-                                    {/* Seats rendered via JS */}
+                                <div id="seatMap" class="relative bg-white shadow-lg" style={`width: ${concert.sp_width}px; height: ${concert.sp_height}px;`}>
+                                    <div class="absolute top-0 left-0 w-full bg-gray-800 text-white text-xs py-1.5 text-center font-bold tracking-widest z-20">PODIUM / SCHERM</div>
+                                    {/* Seats + rij-labels rendered via JS */}
                                 </div>
                             </div>
                         </div>
@@ -476,14 +477,18 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                 const map = document.getElementById('seatMap');
 
                 // ── Rij-labels berekenen ──
-                // Strategie: groepeer per UNIEKE y-positie (i.p.v. row_label uit DB), want
-                // dan krijgen we sowieso ALLE rijen een label — ook als één stoel in een rij
-                // een ontbrekend row_label heeft. We sorteren de unieke y's en geven A, B, C...
-                // De DB-waarde (seat.row_label) gebruiken we als die bestaat, anders Excel-style
-                // letters op basis van de y-volgorde. Zo komt nooit een rij zonder label binnen
-                // het zaalplan terecht.
+                // We renderen voor ELKE unieke y-positie een label, zowel LINKS als RECHTS van
+                // de rij. Zo zien gebruikers altijd duidelijk welke rij het is, ook als de eerste
+                // stoel heel dicht bij de linker- of rechterrand staat.
+                //
+                // Robust: we gebruiken seat.row_label als die bestaat, anders Excel-style fallback
+                // op basis van y-volgorde (A, B, ..., Z, AA, AB...). Zo krijgt elke rij sowieso
+                // een label, ook als de DB-migratie iets gemist heeft.
+                //
+                // De labels staan BUITEN het zaalplan-canvas (negatieve x links, > maxX rechts),
+                // met overflow: visible op de canvas zodat ze toch zichtbaar zijn. Dat voorkomt
+                // dat ze bovenop stoelen vallen wanneer een rij heel dicht bij x=0 begint.
                 function toExcelLetter(idx) {
-                    // 0 -> A, 25 -> Z, 26 -> AA, 27 -> AB
                     let s = '';
                     let n = idx;
                     while (n >= 0) {
@@ -492,29 +497,40 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                     }
                     return s;
                 }
-                // 1) verzamel per y-positie: meest-linkse x + bewaar liefst de DB-label
-                const yMap = {}; // y -> { minX, lbl }
+                // Zorg dat labels buiten #seatMap toch tekenbaar zijn
+                map.style.overflow = 'visible';
+
+                // 1) verzamel per UNIEKE y-positie: minX, maxX en de DB-label
+                const yMap = {}; // y -> { minX, maxX, lbl }
                 seats.forEach(seat => {
                     const k = seat.y;
-                    if (!yMap[k]) yMap[k] = { minX: seat.x, lbl: seat.row_label || '' };
+                    if (!yMap[k]) yMap[k] = { minX: seat.x, maxX: seat.x, lbl: seat.row_label || '' };
                     if (seat.x < yMap[k].minX) yMap[k].minX = seat.x;
-                    // Bewaar de eerst-gevonden niet-lege row_label voor deze y
+                    if (seat.x > yMap[k].maxX) yMap[k].maxX = seat.x;
                     if (!yMap[k].lbl && seat.row_label) yMap[k].lbl = seat.row_label;
                 });
-                // 2) sorteer y-waarden van boven naar onder en plaats labels
+                // 2) sorteer y-waarden van boven naar onder
                 const sortedYs = Object.keys(yMap).map(Number).sort((a, b) => a - b);
+                // 3) render labels aan BEIDE kanten van de rij
                 sortedYs.forEach((y, idx) => {
                     const g = yMap[y];
-                    const lbl = g.lbl || toExcelLetter(idx); // fallback: A, B, C... gebaseerd op y-volgorde
-                    const tag = document.createElement('div');
-                    tag.className = 'absolute text-xs font-bold text-gray-600 pointer-events-none';
-                    // Stoelen zijn 32px hoog → label verticaal centreren op de rij
-                    tag.style.cssText = 'left:' + Math.max(0, g.minX - 36) + 'px;top:' + (y + 4) + 'px;'
+                    const lbl = g.lbl || toExcelLetter(idx);
+                    const sharedStyle = 'top:' + (y + 4) + 'px;'
                         + 'background:rgba(255,255,255,.95);padding:2px 6px;border-radius:4px;'
                         + 'border:1px solid #cbd5e1;letter-spacing:.05em;z-index:5;'
-                        + 'min-width:22px;text-align:center;line-height:1;';
-                    tag.innerText = lbl;
-                    map.appendChild(tag);
+                        + 'min-width:24px;text-align:center;line-height:1.1;font-size:11px;';
+                    // Links: 8px buiten de meest-linkse stoel
+                    const leftTag = document.createElement('div');
+                    leftTag.className = 'absolute font-bold text-gray-700 pointer-events-none';
+                    leftTag.style.cssText = 'left:' + (g.minX - 38) + 'px;' + sharedStyle;
+                    leftTag.innerText = lbl;
+                    map.appendChild(leftTag);
+                    // Rechts: 8px voorbij de meest-rechtse stoel (stoel = 32px breed)
+                    const rightTag = document.createElement('div');
+                    rightTag.className = 'absolute font-bold text-gray-700 pointer-events-none';
+                    rightTag.style.cssText = 'left:' + (g.maxX + 32 + 6) + 'px;' + sharedStyle;
+                    rightTag.innerText = lbl;
+                    map.appendChild(rightTag);
                 });
 
                 seats.forEach(seat => {
@@ -567,7 +583,8 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                 // écht staan, zodat 'Passend' op die bbox optimaliseert en het plan
                 // visueel gecentreerd voelt — geen lelijke witte stroken meer naast het plan.
                 const SEAT_SIZE = 32;          // w-8 h-8 = 32px
-                const LABEL_GUTTER = 40;       // ruimte links voor de rij-labels (A, B, C...)
+                const LABEL_GUTTER = 44;       // ruimte voor rij-labels (links + rechts van de stoelen)
+                const TOP_PADDING = 28;        // ruimte boven voor de PODIUM/SCHERM-balk
                 let bbox = { minX: 0, minY: 0, maxX: planW, maxY: planH };
                 if (seats.length > 0) {
                     bbox = seats.reduce((acc, s) => ({
@@ -576,8 +593,10 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                         maxX: Math.max(acc.maxX, s.x + SEAT_SIZE),
                         maxY: Math.max(acc.maxY, s.y + SEAT_SIZE),
                     }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
-                    // Houd ruimte links voor de rij-labels
-                    bbox.minX = Math.max(0, bbox.minX - LABEL_GUTTER);
+                    // Houd ruimte links én rechts voor de rij-labels (we tekenen ze aan beide kanten)
+                    bbox.minX = bbox.minX - LABEL_GUTTER;
+                    bbox.maxX = bbox.maxX + LABEL_GUTTER;
+                    bbox.minY = Math.max(0, bbox.minY - TOP_PADDING);
                 }
                 const contentW = Math.max(50, bbox.maxX - bbox.minX);
                 const contentH = Math.max(50, bbox.maxY - bbox.minY);
@@ -612,18 +631,34 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                 function fitSeatPlan() {
                     const frame = currentSeatFrame();
                     if (!frame || !scale) return;
-                    // Padding hangt af van welke container actief is. inlineFrame heeft p-6 (24px),
-                    // fullscreen-stage heeft p-4 of p-8 — we gebruiken 32px als veilige marge.
+                    const isFullscreen = frame.id === 'seatFullscreenStage';
                     const pad = 32;
-                    const availW = Math.max(50, frame.clientWidth  - pad);
-                    const availH = Math.max(50, frame.clientHeight - pad);
-                    // Schaal op basis van werkelijke bbox-grootte i.p.v. volledige planW/planH —
-                    // zo verdwijnt de witte ruimte rechts/links wanneer het plan niet de hele
-                    // canvas gebruikt.
-                    const sx = availW / contentW;
-                    const sy = availH / contentH;
-                    seatZoom = Math.min(sx, sy, 3.0);
-                    if (seatZoom < 0.1) seatZoom = 0.1;
+                    const availW = Math.max(50, frame.clientWidth - pad);
+                    let seatZoomNew;
+                    if (isFullscreen) {
+                        // In fullscreen: vul het hele beschikbare scherm (breedte + hoogte)
+                        const availH = Math.max(50, frame.clientHeight - pad);
+                        const sx = availW / contentW;
+                        const sy = availH / contentH;
+                        seatZoomNew = Math.min(sx, sy, 3.0);
+                    } else {
+                        // Inline: schaal op BREEDTE en pas frame-hoogte aan zodat alles past
+                        // zonder scrollbar. Maximum hoogte = 80vh zodat de pagina niet ontspoort
+                        // op heel grote schermen.
+                        const maxFrameH = Math.max(400, Math.round(window.innerHeight * 0.80));
+                        let s = availW / contentW;
+                        // Als de berekende hoogte > maxFrameH zou worden, schalen we kleiner zodat
+                        // het tóch past zonder scrollen.
+                        if (contentH * s + pad > maxFrameH) {
+                            s = (maxFrameH - pad) / contentH;
+                        }
+                        seatZoomNew = Math.min(s, 3.0);
+                        // Zet de frame-hoogte expliciet op wat nodig is — geen overflow meer
+                        const neededH = Math.max(400, Math.ceil(contentH * seatZoomNew) + pad);
+                        frame.style.height = Math.min(neededH, maxFrameH) + 'px';
+                    }
+                    if (seatZoomNew < 0.1) seatZoomNew = 0.1;
+                    seatZoom = seatZoomNew;
                     applySeatZoom();
                 }
                 if (zoomControls) zoomControls.classList.remove('hidden');

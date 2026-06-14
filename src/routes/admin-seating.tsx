@@ -180,28 +180,55 @@ function renderEditor(c: any, layout: any) {
   // ── Zoom state & helpers ───────────────────────────
   var zoomLevel = 1.0;       // 1.0 = 100%
   var fitMode = true;        // start met fit-to-frame
+  /** Geeft de huidige container terug waarin #canvasScale leeft.
+   *  In fullscreen-modus is dat #canvasFullscreenStage, anders #canvasFrame. */
+  function currentCanvasFrame() {
+    if (!canvasScale) return canvasFrame;
+    if (canvasScale.parentElement && canvasScale.parentElement.id === 'canvasFullscreenStage') {
+      return canvasScale.parentElement;
+    }
+    return canvasFrame;
+  }
   function applyZoom() {
     if (!canvasScale) return;
     canvasScale.style.transform = 'scale(' + zoomLevel + ')';
+    var pct = Math.round(zoomLevel * 100) + '%';
     var lbl = document.getElementById('zoomLabel');
-    if (lbl) lbl.innerText = Math.round(zoomLevel * 100) + '%';
+    if (lbl) lbl.innerText = pct;
+    var fsLbl = document.getElementById('canvasFsZoomLabel');
+    if (fsLbl) fsLbl.innerText = pct;
   }
   function fitToFrame() {
-    if (!canvasFrame || !canvasScale) return;
-    // Beschikbare ruimte = frame minus padding (24px elke kant = 48px totaal)
+    var frame = currentCanvasFrame();
+    if (!frame || !canvasScale) return;
+    var isFullscreen = frame.id === 'canvasFullscreenStage';
     var pad = 48;
-    var availW = canvasFrame.clientWidth  - pad;
-    var availH = canvasFrame.clientHeight - pad;
-    var scaleX = availW / canvasW;
-    var scaleY = availH / canvasH;
-    zoomLevel = Math.min(scaleX, scaleY, 1.0); // niet boven 100% schalen in fit-modus
+    var availW = frame.clientWidth - pad;
+    if (isFullscreen) {
+      // Fullscreen: gebruik beide assen
+      var availH = frame.clientHeight - pad;
+      var scaleX = availW / canvasW;
+      var scaleY = availH / canvasH;
+      zoomLevel = Math.min(scaleX, scaleY, 3.0);
+    } else {
+      // Inline: schaal op breedte en zet frame-hoogte naar wat nodig is — geen scrollbars
+      var maxFrameH = Math.max(500, Math.round(window.innerHeight * 0.75));
+      var s = availW / canvasW;
+      if (canvasH * s + pad > maxFrameH) {
+        s = (maxFrameH - pad) / canvasH;
+      }
+      // Cap op 1.5x zodat kleine plannen niet overdreven groot komen
+      zoomLevel = Math.min(s, 1.5);
+      var neededH = Math.max(500, Math.ceil(canvasH * zoomLevel) + pad);
+      frame.style.height = Math.min(neededH, maxFrameH) + 'px';
+    }
     if (zoomLevel < 0.1) zoomLevel = 0.1;
     fitMode = true;
     applyZoom();
   }
   function zoomBy(delta) {
     fitMode = false;
-    zoomLevel = Math.max(0.1, Math.min(2.0, zoomLevel + delta));
+    zoomLevel = Math.max(0.1, Math.min(3.0, zoomLevel + delta));
     applyZoom();
   }
 
@@ -804,6 +831,53 @@ function renderEditor(c: any, layout: any) {
   if (zoomOutBtn) zoomOutBtn.addEventListener('click', function(){ zoomBy(-0.1); });
   if (zoomFitBtn) zoomFitBtn.addEventListener('click', fitToFrame);
   if (zoom100Btn) zoom100Btn.addEventListener('click', function(){ fitMode = false; zoomLevel = 1.0; applyZoom(); });
+  // Modal-zoom-knoppen (zelfde acties, andere ID's)
+  var fsFitBtn  = document.getElementById('canvasFsZoomFit');
+  var fsInBtn   = document.getElementById('canvasFsZoomIn');
+  var fsOutBtn  = document.getElementById('canvasFsZoomOut');
+  var fs100Btn  = document.getElementById('canvasFsZoom100');
+  if (fsFitBtn) fsFitBtn.addEventListener('click', fitToFrame);
+  if (fsInBtn)  fsInBtn.addEventListener('click',  function(){ zoomBy(+0.1); });
+  if (fsOutBtn) fsOutBtn.addEventListener('click', function(){ zoomBy(-0.1); });
+  if (fs100Btn) fs100Btn.addEventListener('click', function(){ fitMode = false; zoomLevel = 1.0; applyZoom(); });
+
+  // ── Fullscreen modal: verhuis #canvasScale heen-en-weer ──
+  // Verplaatsen (appendChild) i.p.v. klonen zodat alle event-listeners
+  // op stoel-divs (click, drag, shift+klik, rechtsklik) blijven werken.
+  var fsModal   = document.getElementById('canvasFullscreenModal');
+  var fsStage   = document.getElementById('canvasFullscreenStage');
+  var fsOpenBtn = document.getElementById('canvasFullscreenOpenBtn');
+  var fsCloseBtn= document.getElementById('canvasFullscreenCloseBtn');
+  function openCanvasFullscreen() {
+    if (!fsModal || !fsStage || !canvasScale || !canvasFrame) return;
+    fsStage.appendChild(canvasScale);
+    fsModal.classList.remove('hidden');
+    fsModal.classList.add('flex');
+    document.body.style.overflow = 'hidden';
+    setTimeout(fitToFrame, 30);
+    setTimeout(fitToFrame, 250);
+  }
+  function closeCanvasFullscreen() {
+    if (!fsModal || !canvasFrame || !canvasScale) return;
+    canvasFrame.appendChild(canvasScale);
+    fsModal.classList.add('hidden');
+    fsModal.classList.remove('flex');
+    document.body.style.overflow = '';
+    setTimeout(fitToFrame, 30);
+    setTimeout(fitToFrame, 250);
+  }
+  if (fsOpenBtn)  fsOpenBtn.addEventListener('click', openCanvasFullscreen);
+  if (fsCloseBtn) fsCloseBtn.addEventListener('click', closeCanvasFullscreen);
+  // ESC = sluiten
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && fsModal && !fsModal.classList.contains('hidden')) {
+      closeCanvasFullscreen();
+    }
+  });
+  // Klik op de donkere achtergrond (maar niet op canvas of UI) = sluiten
+  if (fsModal) fsModal.addEventListener('click', function(e) {
+    if (e.target === fsModal) closeCanvasFullscreen();
+  });
 
   // Auto-fit bij venster-resize
   window.addEventListener('resize', function() {
@@ -812,8 +886,9 @@ function renderEditor(c: any, layout: any) {
 
   // ── Boot ───────────────────────────────────────────
   initCanvas();
-  // Initieel: probeer in beeld te passen
+  // Initieel: probeer in beeld te passen (twee passes voor render-flush)
   setTimeout(fitToFrame, 50);
+  setTimeout(fitToFrame, 250);
 })();
 `
 
@@ -993,18 +1068,73 @@ function renderEditor(c: any, layout: any) {
                   <button id="zoom100Btn" type="button" class="text-xs px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-50" title="100%">
                     1:1
                   </button>
+                  {/* Fullscreen-knop: zelfde mechanisme als publieke ticketpagina */}
+                  <button id="canvasFullscreenOpenBtn" type="button" class="ml-2 text-xs px-3 py-1.5 rounded bg-animato-primary text-white hover:opacity-90 font-semibold shadow-sm" title="Bewerk in volledig scherm (ESC of klik buiten om te sluiten)">
+                    <i class="fas fa-expand mr-1"></i>Volledig scherm
+                  </button>
                 </div>
                 <span class="text-[11px] text-gray-500">
                   <i class="fas fa-info-circle mr-1"></i>Zoom verandert alleen de weergave, niet de opgeslagen coördinaten.
                 </span>
               </div>
 
-              <div id="canvasFrame" class="bg-gray-100 p-6 rounded-lg shadow-inner overflow-auto" style="height:700px;display:flex;align-items:flex-start;justify-content:center;position:relative;">
-                <div id="canvasScale" style="transform-origin:top center;transition:transform .15s ease;">
+              {/* Canvas frame: GEEN scrollbars meer — frame past zich aan aan het plan. */}
+              <div id="canvasFrame" class="bg-gray-100 p-4 rounded-lg shadow-inner overflow-hidden" style="min-height:500px;display:flex;align-items:center;justify-content:center;position:relative;">
+                <div id="canvasScale" style="transform-origin:center center;transition:transform .15s ease;">
                   <div id="canvasWrapper" style="position:relative;background:#fff;box-shadow:0 4px 24px rgba(0,0,0,.12);cursor:crosshair;">
                     <div style="position:absolute;top:0;left:0;width:100%;background:#1F2937;color:#fff;font-size:11px;padding:4px 0;text-align:center;font-weight:bold;letter-spacing:.1em;z-index:10;">
                       PODIUM / SCHERM
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Fullscreen modal voor de editor ──
+                  Werkt met DOM-move: #canvasScale verhuist tijdelijk naar #canvasFullscreenStage.
+                  Zo behouden alle event-listeners op stoelen (klik, drag, shift+klik...) hun werking. */}
+              <div
+                id="canvasFullscreenModal"
+                class="fixed inset-0 z-50 bg-black/85 hidden flex-col"
+                role="dialog"
+                aria-modal="true"
+              >
+                <div class="flex items-center justify-between px-4 sm:px-6 py-3 bg-gray-900 text-white border-b border-gray-800">
+                  <div class="flex items-center gap-3 min-w-0">
+                    <i class="fas fa-chair text-animato-primary text-lg"></i>
+                    <div class="min-w-0">
+                      <h3 class="text-base sm:text-lg font-bold truncate">
+                        Zaalplan bewerken — volledig scherm
+                      </h3>
+                      <p class="text-xs text-gray-300 hidden sm:block">
+                        Alle bewerkingen blijven werken: klik = stoel toevoegen · sleep = verplaatsen · Shift+klik = selectie · rechtsklik = verwijderen · ESC om te sluiten
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    id="canvasFullscreenCloseBtn"
+                    class="ml-3 inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white text-gray-900 text-sm font-semibold hover:bg-gray-100 transition"
+                    title="Sluiten (ESC)"
+                  >
+                    <i class="fas fa-times"></i>
+                    <span class="hidden sm:inline">Sluiten</span>
+                  </button>
+                </div>
+                <div id="canvasFullscreenStage" class="flex-1 overflow-auto p-4 sm:p-8 bg-gradient-to-b from-gray-100 to-gray-200 flex items-center justify-center">
+                  {/* #canvasScale komt hier in zodra de modal open is */}
+                </div>
+                <div class="bg-gray-900 text-white border-t border-gray-800 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
+                  <div class="flex items-center gap-2 text-sm">
+                    <span class="text-gray-300 text-xs">Zoom:</span>
+                    <button type="button" id="canvasFsZoomFit" class="px-3 py-1.5 rounded border border-blue-400 bg-blue-500 text-white hover:bg-blue-600 font-medium text-xs"><i class="fas fa-expand-arrows-alt mr-1"></i>Passend</button>
+                    <button type="button" id="canvasFsZoomOut" class="w-8 h-8 rounded border border-gray-600 bg-gray-800 hover:bg-gray-700 text-xs"><i class="fas fa-minus"></i></button>
+                    <span id="canvasFsZoomLabel" class="font-mono w-12 text-center text-gray-200 text-xs">100%</span>
+                    <button type="button" id="canvasFsZoomIn" class="w-8 h-8 rounded border border-gray-600 bg-gray-800 hover:bg-gray-700 text-xs"><i class="fas fa-plus"></i></button>
+                    <button type="button" id="canvasFsZoom100" class="px-3 py-1.5 rounded border border-gray-600 bg-gray-800 hover:bg-gray-700 text-xs">1:1</button>
+                  </div>
+                  <div class="text-xs text-gray-300">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    Wijzigingen worden bewaard wanneer je op <span class="font-semibold text-white">Opslaan</span> klikt na het sluiten van deze view.
                   </div>
                 </div>
               </div>

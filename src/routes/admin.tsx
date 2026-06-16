@@ -12,6 +12,7 @@ import { setCookie } from 'hono/cookie'
 import { generateToken, hashPassword } from '../utils/auth'
 import { notifyAllActiveMembers } from '../utils/notifications'
 import { formatBrusselsDate, formatBrusselsTime, formatBrusselsDateTime } from '../utils/time'
+import { uploadDataUrlToR2, isDataUrl } from '../utils/r2-storage'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -5460,6 +5461,30 @@ app.post('/api/admin/content/save', async (c) => {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-|-$/g, '')
 
+    // ── Cover image: upload data:URL → R2, bewaar enkel de R2-URL in DB ──
+    // CRITICAL: D1 heeft een ~1MB limiet per kolom-waarde. Een base64-encoded
+    // afbeelding van zelfs maar 800KB stuurt elke SELECT die deze post laadt
+    // naar de SQLITE_TOOBIG-hel. We MOETEN data-URLs naar R2 routeren voordat
+    // ze in de DB belanden — geen uitzonderingen.
+    let finalCoverImage: string | null = (cover_image as string) || null
+    if (finalCoverImage && isDataUrl(finalCoverImage)) {
+      // Hard-cap op de Worker request body grootte (35MB ruim genoeg voor posters)
+      if (finalCoverImage.length > 35_000_000) {
+        const redirectUrl = is_new === '1' ? '/admin/content/nieuw' : `/admin/content/${post_id}`
+        return c.redirect(`${redirectUrl}?error=image_too_large&msg=${encodeURIComponent('Foto te groot (max ~25 MB). Comprimeer en probeer opnieuw.')}`)
+      }
+      if (!c.env.R2) {
+        const redirectUrl = is_new === '1' ? '/admin/content/nieuw' : `/admin/content/${post_id}`
+        return c.redirect(`${redirectUrl}?error=r2_unavailable&msg=${encodeURIComponent('R2 storage niet beschikbaar — foto kon niet opgeslagen worden.')}`)
+      }
+      const up = await uploadDataUrlToR2(c.env.R2, `covers/posts/${post_id || 'new'}`, finalCoverImage)
+      if (!up) {
+        const redirectUrl = is_new === '1' ? '/admin/content/nieuw' : `/admin/content/${post_id}`
+        return c.redirect(`${redirectUrl}?error=upload_failed&msg=${encodeURIComponent('Upload naar R2 mislukt — probeer opnieuw.')}`)
+      }
+      finalCoverImage = up.url // bv. "/r2/covers/posts/123/1736-abc.png"
+    }
+
     const now = new Date().toISOString()
     const publishedValue = is_published === '1' ? 1 : 0
     const pinnedValue = is_pinned === '1' ? 1 : 0
@@ -5491,7 +5516,7 @@ app.post('/api/admin/content/save', async (c) => {
         user.id,
         now,
         resolvedPublishedAt,
-        cover_image || null,
+        finalCoverImage,
         verloopt_op || null
       ).run()
 
@@ -5541,7 +5566,7 @@ app.post('/api/admin/content/save', async (c) => {
         customPublishedAt ? String(customPublishedAt).replace('T', ' ') + ':00' : null,
         publishedValue,
         now,
-        cover_image || null,
+        finalCoverImage,
         verloopt_op || null,
         now,
         post_id

@@ -264,31 +264,45 @@ app.notFound((c) => {
   `, 404)
 })
 
-// Error handler
+// Error handler — geeft veel meer context terug bij 500's zodat we
+// in productie kunnen achterhalen WELKE route en query crashten.
 app.onError((err, c) => {
-  console.error('Application error:', err)
-  console.error('Error stack:', err.stack)
-  console.error('URL:', c.req.url)
-  console.error('Method:', c.req.method)
-  
+  const url = c.req.url
+  const path = new URL(url).pathname + new URL(url).search
+  const method = c.req.method
+  const ua = c.req.header('User-Agent') || ''
+  const referer = c.req.header('Referer') || ''
+
+  console.error('===== APPLICATION ERROR =====')
+  console.error('Path:    ', path)
+  console.error('Method:  ', method)
+  console.error('Referer: ', referer)
+  console.error('Message: ', err.message)
+  console.error('Stack:   ', err.stack)
+  console.error('UA:      ', ua.slice(0, 100))
+  console.error('=============================')
+
   // For form submissions (HTML), redirect back with error
   const accept = c.req.header('Accept') || ''
   const contentType = c.req.header('Content-Type') || ''
   const isFormSubmit = c.req.method === 'POST' && (
-    contentType.includes('application/x-www-form-urlencoded') || 
+    contentType.includes('application/x-www-form-urlencoded') ||
     contentType.includes('multipart/form-data')
   )
-  
+
   if (isFormSubmit && !accept.includes('application/json')) {
-    const referer = c.req.header('Referer') || '/'
     const errMsg = encodeURIComponent((err.message || 'unknown').substring(0, 100))
     const separator = referer.includes('?') ? '&' : '?'
-    return c.redirect(`${referer}${separator}error=server_error&msg=${errMsg}`)
+    return c.redirect(`${(referer || '/')}${separator}error=server_error&msg=${errMsg}`)
   }
-  
+
   return c.json({
     error: 'Er is een fout opgetreden',
     message: err.message,
+    // Extra diagnostische velden — onmisbaar om de bron te identificeren
+    // zonder dat we toegang tot CF-logs nodig hebben.
+    path,
+    method,
     timestamp: new Date().toISOString()
   }, 500)
 })

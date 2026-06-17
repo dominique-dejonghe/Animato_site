@@ -10,7 +10,7 @@ import { requireAuth, requireRole, requireBestuurslid } from '../middleware/auth
 import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 import { createEventOccurrences, formatRecurrenceRule } from '../utils/recurring-events'
 import { generateICS, generateBulkICS, generateGoogleCalendarURL } from '../utils/ics'
-import { uploadDataUrlToR2, deleteFromR2, isDataUrl, r2KeyFromUrl } from '../utils/r2-storage'
+import { uploadDataUrlToR2, deleteFromR2, isDataUrl, r2KeyFromUrl, uploadInlineDataUrlsInHtml } from '../utils/r2-storage'
 import { notifyAllActiveMembers, cleanupNotificationsForEvent } from '../utils/notifications'
 import { formatBrusselsDate, formatBrusselsTime, formatBrusselsDateTime, brusselsLocalToUTC, utcToBrusselsLocal } from '../utils/time'
 
@@ -1440,6 +1440,20 @@ app.post('/admin/events/save', async (c) => {
         days_of_week: recurrence_days ? 
           (Array.isArray(recurrence_days) ? recurrence_days : [recurrence_days]).map(d => parseInt(d as string)) 
           : undefined
+      }
+    }
+
+    // === Beschrijving (Quill HTML): scan voor inline <img src="data:..."> en push naar R2 ===
+    if (cleanBeschrijving && cleanBeschrijving.indexOf('data:image/') !== -1 && c.env.R2) {
+      try {
+        const eventIdForInline = id || 'new'
+        cleanBeschrijving = await uploadInlineDataUrlsInHtml(
+          c.env.R2,
+          `covers/events/${eventIdForInline}/inline`,
+          cleanBeschrijving
+        )
+      } catch (e: any) {
+        return c.html(`<p>Inline foto in beschrijving kon niet opgeslagen worden: ${e?.message || 'onbekende fout'}</p>`, 500)
       }
     }
 

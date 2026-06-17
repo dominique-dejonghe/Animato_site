@@ -12,7 +12,7 @@ import { setCookie } from 'hono/cookie'
 import { generateToken, hashPassword } from '../utils/auth'
 import { notifyAllActiveMembers, cleanupNotificationsForEvent } from '../utils/notifications'
 import { formatBrusselsDate, formatBrusselsTime, formatBrusselsDateTime } from '../utils/time'
-import { uploadDataUrlToR2, isDataUrl } from '../utils/r2-storage'
+import { uploadDataUrlToR2, isDataUrl, uploadInlineDataUrlsInHtml } from '../utils/r2-storage'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -5632,7 +5632,7 @@ app.post('/api/admin/content/save', async (c) => {
     }
 
     // Allow empty string for body, but must be present
-    const finalBody = String(postBody || '')
+    let finalBody = String(postBody || '')
 
     // Generate slug if empty
     const finalSlug = slug || titel.toString().toLowerCase()
@@ -5661,6 +5661,18 @@ app.post('/api/admin/content/save', async (c) => {
         return c.redirect(`${redirectUrl}?error=upload_failed&msg=${encodeURIComponent('Upload naar R2 mislukt — probeer opnieuw.')}`)
       }
       finalCoverImage = up.url // bv. "/r2/covers/posts/123/1736-abc.png"
+    }
+
+    // ── Quill body: scan voor inline <img src="data:..."> en push naar R2 ──
+    // Quill embedt geplakte/gedropte afbeeldingen by default als base64 in de HTML.
+    // Eén foto = potentieel ~1MB inline in posts.body. We saneren server-side.
+    if (finalBody && finalBody.indexOf('data:image/') !== -1 && c.env.R2) {
+      try {
+        finalBody = await uploadInlineDataUrlsInHtml(c.env.R2, `covers/posts/${post_id || 'new'}/inline`, finalBody)
+      } catch (e: any) {
+        const redirectUrl = is_new === '1' ? '/admin/content/nieuw' : `/admin/content/${post_id}`
+        return c.redirect(`${redirectUrl}?error=inline_upload_failed&msg=${encodeURIComponent('Inline foto kon niet opgeslagen worden: ' + (e?.message || 'onbekende fout'))}`)
+      }
     }
 
     const now = new Date().toISOString()

@@ -7,6 +7,7 @@ import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { queryAll, queryOne, execute } from '../utils/db'
 import { requireAdmin } from '../middleware/auth'
+import { uploadDataUrlToR2, isDataUrl, deleteFromR2, r2KeyFromUrl, uploadInlineDataUrlsInHtml } from '../utils/r2-storage'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -348,9 +349,9 @@ app.post('/api/admin/paginas/save', async (c) => {
   const body = await c.req.parseBody()
   const slug = String(body.slug || '')
   const titel = String(body.titel || '').trim()
-  const intro = String(body.intro || '').trim() || null
-  const heroImage = String(body.hero_image || '').trim() || null
-  const content = String(body.body || '').trim()
+  let intro: string | null = String(body.intro || '').trim() || null
+  let heroImage: string | null = String(body.hero_image || '').trim() || null
+  let content = String(body.body || '').trim()
   // Checkbox: aanwezig in body = aangevinkt; afwezig = niet aangevinkt
   const showInNav = body.show_in_nav ? 1 : 0
   const navOrderRaw = parseInt(String(body.nav_order || '100'), 10)
@@ -360,6 +361,45 @@ app.post('/api/admin/paginas/save', async (c) => {
     return c.redirect('/admin/paginas?error=missing_fields')
   }
 
+  // ─── Data-URL sanering: GEEN base64-foto's in editable_pages ───
+  // hero_image kan een data:URL zijn (van de upload-widget)
+  // intro/body zijn Quill HTML die <img src="data:...">-tags kan bevatten
+  // (Quill embedt geplakte/gedropte afbeeldingen by default als base64)
+  let oldHeroR2KeyToDelete: string | null = null
+  try {
+    // 1. hero_image
+    if (heroImage && isDataUrl(heroImage)) {
+      if (heroImage.length > 35_000_000) {
+        return c.redirect(`/admin/paginas/${slug}?error=` + encodeURIComponent(
+          'Hero-foto te groot (' + Math.round(heroImage.length / 1024 / 1024) + ' MB). Comprimeer en probeer opnieuw.'))
+      }
+      if (!c.env.R2) {
+        return c.redirect(`/admin/paginas/${slug}?error=` + encodeURIComponent('R2 storage niet beschikbaar'))
+      }
+      const up = await uploadDataUrlToR2(c.env.R2, `pages/${slug}`, heroImage)
+      if (!up) {
+        return c.redirect(`/admin/paginas/${slug}?error=` + encodeURIComponent('Hero-foto upload mislukt'))
+      }
+      // Track oude R2-key voor opruimen na succesvolle UPDATE
+      const prev = await queryOne<{ hero_image: string | null }>(c.env.DB,
+        `SELECT hero_image FROM editable_pages WHERE slug = ?`, [slug]) as any
+      oldHeroR2KeyToDelete = r2KeyFromUrl(prev?.hero_image || null)
+      heroImage = up.url
+    }
+
+    // 2. intro & body: scan voor inline <img src="data:...">
+    if (intro && c.env.R2) {
+      intro = await uploadInlineDataUrlsInHtml(c.env.R2, `pages/${slug}`, intro)
+    }
+    if (content && c.env.R2) {
+      content = await uploadInlineDataUrlsInHtml(c.env.R2, `pages/${slug}`, content)
+    }
+  } catch (e: any) {
+    console.error('admin-pages save: R2 sanitize failed:', e?.message)
+    return c.redirect(`/admin/paginas/${slug}?error=` + encodeURIComponent(
+      'Foto kon niet opgeslagen worden: ' + (e?.message || 'onbekende fout')))
+  }
+
   await execute(c.env.DB, `
     UPDATE editable_pages
     SET titel = ?, intro = ?, body = ?, hero_image = ?,
@@ -367,6 +407,11 @@ app.post('/api/admin/paginas/save', async (c) => {
         updated_at = CURRENT_TIMESTAMP, updated_by = ?
     WHERE slug = ?
   `, [titel, intro, content, heroImage, showInNav, navOrder, user.id, slug])
+
+  // Best-effort: oude R2 hero opruimen
+  if (oldHeroR2KeyToDelete && c.env.R2) {
+    try { await deleteFromR2(c.env.R2, oldHeroR2KeyToDelete) } catch {}
+  }
 
   return c.redirect('/admin/paginas?success=saved')
 })

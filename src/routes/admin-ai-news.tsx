@@ -329,13 +329,28 @@ app.post('/api/admin/ai-news/publish', async (c) => {
     }
 
     // Upload cover image naar R2 als data-URL meegegeven
+    // CRITICAL: Geen silent fail meer — als de gebruiker een cover meegeeft moet
+    // die ook echt opgeslagen worden. Anders staat hij raar te kijken naar een
+    // post zonder afbeelding, of (erger) blijft er een data-URL hangen die de
+    // posts-tabel opblaast.
     let coverUrl: string | null = null
-    if (cover_data && String(cover_data).startsWith('data:image/') && c.env.R2) {
+    if (cover_data && String(cover_data).startsWith('data:image/')) {
+      if (!c.env.R2) {
+        return c.json({ error: 'R2 storage niet beschikbaar — cover kon niet opgeslagen worden.' }, 500)
+      }
+      const dataStr = String(cover_data)
+      if (dataStr.length > 35_000_000) {
+        return c.json({ error: `Cover te groot (${Math.round(dataStr.length / 1024 / 1024)} MB). Max ~25 MB.` }, 413)
+      }
       try {
-        const up = await uploadDataUrlToR2(c.env.R2, 'nieuws-covers', String(cover_data))
-        if (up?.url) coverUrl = up.url
+        const up = await uploadDataUrlToR2(c.env.R2, 'nieuws-covers', dataStr)
+        if (!up?.url) {
+          return c.json({ error: 'Cover upload naar R2 mislukt' }, 500)
+        }
+        coverUrl = up.url
       } catch (e: any) {
-        console.warn('Cover upload failed:', e?.message)
+        console.error('AI news cover upload failed:', e?.message)
+        return c.json({ error: 'Cover upload mislukt: ' + (e?.message || 'onbekende fout') }, 500)
       }
     }
 

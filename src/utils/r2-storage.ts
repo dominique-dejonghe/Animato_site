@@ -159,3 +159,61 @@ export function r2KeyFromUrl(url: string | null | undefined): string | null {
 export function isDataUrl(value: string | null | undefined): boolean {
   return !!value && typeof value === 'string' && value.startsWith('data:')
 }
+
+/**
+ * Scant een HTML-fragment op `<img src="data:image/...">` tags, uploadt elke
+ * inline data-URL naar R2, en vervangt de src door de /r2/<key> URL.
+ *
+ * Waarom: Quill (en andere rich-text editors) embedden geplakte/gedropte
+ * afbeeldingen by default als base64. Eén foto = ~1MB inline base64 in HTML.
+ * Dat blaast je posts/editable_pages tabel op, kan de SQLITE_TOOBIG kolomlimiet
+ * raken, en vertraagt elke SELECT. Deze helper saneert de HTML server-side.
+ *
+ * @returns Het bewerkte HTML-fragment (zelfde input als er geen data-URLs in zaten).
+ * @throws Error als R2-upload mislukt voor één van de gevonden data-URLs.
+ */
+export async function uploadInlineDataUrlsInHtml(
+  bucket: R2Bucket,
+  prefix: string,
+  html: string | null | undefined
+): Promise<string> {
+  if (!html || typeof html !== 'string') return html || ''
+  // Geen data: prefix? Dan niks te doen, snelle exit.
+  if (html.indexOf('data:image/') === -1) return html
+
+  // Match <img ... src="data:image/...;base64,...">  (single OR double quotes)
+  // Niet-greedy om meerdere img-tags in dezelfde body te ondersteunen.
+  const IMG_DATA_RE = /(<img\b[^>]*\bsrc=)(["'])(data:image\/[^"']+)\2/gi
+
+  // Eerst alle matches verzamelen (regex.exec in loop is foutgevoelig met async)
+  const matches: { full: string; prefix: string; quote: string; dataUrl: string }[] = []
+  let m: RegExpExecArray | null
+  IMG_DATA_RE.lastIndex = 0
+  while ((m = IMG_DATA_RE.exec(html)) !== null) {
+    matches.push({ full: m[0], prefix: m[1], quote: m[2], dataUrl: m[3] })
+  }
+
+  if (matches.length === 0) return html
+
+  // Upload elke unieke data-URL naar R2
+  const replacements = new Map<string, string>() // dataUrl → /r2/url
+  for (const match of matches) {
+    if (replacements.has(match.dataUrl)) continue
+    const up = await uploadDataUrlToR2(bucket, prefix, match.dataUrl)
+    if (!up) {
+      throw new Error('Inline image upload naar R2 mislukt')
+    }
+    replacements.set(match.dataUrl, up.url)
+  }
+
+  // Vervang in HTML
+  let result = html
+  for (const [dataUrl, r2Url] of replacements) {
+    // Escape special regex chars in data-URL voor exacte vervanging
+    // (base64 bevat /, + en = die als regex special tellen)
+    const escaped = dataUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    result = result.replace(new RegExp(`(<img\\b[^>]*\\bsrc=)(["'])${escaped}\\2`, 'gi'),
+      (_full, p1, p2) => `${p1}${p2}${r2Url}${p2}`)
+  }
+  return result
+}

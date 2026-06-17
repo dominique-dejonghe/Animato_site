@@ -6,7 +6,7 @@ import { requireRole, type SessionUser } from '../middleware/auth'
 import { queryAll, queryOne, execute } from '../utils/db'
 import { verifyToken } from '../utils/auth'
 import type { Bindings } from '../types'
-import { uploadDataUrlToR2, deleteFromR2 } from '../utils/r2-storage'
+import { uploadDataUrlToR2, deleteFromR2, isDataUrl, r2KeyFromUrl } from '../utils/r2-storage'
 import { notifyActiveMembersByStemgroep } from '../utils/notifications'
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -1627,14 +1627,41 @@ app.post('/api/admin/works/:id/update-image', async (c) => {
   const user = c.get('user') as SessionUser
   const workId = parseInt(c.req.param('id'))
   const body = await c.req.json()
-  
+
   try {
-    await execute(c.env.DB, 
+    // ─── Data-URL sanering: geen base64 in works.image_url ───
+    let finalImageUrl: string | null = body.image_url ? String(body.image_url) : null
+    let oldR2KeyToDelete: string | null = null
+
+    if (finalImageUrl && isDataUrl(finalImageUrl)) {
+      if (finalImageUrl.length > 35_000_000) {
+        return c.json({ error: 'Afbeelding te groot (max ~25 MB). Comprimeer en probeer opnieuw.' }, 413)
+      }
+      if (!c.env.R2) {
+        return c.json({ error: 'R2 storage niet beschikbaar' }, 500)
+      }
+      const up = await uploadDataUrlToR2(c.env.R2, `works/${workId}`, finalImageUrl)
+      if (!up) {
+        return c.json({ error: 'Upload naar R2 mislukt' }, 500)
+      }
+      // Track oude R2-key voor opruimen na succesvolle UPDATE
+      const prev = await queryOne<{ image_url: string | null }>(c.env.DB,
+        `SELECT image_url FROM works WHERE id = ?`, [workId]) as any
+      oldR2KeyToDelete = r2KeyFromUrl(prev?.image_url || null)
+      finalImageUrl = up.url
+    }
+
+    await execute(c.env.DB,
       `UPDATE works SET image_url = ? WHERE id = ?`,
-      [body.image_url || null, workId]
+      [finalImageUrl, workId]
     )
-    
-    return c.json({ success: true })
+
+    // Best-effort: oude R2-cover opruimen
+    if (oldR2KeyToDelete && c.env.R2) {
+      try { await deleteFromR2(c.env.R2, oldR2KeyToDelete) } catch {}
+    }
+
+    return c.json({ success: true, url: finalImageUrl })
   } catch (error) {
     console.error('Error updating work image:', error)
     return c.json({ error: (error as Error).message }, 500)

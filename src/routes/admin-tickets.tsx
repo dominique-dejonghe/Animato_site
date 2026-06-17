@@ -846,11 +846,15 @@ app.post('/api/admin/tickets/:id/resend', async (c) => {
 
     // Haal álle ticket-rijen + concert-info voor deze order op
     const rows = await queryAll<any>(c.env.DB,
-      `SELECT t.*, e.titel, e.start_at, e.locatie, e.adres,
+      `SELECT t.*, e.titel, e.start_at, e.locatie,
+              TRIM(COALESCE(l.adres, '') || CASE WHEN l.postcode IS NOT NULL OR l.stad IS NOT NULL
+                THEN ', ' || COALESCE(l.postcode, '') || ' ' || COALESCE(l.stad, '')
+                ELSE '' END) AS adres,
               c.doors_open_at, c.concert_start_at
        FROM tickets t
        JOIN concerts c ON c.id = t.concert_id
        JOIN events e   ON e.id = c.event_id
+       LEFT JOIN locations l ON l.id = e.location_id
        WHERE t.order_ref = ?
        ORDER BY t.id ASC`,
       [ref.order_ref]
@@ -2997,13 +3001,17 @@ app.get('/admin/tickets/concert/:concertId/seat-pdf/:ticketSeatId', async (c) =>
     SELECT ts.id AS ticket_seat_id, ts.ticket_id,
            t.order_ref, t.koper_naam, t.koper_email, t.qr_code, t.categorie, t.prijs_totaal, t.aantal,
            s.section_name, s.row_label, s.seat_number,
-           e.titel AS concert_titel, e.start_at, e.locatie, e.adres,
+           e.titel AS concert_titel, e.start_at, e.locatie,
+           TRIM(COALESCE(l.adres, '') || CASE WHEN l.postcode IS NOT NULL OR l.stad IS NOT NULL
+             THEN ', ' || COALESCE(l.postcode, '') || ' ' || COALESCE(l.stad, '')
+             ELSE '' END) AS adres,
            c.doors_open_at, c.concert_start_at
     FROM ticket_seats ts
     JOIN tickets t ON t.id = ts.ticket_id
     JOIN seats s ON s.id = ts.seat_id
     JOIN concerts c ON c.id = t.concert_id
     JOIN events e ON e.id = c.event_id
+    LEFT JOIN locations l ON l.id = e.location_id
     WHERE ts.id = ? AND t.concert_id = ?
   `, [ticketSeatId, concertId])
 
@@ -3071,11 +3079,15 @@ app.get('/admin/tickets/order/:orderRef/zip', async (c) => {
   const order = await queryOne<any>(c.env.DB, `
     SELECT t.order_ref, t.koper_naam, t.koper_email,
            SUM(t.prijs_totaal) AS totaal_bedrag, SUM(t.aantal) AS totaal_kaarten,
-           e.titel AS concert_titel, e.start_at, e.locatie, e.adres,
+           e.titel AS concert_titel, e.start_at, e.locatie,
+           TRIM(COALESCE(l.adres, '') || CASE WHEN l.postcode IS NOT NULL OR l.stad IS NOT NULL
+             THEN ', ' || COALESCE(l.postcode, '') || ' ' || COALESCE(l.stad, '')
+             ELSE '' END) AS adres,
            c.doors_open_at, c.concert_start_at
     FROM tickets t
     JOIN concerts c ON c.id = t.concert_id
     JOIN events e ON e.id = c.event_id
+    LEFT JOIN locations l ON l.id = e.location_id
     WHERE t.order_ref = ?
     GROUP BY t.order_ref
   `, [orderRef])

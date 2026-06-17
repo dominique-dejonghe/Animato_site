@@ -40,7 +40,9 @@ async function fetchUserOrders(db: D1Database, email: string) {
       e.titel AS concert_titel,
       e.start_at,
       e.locatie,
-      e.adres,
+      TRIM(COALESCE(l.adres, '') || CASE WHEN l.postcode IS NOT NULL OR l.stad IS NOT NULL
+        THEN ', ' || COALESCE(l.postcode, '') || ' ' || COALESCE(l.stad, '')
+        ELSE '' END) AS adres,
       c.id AS concert_id,
       c.doors_open_at,
       c.concert_start_at,
@@ -53,6 +55,7 @@ async function fetchUserOrders(db: D1Database, email: string) {
     FROM tickets t
     JOIN concerts c ON c.id = t.concert_id
     JOIN events e ON e.id = c.event_id
+    LEFT JOIN locations l ON l.id = e.location_id
     WHERE LOWER(t.koper_email) = LOWER(?)
       AND t.status = 'paid'
     GROUP BY t.order_ref
@@ -68,13 +71,17 @@ async function fetchUserOrders(db: D1Database, email: string) {
 async function fetchOrderDetail(db: D1Database, orderRef: string, email: string) {
   const order = await queryOne<any>(db, `
     SELECT t.order_ref, t.koper_naam, t.koper_email, t.created_at, t.betaald_at,
-           e.id AS event_id, e.titel AS concert_titel, e.start_at, e.locatie, e.adres,
+           e.id AS event_id, e.titel AS concert_titel, e.start_at, e.locatie,
+           TRIM(COALESCE(l.adres, '') || CASE WHEN l.postcode IS NOT NULL OR l.stad IS NOT NULL
+             THEN ', ' || COALESCE(l.postcode, '') || ' ' || COALESCE(l.stad, '')
+             ELSE '' END) AS adres,
            c.id AS concert_id, c.doors_open_at, c.concert_start_at,
            SUM(t.prijs_totaal) AS totaal_bedrag,
            SUM(t.aantal) AS totaal_kaarten
     FROM tickets t
     JOIN concerts c ON c.id = t.concert_id
     JOIN events e ON e.id = c.event_id
+    LEFT JOIN locations l ON l.id = e.location_id
     WHERE t.order_ref = ?
       AND LOWER(t.koper_email) = LOWER(?)
       AND t.status = 'paid'

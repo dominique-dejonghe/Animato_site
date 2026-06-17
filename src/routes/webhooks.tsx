@@ -246,14 +246,19 @@ app.post('/api/webhooks/mollie', async (c) => {
     // === TICKET FLOW (Default fallback) ===
     // BUG-FIX (#240): één Mollie-payment kan meerdere ticket-rijen omvatten (multi-categorie).
     // Vroeger gebruikten we queryOne dat slechts één rij updatte → de overige rijen bleven pending hangen.
-    // UITBREIDING: ook concert-specifieke velden ophalen voor PDF (adres, doors_open, etc.)
+    // UITBREIDING: ook concert-specifieke velden ophalen voor PDF (adres via locations, doors_open, etc.)
+    // FIX: events heeft géén adres-kolom in productie — we joinen op locations (via events.location_id)
     const ticketRows = await (c.env.DB.prepare(
       `SELECT t.*,
-              e.titel, e.start_at, e.locatie, e.adres,
+              e.titel, e.start_at, e.locatie,
+              TRIM(COALESCE(l.adres, '') || CASE WHEN l.postcode IS NOT NULL OR l.stad IS NOT NULL
+                THEN ', ' || COALESCE(l.postcode, '') || ' ' || COALESCE(l.stad, '')
+                ELSE '' END) AS locatie_adres,
               c.doors_open_at, c.concert_start_at
        FROM tickets t
        JOIN concerts c ON c.id = t.concert_id
        JOIN events e ON e.id = c.event_id
+       LEFT JOIN locations l ON l.id = e.location_id
        WHERE t.betaling_id = ?
        ORDER BY t.id ASC`
     ).bind(paymentId).all<any>())
@@ -384,7 +389,7 @@ app.post('/api/webhooks/mollie', async (c) => {
               concert_tijd: concertTijd,
               concert_doors_open: concertDoorsOpen,
               concert_locatie: ticket.locatie || '',
-              concert_adres: ticket.adres || null,
+              concert_adres: (ticket.locatie_adres && ticket.locatie_adres.trim()) || null,
               logo_png_bytes: logoBytes,
               seats: seatTickets
             })
@@ -404,7 +409,7 @@ app.post('/api/webhooks/mollie', async (c) => {
               concert_tijd: concertTijd,
               concert_doors_open: concertDoorsOpen,
               concert_locatie: ticket.locatie || '',
-              concert_adres: ticket.adres || null,
+              concert_adres: (ticket.locatie_adres && ticket.locatie_adres.trim()) || null,
               totaal_bedrag: totaalBedrag,
               lines: ticketLines.map((t: any) => ({
                 qr_code: t.qr_code,

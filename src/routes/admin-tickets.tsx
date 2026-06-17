@@ -2916,7 +2916,7 @@ app.get('/admin/tickets/concert/:concertId/checkin-status', async (c) => {
       s.section_name,
       s.row_label,
       s.seat_number,
-      u.naam AS checked_in_by_naam
+      COALESCE(substr(u.email, 1, instr(u.email, '@') - 1), u.email) AS checked_in_by_naam
     FROM ticket_seats ts
     JOIN tickets t ON t.id = ts.ticket_id
     LEFT JOIN seats s ON s.id = ts.seat_id

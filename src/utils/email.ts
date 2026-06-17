@@ -157,7 +157,7 @@ export function orderConfirmationEmail(data: {
     <div style="background: #DBEAFE; border-left: 4px solid #3B82F6; padding: 15px; border-radius: 6px; margin: 20px 0;">
       <h4 style="margin: 0 0 10px 0;">ℹ️ Wat gebeurt er nu?</h4>
       <ul style="margin: 0; padding-left: 20px;">
-        <li>Na betaling ontvang je je tickets per email</li>
+        <li>Na betaling vind je je tickets in de Koorportaal (voor koorleden) of in je mailbox</li>
         <li>Elk ticket bevat een unieke QR-code</li>
         <li>Toon je QR-code bij de ingang van het concert</li>
         <li>Bewaar deze email en je bestelreferentie</li>
@@ -366,7 +366,7 @@ export function paymentReminderEmail(data: {
       </a>
     </div>
     
-    <p>Na betaling ontvang je direct je tickets per email.</p>
+    <p>Na betaling vind je je tickets in de Koorportaal (voor koorleden) of in je mailbox.</p>
     
     <p style="margin-top: 30px;">
       Met vriendelijke groet,<br>

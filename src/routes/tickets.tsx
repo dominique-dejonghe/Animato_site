@@ -1123,7 +1123,7 @@ app.get('/tickets/bevestiging/:orderRef', async (c) => {
             <p class="text-gray-700 text-lg mb-4">
               {isPending
                 ? 'Zodra de betaling bevestigd is, ontvang je per mail je tickets.'
-                : 'Je tickets zijn per mail verzonden.'}
+                : 'Tickets zijn beschikbaar in de Koorportaal (voor koorleden). Anders hou je mailbox in de gaten.'}
             </p>
             {isMockPayment && <div class="inline-block bg-yellow-100 border border-yellow-300 rounded-lg px-4 py-2 mb-4 text-sm text-yellow-800">Mock Payment</div>}
             <div class="inline-block bg-white rounded-lg px-6 py-3 shadow-md">

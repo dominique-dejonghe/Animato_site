@@ -10,6 +10,7 @@ import { sendEmail, ticketEmail } from '../utils/email'
 import { generateTicketPdf, generateSeatTicketPdf, generateSeatTicketPdfs, uint8ArrayToBase64 } from '../utils/ticket-pdf'
 import { zipTicketPdfs } from '../utils/ticket-zip'
 import { getSiteUrl } from '../utils/site-url'
+import { uploadDataUrlToR2, isDataUrl } from '../utils/r2-storage'
 
 const app = new Hono()
 
@@ -1606,113 +1607,105 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
             </button>
           </div>
 
-          {/* Concert Afbeelding */}
+          {/* Concert Afbeelding — geunificeerde widget */}
           <div class="bg-white rounded-lg shadow-md p-6">
             <h2 class="text-xl font-bold text-gray-900 mb-6">
               <i class="fas fa-image text-animato-primary mr-2"></i>
               Concert Afbeelding
             </h2>
-            
-            <div class="space-y-6">
-              {/* Tab Buttons */}
-              <div class="flex gap-2 border-b border-gray-200">
-                <button
-                  type="button"
-                  onclick="switchImageTab('upload')"
-                  id="upload-tab"
-                  class="px-4 py-2 border-b-2 border-transparent hover:border-animato-primary transition font-medium text-gray-600 hover:text-gray-900"
-                >
-                  <i class="fas fa-upload mr-2"></i>
-                  Bestand Uploaden
-                </button>
-                <button
-                  type="button"
-                  onclick="switchImageTab('url')"
-                  id="url-tab"
-                  class="px-4 py-2 border-b-2 border-animato-primary font-medium text-gray-900"
-                >
-                  <i class="fas fa-link mr-2"></i>
-                  URL Invoeren
-                </button>
+
+            <div class="space-y-4">
+              {/* DE WAARDE — één en de enige input die naar de server gaat */}
+              <input type="hidden" id="afbeelding-value" name="afbeelding" value={concert.afbeelding || ''} />
+
+              {/* Preview (zichtbaar als er een afbeelding is) */}
+              <div id="preview-section" class={concert.afbeelding ? 'block' : 'hidden'}>
+                <div class="relative border border-gray-200 rounded-lg overflow-hidden bg-gray-50 max-w-md mx-auto">
+                  <img
+                    id="preview-image"
+                    src={concert.afbeelding || ''}
+                    alt="Concert preview"
+                    class="w-full h-auto block"
+                    onerror="document.getElementById('preview-error').classList.remove('hidden'); this.classList.add('opacity-30');"
+                    onload="document.getElementById('preview-error').classList.add('hidden'); this.classList.remove('opacity-30');"
+                  />
+                  <div id="preview-error" class="hidden absolute inset-0 flex items-center justify-center bg-red-50/90">
+                    <div class="text-center text-red-600 p-4">
+                      <i class="fas fa-exclamation-triangle text-3xl mb-2"></i>
+                      <p class="font-semibold text-sm">Afbeelding kan niet geladen worden</p>
+                      <p class="text-xs text-red-500 mt-1">Controleer de URL of upload een nieuw bestand</p>
+                    </div>
+                  </div>
+                </div>
+                <div class="flex items-center justify-center gap-3 mt-3">
+                  <button
+                    type="button"
+                    onclick="document.getElementById('file-input').click()"
+                    class="text-sm text-animato-primary hover:text-animato-secondary font-medium"
+                  >
+                    <i class="fas fa-sync-alt mr-1"></i> Vervang afbeelding
+                  </button>
+                  <span class="text-gray-300">·</span>
+                  <button
+                    type="button"
+                    onclick="removeImage()"
+                    class="text-sm text-red-600 hover:text-red-800 font-medium"
+                  >
+                    <i class="fas fa-trash mr-1"></i> Verwijder
+                  </button>
+                </div>
               </div>
 
-              {/* Upload Tab */}
-              <div id="upload-section" class="hidden">
-                <label class="block text-sm font-medium text-gray-700 mb-2">
-                  Upload Afbeelding
-                </label>
-                
-                {/* Drag & Drop Area */}
-                <div 
+              {/* Drop-zone (zichtbaar als er GEEN afbeelding is) */}
+              <div id="drop-zone-wrapper" class={concert.afbeelding ? 'hidden' : 'block'}>
+                <div
                   id="drop-zone"
-                  class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-animato-primary transition cursor-pointer"
-                  ondragover="event.preventDefault(); this.classList.add('border-animato-primary', 'bg-blue-50');"
-                  ondragleave="this.classList.remove('border-animato-primary', 'bg-blue-50');"
+                  class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-animato-primary hover:bg-blue-50/30 transition cursor-pointer"
+                  ondragover="event.preventDefault(); this.classList.add('border-animato-primary','bg-blue-50');"
+                  ondragleave="this.classList.remove('border-animato-primary','bg-blue-50');"
                   ondrop="handleFileDrop(event)"
                   onclick="document.getElementById('file-input').click()"
                 >
-                  <i class="fas fa-cloud-upload-alt text-5xl text-gray-400 mb-4"></i>
-                  <p class="text-gray-700 font-medium mb-2">
-                    Klik om een bestand te selecteren of sleep het hierheen
+                  <i class="fas fa-cloud-upload-alt text-5xl text-gray-400 mb-3"></i>
+                  <p class="text-gray-700 font-medium mb-1">
+                    Klik of sleep een bestand hierheen
                   </p>
-                  <p class="text-sm text-gray-500">
-                    PNG, JPG, GIF tot 5MB
+                  <p class="text-xs text-gray-500">
+                    PNG, JPG, GIF, WebP — max 5MB
                   </p>
+                </div>
+              </div>
+
+              <input
+                type="file"
+                id="file-input"
+                accept="image/*"
+                class="hidden"
+                onchange="handleFileSelect(event)"
+              />
+
+              {/* Geavanceerd: URL handmatig invoeren (uitklapbaar) */}
+              <details class="group">
+                <summary class="cursor-pointer text-sm text-gray-600 hover:text-animato-primary list-none flex items-center gap-2 select-none">
+                  <i class="fas fa-chevron-right text-xs group-open:rotate-90 transition-transform"></i>
+                  <i class="fas fa-link text-xs"></i>
+                  Geavanceerd: URL handmatig invoeren of bewerken
+                </summary>
+                <div class="mt-3 pl-4 border-l-2 border-gray-100">
                   <input
-                    type="file"
-                    id="file-input"
-                    accept="image/*"
-                    class="hidden"
-                    onchange="handleFileSelect(event)"
+                    type="text"
+                    id="afbeelding-url-input"
+                    value={concert.afbeelding || ''}
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono"
+                    placeholder="/r2/covers/events/... of https://example.com/foto.jpg"
+                    oninput="syncFromUrlInput(this.value)"
                   />
+                  <p class="text-xs text-gray-500 mt-1">
+                    <i class="fas fa-info-circle mr-1"></i>
+                    Voor R2-paden gebruik <code class="bg-gray-100 px-1 rounded">/r2/...</code>, of plak een externe https-URL.
+                  </p>
                 </div>
-
-                <input type="hidden" id="afbeelding-upload" name="afbeelding" value={concert.afbeelding || ''} />
-              </div>
-
-              {/* URL Tab */}
-              <div id="url-section">
-                <label class="block text-sm font-medium text-gray-700 mb-2">
-                  Afbeelding URL
-                </label>
-                <input
-                  type="url"
-                  id="afbeelding-url"
-                  name="afbeelding"
-                  value={concert.afbeelding || ''}
-                  class="w-full border border-gray-300 rounded-lg px-4 py-2"
-                  placeholder="https://example.com/concert-image.jpg"
-                  oninput="updatePreview(this.value)"
-                />
-                <p class="text-sm text-gray-500 mt-1">
-                  <i class="fas fa-info-circle mr-1"></i>
-                  Plak een URL van een online afbeelding (bijv. van je website of cloudopslag)
-                </p>
-              </div>
-
-              {/* Preview */}
-              <div id="preview-section" class={concert.afbeelding ? '' : 'hidden'}>
-                <label class="block text-sm font-medium text-gray-700 mb-2">
-                  Preview
-                </label>
-                <div class="border border-gray-200 rounded-lg overflow-hidden max-w-md">
-                  <img 
-                    id="preview-image"
-                    src={concert.afbeelding || ''} 
-                    alt="Concert preview"
-                    class="w-full h-auto"
-                    onerror="this.parentElement.innerHTML='<div class=\\'p-8 text-center text-gray-500\\'>❌ Afbeelding kan niet geladen worden</div>'"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onclick="removeImage()"
-                  class="mt-2 text-red-600 hover:text-red-800 text-sm font-medium"
-                >
-                  <i class="fas fa-trash mr-1"></i>
-                  Verwijder afbeelding
-                </button>
-              </div>
+              </details>
             </div>
           </div>
 
@@ -1985,53 +1978,58 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
             });
           }
 
-          // Image Upload Functions
-          function switchImageTab(tab) {
-            const uploadTab = document.getElementById('upload-tab');
-            const urlTab = document.getElementById('url-tab');
-            const uploadSection = document.getElementById('upload-section');
-            const urlSection = document.getElementById('url-section');
-            
-            if (tab === 'upload') {
-              uploadTab.classList.add('border-animato-primary', 'text-gray-900');
-              uploadTab.classList.remove('border-transparent', 'text-gray-600');
-              urlTab.classList.remove('border-animato-primary', 'text-gray-900');
-              urlTab.classList.add('border-transparent', 'text-gray-600');
-              
-              uploadSection.classList.remove('hidden');
-              urlSection.classList.add('hidden');
-              
-              // Switch name attribute
-              document.getElementById('afbeelding-upload').name = 'afbeelding';
-              document.getElementById('afbeelding-url').name = '';
+          // Image Upload Functions — geunificeerde widget
+          // Eén enkele bron-van-waarheid: #afbeelding-value
+          // De drop-zone, file-input, URL-input en preview synchroniseren allemaal
+          // naar dit hidden field via setImageValue().
+
+          function setImageValue(value, opts) {
+            opts = opts || {};
+            var hidden = document.getElementById('afbeelding-value');
+            var urlInput = document.getElementById('afbeelding-url-input');
+            var preview = document.getElementById('preview-image');
+            var previewSection = document.getElementById('preview-section');
+            var dropZoneWrapper = document.getElementById('drop-zone-wrapper');
+            var previewError = document.getElementById('preview-error');
+
+            hidden.value = value || '';
+            // Sync URL-input alleen als het verzoek NIET vanuit URL-input kwam
+            if (!opts.fromUrlInput) {
+              urlInput.value = value || '';
+            }
+
+            if (value) {
+              preview.src = value;
+              previewSection.classList.remove('hidden');
+              previewSection.classList.add('block');
+              dropZoneWrapper.classList.add('hidden');
+              dropZoneWrapper.classList.remove('block');
+              previewError.classList.add('hidden');
             } else {
-              urlTab.classList.add('border-animato-primary', 'text-gray-900');
-              urlTab.classList.remove('border-transparent', 'text-gray-600');
-              uploadTab.classList.remove('border-animato-primary', 'text-gray-900');
-              uploadTab.classList.add('border-transparent', 'text-gray-600');
-              
-              urlSection.classList.remove('hidden');
-              uploadSection.classList.add('hidden');
-              
-              // Switch name attribute
-              document.getElementById('afbeelding-url').name = 'afbeelding';
-              document.getElementById('afbeelding-upload').name = '';
+              previewSection.classList.add('hidden');
+              previewSection.classList.remove('block');
+              dropZoneWrapper.classList.remove('hidden');
+              dropZoneWrapper.classList.add('block');
+              preview.src = '';
             }
           }
 
+          function syncFromUrlInput(val) {
+            // Trim en sta zowel /r2/... als https://... toe
+            var v = (val || '').trim();
+            setImageValue(v, { fromUrlInput: true });
+          }
+
           function handleFileSelect(event) {
-            const file = event.target.files[0];
-            if (file) {
-              processFile(file);
-            }
+            var file = event.target.files[0];
+            if (file) processFile(file);
           }
 
           function handleFileDrop(event) {
             event.preventDefault();
-            const dropZone = document.getElementById('drop-zone');
-            dropZone.classList.remove('border-animato-primary', 'bg-blue-50');
-            
-            const file = event.dataTransfer.files[0];
+            var dropZone = document.getElementById('drop-zone');
+            if (dropZone) dropZone.classList.remove('border-animato-primary','bg-blue-50');
+            var file = event.dataTransfer.files[0];
             if (file && file.type.startsWith('image/')) {
               processFile(file);
             } else {
@@ -2040,42 +2038,30 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
           }
 
           function processFile(file) {
-            // Check file size (max 5MB)
             if (file.size > 5 * 1024 * 1024) {
               alert('Bestand is te groot. Maximum 5MB toegestaan.');
               return;
             }
-
-            const reader = new FileReader();
+            var reader = new FileReader();
             reader.onload = function(e) {
-              const dataUrl = e.target.result;
-              
-              // Update hidden input and preview
-              document.getElementById('afbeelding-upload').value = dataUrl;
-              updatePreview(dataUrl);
+              // Data-URL → server zal die uploaden naar R2 en de /r2/... URL teruggeven
+              setImageValue(e.target.result);
             };
             reader.readAsDataURL(file);
           }
 
-          function updatePreview(imageUrl) {
-            const previewSection = document.getElementById('preview-section');
-            const previewImage = document.getElementById('preview-image');
-            
-            if (imageUrl) {
-              previewSection.classList.remove('hidden');
-              previewImage.src = imageUrl;
-            } else {
-              previewSection.classList.add('hidden');
-            }
-          }
-
           function removeImage() {
-            openDeleteModal(function() {
-              document.getElementById('afbeelding-url').value = '';
-              document.getElementById('afbeelding-upload').value = '';
-              document.getElementById('file-input').value = '';
-              document.getElementById('preview-section').classList.add('hidden');
-            });
+            if (typeof openDeleteModal === 'function') {
+              openDeleteModal(function() {
+                document.getElementById('file-input').value = '';
+                setImageValue('');
+              });
+            } else {
+              if (confirm('Afbeelding verwijderen?')) {
+                document.getElementById('file-input').value = '';
+                setImageValue('');
+              }
+            }
           }
         ` }} />
       </div>
@@ -2184,13 +2170,36 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
     console.log('[settings-POST] UPDATE result:', JSON.stringify(updateResult).slice(0, 300))
 
     // Update event image (stored in events.image_url)
+    // Drie scenarios:
+    //   1. data:image/... → upload naar R2, sla de /r2/... URL op
+    //   2. /r2/... of https://... → sla rechtstreeks op
+    //   3. lege string → wis de image_url
     if (body.afbeelding !== undefined) {
+      let finalImageUrl: string = String(body.afbeelding || '').trim()
+
+      if (isDataUrl(finalImageUrl) && c.env.R2) {
+        try {
+          const uploaded = await uploadDataUrlToR2(c.env.R2, `covers/events/${concert.event_id}`, finalImageUrl)
+          if (uploaded?.url) {
+            finalImageUrl = uploaded.url
+            console.log('[settings-POST] Data-URL geüpload naar R2:', uploaded.url)
+          } else {
+            console.warn('[settings-POST] R2 upload returned no url — image niet opgeslagen')
+            finalImageUrl = '' // niet de hele data-URL in DB stoppen
+          }
+        } catch (e: any) {
+          console.error('[settings-POST] R2 upload mislukt:', e?.message)
+          // Hard fout — vertel admin dat upload faalde
+          return c.json({ error: 'Afbeelding kon niet worden opgeslagen: ' + (e?.message || 'onbekende fout') }, 500)
+        }
+      }
+
       await execute(c.env.DB, `
         UPDATE events SET
           image_url = ?
         WHERE id = ?
       `, [
-        String(body.afbeelding || ''),
+        finalImageUrl,
         concert.event_id
       ])
     }

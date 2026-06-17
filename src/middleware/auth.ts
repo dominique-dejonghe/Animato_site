@@ -291,12 +291,18 @@ export async function requireBestuurslid(c: Context<{ Bindings: Bindings }>, nex
       'SELECT id, email, role, stemgroep, is_bestuurslid FROM users WHERE id = ?'
     ).bind(user.id).first<{ id: number; email: string; role: string; stemgroep: string | null; is_bestuurslid: number }>()
 
-    if (dbRow && (dbRow.is_bestuurslid === 1 || dbRow.role === 'admin' || dbRow.role === 'moderator')) {
+    // D1 kan integers terugsturen als number/boolean/string — wees defensief.
+    // Truthy check ipv strikte === 1 vermijdt subtiele bugs.
+    const dbIsBestuurslid = !!(dbRow && (dbRow.is_bestuurslid as any))
+    const dbIsAdmin = dbRow?.role === 'admin' || dbRow?.role === 'moderator'
+
+    if (dbRow && (dbIsBestuurslid || dbIsAdmin)) {
+      console.log('[requireBestuurslid] stale-token fix: user', user.id, 'JWT zei is_bestuurslid=', user.is_bestuurslid, ', DB zegt:', { role: dbRow.role, is_bestuurslid: dbRow.is_bestuurslid })
       // Update de Context-user zodat downstream code de juiste waarden ziet
       const refreshedUser: SessionUser = {
         ...user,
         role: dbRow.role as UserRole,
-        is_bestuurslid: dbRow.is_bestuurslid as 0 | 1,
+        is_bestuurslid: (dbIsBestuurslid ? 1 : 0) as 0 | 1,
         stemgroep: (dbRow.stemgroep ?? user.stemgroep) as Stemgroep | null,
       }
       c.set('user', refreshedUser)
@@ -347,6 +353,7 @@ export async function requireBestuurslid(c: Context<{ Bindings: Bindings }>, nex
   }
 
   // 403 — afhankelijk van wie er aanklopt: HTML voor browser, JSON voor API
+  console.warn('[requireBestuurslid] 403 voor user', user.id, user.email, 'JWT-claims:', { role: user.role, is_bestuurslid: user.is_bestuurslid })
   const path = c.req.path
   const wantsHtml = (c.req.header('Accept') || '').includes('text/html') &&
                     !path.startsWith('/api/')

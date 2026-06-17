@@ -904,6 +904,274 @@ function renderEditor(c: any, layout: any) {
     });
   }
 
+  // ── Hernummer rijen ──
+  // Strategie:
+  //  1. Groepeer huidige seats per row_label.
+  //  2. Sorteer rijen op gemiddelde Y (= visuele volgorde, podium = boven).
+  //  3. Detecteer schema (letters / nummers / 'Rij N' / gemengd).
+  //  4. Bouw mapping: huidig label → voorgesteld nieuw label.
+  //  5. Vraag backend welke seat-IDs verkochte tickets hebben.
+  //  6. Filter mapping: rijen met sold tickets staan in 'preserve' lijst.
+  //  7. Toon preview-modal met huidig → nieuw + verkochte-tickets waarschuwingen.
+  //  8. Bij bevestiging: pas alle row_label-waarden lokaal aan en renderSeats().
+  function detectLabelScheme(labels) {
+    if (labels.length === 0) return 'unknown';
+    // Pure letters (één of meer) → letters
+    if (labels.every(function(l){ return /^[A-Z]+$/.test(l); })) return 'letters_upper';
+    if (labels.every(function(l){ return /^[a-z]+$/.test(l); })) return 'letters_lower';
+    // Pure cijfers → numbers
+    if (labels.every(function(l){ return /^\\d+$/.test(l); })) return 'numbers';
+    // "Rij 1", "Rij 2" stijl
+    if (labels.every(function(l){ return /^(Rij|Row|R)\\s*\\d+$/i.test(l); })) return 'rij_numbers';
+    return 'mixed';
+  }
+
+  function indexToLabel(idx, scheme) {
+    // idx is 0-based
+    if (scheme === 'numbers') return String(idx + 1);
+    if (scheme === 'rij_numbers') return 'Rij ' + (idx + 1);
+    if (scheme === 'letters_upper' || scheme === 'letters_lower') {
+      // 0=A, 25=Z, 26=AA, 27=AB ...
+      var result = '';
+      var x = idx;
+      do {
+        var rem = x % 26;
+        result = String.fromCharCode(65 + rem) + result;
+        x = Math.floor(x / 26) - 1;
+      } while (x >= 0);
+      return scheme === 'letters_lower' ? result.toLowerCase() : result;
+    }
+    // mixed/unknown → fallback A,B,C
+    return indexToLabel(idx, 'letters_upper');
+  }
+
+  async function renumberRows() {
+    if (seats.length === 0) {
+      alert('Geen stoelen om te hernummeren.');
+      return;
+    }
+
+    // 1. Groepeer per row_label + bereken gemiddelde Y
+    var groups = {};
+    seats.forEach(function(s, idx) {
+      var lbl = (s.row_label == null ? '' : String(s.row_label));
+      if (!lbl) return;
+      if (!groups[lbl]) groups[lbl] = { label: lbl, sumY: 0, count: 0, seatIndices: [], seatIds: [] };
+      groups[lbl].sumY += s.y;
+      groups[lbl].count++;
+      groups[lbl].seatIndices.push(idx);
+      if (s.id) groups[lbl].seatIds.push(s.id);
+    });
+    var groupList = Object.values(groups);
+
+    if (groupList.length === 0) {
+      alert('Geen stoelen met rij-label gevonden.');
+      return;
+    }
+
+    // 2. Sorteer op gemiddelde Y (kleinste Y = bovenaan = dichtst bij podium = rij A)
+    groupList.forEach(function(g) { g.avgY = g.sumY / g.count; });
+    groupList.sort(function(a, b) { return a.avgY - b.avgY; });
+
+    // 3. Detecteer schema
+    var allLabels = groupList.map(function(g){ return g.label; });
+    var scheme = detectLabelScheme(allLabels);
+
+    if (scheme === 'mixed') {
+      if (!confirm(
+        'Gemengde rij-labels gedetecteerd (' + allLabels.join(', ') + ').\\n\\n' +
+        'Hernummeren werkt het beste op één consistent schema. ' +
+        'Wil je toch doorgaan? Alle rijen worden dan A, B, C, ... (letters).'
+      )) return;
+      scheme = 'letters_upper';
+    }
+
+    // 4. Bouw voorgestelde mapping (op basis van Y-volgorde)
+    var mapping = groupList.map(function(g, i) {
+      return {
+        old: g.label,
+        suggested: indexToLabel(i, scheme),
+        seatCount: g.count,
+        seatIds: g.seatIds,
+        seatIndices: g.seatIndices
+      };
+    });
+
+    // 5. Welke rijen hebben verkochte tickets? Check via backend.
+    var planId = '${planId}';
+    var soldByRow = {}; // label → array van verkochte seat-info
+    if (planId) {
+      try {
+        var allSeatIds = [];
+        mapping.forEach(function(m) {
+          m.seatIds.forEach(function(id){ allSeatIds.push(id); });
+        });
+        if (allSeatIds.length > 0) {
+          var res = await fetch('/api/admin/seating/' + planId + '/sold-by-seats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ seat_ids: allSeatIds })
+          });
+          if (res.ok) {
+            var data = await res.json();
+            // data.sold = [{seat_id, row_label, seat_number, bestelnummer}]
+            (data.sold || []).forEach(function(row) {
+              if (!soldByRow[row.row_label]) soldByRow[row.row_label] = [];
+              soldByRow[row.row_label].push(row);
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Kon sold-tickets niet ophalen:', e);
+      }
+    }
+
+    // 6. Markeer welke rijen "beschermd" zijn (= hebben verkochte tickets)
+    mapping.forEach(function(m) {
+      m.hasSold = !!(soldByRow[m.old] && soldByRow[m.old].length > 0);
+      m.soldCount = m.hasSold ? soldByRow[m.old].length : 0;
+      m.willChange = m.old !== m.suggested && !m.hasSold;
+    });
+
+    // 7. Toon preview-modal
+    showRenumberPreviewModal(mapping);
+  }
+
+  function showRenumberPreviewModal(mapping) {
+    var changeCount = mapping.filter(function(m){ return m.willChange; }).length;
+    var soldCount = mapping.filter(function(m){ return m.hasSold; }).length;
+    var unchangedCount = mapping.filter(function(m){ return !m.willChange && !m.hasSold; }).length;
+
+    if (changeCount === 0 && soldCount === 0) {
+      alert('Alles zit al netjes op zijn plaats — niets te hernummeren.');
+      return;
+    }
+
+    var modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;';
+
+    var rowsHtml = mapping.map(function(m) {
+      var statusBadge, rowBg;
+      if (m.hasSold) {
+        statusBadge = '<span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600"><i class="fas fa-lock mr-1"></i>' + m.soldCount + ' verkocht — niet hernummerd</span>';
+        rowBg = '#FFFBEB';
+      } else if (m.willChange) {
+        statusBadge = '<span style="background:#DBEAFE;color:#1E3A8A;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600"><i class="fas fa-arrow-right mr-1"></i>wijzigt</span>';
+        rowBg = '#EFF6FF';
+      } else {
+        statusBadge = '<span style="background:#F3F4F6;color:#6B7280;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600">ongewijzigd</span>';
+        rowBg = '#fff';
+      }
+
+      var arrowOrEqual;
+      if (m.hasSold) {
+        arrowOrEqual = '<span style="color:#9CA3AF;font-weight:700;font-size:14px">⊘</span>'; // geblokkeerd
+      } else if (m.willChange) {
+        arrowOrEqual = '<span style="color:#3B82F6;font-weight:700;font-size:14px">→</span>';
+      } else {
+        arrowOrEqual = '<span style="color:#9CA3AF;font-weight:700;font-size:14px">=</span>';
+      }
+
+      var newLabel = m.hasSold ? m.old : m.suggested;
+
+      return '<div style="display:flex;align-items:center;padding:8px 12px;border-bottom:1px solid #E5E7EB;background:' + rowBg + ';font-size:13px">' +
+             '  <div style="flex:0 0 70px;font-family:monospace;font-weight:600;color:#111827">Rij ' + escapeHtml(m.old) + '</div>' +
+             '  <div style="flex:0 0 30px;text-align:center">' + arrowOrEqual + '</div>' +
+             '  <div style="flex:0 0 70px;font-family:monospace;font-weight:' + (m.willChange ? '700;color:#1E3A8A' : '500;color:#6B7280') + '">Rij ' + escapeHtml(newLabel) + '</div>' +
+             '  <div style="flex:0 0 90px;font-size:11px;color:#6B7280">' + m.seatCount + ' stoel' + (m.seatCount===1?'':'en') + '</div>' +
+             '  <div style="flex:1;text-align:right">' + statusBadge + '</div>' +
+             '</div>';
+    }).join('');
+
+    var warningSection = '';
+    if (soldCount > 0) {
+      warningSection =
+        '<div style="margin:0 0 12px;padding:12px;background:#FFFBEB;border-left:3px solid #F59E0B;border-radius:6px">' +
+        '  <p style="margin:0;font-size:13px;color:#92400E"><i class="fas fa-exclamation-triangle mr-1"></i>' +
+        '    <strong>' + soldCount + ' rij' + (soldCount===1?'':'en') + ' heeft verkochte tickets</strong> en wordt overgeslagen.' +
+        '  </p>' +
+        '  <p style="margin:6px 0 0;font-size:12px;color:#78350F">' +
+        '    Deze rijen behouden hun huidige label, want de klant heeft het op zijn ticket-PDF staan. ' +
+        '    De andere rijen krijgen wél een nieuw label.' +
+        '  </p>' +
+        '</div>';
+    }
+
+    modal.innerHTML =
+      '<div style="background:#fff;border-radius:12px;max-width:680px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 25px 50px -12px rgba(0,0,0,.25)">' +
+      '  <div style="padding:20px 24px;border-bottom:1px solid #E5E7EB">' +
+      '    <h2 style="margin:0;font-size:20px;font-weight:700;color:#111827"><i class="fas fa-sort-alpha-down" style="color:#3B82F6;margin-right:8px"></i>Rijen hernummeren — voorbeeld</h2>' +
+      '    <p style="margin:6px 0 0;font-size:13px;color:#6B7280">' +
+      '      Rijen worden gesorteerd op visuele positie (dichtst bij podium = eerst). ' +
+      '      Klik <strong>Bevestig</strong> om de wijzigingen toe te passen — vergeet daarna niet op <strong>Opslaan</strong> te klikken.' +
+      '    </p>' +
+      '  </div>' +
+      '  <div style="padding:16px 24px;overflow-y:auto;flex:1">' +
+      warningSection +
+      '    <div style="border:1px solid #E5E7EB;border-radius:8px;overflow:hidden">' + rowsHtml + '</div>' +
+      '    <div style="margin-top:12px;display:flex;gap:12px;font-size:12px;color:#6B7280">' +
+      '      <span><i class="fas fa-arrow-right text-blue-600 mr-1"></i>' + changeCount + ' wijzigt</span>' +
+      '      <span><i class="fas fa-lock text-amber-600 mr-1"></i>' + soldCount + ' beschermd</span>' +
+      '      <span><i class="fas fa-equals text-gray-400 mr-1"></i>' + unchangedCount + ' al goed</span>' +
+      '    </div>' +
+      '  </div>' +
+      '  <div style="padding:16px 24px;border-top:1px solid #E5E7EB;display:flex;gap:8px;justify-content:flex-end">' +
+      '    <button id="rn-cancel" style="padding:8px 16px;border:1px solid #D1D5DB;background:#fff;color:#374151;border-radius:6px;font-weight:500;cursor:pointer">Annuleren</button>' +
+      '    <button id="rn-confirm" ' + (changeCount === 0 ? 'disabled style="padding:8px 16px;background:#9CA3AF;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:not-allowed"' : 'style="padding:8px 16px;background:#3B82F6;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer"') + '>' +
+      '      <i class="fas fa-check mr-1"></i>Bevestig hernummering' + (changeCount === 0 ? ' (niets te doen)' : ' (' + changeCount + ')') +
+      '    </button>' +
+      '  </div>' +
+      '</div>';
+
+    document.body.appendChild(modal);
+
+    function closeModal() {
+      if (document.body.contains(modal)) document.body.removeChild(modal);
+    }
+
+    modal.querySelector('#rn-cancel').addEventListener('click', closeModal);
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) closeModal();
+    });
+
+    var confirmBtn = modal.querySelector('#rn-confirm');
+    if (changeCount > 0) {
+      confirmBtn.addEventListener('click', function() {
+        // Pas labels lokaal toe
+        mapping.forEach(function(m) {
+          if (!m.willChange) return; // hasSold of unchanged
+          m.seatIndices.forEach(function(idx) {
+            if (seats[idx]) seats[idx].row_label = m.suggested;
+          });
+        });
+        // Update rowInput (volgende rij na de laatst gebruikte)
+        var lastUsed = mapping.filter(function(m){ return !m.hasSold; }).pop();
+        if (lastUsed && rowInput) {
+          // Suggesteer de volgende vrije label
+          rowInput.value = nextRowLabel(lastUsed.suggested, 1);
+        }
+        renderSeats();
+        closeModal();
+        // Visuele bevestiging
+        var toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#10B981;color:#fff;padding:12px 20px;border-radius:8px;font-weight:600;z-index:9999;box-shadow:0 10px 25px rgba(0,0,0,.15)';
+        toast.innerHTML = '<i class="fas fa-check-circle mr-2"></i>' + changeCount + ' rij' + (changeCount===1?'':'en') + ' hernummerd. Vergeet niet op te slaan!';
+        document.body.appendChild(toast);
+        setTimeout(function(){ if (document.body.contains(toast)) document.body.removeChild(toast); }, 4000);
+      });
+    }
+  }
+
+  // Wire-up de knop
+  var renumberBtn = document.getElementById('renumberRowsBtn');
+  if (renumberBtn) {
+    renumberBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      renumberRows();
+    });
+  }
+
   // ── Save ───────────────────────────────────────────
   saveBtn.addEventListener('click', async function(e) {
     e.stopPropagation();
@@ -1514,6 +1782,20 @@ function renderEditor(c: any, layout: any) {
                 </div>
               </div>
 
+              {/* Hernummer-rijen knop — los van selectie, want dit werkt over alle rijen */}
+              <div class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div class="flex items-center justify-between flex-wrap gap-3">
+                  <div class="text-sm text-blue-900">
+                    <i class="fas fa-sort-alpha-down mr-1"></i>
+                    <strong>Rijen hernummeren:</strong>
+                    <span class="text-xs text-blue-700 ml-1">Maakt de reeks weer aaneensluitend na rij-verwijderingen (bv. na O wegdoen wordt P → O, Q → P).</span>
+                  </div>
+                  <button id="renumberRowsBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-blue-400 text-blue-800 rounded hover:bg-blue-100 font-semibold">
+                    <i class="fas fa-sort-alpha-down mr-1"></i> Hernummer rijen
+                  </button>
+                </div>
+              </div>
+
               <p class="text-xs text-gray-500 mt-2 text-center">
                 <strong>Klik</strong> = stoel toevoegen &nbsp;|&nbsp; <strong>Blok Toe</strong> = rechte rijen &nbsp;|&nbsp; <strong>Slepen</strong> = verplaatsen &nbsp;|&nbsp; <strong>Shift+klik</strong> = uitlijnen / type wijzigen &nbsp;|&nbsp; <strong>Klik rij-label</strong> = hele rij selecteren &nbsp;|&nbsp; <strong>Rechtsklik</strong> = verwijderen
               </p>
@@ -1773,6 +2055,29 @@ app.post('/api/admin/seating/:id/sync-to-concerts', async (c) => {
   }
 
   return c.json({ success: true, results })
+})
+
+/**
+ * Voor de hernummer-flow: welke van deze seat-ids hebben verkochte tickets?
+ * Body: { seat_ids: number[] }
+ * Response: { sold: [{ seat_id, row_label, seat_number, bestelnummer }] }
+ */
+app.post('/api/admin/seating/:id/sold-by-seats', async (c) => {
+  const body = await c.req.json().catch(() => ({})) as { seat_ids?: number[] }
+  const seatIds = Array.isArray(body.seat_ids) ? body.seat_ids.map(Number).filter(n => Number.isFinite(n) && n > 0) : []
+  if (seatIds.length === 0) return c.json({ sold: [] })
+
+  const placeholders = seatIds.map(() => '?').join(',')
+  const sold = await queryAll<any>(c.env.DB, `
+    SELECT ts.seat_id, s.row_label, s.seat_number, t.bestelnummer
+    FROM ticket_seats ts
+    JOIN seats s ON s.id = ts.seat_id
+    LEFT JOIN tickets t ON t.id = ts.ticket_id
+    WHERE ts.status = 'sold' AND ts.seat_id IN (${placeholders})
+    ORDER BY s.row_label, s.seat_number
+  `, seatIds)
+
+  return c.json({ sold })
 })
 
 app.post('/api/admin/seating/:id/delete', async (c) => {

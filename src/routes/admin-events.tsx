@@ -757,7 +757,12 @@ app.get('/admin/events/:id', async (c) => {
 
   // Load concert details for ticket status banner if type = concert
   const concert = event.type === 'concert'
-    ? await queryOne<any>(c.env.DB, `SELECT id, ticketing_enabled, uitverkocht, tickets_aangekondigd, voorverkoop_start_at, capaciteit, verkocht FROM concerts WHERE event_id = ?`, [id])
+    ? await queryOne<any>(c.env.DB,
+        `SELECT c.id, c.ticketing_enabled, c.uitverkocht, c.tickets_aangekondigd, c.voorverkoop_start_at, c.capaciteit,
+                -- BUG-FIX bezetting: live tellen uit betaalde tickets
+                (SELECT COALESCE(SUM(t.aantal), 0) FROM tickets t
+                 WHERE t.concert_id = c.id AND t.status = 'paid') AS verkocht
+         FROM concerts c WHERE c.event_id = ?`, [id])
     : null
 
   // Partituurlijst voor dit event (concert OF activiteit OF willekeurig event-type)

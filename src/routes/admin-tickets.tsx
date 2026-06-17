@@ -29,10 +29,14 @@ app.get('/admin/tickets', async (c) => {
   const search = (c.req.query('q') || '').trim()
 
   // Haal eerst alles op — filteren daarna in JS op basis van de samengestelde status
+  // BUG-FIX: `c.verkocht` was een stale counter (kon afwijken van werkelijke ticketverkoop
+  // door annuleringen/refunds). We berekenen het nu live uit SUM(t.aantal WHERE paid)
+  // zodat 'Bezetting X/Y' altijd overeenkomt met de echte betaalde tickets.
   let baseQuery = `
     SELECT e.id as event_id, e.titel, e.slug, e.start_at, e.locatie, e.type,
            c.id as concert_id, c.programma, c.ticketing_enabled, c.uitverkocht, c.tickets_aangekondigd, c.voorverkoop_start_at,
-           c.capaciteit, c.verkocht,
+           c.capaciteit,
+           COALESCE(SUM(CASE WHEN t.status = 'paid' THEN t.aantal ELSE 0 END), 0) as verkocht,
            COUNT(t.id) as ticket_count,
            SUM(CASE WHEN t.status = 'paid' THEN 1 ELSE 0 END) as paid_count,
            SUM(CASE WHEN t.status = 'paid' THEN t.prijs_totaal ELSE 0 END) as revenue
@@ -149,7 +153,10 @@ app.get('/admin/tickets', async (c) => {
               <div>
                 <p class="text-sm text-gray-600 mb-1">Tickets Verkocht</p>
                 <p class="text-3xl font-bold text-gray-900">
-                  {concerts.reduce((sum: number, c: any) => sum + (c.paid_count || 0), 0)}
+                  {concerts.reduce((sum: number, c: any) => sum + Number(c.verkocht || 0), 0)}
+                </p>
+                <p class="text-xs text-gray-500 mt-1">
+                  uit {concerts.reduce((sum: number, c: any) => sum + Number(c.paid_count || 0), 0)} bestellingen
                 </p>
               </div>
               <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
@@ -352,15 +359,15 @@ app.get('/admin/tickets', async (c) => {
                       <div class="grid grid-cols-3 gap-4">
                         <div class="bg-gray-50 rounded-lg p-3 text-center">
                           <div class="text-2xl font-bold text-gray-900">
-                            {concert.ticket_count || 0}
+                            {concert.paid_count || 0}
                           </div>
                           <div class="text-xs text-gray-600">Bestellingen</div>
                         </div>
                         <div class="bg-green-50 rounded-lg p-3 text-center">
                           <div class="text-2xl font-bold text-green-700">
-                            {concert.paid_count || 0}
+                            {Number(concert.verkocht || 0)}
                           </div>
-                          <div class="text-xs text-gray-600">Betaald</div>
+                          <div class="text-xs text-gray-600">Tickets</div>
                         </div>
                         <div class="bg-blue-50 rounded-lg p-3 text-center">
                           <div class="text-2xl font-bold text-blue-700">

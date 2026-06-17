@@ -25,9 +25,14 @@ app.get('/concerten/:eventId/tickets', async (c) => {
   // Get event and concert info with seating plan
   // Bug #214 — c.doors_open_at en c.concert_start_at meenemen zodat we
   // ze kunnen tonen als ze gezet zijn (fallback = e.start_at)
+  // BUG-FIX (#bezetting): c.verkocht overrulen met live SUM uit betaalde tickets
+  // zodat sold-out check & 'beschikbaar' altijd correct zijn (de stored counter
+  // klopte niet meer met de werkelijkheid).
   const concert = await queryOne(c.env.DB, `
     SELECT c.*, e.titel, e.beschrijving, e.start_at, e.locatie,
-           sp.name as seating_plan_name, sp.width as sp_width, sp.height as sp_height
+           sp.name as seating_plan_name, sp.width as sp_width, sp.height as sp_height,
+           (SELECT COALESCE(SUM(t.aantal), 0) FROM tickets t
+            WHERE t.concert_id = c.id AND t.status = 'paid') AS verkocht
     FROM concerts c
     JOIN events e ON e.id = c.event_id
     LEFT JOIN seating_plans sp ON c.seating_plan_id = sp.id
@@ -895,8 +900,12 @@ app.post('/api/tickets/order', async (c) => {
 
     if (tickets.length === 0) throw new Error('Geen tickets geselecteerd')
 
-    // Get concert info
-    const concert = await queryOne(c.env.DB, `SELECT * FROM concerts WHERE id = ?`, [concertId])
+    // Get concert info — verkocht live berekend (zie commentaar bovenin file)
+    const concert = await queryOne<any>(c.env.DB,
+      `SELECT *,
+              (SELECT COALESCE(SUM(t.aantal), 0) FROM tickets t
+               WHERE t.concert_id = concerts.id AND t.status = 'paid') AS verkocht
+       FROM concerts WHERE id = ?`, [concertId])
     if (!concert) throw new Error('Concert niet gevonden')
 
     // Double check seat availability if seat-based

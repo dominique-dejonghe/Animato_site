@@ -1154,9 +1154,12 @@ app.get('/concerten/:slug', async (c) => {
 
   const concert = await queryOne<any>(
     c.env.DB,
-    `SELECT e.*, c.poster_url, c.programma, c.prijsstructuur, c.capaciteit, c.verkocht, c.uitverkocht, c.ticketing_enabled, c.tickets_aangekondigd, c.voorverkoop_start_at,
+    `SELECT e.*, c.id AS concert_id, c.poster_url, c.programma, c.prijsstructuur, c.capaciteit, c.uitverkocht, c.ticketing_enabled, c.tickets_aangekondigd, c.voorverkoop_start_at,
             c.parking, c.toegankelijkheid, c.duur_info, c.sfeer_dresscode, c.extra_info,
-            c.doors_open_at, c.concert_start_at
+            c.doors_open_at, c.concert_start_at,
+            -- BUG-FIX bezetting: live berekenen uit betaalde tickets (was stale counter)
+            (SELECT COALESCE(SUM(t.aantal), 0) FROM tickets t
+             WHERE t.concert_id = c.id AND t.status = 'paid') AS verkocht
      FROM events e
      LEFT JOIN concerts c ON c.event_id = e.id
      WHERE e.slug = ? AND e.type = 'concert'`,
@@ -1881,7 +1884,7 @@ app.get('/concerten/:slug', async (c) => {
 
                     <p class="text-xs text-gray-500 text-center mt-4">
                       <i class="fas fa-lock mr-1"></i>
-                      Veilige betaling via Mollie (Bancontact, iDEAL, creditcard, overschrijving)
+                      Veilige betaling via Mollie (Bancontact)
                     </p>
                   </>
                 ) : (

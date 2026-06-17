@@ -911,14 +911,17 @@ function renderEditor(c: any, layout: any) {
       return 0;
     }
 
-    // 2. Bereken delta's tussen opeenvolgende rijen (op minY, want gebogen
-    //    rijen kunnen rond hun centrum schommelen).
+    // 2. Snapshot ORIGINELE minY's — anders kijken we naar reeds geshifte
+    //    waardes en detecteren we valse gaps.
+    var originalMinY = groupList.map(function(g) { return g.minY; });
+
+    // 3. Bereken delta's tussen opeenvolgende rijen op originele Y.
     var deltas = [];
     for (var i = 1; i < groupList.length; i++) {
-      deltas.push(groupList[i].minY - groupList[i-1].minY);
+      deltas.push(originalMinY[i] - originalMinY[i-1]);
     }
 
-    // 3. Mediaan-delta = normale rij-afstand (robuust tegen outliers)
+    // 4. Mediaan-delta = normale rij-afstand (robuust tegen outliers)
     var sortedDeltas = deltas.slice().sort(function(a,b){ return a-b; });
     var median = sortedDeltas[Math.floor(sortedDeltas.length / 2)];
 
@@ -928,28 +931,33 @@ function renderEditor(c: any, layout: any) {
       return 0;
     }
 
-    // 4. Drempel: meer dan 1.5× mediaan = "gat"
-    var gapThreshold = median * 1.5;
+    // 5. Drempel: vanaf 1.4× mediaan = "gat" (1.4 i.p.v. 1.5 zodat een 60-px
+    //    afwijking bij 40-px mediaan ook gedetecteerd wordt, maar 20% wiebel
+    //    nog steeds tolerant blijft).
+    var gapThreshold = median * 1.4;
 
-    // 5. Loop door rijen, accumuleer offset bij elke gedetecteerde gap
+    // 6. Loop door rijen op ORIGINELE deltas, accumuleer offset bij elke
+    //    gedetecteerde gap. Pas de verschuiving toe op de live seats.
+    //    BELANGRIJK: gap-detectie gebruikt originalMinY, niet de live minY
+    //    die we onderweg aanpassen — anders detecteren we cascade-fouten.
     var cumulativeShift = 0;
     var gapsClosed = 0;
     for (var i2 = 1; i2 < groupList.length; i2++) {
-      var prev = groupList[i2-1];
-      var curr = groupList[i2];
-      var observedDelta = curr.minY - prev.minY;
+      var observedDelta = originalMinY[i2] - originalMinY[i2-1];
       if (observedDelta > gapThreshold) {
-        // Sluit dit gat: verschuif curr (en alles erna) zodat afstand = median
+        // Sluit dit gat: verschuif deze rij (en alles erna) zodat de
+        // afstand met de vorige rij = median wordt.
         var thisGapShift = observedDelta - median;
         cumulativeShift += thisGapShift;
         gapsClosed++;
       }
       if (cumulativeShift > 0) {
         // Pas verschuiving toe op alle stoelen van deze rij
+        var curr = groupList[i2];
         curr.indices.forEach(function(idx) {
           if (seats[idx]) seats[idx].y -= cumulativeShift;
         });
-        // Update geaccumuleerde info voor volgende iteratie
+        // Update bookkeeping (voor eventueel verder gebruik buiten loop)
         curr.minY -= cumulativeShift;
         curr.maxY -= cumulativeShift;
         curr.avgY -= cumulativeShift;

@@ -327,12 +327,17 @@ function renderEditor(c: any, layout: any) {
 
       if (seat.type === 'wheelchair') {
         el.style.backgroundColor = '#10B981';
-        el.innerHTML = '<i class="fas fa-wheelchair" style="font-size:10px"></i>';
+        el.innerHTML = '<i class="fas fa-wheelchair" style="font-size:11px"></i>';
+        el.title = (seat.row_label || '') + ' – ' + seat.seat_number + ' (rolstoelplaats)';
         wheel++;
       } else if (seat.type === 'companion') {
         el.style.backgroundColor = '#60A5FA';
-        el.style.color = '#fff';
-        el.innerText = seat.seat_number || String(index + 1);
+        el.innerHTML = '<i class="fas fa-hands-helping" style="font-size:11px;color:#fff"></i>';
+        el.title = (seat.row_label || '') + ' – ' + seat.seat_number + ' (begeleider)';
+      } else if (seat.type === 'restricted_view') {
+        el.style.backgroundColor = '#9CA3AF';
+        el.innerHTML = '<i class="fas fa-eye-slash" style="font-size:10px;color:#fff"></i>';
+        el.title = (seat.row_label || '') + ' – ' + seat.seat_number + ' (beperkt zicht)';
       } else {
         el.style.backgroundColor = '#3B82F6';
         el.style.color = '#fff';
@@ -418,27 +423,57 @@ function renderEditor(c: any, layout: any) {
       total++;
     });
 
-    // ── Rij-label tags links naast elke rij ────────────
+    // ── Rij-label tags links naast elke rij — KLIKBAAR ────────────
     // Groepeer stoelen per row_label, vind minX per groep en plaats een label links daarvan.
     var rowGroups = {};
-    seats.forEach(function(seat) {
+    seats.forEach(function(seat, idx) {
       var lbl = seat.row_label || '';
       if (!lbl) return;
-      if (!rowGroups[lbl]) rowGroups[lbl] = { minX: seat.x, avgY: 0, count: 0 };
+      if (!rowGroups[lbl]) rowGroups[lbl] = { minX: seat.x, avgY: 0, count: 0, indices: [] };
       if (seat.x < rowGroups[lbl].minX) rowGroups[lbl].minX = seat.x;
       rowGroups[lbl].avgY += seat.y;
       rowGroups[lbl].count++;
+      rowGroups[lbl].indices.push(idx);
     });
     Object.keys(rowGroups).forEach(function(lbl) {
       var g = rowGroups[lbl];
       var avgY = g.avgY / g.count;
       var tag = document.createElement('div');
       tag.className = 'row-label-tag';
-      tag.innerText = lbl;
-      tag.style.cssText = 'position:absolute;left:' + Math.max(0, g.minX - 36) + 'px;top:' + (avgY + 6) + 'px;'
-        + 'font-size:13px;font-weight:bold;color:#475569;background:rgba(255,255,255,.9);'
-        + 'padding:2px 6px;border-radius:4px;border:1px solid #cbd5e1;pointer-events:none;'
-        + 'z-index:5;letter-spacing:.05em;';
+      tag.innerText = lbl + ' (' + g.count + ')';
+      tag.style.cssText = 'position:absolute;left:' + Math.max(0, g.minX - 50) + 'px;top:' + (avgY + 4) + 'px;'
+        + 'font-size:12px;font-weight:bold;color:#475569;background:rgba(255,255,255,.95);'
+        + 'padding:2px 6px;border-radius:4px;border:1px solid #cbd5e1;cursor:pointer;'
+        + 'z-index:5;letter-spacing:.05em;user-select:none;';
+      tag.title = 'Klik om alle ' + g.count + ' stoelen van rij ' + lbl + ' te selecteren';
+      tag.addEventListener('click', function(e) {
+        e.stopPropagation();
+        e.preventDefault();
+        // Toggle: als alle stoelen van deze rij al geselecteerd → deselecteer; anders selecteer alles
+        var allSelected = g.indices.every(function(i) { return selectedIndices.indexOf(i) !== -1; });
+        if (allSelected) {
+          // Verwijder ze allemaal uit de selectie
+          selectedIndices = selectedIndices.filter(function(i) { return g.indices.indexOf(i) === -1; });
+        } else {
+          // Voeg toe (deduplicate)
+          g.indices.forEach(function(i) {
+            if (selectedIndices.indexOf(i) === -1) selectedIndices.push(i);
+          });
+        }
+        renderSeats();
+        updateAlignToolbar();
+      });
+      tag.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!confirm('Hele rij "' + lbl + '" verwijderen? (' + g.count + ' stoel' + (g.count===1?'':'en') + ')\\n\\nLet op: stoelen die in een bestaand concert verkocht zijn, blijven beschermd bij opslaan.')) return;
+        // Verwijder by reverse-sort om indices stabiel te houden
+        var sorted = g.indices.slice().sort(function(a,b){ return b-a; });
+        sorted.forEach(function(i) { seats.splice(i, 1); });
+        selectedIndices = [];
+        renderSeats();
+        updateAlignToolbar();
+      });
       wrapper.appendChild(tag);
     });
 
@@ -705,17 +740,100 @@ function renderEditor(c: any, layout: any) {
     });
   }
 
-  // ── Alignment toolbar (visible when 2+ seats selected) ──
+  // ── Alignment toolbar (visible when ≥1 seat selected) ──
   function updateAlignToolbar() {
     var bar = document.getElementById('alignToolbar');
     var counter = document.getElementById('selectionCount');
+    var alignGroup = document.getElementById('alignGroup');
+    var rowInfo = document.getElementById('selectionRowInfo');
     if (!bar) return;
-    if (selectedIndices.length >= 2) {
+    if (selectedIndices.length >= 1) {
       bar.classList.remove('hidden');
       if (counter) counter.innerText = selectedIndices.length;
+      // Uitlijn alleen zichtbaar bij ≥2
+      if (alignGroup) {
+        if (selectedIndices.length >= 2) alignGroup.classList.remove('hidden');
+        else alignGroup.classList.add('hidden');
+      }
+      // Rij-info als alle geselecteerde stoelen dezelfde row hebben
+      if (rowInfo) {
+        var sel = selectedIndices.map(function(i){ return seats[i]; }).filter(Boolean);
+        var rows = {};
+        sel.forEach(function(s){ rows[s.row_label || '(zonder rij)'] = true; });
+        var rowKeys = Object.keys(rows);
+        if (rowKeys.length === 1) {
+          rowInfo.innerText = '· rij ' + rowKeys[0];
+        } else {
+          rowInfo.innerText = '· ' + rowKeys.length + ' rijen';
+        }
+      }
     } else {
       bar.classList.add('hidden');
     }
+  }
+
+  // ── Wijzig type van geselecteerde stoelen ──
+  // Bij wheelchair: vraag of buurstoel begeleider moet worden.
+  function changeSelectedType(newType) {
+    if (selectedIndices.length === 0) {
+      alert('Selecteer eerst een of meer stoelen (Shift+klik of klik op rij-label).');
+      return;
+    }
+
+    // Pas type aan
+    selectedIndices.forEach(function(i) {
+      if (seats[i]) seats[i].type = newType;
+    });
+
+    // Suggestie voor begeleider bij rolstoelplaats
+    if (newType === 'wheelchair') {
+      var candidates = [];
+      selectedIndices.forEach(function(i) {
+        var s = seats[i];
+        if (!s) return;
+        // Zoek de dichtstbijzijnde buurstoel in dezelfde rij, niet zelf wheelchair/companion
+        var best = null, bestDist = Infinity;
+        seats.forEach(function(other, j) {
+          if (j === i) return;
+          if (other.row_label !== s.row_label) return;
+          if (other.type === 'wheelchair' || other.type === 'companion') return;
+          // Alleen horizontaal "naast"
+          var dx = Math.abs(other.x - s.x);
+          var dy = Math.abs(other.y - s.y);
+          if (dy > 30) return; // andere rij visueel
+          var dist = dx + dy;
+          if (dist < bestDist && dx < 80) {
+            bestDist = dist;
+            best = j;
+          }
+        });
+        if (best !== null && candidates.indexOf(best) === -1) {
+          candidates.push(best);
+        }
+      });
+      if (candidates.length > 0) {
+        var msg = candidates.length === 1
+          ? 'Wil je ook de buurstoel als begeleider markeren? (1 stoel)'
+          : 'Wil je ook ' + candidates.length + ' buurstoelen als begeleider markeren?';
+        if (confirm(msg)) {
+          candidates.forEach(function(j) { seats[j].type = 'companion'; });
+        }
+      }
+    }
+
+    renderSeats();
+    // Selectie behouden zodat admin meerdere wijzigingen kan stapelen
+    updateAlignToolbar();
+  }
+
+  function deleteSelected() {
+    if (selectedIndices.length === 0) return;
+    if (!confirm('Verwijder ' + selectedIndices.length + ' geselecteerde stoel(en)?\\n\\nLet op: stoelen die in een bestaand concert verkocht zijn, blijven beschermd bij opslaan.')) return;
+    var sorted = selectedIndices.slice().sort(function(a,b){ return b-a; });
+    sorted.forEach(function(i) { seats.splice(i, 1); });
+    selectedIndices = [];
+    renderSeats();
+    updateAlignToolbar();
   }
 
   function alignSelected(mode) {
@@ -766,21 +884,60 @@ function renderEditor(c: any, layout: any) {
     });
   });
 
+  // ── Change-type-knoppen ──
+  document.querySelectorAll('.change-type-btn').forEach(function(btn) {
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      var newType = btn.dataset.newtype;
+      if (newType) changeSelectedType(newType);
+    });
+  });
+
+  // ── Verwijder selectie ──
+  var delSelBtn = document.getElementById('deleteSelBtn');
+  if (delSelBtn) {
+    delSelBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      deleteSelected();
+    });
+  }
+
   // ── Save ───────────────────────────────────────────
   saveBtn.addEventListener('click', async function(e) {
     e.stopPropagation();
     var name = document.getElementById('layoutName').value.trim();
     if (!name) { alert('Geef het plan een naam.'); return; }
 
+    // UX-safety: bestaande seats wegblazen vereist bevestiging
+    var hadSeatsOnLoad = ${layout && Array.isArray(layout.seats) ? layout.seats.length : 0};
+    if (hadSeatsOnLoad > 0 && seats.length === 0) {
+      if (!confirm('Je staat op het punt om ALLE stoelen uit dit plan te verwijderen.\\n\\nWeet je dat zeker? (Verkochte stoelen blijven beschermd.)')) {
+        return;
+      }
+    }
+
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right:8px"></i>Opslaan...';
 
+    // Stuur bestaande id mee zodat backend kan diffen i.p.v. delete+insert
     var payload = {
       name: name,
       description: '',
       width:  canvasW,
       height: canvasH,
-      seats:  seats
+      seats:  seats.map(function(s) {
+        var out = {
+          x: s.x, y: s.y,
+          type: s.type || 'standard',
+          row_label: s.row_label || '',
+          seat_number: s.seat_number || '',
+          section_name: s.section_name || null
+        };
+        if (s.id) out.id = s.id; // bestaande stoel → UPDATE
+        return out;
+      })
     };
 
     var planId = '${planId}';
@@ -794,14 +951,69 @@ function renderEditor(c: any, layout: any) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      if (res.ok) {
-        window.location.href = '/admin/seating';
-      } else {
+      if (!res.ok) {
         var err = await res.text();
         alert('Fout bij opslaan: ' + err);
         saveBtn.disabled = false;
         saveBtn.innerHTML = '<i class="fas fa-save" style="margin-right:8px"></i>Opslaan';
+        return;
       }
+
+      var data = await res.json();
+
+      // Re-sync seat IDs zodat verdere edits in dezelfde sessie correct diff'en
+      if (data.seats && Array.isArray(data.seats)) {
+        // Match op (row_label + seat_number + x + y) — duplicates zouden hier
+        // niet mogen bestaan binnen één plan; goede heuristiek voor herstel.
+        seats = seats.map(function(local) {
+          if (local.id) {
+            // bestaande stoel: behoud ID
+            return local;
+          }
+          // nieuwe stoel: zoek match in server-response
+          var match = data.seats.find(function(remote) {
+            return String(remote.row_label || '') === String(local.row_label || '')
+                && String(remote.seat_number || '') === String(local.seat_number || '')
+                && Math.abs((remote.x || 0) - local.x) < 2
+                && Math.abs((remote.y || 0) - local.y) < 2;
+          });
+          if (match) {
+            local.id = match.id;
+          }
+          return local;
+        });
+      }
+
+      // Toon waarschuwing als er stoelen beschermd zijn (sold)
+      if (data.protected_count && data.protected_count > 0) {
+        var lines = (data.protected_seats || []).map(function(p) {
+          return '  • Rij ' + (p.row_label || '?') + ' – stoel ' + (p.seat_number || '?');
+        });
+        alert(
+          '⚠️ ' + data.protected_count + ' stoel(en) konden niet verwijderd worden omdat ze al verkocht zijn:\\n\\n' +
+          lines.join('\\n') +
+          '\\n\\nDeze stoelen zijn niet aangepast. Je kan ze pas verwijderen nadat de tickets terugbetaald of geannuleerd zijn.'
+        );
+      }
+
+      // Als dit een bestaand plan was: check of er concerten zijn die het gebruiken
+      if (planId) {
+        try {
+          var ccRes = await fetch('/api/admin/seating/' + planId + '/concert-clients');
+          var ccData = ccRes.ok ? await ccRes.json() : { concerts: [] };
+          if (ccData.concerts && ccData.concerts.length > 0) {
+            showConcertSyncModal(planId, ccData.concerts);
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = '<i class="fas fa-save" style="margin-right:8px"></i>Opslaan';
+            return; // wacht op modal-actie
+          }
+        } catch (e2) {
+          console.warn('Kon concert-clients niet ophalen:', e2);
+        }
+      }
+
+      // Niets meer te doen → terug naar overzicht
+      window.location.href = '/admin/seating';
     } catch (err) {
       console.error(err);
       alert('Netwerkfout bij opslaan.');
@@ -809,6 +1021,87 @@ function renderEditor(c: any, layout: any) {
       saveBtn.innerHTML = '<i class="fas fa-save" style="margin-right:8px"></i>Opslaan';
     }
   });
+
+  // ── Concert-sync modal ─────────────────────────────
+  // Toont na save welke concerten dit plan gebruiken en biedt de admin de keuze
+  // om te bevestigen dat de wijziging ook voor die concerten geldt.
+  function showConcertSyncModal(planId, concerts) {
+    var modal = document.createElement('div');
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:1rem;';
+
+    var rowsHtml = concerts.map(function(c) {
+      var soldBadge = c.sold_count > 0
+        ? '<span style="background:#FEF3C7;color:#92400E;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;margin-left:8px">' + c.sold_count + ' verkocht — beschermd</span>'
+        : '<span style="background:#D1FAE5;color:#065F46;padding:2px 8px;border-radius:9999px;font-size:11px;font-weight:600;margin-left:8px">geen verkocht</span>';
+      var dateStr = c.datum ? new Date(c.datum).toLocaleDateString('nl-BE', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+      return '<label style="display:flex;align-items:center;padding:10px;border:1px solid #E5E7EB;border-radius:6px;margin-bottom:6px;cursor:pointer;background:#fff" class="concert-sync-row">' +
+             '<input type="checkbox" class="concert-sync-cb" data-concert-id="' + c.id + '" checked style="margin-right:10px;width:18px;height:18px">' +
+             '<div style="flex:1">' +
+               '<div style="font-weight:600;color:#111827;font-size:14px">' + escapeHtml(c.titel) + '</div>' +
+               '<div style="font-size:12px;color:#6B7280;margin-top:2px">' + dateStr + (c.locatie ? ' · ' + escapeHtml(c.locatie) : '') + soldBadge + '</div>' +
+             '</div>' +
+             '</label>';
+    }).join('');
+
+    modal.innerHTML =
+      '<div style="background:#fff;border-radius:12px;max-width:640px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 25px 50px -12px rgba(0,0,0,.25)">' +
+      '  <div style="padding:20px 24px;border-bottom:1px solid #E5E7EB">' +
+      '    <h2 style="margin:0;font-size:20px;font-weight:700;color:#111827"><i class="fas fa-link" style="color:#3B82F6;margin-right:8px"></i>Ook toepassen op bestaande concerten?</h2>' +
+      '    <p style="margin:6px 0 0;font-size:13px;color:#6B7280">Dit zaalplan wordt gebruikt door ' + concerts.length + ' concert' + (concerts.length===1?'':'en') + '. Vink aan welke je wilt synchroniseren met de nieuwe staat.</p>' +
+      '    <p style="margin:6px 0 0;font-size:12px;color:#92400E;background:#FFFBEB;padding:8px;border-radius:6px;border-left:3px solid #F59E0B"><i class="fas fa-shield-alt mr-1"></i>Reeds verkochte stoelen blijven sowieso intact — daar verandert niks aan.</p>' +
+      '  </div>' +
+      '  <div style="padding:16px 24px;overflow-y:auto;flex:1">' + rowsHtml + '</div>' +
+      '  <div style="padding:16px 24px;border-top:1px solid #E5E7EB;display:flex;gap:8px;justify-content:flex-end">' +
+      '    <button id="cs-skip" style="padding:8px 16px;border:1px solid #D1D5DB;background:#fff;color:#374151;border-radius:6px;font-weight:500;cursor:pointer">Overslaan</button>' +
+      '    <button id="cs-confirm" style="padding:8px 16px;background:#3B82F6;color:#fff;border:none;border-radius:6px;font-weight:600;cursor:pointer"><i class="fas fa-check mr-1"></i>Synchroniseren</button>' +
+      '  </div>' +
+      '</div>';
+
+    document.body.appendChild(modal);
+
+    function closeModal() {
+      document.body.removeChild(modal);
+      window.location.href = '/admin/seating';
+    }
+
+    modal.querySelector('#cs-skip').addEventListener('click', closeModal);
+
+    modal.querySelector('#cs-confirm').addEventListener('click', async function() {
+      var checked = Array.from(modal.querySelectorAll('.concert-sync-cb:checked')).map(function(cb) {
+        return parseInt(cb.dataset.concertId, 10);
+      });
+      if (checked.length === 0) { closeModal(); return; }
+
+      var btn = modal.querySelector('#cs-confirm');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Bezig...';
+
+      try {
+        var res = await fetch('/api/admin/seating/' + planId + '/sync-to-concerts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ concert_ids: checked })
+        });
+        var data = await res.json();
+        // Audit: zijn er orphans?
+        var totalOrphans = (data.results || []).reduce(function(sum, r) { return sum + (r.orphans_count || 0); }, 0);
+        if (totalOrphans > 0) {
+          alert('⚠️ Audit: ' + totalOrphans + ' verkochte stoel(en) verwijzen nu naar verdwenen plaatsen. Dit zou niet mogen voorkomen — neem contact op met de ontwikkelaar.');
+        } else {
+          alert('✅ ' + checked.length + ' concert' + (checked.length===1?'':'en') + ' gesynchroniseerd. Geen probleemstoelen gevonden.');
+        }
+      } catch (e) {
+        alert('Sync mislukte: ' + e.message);
+      }
+      closeModal();
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
 
   // ── Keyboard: Escape cancels bulk/bow mode ────────
   document.addEventListener('keydown', function(e) {
@@ -976,9 +1269,40 @@ function renderEditor(c: any, layout: any) {
                   </button>
                   
                   <button class="tool-btn w-full flex items-center p-2 rounded border border-gray-200 hover:bg-gray-50" data-type="seat" data-cat="companion">
-                    <div style="width:16px;height:16px;border-radius:50%;background:#60A5FA;margin-right:12px;flex-shrink:0"></div>
+                    <div style="width:16px;height:16px;border-radius:50%;background:#60A5FA;margin-right:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
+                      <i class="fas fa-hands-helping" style="font-size:9px;color:#fff"></i>
+                    </div>
                     Begeleider
                   </button>
+
+                  <button class="tool-btn w-full flex items-center p-2 rounded border border-gray-200 hover:bg-gray-50" data-type="seat" data-cat="restricted_view">
+                    <div style="width:16px;height:16px;border-radius:50%;background:#9CA3AF;margin-right:12px;flex-shrink:0;display:flex;align-items:center;justify-content:center;">
+                      <i class="fas fa-eye-slash" style="font-size:9px;color:#fff"></i>
+                    </div>
+                    Beperkt zicht
+                  </button>
+
+                  {/* Wijzig type van geselecteerde stoelen */}
+                  <div id="changeTypePanel" class="hidden mt-3 p-3 bg-blue-50 border border-blue-200 rounded">
+                    <p class="text-xs font-bold text-blue-900 mb-2">
+                      <i class="fas fa-edit mr-1"></i>
+                      Wijzig type van <span id="changeTypeCount">0</span> geselecteerde stoel(en)
+                    </p>
+                    <div class="grid grid-cols-2 gap-1">
+                      <button data-newtype="standard" class="change-type-btn text-xs py-1.5 rounded bg-white border border-blue-300 hover:bg-blue-100">
+                        <i class="fas fa-circle text-blue-500 mr-1"></i> Standaard
+                      </button>
+                      <button data-newtype="wheelchair" class="change-type-btn text-xs py-1.5 rounded bg-white border border-green-300 hover:bg-green-100">
+                        <i class="fas fa-wheelchair text-green-600 mr-1"></i> Rolstoel
+                      </button>
+                      <button data-newtype="companion" class="change-type-btn text-xs py-1.5 rounded bg-white border border-blue-300 hover:bg-blue-100">
+                        <i class="fas fa-hands-helping text-blue-400 mr-1"></i> Begeleider
+                      </button>
+                      <button data-newtype="restricted_view" class="change-type-btn text-xs py-1.5 rounded bg-white border border-gray-300 hover:bg-gray-100">
+                        <i class="fas fa-eye-slash text-gray-500 mr-1"></i> Beperkt zicht
+                      </button>
+                    </div>
+                  </div>
 
                   <div class="pt-4 mt-4 border-t">
                     <label class="block text-xs font-bold mb-2">Bulk Plaatsing</label>
@@ -1139,35 +1463,59 @@ function renderEditor(c: any, layout: any) {
                 </div>
               </div>
 
-              {/* Alignment toolbar (visible only when 2+ seats selected) */}
+              {/* Alignment toolbar (visible only when 1+ seats selected) */}
               <div id="alignToolbar" class="hidden mt-3 p-3 bg-amber-50 border-2 border-amber-300 rounded-lg shadow-md">
-                <div class="flex items-center justify-between flex-wrap gap-3">
+                <div class="flex items-center justify-between flex-wrap gap-3 mb-2">
                   <span class="text-sm font-bold text-amber-900">
                     <i class="fas fa-object-group mr-1"></i>
-                    <span id="selectionCount">0</span> stoelen geselecteerd
+                    <span id="selectionCount">0</span> stoel(en) geselecteerd
+                    <span id="selectionRowInfo" class="ml-2 text-xs font-normal text-amber-700"></span>
                   </span>
-                  <div class="flex flex-wrap gap-2">
-                    <button id="alignHBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-amber-400 rounded hover:bg-amber-100 font-medium" title="Geef alle geselecteerde stoelen dezelfde Y-positie als de eerste">
-                      <i class="fas fa-grip-lines mr-1"></i> Lijn horizontaal
-                    </button>
-                    <button id="alignVBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-amber-400 rounded hover:bg-amber-100 font-medium" title="Geef alle geselecteerde stoelen dezelfde X-positie als de eerste">
-                      <i class="fas fa-grip-lines-vertical mr-1"></i> Lijn verticaal
-                    </button>
-                    <button id="distHBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-amber-400 rounded hover:bg-amber-100 font-medium" title="Verdeel gelijkmatig over de horizontale as">
-                      <i class="fas fa-arrows-alt-h mr-1"></i> Verdeel H
-                    </button>
-                    <button id="distVBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-amber-400 rounded hover:bg-amber-100 font-medium" title="Verdeel gelijkmatig over de verticale as">
-                      <i class="fas fa-arrows-alt-v mr-1"></i> Verdeel V
-                    </button>
-                    <button id="clearSelBtn" type="button" class="px-3 py-1.5 text-xs bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 font-medium text-gray-600">
-                      <i class="fas fa-times mr-1"></i> Selectie wissen
-                    </button>
-                  </div>
+                  <button id="clearSelBtn" type="button" class="px-3 py-1.5 text-xs bg-gray-100 border border-gray-300 rounded hover:bg-gray-200 font-medium text-gray-600">
+                    <i class="fas fa-times mr-1"></i> Selectie wissen
+                  </button>
+                </div>
+
+                {/* Uitlijn-knoppen (alleen zinvol bij ≥2) */}
+                <div id="alignGroup" class="hidden flex flex-wrap gap-2 mb-2 pb-2 border-b border-amber-200">
+                  <button id="alignHBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-amber-400 rounded hover:bg-amber-100 font-medium" title="Geef alle geselecteerde stoelen dezelfde Y-positie als de eerste">
+                    <i class="fas fa-grip-lines mr-1"></i> Lijn horizontaal
+                  </button>
+                  <button id="alignVBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-amber-400 rounded hover:bg-amber-100 font-medium" title="Geef alle geselecteerde stoelen dezelfde X-positie als de eerste">
+                    <i class="fas fa-grip-lines-vertical mr-1"></i> Lijn verticaal
+                  </button>
+                  <button id="distHBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-amber-400 rounded hover:bg-amber-100 font-medium" title="Verdeel gelijkmatig over de horizontale as">
+                    <i class="fas fa-arrows-alt-h mr-1"></i> Verdeel H
+                  </button>
+                  <button id="distVBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-amber-400 rounded hover:bg-amber-100 font-medium" title="Verdeel gelijkmatig over de verticale as">
+                    <i class="fas fa-arrows-alt-v mr-1"></i> Verdeel V
+                  </button>
+                </div>
+
+                {/* Type-wijzigen + Rij verwijderen */}
+                <div class="flex flex-wrap gap-2 items-center">
+                  <span class="text-xs font-semibold text-amber-900 mr-1">Type:</span>
+                  <button class="change-type-btn px-2.5 py-1.5 text-xs bg-white border border-blue-300 rounded hover:bg-blue-50 font-medium" data-newtype="standard" title="Maak standaard stoel">
+                    <i class="fas fa-circle text-blue-500 mr-1"></i> Standaard
+                  </button>
+                  <button class="change-type-btn px-2.5 py-1.5 text-xs bg-white border border-green-300 rounded hover:bg-green-50 font-medium" data-newtype="wheelchair" title="Maak rolstoelplaats — biedt suggestie voor buurstoel als begeleider">
+                    <i class="fas fa-wheelchair text-green-600 mr-1"></i> Rolstoel
+                  </button>
+                  <button class="change-type-btn px-2.5 py-1.5 text-xs bg-white border border-blue-200 rounded hover:bg-blue-50 font-medium" data-newtype="companion" title="Maak begeleider">
+                    <i class="fas fa-hands-helping text-blue-400 mr-1"></i> Begeleider
+                  </button>
+                  <button class="change-type-btn px-2.5 py-1.5 text-xs bg-white border border-gray-300 rounded hover:bg-gray-100 font-medium" data-newtype="restricted_view" title="Markeer als beperkt zicht">
+                    <i class="fas fa-eye-slash text-gray-500 mr-1"></i> Beperkt zicht
+                  </button>
+                  <span class="text-amber-300 mx-1">|</span>
+                  <button id="deleteSelBtn" class="px-3 py-1.5 text-xs bg-red-50 border border-red-300 text-red-700 rounded hover:bg-red-100 font-semibold" title="Verwijder alle geselecteerde stoelen">
+                    <i class="fas fa-trash mr-1"></i> Verwijder selectie
+                  </button>
                 </div>
               </div>
 
               <p class="text-xs text-gray-500 mt-2 text-center">
-                <strong>Klik</strong> = stoel toevoegen &nbsp;|&nbsp; <strong>Blok Toe</strong> = rechte rijen &nbsp;|&nbsp; <strong>Gebogen rijen</strong> = concertzaal-opstelling &nbsp;|&nbsp; <strong>Slepen</strong> = verplaatsen &nbsp;|&nbsp; <strong>Shift+klik</strong> = uitlijnen &nbsp;|&nbsp; <strong>Rechtermuisknop</strong> = verwijderen
+                <strong>Klik</strong> = stoel toevoegen &nbsp;|&nbsp; <strong>Blok Toe</strong> = rechte rijen &nbsp;|&nbsp; <strong>Slepen</strong> = verplaatsen &nbsp;|&nbsp; <strong>Shift+klik</strong> = uitlijnen / type wijzigen &nbsp;|&nbsp; <strong>Klik rij-label</strong> = hele rij selecteren &nbsp;|&nbsp; <strong>Rechtsklik</strong> = verwijderen
               </p>
             </div>
           </div>
@@ -1205,26 +1553,226 @@ app.post('/api/admin/seating/create', async (c) => {
   return c.json({ success: true })
 })
 
+/**
+ * Update zaalplan met echte DIFF-save (geen DELETE+INSERT meer).
+ *
+ * Inkomende payload:
+ *   { name, description, width, height, seats: [{ id?, x, y, type, row_label, seat_number, section_name? }, ...] }
+ *
+ * - Seats met `id` (bestaand) worden ge-UPDATE op positie/type/labels.
+ * - Seats zonder `id` (nieuw) worden ge-INSERT.
+ * - Seats die in DB bestaan maar niet meer in payload zitten worden ge-DELETE,
+ *   maar NOOIT als er een `sold` ticket_seats record naar verwijst.
+ *
+ * Response: { success, removed_ids[], protected_ids[] }
+ *   protected_ids = stoelen die de admin wilde verwijderen maar niet konden (sold).
+ */
 app.post('/api/admin/seating/:id/update', async (c) => {
   const id = c.req.param('id')
   const body = await c.req.json()
-  
+
+  // 1. Plan-meta updaten
   await execute(c.env.DB, `
     UPDATE seating_plans SET name=?, description=?, width=?, height=?, updated_at=CURRENT_TIMESTAMP WHERE id=?
   `, [body.name, body.description || '', body.width, body.height, id])
 
-  await execute(c.env.DB, "DELETE FROM seats WHERE plan_id=?", [id])
+  // 2. Huidige stoelen uit DB
+  const existingSeats = await queryAll<any>(
+    c.env.DB,
+    "SELECT id FROM seats WHERE plan_id=?",
+    [id]
+  )
+  const existingIds = new Set<number>(existingSeats.map(s => s.id))
 
-  if (body.seats && body.seats.length > 0) {
-    const stmt = c.env.DB.prepare(`
-      INSERT INTO seats (plan_id, row_label, seat_number, x, y, type)
-      VALUES (?, ?, ?, ?, ?, ?)
+  const incomingSeats: any[] = Array.isArray(body.seats) ? body.seats : []
+
+  // 3. Splits payload in updates (met id) en inserts (zonder id)
+  const updates = incomingSeats.filter(s => s.id && existingIds.has(Number(s.id)))
+  const inserts = incomingSeats.filter(s => !s.id || !existingIds.has(Number(s.id)))
+
+  // 4. Bepaal welke ids in DB stonden maar weg moeten
+  const keepIds = new Set<number>(updates.map(s => Number(s.id)))
+  const toDeleteIds = [...existingIds].filter(eid => !keepIds.has(eid))
+
+  // 5. Bescherming: kijk welke van die delete-kandidaten een SOLD ticket_seat hebben
+  let protectedIds: number[] = []
+  if (toDeleteIds.length > 0) {
+    const placeholders = toDeleteIds.map(() => '?').join(',')
+    const protectedRows = await queryAll<any>(
+      c.env.DB,
+      `SELECT DISTINCT seat_id FROM ticket_seats
+       WHERE status='sold' AND seat_id IN (${placeholders})`,
+      toDeleteIds
+    )
+    protectedIds = protectedRows.map(r => r.seat_id)
+  }
+  const protectedSet = new Set<number>(protectedIds)
+  const finalDeleteIds = toDeleteIds.filter(did => !protectedSet.has(did))
+
+  // 6. Batch operaties — alles in één D1-batch voor snelheid + atomiciteit
+  const batchOps: D1PreparedStatement[] = []
+
+  // 6a. UPDATEs
+  if (updates.length > 0) {
+    const updStmt = c.env.DB.prepare(`
+      UPDATE seats SET
+        section_name = ?,
+        row_label    = ?,
+        seat_number  = ?,
+        x            = ?,
+        y            = ?,
+        type         = ?
+      WHERE id = ? AND plan_id = ?
     `)
-    const batch = body.seats.map((s: any) => stmt.bind(id, s.row_label, s.seat_number, s.x, s.y, s.type || 'standard'))
-    await c.env.DB.batch(batch)
+    for (const s of updates) {
+      batchOps.push(updStmt.bind(
+        s.section_name || null,
+        s.row_label || null,
+        s.seat_number || null,
+        s.x, s.y,
+        s.type || 'standard',
+        Number(s.id), id
+      ))
+    }
   }
 
-  return c.json({ success: true })
+  // 6b. INSERTs (nieuwe stoelen — krijgen verse id terug)
+  const insertedNewClientRefs: Array<{ client_ref: any, x: number, y: number, row_label: string, seat_number: string }> = []
+  if (inserts.length > 0) {
+    const insStmt = c.env.DB.prepare(`
+      INSERT INTO seats (plan_id, section_name, row_label, seat_number, x, y, type)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `)
+    for (const s of inserts) {
+      batchOps.push(insStmt.bind(
+        id,
+        s.section_name || null,
+        s.row_label || null,
+        s.seat_number || null,
+        s.x, s.y,
+        s.type || 'standard'
+      ))
+      // Houd referentie bij om straks de nieuwe DB-id terug te koppelen
+      insertedNewClientRefs.push({
+        client_ref: s.client_ref ?? null,
+        x: s.x, y: s.y,
+        row_label: s.row_label || '',
+        seat_number: s.seat_number || ''
+      })
+    }
+  }
+
+  // 6c. DELETEs (alleen veilige, niet-sold)
+  if (finalDeleteIds.length > 0) {
+    const delStmt = c.env.DB.prepare("DELETE FROM seats WHERE id = ? AND plan_id = ?")
+    for (const did of finalDeleteIds) {
+      batchOps.push(delStmt.bind(did, id))
+    }
+    // Ook: opruimen van eventuele NIET-sold ticket_seats die naar deze stoelen verwezen
+    // (locked/released — die mogen weg zodat de FK niet meer dangling is)
+    const tsCleanup = c.env.DB.prepare(
+      "DELETE FROM ticket_seats WHERE seat_id = ? AND status <> 'sold'"
+    )
+    for (const did of finalDeleteIds) {
+      batchOps.push(tsCleanup.bind(did))
+    }
+  }
+
+  if (batchOps.length > 0) {
+    await c.env.DB.batch(batchOps)
+  }
+
+  // 7. Haal de IDs van pas-geïnserte stoelen op (voor evt. client re-sync)
+  // Eenvoudigste manier: query alle huidige seats opnieuw — front-end kan dan diff'en.
+  const freshSeats = await queryAll<any>(
+    c.env.DB,
+    "SELECT id, section_name, row_label, seat_number, x, y, type FROM seats WHERE plan_id = ?",
+    [id]
+  )
+
+  // 8. Info over beschermde stoelen — voor admin-feedback
+  let protectedDetails: any[] = []
+  if (protectedIds.length > 0) {
+    const ph = protectedIds.map(() => '?').join(',')
+    protectedDetails = await queryAll<any>(
+      c.env.DB,
+      `SELECT id, section_name, row_label, seat_number FROM seats WHERE id IN (${ph})`,
+      protectedIds
+    )
+  }
+
+  return c.json({
+    success: true,
+    removed_count: finalDeleteIds.length,
+    protected_count: protectedIds.length,
+    protected_seats: protectedDetails,
+    seats: freshSeats
+  })
+})
+
+/**
+ * Welke concerten gebruiken dit zaalplan? Per concert tellen we hoeveel SOLD
+ * ticket_seats er staan — dat is wat we beschermen bij synchronisatie.
+ */
+app.get('/api/admin/seating/:id/concert-clients', async (c) => {
+  const id = c.req.param('id')
+  const concerts = await queryAll<any>(c.env.DB, `
+    SELECT c.id, e.titel, e.datum, e.locatie,
+           (SELECT COUNT(*) FROM ticket_seats ts WHERE ts.concert_id=c.id AND ts.status='sold') AS sold_count,
+           (SELECT COUNT(*) FROM ticket_seats ts WHERE ts.concert_id=c.id) AS assigned_count
+    FROM concerts c
+    JOIN events e ON e.id = c.event_id
+    WHERE c.seating_plan_id = ?
+    ORDER BY e.datum DESC
+  `, [id])
+  return c.json({ concerts })
+})
+
+/**
+ * Synchroniseer plan-wijzigingen naar bestaande concerten.
+ *
+ * In de praktijk: het seating_plan zelf is ALL we need — concerten verwijzen
+ * via `seating_plan_id` naar de seats-tabel, dus zodra het plan up-to-date is
+ * zien concerten automatisch de nieuwe staat.
+ *
+ * MAAR: ticket_seats verwijst naar seat_id. Als een stoel verwijderd is en
+ * er stond nog een (locked/released) ticket_seat naar te verwijzen, hangt
+ * die in de lucht — die hebben we al opgeruimd in /update. Dus dit endpoint
+ * geeft alleen een audit-overzicht terug: hoeveel sold-tickets er per
+ * concert nu nog op (mogelijk verdwenen) stoelen wijzen.
+ *
+ * Body: { concert_ids: number[] }  (de admin kiest welke concerten meegaan)
+ * Response: per concert een lijst van eventuele "verweesde sold tickets"
+ *           (zou 0 moeten zijn want sold = beschermd, maar voor zekerheid).
+ */
+app.post('/api/admin/seating/:id/sync-to-concerts', async (c) => {
+  const planId = c.req.param('id')
+  const body = await c.req.json().catch(() => ({})) as { concert_ids?: number[] }
+  const concertIds: number[] = Array.isArray(body.concert_ids) ? body.concert_ids.map(Number).filter(Boolean) : []
+
+  if (concertIds.length === 0) {
+    return c.json({ success: true, results: [] })
+  }
+
+  const results = []
+  for (const concertId of concertIds) {
+    // Audit: zijn er sold ticket_seats die naar seats verwijzen die niet meer in dit plan zitten?
+    const orphans = await queryAll<any>(c.env.DB, `
+      SELECT ts.id, ts.seat_id, t.bestelnummer
+      FROM ticket_seats ts
+      LEFT JOIN seats s ON s.id = ts.seat_id AND s.plan_id = ?
+      LEFT JOIN tickets t ON t.id = ts.ticket_id
+      WHERE ts.concert_id = ? AND ts.status = 'sold' AND s.id IS NULL
+    `, [planId, concertId])
+
+    results.push({
+      concert_id: concertId,
+      orphans_count: orphans.length,
+      orphans: orphans
+    })
+  }
+
+  return c.json({ success: true, results })
 })
 
 app.post('/api/admin/seating/:id/delete', async (c) => {

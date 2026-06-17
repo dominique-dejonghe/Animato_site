@@ -280,6 +280,49 @@ export async function requireBestuurslid(c: Context<{ Bindings: Bindings }>, nex
     return
   }
 
+  // Stale-token detectie voor is_bestuurslid: JWT bevat een snapshot van de
+  // vlag op moment van inloggen. Als een admin nadien iemand promoveert tot
+  // bestuurslid, blijft het oude token zeggen "0" totdat de gebruiker uitlogt
+  // en opnieuw inlogt — wat zelden gebeurt. Daarom checken we de DB als
+  // bron-of-truth, en als die zegt "ja" → toegang verlenen + JWT-cookie
+  // stilletjes verversen zodat het probleem zichzelf oplost.
+  try {
+    const dbRow = await c.env.DB.prepare(
+      'SELECT id, email, role, stemgroep, is_bestuurslid FROM users WHERE id = ?'
+    ).bind(user.id).first<{ id: number; email: string; role: string; stemgroep: string | null; is_bestuurslid: number }>()
+
+    if (dbRow && (dbRow.is_bestuurslid === 1 || dbRow.role === 'admin' || dbRow.role === 'moderator')) {
+      // Update de Context-user zodat downstream code de juiste waarden ziet
+      const refreshedUser: SessionUser = {
+        ...user,
+        role: dbRow.role as UserRole,
+        is_bestuurslid: dbRow.is_bestuurslid as 0 | 1,
+        stemgroep: (dbRow.stemgroep ?? user.stemgroep) as Stemgroep | null,
+      }
+      c.set('user', refreshedUser)
+
+      // Cookie stilletjes verversen — nieuwe JWT met juiste claims.
+      // Best-effort: als er iets fout gaat, log + ga toch door (toegang
+      // is al bevestigd op basis van DB).
+      try {
+        const { generateToken } = await import('../utils/auth')
+        const { setCookie } = await import('hono/cookie')
+        const freshToken = await generateToken(refreshedUser, c.env.JWT_SECRET, '7d')
+        setCookie(c, 'auth_token', freshToken, {
+          maxAge: 7 * 24 * 60 * 60,
+          httpOnly: true, secure: true, sameSite: 'Lax', path: '/'
+        })
+      } catch (e) {
+        console.warn('[requireBestuurslid] kon JWT niet verversen:', e)
+      }
+
+      await next()
+      return
+    }
+  } catch (e) {
+    console.warn('[requireBestuurslid] DB-check faalde, val terug op JWT-claims:', e)
+  }
+
   // IMPERSONATE-AWARE: vóór we 403 retourneren, kijken of er een gestashte
   // admin-sessie is. Scenario: admin klikt "Bekijk als lid", auth_token =
   // lid-token, en navigeert dan terug naar /admin. Zonder deze check zou

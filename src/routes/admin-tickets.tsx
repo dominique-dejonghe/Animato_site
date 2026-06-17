@@ -2586,11 +2586,29 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
                   <span class="flex items-center"><span class="inline-block w-3 h-3 bg-gray-400 rounded-sm mr-1"></span>Geblokkeerd</span>
                 </div>
               </div>
-              <div class="border border-gray-200 rounded bg-gray-50 overflow-auto" style="min-height: 500px;">
-                <div id="seatMap" class="relative" style="width: 1200px; height: 800px; margin: 0 auto;"></div>
-              </div>
-              <div class="mt-3 text-center text-xs text-gray-500 border-t pt-2">
-                <i class="fas fa-arrow-up mr-1"></i> Podium
+              {/* Frame: flex-centered, geen scrollbars meer. JS schaalt automatisch
+                  zodat het hele zaalplan past binnen de beschikbare breedte. */}
+              <div
+                id="seatMapFrame"
+                class="border border-gray-200 rounded bg-gradient-to-b from-gray-50 to-gray-100 overflow-hidden flex items-center justify-center p-4"
+                style="min-height: 500px;"
+              >
+                <div id="seatMapScale" style="transform-origin: center center; transition: transform .15s ease;">
+                  <div id="seatMap" class="relative bg-white shadow-inner" style="width: 1200px; height: 800px;">
+                    {/* PODIUM-element: prominente balk bovenaan zoals een echt podium in een zaal.
+                        data-static markeert dit element zodat render() het niet weggooit bij re-render.
+                        Z-index 10 zodat hij boven andere elementen blijft, maar onder geselecteerde stoel (z-20). */}
+                    <div
+                      data-static="true"
+                      class="absolute top-0 left-0 w-full text-white text-center font-bold tracking-[0.3em] uppercase text-sm shadow-lg"
+                      style="background: linear-gradient(180deg, #1F2937 0%, #374151 50%, #1F2937 100%); padding: 10px 0; border-bottom: 3px solid #F59E0B; z-index: 10;"
+                    >
+                      <i class="fas fa-music mr-2 text-amber-400"></i>
+                      PODIUM / SCHERM
+                      <i class="fas fa-music ml-2 text-amber-400"></i>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -2622,8 +2640,54 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
           return { bg: '#3B82F6', fg: 'white' };
         }
 
+        function toExcelLetter(idx) {
+          let s = '';
+          let n = idx;
+          while (n >= 0) {
+            s = String.fromCharCode(65 + (n % 26)) + s;
+            n = Math.floor(n / 26) - 1;
+          }
+          return s;
+        }
+
         function render() {
-          map.innerHTML = '';
+          // Verwijder enkel onze dynamische elementen, niet het podium (heeft data-static)
+          // Markeer alle bestaande children zonder data-static om opgeruimd te worden
+          Array.from(map.children).forEach(child => {
+            if (!child.hasAttribute('data-static')) child.remove();
+          });
+          // Eerst rij-labels berekenen (gebaseerd op unieke y-posities, sorted)
+          map.style.overflow = 'visible';
+          const yMap = {};
+          seats.forEach(seat => {
+            const k = seat.y;
+            if (!yMap[k]) yMap[k] = { minX: seat.x, maxX: seat.x, lbl: seat.row_label || '' };
+            if (seat.x < yMap[k].minX) yMap[k].minX = seat.x;
+            if (seat.x > yMap[k].maxX) yMap[k].maxX = seat.x;
+            if (!yMap[k].lbl && seat.row_label) yMap[k].lbl = seat.row_label;
+          });
+          const sortedYs = Object.keys(yMap).map(Number).sort((a, b) => a - b);
+          sortedYs.forEach((y, idx) => {
+            const g = yMap[y];
+            const lbl = g.lbl || toExcelLetter(idx);
+            const sharedStyle = 'top:' + (y + 4) + 'px;'
+              + 'background:rgba(255,255,255,.95);padding:2px 6px;border-radius:4px;'
+              + 'border:1px solid #cbd5e1;letter-spacing:.05em;z-index:5;'
+              + 'min-width:24px;text-align:center;line-height:1.1;font-size:11px;';
+            // Links
+            const leftTag = document.createElement('div');
+            leftTag.className = 'absolute font-bold text-gray-700 pointer-events-none';
+            leftTag.style.cssText = 'left:' + (g.minX - 38) + 'px;' + sharedStyle;
+            leftTag.innerText = lbl;
+            map.appendChild(leftTag);
+            // Rechts
+            const rightTag = document.createElement('div');
+            rightTag.className = 'absolute font-bold text-gray-700 pointer-events-none';
+            rightTag.style.cssText = 'left:' + (g.maxX + 32 + 6) + 'px;' + sharedStyle;
+            rightTag.innerText = lbl;
+            map.appendChild(rightTag);
+          });
+          // Stoelen renderen
           seats.forEach(seat => {
             const el = document.createElement('div');
             el.className = 'absolute w-8 h-8 rounded-t-lg flex items-center justify-center text-[10px] font-bold shadow-sm cursor-pointer hover:scale-110 transition-transform';
@@ -2643,6 +2707,47 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
             map.appendChild(el);
           });
         }
+
+        // ── Auto-fit zaalplan binnen het frame, vergelijkbaar met publieke ticketpagina ──
+        const frame = document.getElementById('seatMapFrame');
+        const scale = document.getElementById('seatMapScale');
+        const PLAN_W = 1200, PLAN_H = 800;
+        // Bereken bounding box van werkelijke stoelen + label-marge
+        function computeBbox() {
+          if (!seats || seats.length === 0) return { minX: 0, minY: 0, maxX: PLAN_W, maxY: PLAN_H };
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          seats.forEach(s => {
+            if (s.x < minX) minX = s.x;
+            if (s.y < minY) minY = s.y;
+            if (s.x + 32 > maxX) maxX = s.x + 32;
+            if (s.y + 32 > maxY) maxY = s.y + 32;
+          });
+          // Ruimte voor rij-labels links/rechts + podium-balk bovenaan
+          return { minX: minX - 44, minY: 0, maxX: maxX + 44, maxY: maxY };
+        }
+        const bbox = computeBbox();
+        const contentW = Math.max(50, bbox.maxX - bbox.minX);
+        const contentH = Math.max(50, bbox.maxY - bbox.minY);
+        function fitSeatMap() {
+          if (!frame || !scale) return;
+          const pad = 32;
+          const availW = Math.max(50, frame.clientWidth - pad);
+          const maxFrameH = Math.max(500, Math.round(window.innerHeight * 0.75));
+          let s = availW / contentW;
+          if (contentH * s + pad > maxFrameH) s = (maxFrameH - pad) / contentH;
+          s = Math.max(0.15, Math.min(s, 1.5));
+          // Translate zodat bbox-centrum samenvalt met plan-centrum
+          const cxBbox = (bbox.minX + bbox.maxX) / 2;
+          const cyBbox = (bbox.minY + bbox.maxY) / 2;
+          const tx = (PLAN_W / 2) - cxBbox;
+          const ty = (PLAN_H / 2) - cyBbox;
+          scale.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + s + ')';
+          const neededH = Math.max(500, Math.ceil(contentH * s) + pad);
+          frame.style.height = Math.min(neededH, maxFrameH) + 'px';
+        }
+        window.addEventListener('resize', fitSeatMap);
+        setTimeout(fitSeatMap, 50);
+        setTimeout(fitSeatMap, 250);
 
         function showDetail(s) {
           const status = s.booking_status === 'sold' ? 'Verkocht'

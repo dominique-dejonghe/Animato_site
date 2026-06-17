@@ -16,8 +16,11 @@ const adminAuthMiddleware = async (c: any, next: any) => {
   c.set('user', user)
   await next()
 }
-app.use('/admin/*', adminAuthMiddleware)
-app.use('/api/admin/*', adminAuthMiddleware)
+// SCOPE-FIX 2026-06-17: was /admin/* — te breed.
+app.use('/admin/communicatie', adminAuthMiddleware)
+app.use('/admin/communicatie/*', adminAuthMiddleware)
+app.use('/api/admin/communicatie', adminAuthMiddleware)
+app.use('/api/admin/communicatie/*', adminAuthMiddleware)
 
 // === OVERVIEW ===
 app.get('/admin/communicatie', async (c) => {

@@ -15,8 +15,12 @@ const adminAuthMiddleware = async (c: any, next: any) => {
   c.set('user', user)
   await next()
 }
-app.use('/admin/*', adminAuthMiddleware)
-app.use('/api/admin/*', adminAuthMiddleware)
+// SCOPE-FIX 2026-06-17: was /admin/* en /api/admin/* — te breed, ving o.a.
+// /admin/tickets en blokkeerde bestuursleden met 403. Strikt op eigen sub-paden.
+app.use('/admin/activities', adminAuthMiddleware)
+app.use('/admin/activities/*', adminAuthMiddleware)
+app.use('/api/admin/activities', adminAuthMiddleware)
+app.use('/api/admin/activities/*', adminAuthMiddleware)
 
 // ─── REDIRECTS: Old activity URLs → Unified Events ─────────────────────────
 

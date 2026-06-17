@@ -27,8 +27,15 @@ const adminAuthMiddleware = async (c: any, next: any) => {
   c.set('user', user)
   await next()
 }
-app.use('/admin/*', adminAuthMiddleware)
-app.use('/api/admin/*', adminAuthMiddleware)
+// SCOPE-FIX 2026-06-17: was /admin/* — te breed.
+app.use('/admin/lidgelden', adminAuthMiddleware)
+app.use('/admin/lidgelden/*', adminAuthMiddleware)
+app.use('/admin/mollie-webhook-log', adminAuthMiddleware)
+app.use('/admin/mollie-webhook-log/*', adminAuthMiddleware)
+app.use('/api/admin/lidgelden', adminAuthMiddleware)
+app.use('/api/admin/lidgelden/*', adminAuthMiddleware)
+app.use('/api/admin/donations', adminAuthMiddleware)
+app.use('/api/admin/donations/*', adminAuthMiddleware)
 
 // === OVERVIEW ===
 app.get('/admin/lidgelden', async (c) => {

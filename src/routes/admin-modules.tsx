@@ -11,8 +11,12 @@ import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Auth required
-app.use('/admin/*', requireAuth)
-app.use('/admin/*', requireRole('admin'))
+// SCOPE-FIX 2026-06-17: was /admin/* — te breed, ving andere admin-routes en
+// gaf bestuursleden onterecht 403 op /admin/tickets etc.
+app.use('/admin/modules', requireAuth)
+app.use('/admin/modules', requireRole('admin'))
+app.use('/admin/modules/*', requireAuth)
+app.use('/admin/modules/*', requireRole('admin'))
 
 // =====================================================
 // MODULE SETTINGS OVERVIEW

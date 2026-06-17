@@ -52,8 +52,20 @@ const adminAuthMiddleware = async (c: any, next: any) => {
   c.set('user', user)
   await next()
 }
-app.use('/admin/*', adminAuthMiddleware)
-app.use('/api/admin/*', adminAuthMiddleware)
+// BUG-FIX 2026-06-17: deze middleware was te breed gescoped op /admin/* en
+// /api/admin/* — dat ving ELKE admin-request (bv. /admin/tickets) en wees
+// pure bestuursleden (is_bestuurslid=1 zonder admin/moderator role) af met
+// 403 "Je hebt geen rechten om deze pagina te bekijken" omdat deze module
+// striker is dan requireBestuurslid (eist admin/moderator).
+//
+// Nu strikt gescoped op de routes die DEZE module daadwerkelijk definieert:
+// /admin/bestanden/* en /api/admin/bestanden/*. /api/admin/works/* wordt
+// hieronder apart geregeld omdat deze module daar ook een endpoint heeft.
+app.use('/admin/bestanden', adminAuthMiddleware)
+app.use('/admin/bestanden/*', adminAuthMiddleware)
+app.use('/api/admin/bestanden', adminAuthMiddleware)
+app.use('/api/admin/bestanden/*', adminAuthMiddleware)
+app.use('/api/admin/works/*', adminAuthMiddleware)
 
 // ==========================================
 // OVERVIEW PAGE - List all materials

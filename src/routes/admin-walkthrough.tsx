@@ -11,8 +11,11 @@ import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Auth required
-app.use('/admin/*', requireAuth)
-app.use('/admin/*', requireRole('admin'))
+// SCOPE-FIX 2026-06-17: was /admin/* — te breed.
+app.use('/admin/walkthrough', requireAuth)
+app.use('/admin/walkthrough', requireRole('admin'))
+app.use('/admin/walkthrough/*', requireAuth)
+app.use('/admin/walkthrough/*', requireRole('admin'))
 
 // =====================================================
 // TOURS OVERVIEW

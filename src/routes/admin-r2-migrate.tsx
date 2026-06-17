@@ -26,10 +26,15 @@ import { uploadDataUrlToR2, isDataUrl } from '../utils/r2-storage'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-app.use('/admin/*', requireAuth)
-app.use('/admin/*', requireRole('admin'))
-app.use('/api/admin/*', requireAuth)
-app.use('/api/admin/*', requireRole('admin'))
+// SCOPE-FIX 2026-06-17: was /admin/* en /api/admin/* — te breed.
+app.use('/admin/r2-migrate', requireAuth)
+app.use('/admin/r2-migrate', requireRole('admin'))
+app.use('/admin/r2-migrate/*', requireAuth)
+app.use('/admin/r2-migrate/*', requireRole('admin'))
+app.use('/api/admin/r2-migrate', requireAuth)
+app.use('/api/admin/r2-migrate', requireRole('admin'))
+app.use('/api/admin/r2-migrate/*', requireAuth)
+app.use('/api/admin/r2-migrate/*', requireRole('admin'))
 
 // =====================================================
 // Migration overview page

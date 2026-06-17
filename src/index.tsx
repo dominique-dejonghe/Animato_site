@@ -6,6 +6,8 @@ import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { serveStatic } from 'hono/cloudflare-workers'
 import type { Bindings } from './types'
+import { generateSeatTicketPdf as e2eGenerateSeatTicketPdf } from './utils/ticket-pdf'
+import { queryOne as e2eQueryOne } from './utils/db'
 import { fetchNavPages, runWithNavPages } from './utils/nav-context'
 
 // Import routes
@@ -163,6 +165,87 @@ app.route('/', webhooksRoutes)
 // Mollie-redirect. Anders 401't de leden-wildcard de hele flow en
 // blijft je betaling pending. (Bug ontdekt 2026-06-13)
 app.route('/', ticketsRoutes)
+
+// ⚠️ TIJDELIJKE E2E-TEST ROUTE — MOET vóór ledenTicketsRoutes staan,
+// want die heeft `app.use('*', requireAuth)` op lijn 24 die anders deze
+// route 401't (Hono wildcard middleware in sub-routers gemount op '/'
+// propageert naar alle volgende routes op de parent-app).
+// Token-secured single-PDF preview voor één order.
+// Wordt verwijderd zodra Dominique de PDF heeft kunnen inspecteren.
+app.get('/_e2e_ticket_pdf_preview/:secret/:ticketSeatId', async (c: any) => {
+  const generateSeatTicketPdf = e2eGenerateSeatTicketPdf
+  const queryOne = e2eQueryOne
+  const secret = c.req.param('secret')
+  if (secret !== 'gx5h-anim-2026-test-tmp') return c.text('forbidden', 403)
+  const tsId = parseInt(c.req.param('ticketSeatId'))
+  const row = await queryOne<any>(c.env.DB, `
+    SELECT ts.id AS ticket_seat_id, ts.ticket_id,
+           t.order_ref, t.koper_naam, t.koper_email, t.qr_code, t.categorie, t.prijs_totaal, t.aantal,
+           s.section_name, s.row_label, s.seat_number,
+           e.titel AS concert_titel, e.start_at, e.locatie,
+           TRIM(COALESCE(l.adres, '') || CASE WHEN l.postcode IS NOT NULL OR l.stad IS NOT NULL
+             THEN ', ' || COALESCE(l.postcode, '') || ' ' || COALESCE(l.stad, '')
+             ELSE '' END) AS adres,
+           cc.doors_open_at, cc.concert_start_at
+    FROM ticket_seats ts
+    JOIN tickets t ON t.id = ts.ticket_id
+    JOIN seats s ON s.id = ts.seat_id
+    JOIN concerts cc ON cc.id = t.concert_id
+    JOIN events e ON e.id = cc.event_id
+    LEFT JOIN locations l ON l.id = e.location_id
+    WHERE ts.id = ?
+  `, [tsId])
+  if (!row) return c.text('Stoel niet gevonden', 404)
+
+  // Logo laden uit settings
+  let logoBytes: Uint8Array | null = null
+  try {
+    const logoRow = await queryOne<any>(c.env.DB,
+      `SELECT value FROM system_settings WHERE key IN ('ticket_logo_url','site_logo_url') ORDER BY CASE key WHEN 'ticket_logo_url' THEN 0 ELSE 1 END LIMIT 1`)
+    if (logoRow?.value && /^https?:\/\//.test(logoRow.value)) {
+      const resp = await fetch(logoRow.value)
+      if (resp.ok && (resp.headers.get('content-type') || '').includes('png')) {
+        logoBytes = new Uint8Array(await resp.arrayBuffer())
+      }
+    }
+  } catch {}
+
+  const aanvangDate = row.concert_start_at ? new Date(row.concert_start_at) : new Date(row.start_at)
+  const concertDatum = new Date(row.start_at).toLocaleDateString('nl-NL', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+  })
+  const concertTijd = aanvangDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+  const doorsOpen = row.doors_open_at
+    ? new Date(row.doors_open_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+    : null
+  const pdfBytes = await generateSeatTicketPdf({
+    order_ref: row.order_ref,
+    koper_naam: row.koper_naam || 'Onbekend',
+    koper_email: row.koper_email || '',
+    concert_titel: row.concert_titel,
+    concert_datum: concertDatum,
+    concert_tijd: concertTijd,
+    concert_doors_open: doorsOpen,
+    concert_locatie: row.locatie || '',
+    concert_adres: row.adres || null,
+    categorie: row.categorie || 'Volwassene',
+    prijs: Number(row.prijs_totaal) / Math.max(1, Number(row.aantal) || 1),
+    qr_code: `${row.qr_code}-${row.ticket_seat_id}`,
+    seat_label: `Rij ${row.row_label} — Stoel ${row.seat_number}`,
+    seat_sectie: row.section_name || null,
+    ticket_index: 1,
+    ticket_total: Number(row.aantal) || 1,
+    logo_png_bytes: logoBytes
+  })
+  return new Response(pdfBytes, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="e2e-test-rij${row.row_label}-stoel${row.seat_number}.pdf"`,
+      'Cache-Control': 'no-store'
+    }
+  })
+})
 
 // Leden ticket-portal MOET vóór de catch-all ledenRoutes komen, anders vangt
 // die de /leden/mijn-tickets wildcard af voor we daar aan toe komen.

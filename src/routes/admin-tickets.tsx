@@ -442,26 +442,40 @@ app.get('/admin/tickets', async (c) => {
 app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
   const user = c.get('user') as SessionUser
   const concertId = parseInt(c.req.param('concertId'))
-  
-  // Get concert info
-  const concert = await queryOne(c.env.DB, `
-    SELECT c.*, e.titel, e.start_at, e.locatie
+
+  // Get concert info — live verkocht-berekening i.p.v. stale counter
+  const concert = await queryOne<any>(c.env.DB, `
+    SELECT c.*, e.titel, e.start_at, e.locatie,
+           (SELECT COALESCE(SUM(t.aantal), 0) FROM tickets t
+            WHERE t.concert_id = c.id AND t.status = 'paid') AS verkocht
     FROM concerts c
     JOIN events e ON e.id = c.event_id
     WHERE c.id = ?
   `, [concertId])
-  
+
   if (!concert) {
     return c.text('Concert niet gevonden', 404)
   }
 
   // Get all tickets/orders
-  const tickets = await queryAll(c.env.DB, `
+  const tickets = await queryAll<any>(c.env.DB, `
     SELECT *
     FROM tickets
     WHERE concert_id = ?
     ORDER BY created_at DESC
   `, [concertId])
+
+  // Bereken bezetting-percentage voor de progress bar
+  const capaciteit = Number(concert.capaciteit) || 0
+  const verkocht = Number(concert.verkocht) || 0
+  const bezettingPct = capaciteit > 0 ? Math.min(100, Math.round((verkocht / capaciteit) * 100)) : 0
+  // Kleurcoderen: groen tot 70%, oranje tot 90%, rood daarboven
+  const bezettingColor = bezettingPct >= 90 ? 'bg-red-500'
+                       : bezettingPct >= 70 ? 'bg-orange-500'
+                       : 'bg-green-500'
+  const bezettingTextColor = bezettingPct >= 90 ? 'text-red-700'
+                           : bezettingPct >= 70 ? 'text-orange-700'
+                           : 'text-green-700'
 
   return c.html(
     <Layout title={`Bestellingen - ${concert.titel}`} user={user}>
@@ -504,6 +518,39 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
             </a>
           )}
         </div>
+
+        {/* Bezetting Bar — % van de zaalcapaciteit dat verkocht is */}
+        {capaciteit > 0 && (
+          <div class="bg-white rounded-lg shadow-md p-5 mb-6">
+            <div class="flex items-center justify-between mb-2">
+              <div>
+                <span class="text-sm font-semibold text-gray-700">
+                  <i class="fas fa-chair mr-2 text-animato-primary"></i>
+                  Bezetting
+                </span>
+                <span class="text-sm text-gray-600 ml-2">
+                  {verkocht} van {capaciteit} tickets verkocht
+                </span>
+              </div>
+              <div class={`text-2xl font-bold ${bezettingTextColor}`}>
+                {bezettingPct}%
+              </div>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+              <div
+                class={`h-3 ${bezettingColor} transition-all duration-500`}
+                style={`width: ${bezettingPct}%`}
+                title={`${verkocht} / ${capaciteit} stoelen`}
+              ></div>
+            </div>
+            {bezettingPct >= 90 && (
+              <div class="mt-2 text-xs text-red-700 font-medium">
+                <i class="fas fa-exclamation-triangle mr-1"></i>
+                Bijna uitverkocht — overweeg het concert als 'uitverkocht' te markeren in de instellingen.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Quick Stats */}
         <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">

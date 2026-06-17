@@ -208,42 +208,220 @@ app.get('/admin', async (c) => {
                 </p>
               </div>
               <div class="flex items-center gap-3 flex-wrap">
-                {/* #115: Bekijk als lid — selecteer welk lid */}
-                <form method="POST" action="#" id="impersonateForm" class="inline-flex items-stretch gap-0" onsubmit="return submitImpersonate(event)">
-                  <select id="impersonateUserId" required class="px-3 py-2 border border-orange-300 bg-orange-50 text-orange-800 rounded-l-lg text-sm focus:ring-2 focus:ring-orange-300 focus:outline-none max-w-xs">
-                    <option value="">— Kies een lid —</option>
-                    {impersonateMembers.filter((m: any) => m.is_test_account).length > 0 && (
-                      <optgroup label="Test-accounts">
-                        {impersonateMembers.filter((m: any) => m.is_test_account).map((m: any) => (
-                          <option value={m.id}>
-                            {(m.voornaam + ' ' + m.achternaam).trim() || m.email} (test)
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    <optgroup label="Echte leden">
-                      {impersonateMembers.filter((m: any) => !m.is_test_account).map((m: any) => (
-                        <option value={m.id}>
-                          {(m.voornaam + ' ' + m.achternaam).trim() || m.email}{m.stemgroep ? ' (' + m.stemgroep + ')' : ''}
-                        </option>
-                      ))}
-                    </optgroup>
-                  </select>
-                  <button type="submit" class="px-4 py-2 bg-orange-100 text-orange-700 hover:bg-orange-200 border border-l-0 border-orange-300 rounded-r-lg transition font-medium text-sm whitespace-nowrap" title="Bekijk de site als het gekozen lid">
+                {/* #115: Bekijk als lid — combobox met live-search + filtering op stemgroep */}
+                <div id="impersonate-widget" class="relative inline-flex items-stretch gap-0" data-members={JSON.stringify(impersonateMembers.map((m: any) => ({
+                  id: m.id,
+                  naam: ((m.voornaam || '') + ' ' + (m.achternaam || '')).trim() || m.email,
+                  email: m.email || '',
+                  stemgroep: m.stemgroep || '',
+                  test: !!m.is_test_account
+                })))}>
+                  <div class="flex items-stretch border border-orange-300 bg-orange-50 rounded-l-lg overflow-hidden">
+                    <i class="fas fa-search self-center text-orange-400 pl-3 pr-1 text-sm"></i>
+                    <input
+                      type="text"
+                      id="impersonateSearch"
+                      autoComplete="off"
+                      placeholder="Zoek lid (naam, e-mail, stemgroep…)"
+                      class="px-2 py-2 bg-orange-50 text-orange-900 placeholder-orange-400 text-sm focus:outline-none w-56"
+                    />
+                    <button type="button" id="impersonateClear" class="px-2 text-orange-400 hover:text-orange-700 text-xs hidden" title="Wissen">
+                      <i class="fas fa-times-circle"></i>
+                    </button>
+                  </div>
+                  <button type="button" id="impersonateGo" disabled class="px-4 py-2 bg-orange-100 text-orange-700 hover:bg-orange-200 disabled:opacity-40 disabled:cursor-not-allowed border border-l-0 border-orange-300 rounded-r-lg transition font-medium text-sm whitespace-nowrap" title="Bekijk de site als het gekozen lid">
                     <i class="fas fa-user-secret mr-2"></i>
                     Bekijk als lid
                   </button>
-                </form>
+
+                  {/* Dropdown panel */}
+                  <div id="impersonateDropdown" class="hidden absolute top-full left-0 mt-1 w-[28rem] max-w-[90vw] bg-white border border-orange-200 rounded-lg shadow-2xl z-50 overflow-hidden">
+                    {/* Stemgroep-filter chips */}
+                    <div id="impersonateFilters" class="flex flex-wrap gap-1 p-2 bg-orange-50 border-b border-orange-100 text-xs">
+                      <button type="button" data-filter="all" class="impersonate-chip active px-2 py-1 rounded-full bg-orange-600 text-white">Alle</button>
+                      <button type="button" data-filter="S" class="impersonate-chip px-2 py-1 rounded-full bg-white text-gray-700 border border-gray-200 hover:border-orange-300">Sopraan</button>
+                      <button type="button" data-filter="A" class="impersonate-chip px-2 py-1 rounded-full bg-white text-gray-700 border border-gray-200 hover:border-orange-300">Alt</button>
+                      <button type="button" data-filter="T" class="impersonate-chip px-2 py-1 rounded-full bg-white text-gray-700 border border-gray-200 hover:border-orange-300">Tenor</button>
+                      <button type="button" data-filter="B" class="impersonate-chip px-2 py-1 rounded-full bg-white text-gray-700 border border-gray-200 hover:border-orange-300">Bas</button>
+                      <button type="button" data-filter="test" class="impersonate-chip px-2 py-1 rounded-full bg-white text-gray-700 border border-gray-200 hover:border-orange-300">Test</button>
+                    </div>
+                    {/* Results */}
+                    <ul id="impersonateResults" class="max-h-72 overflow-y-auto py-1"></ul>
+                    <div id="impersonateEmpty" class="hidden p-3 text-xs text-gray-400 text-center">
+                      <i class="fas fa-search mr-1"></i> Geen leden gevonden
+                    </div>
+                    <div class="px-3 py-1.5 text-[10px] text-gray-400 border-t bg-gray-50">
+                      <kbd class="px-1 bg-white border rounded">↑</kbd> <kbd class="px-1 bg-white border rounded">↓</kbd> navigeren · <kbd class="px-1 bg-white border rounded">Enter</kbd> kiezen · <kbd class="px-1 bg-white border rounded">Esc</kbd> sluiten
+                    </div>
+                  </div>
+                </div>
                 <script dangerouslySetInnerHTML={{ __html: `
-                  function submitImpersonate(e){
-                    e.preventDefault();
-                    var sel = document.getElementById('impersonateUserId');
-                    if (!sel || !sel.value) { alert('Kies eerst een lid'); return false; }
-                    var f = document.getElementById('impersonateForm');
-                    f.action = '/admin/impersonate/' + encodeURIComponent(sel.value);
-                    f.submit();
-                    return true;
-                  }
+                  (function(){
+                    var widget = document.getElementById('impersonate-widget');
+                    if (!widget) return;
+                    var members = [];
+                    try { members = JSON.parse(widget.getAttribute('data-members') || '[]'); } catch(e){}
+                    var input = document.getElementById('impersonateSearch');
+                    var dropdown = document.getElementById('impersonateDropdown');
+                    var results = document.getElementById('impersonateResults');
+                    var emptyState = document.getElementById('impersonateEmpty');
+                    var goBtn = document.getElementById('impersonateGo');
+                    var clearBtn = document.getElementById('impersonateClear');
+                    var selectedId = null;
+                    var activeIdx = -1;
+                    var currentFilter = 'all';
+
+                    function norm(s){ return (s||'').toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,''); }
+
+                    function matches(m, q){
+                      if (!q) return true;
+                      var hay = norm(m.naam) + ' ' + norm(m.email) + ' ' + norm(m.stemgroep);
+                      return hay.indexOf(norm(q)) !== -1;
+                    }
+
+                    function filterStemgroep(m){
+                      if (currentFilter === 'all') return true;
+                      if (currentFilter === 'test') return m.test;
+                      return m.stemgroep === currentFilter;
+                    }
+
+                    function render(){
+                      var q = input.value.trim();
+                      var list = members.filter(function(m){ return filterStemgroep(m) && matches(m, q); });
+                      // Test-accounts bovenaan
+                      list.sort(function(a,b){
+                        if (a.test !== b.test) return a.test ? -1 : 1;
+                        return a.naam.localeCompare(b.naam, 'nl');
+                      });
+                      results.innerHTML = '';
+                      activeIdx = -1;
+                      if (list.length === 0) {
+                        emptyState.classList.remove('hidden');
+                        results.classList.add('hidden');
+                        return;
+                      }
+                      emptyState.classList.add('hidden');
+                      results.classList.remove('hidden');
+                      list.slice(0, 100).forEach(function(m, i){
+                        var li = document.createElement('li');
+                        li.className = 'impersonate-item px-3 py-2 text-sm cursor-pointer hover:bg-orange-50 flex items-center justify-between gap-2 ' + (m.id === selectedId ? 'bg-orange-100' : '');
+                        li.setAttribute('data-id', m.id);
+                        li.setAttribute('data-idx', i);
+                        var stemBadge = m.stemgroep ? '<span class="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">' + m.stemgroep + '</span>' : '';
+                        var testBadge = m.test ? '<span class="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">test</span>' : '';
+                        li.innerHTML = '<div class="flex items-center gap-2 min-w-0">' +
+                          '<i class="fas fa-user text-gray-300 text-xs"></i>' +
+                          '<span class="truncate">' + (m.naam || m.email) + '</span>' +
+                          '</div>' +
+                          '<div class="flex items-center gap-1 flex-shrink-0">' + testBadge + stemBadge + '</div>';
+                        li.addEventListener('click', function(){ choose(m); });
+                        results.appendChild(li);
+                      });
+                    }
+
+                    function setActive(idx){
+                      var items = results.querySelectorAll('.impersonate-item');
+                      if (!items.length) return;
+                      if (idx < 0) idx = items.length - 1;
+                      if (idx >= items.length) idx = 0;
+                      activeIdx = idx;
+                      items.forEach(function(el, i){
+                        if (i === idx) {
+                          el.classList.add('bg-orange-100');
+                          el.scrollIntoView({ block: 'nearest' });
+                        } else {
+                          el.classList.remove('bg-orange-100');
+                        }
+                      });
+                    }
+
+                    function choose(m){
+                      selectedId = m.id;
+                      input.value = m.naam || m.email;
+                      goBtn.disabled = false;
+                      goBtn.classList.remove('opacity-40');
+                      dropdown.classList.add('hidden');
+                      clearBtn.classList.remove('hidden');
+                    }
+
+                    function openDropdown(){
+                      dropdown.classList.remove('hidden');
+                      render();
+                    }
+
+                    input.addEventListener('focus', openDropdown);
+                    input.addEventListener('input', function(){
+                      // bij elke wijziging: selectie vergeten
+                      selectedId = null;
+                      goBtn.disabled = true;
+                      clearBtn.classList.toggle('hidden', !input.value);
+                      openDropdown();
+                    });
+
+                    input.addEventListener('keydown', function(e){
+                      if (dropdown.classList.contains('hidden') && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+                        openDropdown();
+                        return;
+                      }
+                      if (e.key === 'ArrowDown') { e.preventDefault(); setActive(activeIdx + 1); }
+                      else if (e.key === 'ArrowUp') { e.preventDefault(); setActive(activeIdx - 1); }
+                      else if (e.key === 'Enter') {
+                        e.preventDefault();
+                        var items = results.querySelectorAll('.impersonate-item');
+                        if (activeIdx >= 0 && items[activeIdx]) {
+                          var id = parseInt(items[activeIdx].getAttribute('data-id'));
+                          var m = members.find(function(x){ return x.id === id; });
+                          if (m) choose(m);
+                        } else if (selectedId) {
+                          submitGo();
+                        } else if (items.length === 1) {
+                          var only = parseInt(items[0].getAttribute('data-id'));
+                          var m2 = members.find(function(x){ return x.id === only; });
+                          if (m2) choose(m2);
+                        }
+                      } else if (e.key === 'Escape') {
+                        dropdown.classList.add('hidden');
+                      }
+                    });
+
+                    clearBtn.addEventListener('click', function(){
+                      input.value = '';
+                      selectedId = null;
+                      goBtn.disabled = true;
+                      clearBtn.classList.add('hidden');
+                      input.focus();
+                      openDropdown();
+                    });
+
+                    // Filter chips
+                    widget.querySelectorAll('.impersonate-chip').forEach(function(chip){
+                      chip.addEventListener('click', function(){
+                        widget.querySelectorAll('.impersonate-chip').forEach(function(c){
+                          c.classList.remove('active','bg-orange-600','text-white');
+                          c.classList.add('bg-white','text-gray-700','border','border-gray-200');
+                        });
+                        chip.classList.add('active','bg-orange-600','text-white');
+                        chip.classList.remove('bg-white','text-gray-700','border-gray-200');
+                        currentFilter = chip.getAttribute('data-filter');
+                        render();
+                      });
+                    });
+
+                    // Close on outside click
+                    document.addEventListener('click', function(e){
+                      if (!widget.contains(e.target)) dropdown.classList.add('hidden');
+                    });
+
+                    function submitGo(){
+                      if (!selectedId) { alert('Kies eerst een lid'); return; }
+                      var form = document.createElement('form');
+                      form.method = 'POST';
+                      form.action = '/admin/impersonate/' + encodeURIComponent(selectedId);
+                      document.body.appendChild(form);
+                      form.submit();
+                    }
+                    goBtn.addEventListener('click', submitGo);
+                  })();
                 `}}></script>
                 <a href="/" class="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg transition">
                   <i class="fas fa-home mr-2"></i>

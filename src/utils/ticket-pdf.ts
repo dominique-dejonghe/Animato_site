@@ -15,7 +15,11 @@
 //   - Voorwaarden-footer
 
 import { PDFDocument, StandardFonts, rgb, PDFFont, PDFPage } from 'pdf-lib'
-import QRCode from 'qrcode'
+// LET OP: NIET `import QRCode from 'qrcode'` gebruiken — die haalt
+// `lib/browser.js` op via het `browser`-veld in package.json (canvas-deps),
+// en server.js heeft Node's fs/pngjs. Beide crashes in Workers.
+// Zie src/utils/qr-to-png.ts voor de pure-JS workaround.
+import { qrToPngBytes } from './qr-to-png'
 
 // ── Legacy interface (multi-categorie order) ─────────────────────────
 export interface TicketPdfLine {
@@ -82,13 +86,12 @@ export async function generateSeatTicketPdf(data: SeatTicketPdfData): Promise<Ui
   const font = await pdf.embedFont(StandardFonts.Helvetica)
   const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold)
 
-  // QR genereren
-  const qrPngDataUrl = await QRCode.toDataURL(data.qr_code, {
+  // QR genereren (Workers-compatible — pure JS, geen canvas)
+  const qrPngBytes = qrToPngBytes(data.qr_code, {
     errorCorrectionLevel: 'H',
-    width: 600,
+    scale: 8,
     margin: 1
   })
-  const qrPngBytes = base64ToUint8Array(qrPngDataUrl.split(',')[1] || '')
   const qrImg = await pdf.embedPng(qrPngBytes)
 
   // Optionele Animato-logo PNG
@@ -335,12 +338,11 @@ export async function generateTicketPdf(data: TicketPdfData): Promise<Uint8Array
   const fontBold = await pdf.embedFont(StandardFonts.HelveticaBold)
 
   for (const line of data.lines) {
-    const qrPngDataUrl = await QRCode.toDataURL(line.qr_code, {
+    const qrPngBytes = qrToPngBytes(line.qr_code, {
       errorCorrectionLevel: 'H',
-      width: 600,
+      scale: 8,
       margin: 1
     })
-    const qrPngBytes = base64ToUint8Array(qrPngDataUrl.split(',')[1] || '')
     const qrImg = await pdf.embedPng(qrPngBytes)
 
     const page = pdf.addPage([595, 842])

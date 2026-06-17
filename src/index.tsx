@@ -172,6 +172,79 @@ app.route('/', ticketsRoutes)
 // propageert naar alle volgende routes op de parent-app).
 // Token-secured single-PDF preview voor één order.
 // Wordt verwijderd zodra Dominique de PDF heeft kunnen inspecteren.
+// Debug-route die per stap rapporteert wat er gebeurt
+app.get('/_e2e_ticket_pdf_debug/:secret', async (c: any) => {
+  const secret = c.req.param('secret')
+  if (secret !== 'gx5h-anim-2026-test-tmp') return c.text('forbidden', 403)
+  const steps: any[] = []
+  const safe = async (name: string, fn: () => Promise<any>) => {
+    try {
+      const out = await fn()
+      steps.push({ step: name, ok: true, ...out })
+      return out
+    } catch (e: any) {
+      steps.push({ step: name, ok: false, error: e?.message, stack: e?.stack?.slice(0, 400) })
+      throw e
+    }
+  }
+  try {
+    const { qrToPngBytes } = await import('./utils/qr-to-png')
+    const { PDFDocument, StandardFonts } = await import('pdf-lib')
+    const pdf = await PDFDocument.create()
+    await safe('embedFont Helvetica', async () => {
+      const f = await pdf.embedFont(StandardFonts.Helvetica)
+      return { ok: true }
+    })
+    await safe('embedFont HelveticaBold', async () => {
+      const f = await pdf.embedFont(StandardFonts.HelveticaBold)
+      return { ok: true }
+    })
+    await safe('qrToPngBytes(real Patrick QR)', async () => {
+      const bytes = qrToPngBytes('TIX-MQDOG6I4JFGXX-8', { errorCorrectionLevel: 'H', scale: 8, margin: 1 })
+      return { size: bytes.length }
+    })
+    // Logo test
+    await safe('fetch logo', async () => {
+      const resp = await fetch('https://animato-live.pages.dev/static/images/animato-logo-full.png')
+      const buf = await resp.arrayBuffer()
+      return { status: resp.status, ct: resp.headers.get('content-type'), size: buf.byteLength }
+    })
+    const logoBuf = await safe('embedPng logo', async () => {
+      const resp = await fetch('https://animato-live.pages.dev/static/images/animato-logo-full.png')
+      const buf = new Uint8Array(await resp.arrayBuffer())
+      const img = await pdf.embedPng(buf)
+      return { w: img.width, h: img.height }
+    })
+
+    // Full generateSeatTicketPdf call met dummy data
+    await safe('full PDF gen (no logo)', async () => {
+      const bytes = await e2eGenerateSeatTicketPdf({
+        order_ref: 'TIX-DEBUG-TEST',
+        koper_naam: 'Test',
+        koper_email: 't@x.be',
+        concert_titel: 'Test Concert',
+        concert_datum: 'zondag 14 juni 2026',
+        concert_tijd: '20:00',
+        concert_doors_open: '19:30',
+        concert_locatie: 'Test Hall',
+        concert_adres: 'Hoogstraat 1, 2870 Puurs-Sint-Amands',
+        categorie: 'Volwassene',
+        prijs: 25,
+        qr_code: 'TIX-DEBUG-1',
+        seat_label: 'Rij C — Stoel 10',
+        seat_sectie: 'Stalles',
+        ticket_index: 1,
+        ticket_total: 17,
+        logo_png_bytes: null
+      })
+      return { size: bytes.length }
+    })
+    return c.json({ steps })
+  } catch (e: any) {
+    return c.json({ steps, finalError: e?.message })
+  }
+})
+
 app.get('/_e2e_ticket_pdf_preview/:secret/:ticketSeatId', async (c: any) => {
   const generateSeatTicketPdf = e2eGenerateSeatTicketPdf
   const queryOne = e2eQueryOne

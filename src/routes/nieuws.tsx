@@ -184,14 +184,18 @@ app.get('/nieuws', async (c) => {
                     href={`/nieuws/${artikel.slug}`}
                     class="group bg-white rounded-lg shadow-md hover:shadow-xl transition overflow-hidden"
                   >
-                    <div class="aspect-video bg-gradient-to-br from-animato-primary to-animato-secondary relative overflow-hidden">
+                    <div class="aspect-video bg-gradient-to-br from-animato-primary via-animato-secondary to-animato-primary relative overflow-hidden">
                       {artikel.cover_image ? (
-                        <img src={artikel.cover_image} alt={artikel.titel} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" />
-                      ) : (
-                        <div class="absolute inset-0 flex items-center justify-center">
-                          <i class="fas fa-newspaper text-white text-5xl opacity-50"></i>
-                        </div>
-                      )}
+                        <img src={artikel.cover_image} alt={artikel.titel} class="w-full h-full object-cover group-hover:scale-105 transition duration-300" loading="lazy" onerror="this.style.display='none'; this.parentElement.classList.add('show-fallback');" />
+                      ) : null}
+                      {/* Fallback: getoond als geen cover_image OF als <img> faalt */}
+                      <div class={`absolute inset-0 flex flex-col items-center justify-center text-white ${artikel.cover_image ? 'hidden' : ''} fallback-pane`}>
+                        {/* Subtiele muzieknoten-patroon achtergrond */}
+                        <div class="absolute inset-0 opacity-10 pointer-events-none" style="background-image: radial-gradient(circle at 20% 30%, white 2px, transparent 2px), radial-gradient(circle at 70% 60%, white 2px, transparent 2px), radial-gradient(circle at 40% 80%, white 2px, transparent 2px); background-size: 80px 80px, 100px 100px, 60px 60px;"></div>
+                        <img src="/static/images/animato-note.png" alt="" class="h-12 w-auto opacity-90 mb-2 drop-shadow-lg" />
+                        <div class="text-white/95 font-bold text-lg tracking-wide uppercase" style="font-family: 'Playfair Display', serif;">Animato</div>
+                        <div class="text-white/70 text-[10px] uppercase tracking-widest mt-1">Nieuwsbericht</div>
+                      </div>
                       {/* Zichtbaarheid-badge */}
                       {artikel.zichtbaarheid && artikel.zichtbaarheid !== 'publiek' && (
                         <div class="absolute top-2 right-2">

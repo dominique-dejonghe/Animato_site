@@ -1165,6 +1165,9 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
             <a href={`/admin/tickets/concert/${concertId}/scan`} class="inline-flex items-center gap-2 text-sm bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg">
               <i class="fas fa-qrcode"></i>QR-scanner
             </a>
+            <a href={`/admin/tickets/concert/${concertId}/checkin-status`} class="inline-flex items-center gap-2 text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg">
+              <i class="fas fa-clipboard-check"></i>Check-in status
+            </a>
             <a href={`/concerten/${concert.slug}`} target="_blank" class="inline-flex items-center gap-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1.5 rounded-lg">
               <i class="fas fa-external-link-alt"></i>Publieke pagina
             </a>
@@ -2290,17 +2293,28 @@ app.get('/admin/tickets/concert/:concertId/scan', async (c) => {
             </p>
           </div>
 
-          {/* Result Display */}
+          {/* Result Display — 3 states: success (groen), warning (amber=re-scan), error (rood) */}
           <div id="result-container" class="hidden">
             <div id="result-success" class="hidden bg-green-50 border-2 border-green-500 rounded-lg p-6">
               <div class="flex items-center mb-4">
                 <i class="fas fa-check-circle text-green-600 text-4xl mr-4"></i>
                 <div>
-                  <h3 class="text-2xl font-bold text-green-900">Ticket Geldig!</h3>
-                  <p class="text-green-700">Toegang verleend</p>
+                  <h3 class="text-2xl font-bold text-green-900">Welkom!</h3>
+                  <p class="text-green-700">Ingecheckt — toegang verleend</p>
                 </div>
               </div>
-              <div id="ticket-details" class="text-sm text-gray-700 space-y-2"></div>
+              <div id="ticket-details" class="text-sm text-gray-700 space-y-1"></div>
+            </div>
+
+            <div id="result-warning" class="hidden bg-amber-50 border-2 border-amber-500 rounded-lg p-6">
+              <div class="flex items-center mb-4">
+                <i class="fas fa-exclamation-triangle text-amber-600 text-4xl mr-4"></i>
+                <div>
+                  <h3 class="text-2xl font-bold text-amber-900">Reeds ingecheckt</h3>
+                  <p id="warning-message" class="text-amber-700"></p>
+                </div>
+              </div>
+              <div id="warning-details" class="text-sm text-gray-700 space-y-1"></div>
             </div>
 
             <div id="result-error" class="hidden bg-red-50 border-2 border-red-500 rounded-lg p-6">
@@ -2316,15 +2330,26 @@ app.get('/admin/tickets/concert/:concertId/scan', async (c) => {
 
           {/* Statistics */}
           <div class="mt-8 pt-8 border-t border-gray-200">
-            <h3 class="text-lg font-bold text-gray-900 mb-4">Live Statistieken</h3>
-            <div class="grid grid-cols-3 gap-4">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="text-lg font-bold text-gray-900">Live Statistieken</h3>
+              <a href={`/admin/tickets/concert/${concertId}/checkin-status`}
+                 class="text-sm text-animato-primary hover:underline">
+                <i class="fas fa-list-check mr-1"></i>
+                Volledige check-in lijst
+              </a>
+            </div>
+            <div class="grid grid-cols-4 gap-4">
               <div class="text-center">
                 <div class="text-3xl font-bold text-gray-900" id="scanned-count">0</div>
                 <div class="text-sm text-gray-600">Gescand</div>
               </div>
               <div class="text-center">
                 <div class="text-3xl font-bold text-green-600" id="valid-count">0</div>
-                <div class="text-sm text-gray-600">Geldig</div>
+                <div class="text-sm text-gray-600">Ingecheckt</div>
+              </div>
+              <div class="text-center">
+                <div class="text-3xl font-bold text-amber-600" id="rescan-count">0</div>
+                <div class="text-sm text-gray-600">Reeds gescand</div>
               </div>
               <div class="text-center">
                 <div class="text-3xl font-bold text-red-600" id="invalid-count">0</div>
@@ -2338,78 +2363,100 @@ app.get('/admin/tickets/concert/:concertId/scan', async (c) => {
         <script dangerouslySetInnerHTML={{ __html: `
           let scanned = 0;
           let valid = 0;
+          let rescanned = 0;
           let invalid = 0;
-          
+
+          // Tonen van WebAudio beep — geen base64-blob (zou anders in HTML opzwellen)
+          function beep(freq, duration) {
+            try {
+              const ctx = new (window.AudioContext || window.webkitAudioContext)();
+              const osc = ctx.createOscillator();
+              const gain = ctx.createGain();
+              osc.connect(gain);
+              gain.connect(ctx.destination);
+              osc.frequency.value = freq;
+              osc.type = 'sine';
+              gain.gain.setValueAtTime(0.15, ctx.currentTime);
+              gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+              osc.start();
+              osc.stop(ctx.currentTime + duration);
+            } catch (e) { /* niet kritiek */ }
+          }
+
+          function fmtSeat(t) {
+            const parts = [];
+            if (t.seat_row && t.seat_number) parts.push('Rij ' + t.seat_row + ' · plaats ' + t.seat_number);
+            if (t.categorie) parts.push(t.categorie);
+            return parts.join(' — ');
+          }
+
+          function hideAllResults() {
+            ['result-success','result-warning','result-error'].forEach(id => {
+              document.getElementById(id).classList.add('hidden');
+            });
+          }
+
           async function validateTicket() {
             const input = document.getElementById('qr-input');
             const qrCode = input.value.trim();
-            
-            if (!qrCode) {
-              alert('Voer een QR-code in');
-              return;
-            }
-            
+            if (!qrCode) return;
+
             scanned++;
             document.getElementById('scanned-count').textContent = scanned;
-            
+
             try {
               const response = await fetch('/api/admin/tickets/validate-qr', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ qr_code: qrCode, concert_id: ${concertId} })
               });
-              
               const data = await response.json();
-              
+
               document.getElementById('result-container').classList.remove('hidden');
-              
-              if (data.valid) {
+              hideAllResults();
+
+              if (data.valid && data.status === 'checked_in') {
                 valid++;
                 document.getElementById('valid-count').textContent = valid;
-                
                 document.getElementById('result-success').classList.remove('hidden');
-                document.getElementById('result-error').classList.add('hidden');
-                
-                document.getElementById('ticket-details').innerHTML = \`
-                  <p><strong>Order:</strong> \${data.ticket.order_ref}</p>
-                  <p><strong>Naam:</strong> \${data.ticket.koper_naam}</p>
-                  <p><strong>Email:</strong> \${data.ticket.koper_email}</p>
-                  <p><strong>Tickets:</strong> \${data.ticket.aantal}x \${data.ticket.categorie}</p>
-                \`;
-                
-                // Play success sound
-                const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBTGH0fPTgjMGHm7A7+OZRAE=' );
-                audio.play();
-                
-                setTimeout(() => {
-                  input.value = '';
-                  input.focus();
-                  document.getElementById('result-container').classList.add('hidden');
-                }, 3000);
+                const seatLine = fmtSeat(data.ticket);
+                document.getElementById('ticket-details').innerHTML =
+                  '<p><strong>Naam:</strong> ' + (data.ticket.koper_naam || '—') + '</p>' +
+                  (seatLine ? '<p><strong>Plaats:</strong> ' + seatLine + '</p>' : '') +
+                  '<p class="text-xs text-gray-500">Order ' + data.ticket.order_ref + '</p>';
+                beep(880, 0.15);  // hoge ping
+              } else if (data.valid && data.status === 'already_checked_in') {
+                rescanned++;
+                document.getElementById('rescan-count').textContent = rescanned;
+                document.getElementById('result-warning').classList.remove('hidden');
+                document.getElementById('warning-message').textContent = data.message;
+                const seatLine = fmtSeat(data.ticket);
+                document.getElementById('warning-details').innerHTML =
+                  '<p><strong>Naam:</strong> ' + (data.ticket.koper_naam || '—') + '</p>' +
+                  (seatLine ? '<p><strong>Plaats:</strong> ' + seatLine + '</p>' : '') +
+                  '<p class="text-xs text-gray-500">Order ' + data.ticket.order_ref + '</p>';
+                beep(440, 0.3);  // lage waarschuwingstoon
               } else {
                 invalid++;
                 document.getElementById('invalid-count').textContent = invalid;
-                
-                document.getElementById('result-success').classList.add('hidden');
                 document.getElementById('result-error').classList.remove('hidden');
-                document.getElementById('error-message').textContent = data.message;
-                
-                setTimeout(() => {
-                  input.value = '';
-                  input.focus();
-                  document.getElementById('result-container').classList.add('hidden');
-                }, 3000);
+                document.getElementById('error-message').textContent = data.message || 'Onbekende fout';
+                beep(220, 0.4);  // brom-toon
               }
+
+              setTimeout(() => {
+                input.value = '';
+                input.focus();
+                document.getElementById('result-container').classList.add('hidden');
+              }, 3500);
             } catch (error) {
               alert('Fout bij validatie: ' + error.message);
             }
           }
-          
+
           // Enter key handler
           document.getElementById('qr-input').addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
-              validateTicket();
-            }
+            if (e.key === 'Enter') validateTicket();
           });
         ` }} />
       </div>
@@ -2418,48 +2465,471 @@ app.get('/admin/tickets/concert/:concertId/scan', async (c) => {
 })
 
 // ==========================================
-// QR CODE VALIDATION API
+// QR CODE CHECK-IN API
 // ==========================================
+// Endpoint blijft /api/admin/tickets/validate-qr (compat met bestaande scan-UI)
+// maar doet nu OOK de check-in: zet ticket_seats.checked_in_at op eerste scan,
+// retourneert "al ingecheckt" op her-scan, error op ongeldig/onbetaald.
+//
+// QR-payload formaat (zie ticket-pdf.ts): "<tickets.qr_code>-<ticket_seats.id>"
+// waar tickets.qr_code een UUID is (bevat zelf streepjes), dus we splitsen op
+// de LAATSTE streepje. Voorbeeld: "5c4eadba-4748-4a28-9693-8aac7d7938ef-42"
+//                                  └── qr_code (UUID) ──────────────────┘ └seat_id
 app.post('/api/admin/tickets/validate-qr', async (c) => {
+  const user = c.get('user') as SessionUser
   const body = await c.req.json()
-  const qrCode = body.qr_code
-  const concertId = body.concert_id
-  
+  const rawQr = String(body.qr_code || '').trim()
+  const concertId = parseInt(String(body.concert_id || '0'), 10)
+
+  if (!rawQr || !concertId) {
+    return c.json({ valid: false, status: 'invalid', message: 'QR-code of concert ontbreekt' }, 400)
+  }
+
+  // Parse "<qr_code>-<ticket_seat_id>"
+  const m = rawQr.match(/^(.+)-(\d+)$/)
+  let qrCode: string
+  let ticketSeatId: number | null = null
+  if (m) {
+    qrCode = m[1]
+    ticketSeatId = parseInt(m[2], 10)
+  } else {
+    // Backwards-compat: oude QR zonder seat-suffix (per-order ticket)
+    qrCode = rawQr
+  }
+
   try {
-    const ticket = await queryOne(c.env.DB, `
-      SELECT t.*, c.id as concert_id
+    // Zoek ticket (controleer concert + status)
+    const ticket = await queryOne<any>(c.env.DB, `
+      SELECT t.id, t.order_ref, t.koper_naam, t.koper_email, t.aantal,
+             t.categorie, t.status, t.concert_id
       FROM tickets t
-      JOIN concerts c ON c.id = t.concert_id
-      WHERE t.qr_code = ? AND c.id = ?
+      WHERE t.qr_code = ? AND t.concert_id = ?
     `, [qrCode, concertId])
-    
+
     if (!ticket) {
       return c.json({
         valid: false,
+        status: 'not_found',
         message: 'QR-code niet gevonden voor dit concert'
       })
     }
-    
+
     if (ticket.status !== 'paid') {
       return c.json({
         valid: false,
-        message: 'Ticket niet betaald'
+        status: 'unpaid',
+        message: `Ticket niet betaald (status: ${ticket.status})`,
+        ticket: {
+          order_ref: ticket.order_ref,
+          koper_naam: ticket.koper_naam,
+          categorie: ticket.categorie
+        }
       })
     }
-    
+
+    // Vind de juiste ticket_seat-rij + seat-info
+    let seatRow: any = null
+    if (ticketSeatId !== null) {
+      seatRow = await queryOne<any>(c.env.DB, `
+        SELECT ts.id AS ticket_seat_id, ts.checked_in_at, ts.checked_in_by,
+               s.section_name, s.row_label, s.seat_number
+        FROM ticket_seats ts
+        LEFT JOIN seats s ON s.id = ts.seat_id
+        WHERE ts.id = ? AND ts.ticket_id = ? AND ts.concert_id = ?
+      `, [ticketSeatId, ticket.id, concertId])
+
+      if (!seatRow) {
+        return c.json({
+          valid: false,
+          status: 'seat_mismatch',
+          message: 'Zitplaats hoort niet bij dit ticket'
+        })
+      }
+    }
+
+    // RE-SCAN: al ingecheckt eerder?
+    if (seatRow?.checked_in_at) {
+      const when = seatRow.checked_in_at
+      // Format als HH:MM:SS van de tijd
+      const dt = new Date(when.includes('T') ? when : when.replace(' ', 'T') + 'Z')
+      const hhmm = dt.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit', hour12: false })
+      return c.json({
+        valid: true,
+        status: 'already_checked_in',
+        message: `Al ingecheckt om ${hhmm}`,
+        ticket: {
+          order_ref: ticket.order_ref,
+          koper_naam: ticket.koper_naam,
+          categorie: ticket.categorie,
+          seat_row: seatRow.row_label,
+          seat_number: seatRow.seat_number,
+          checked_in_at: when
+        }
+      })
+    }
+
+    // FIRST SCAN: zet check-in
+    if (seatRow) {
+      await execute(c.env.DB, `
+        UPDATE ticket_seats
+        SET checked_in_at = CURRENT_TIMESTAMP, checked_in_by = ?
+        WHERE id = ?
+      `, [user.id, seatRow.ticket_seat_id])
+    } else {
+      // Backwards-compat: oude QR zonder seat — markeer hele ticket
+      await execute(c.env.DB, `
+        UPDATE tickets SET gescand = 1, gescand_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `, [ticket.id])
+    }
+
     return c.json({
       valid: true,
+      status: 'checked_in',
+      message: 'Welkom!',
       ticket: {
         order_ref: ticket.order_ref,
         koper_naam: ticket.koper_naam,
         koper_email: ticket.koper_email,
         aantal: ticket.aantal,
-        categorie: ticket.categorie
+        categorie: ticket.categorie,
+        seat_row: seatRow?.row_label || null,
+        seat_number: seatRow?.seat_number || null
       }
     })
-  } catch (error) {
-    return c.json({ valid: false, message: (error as Error).message }, 500)
+  } catch (error: any) {
+    console.error('check-in error:', error)
+    return c.json({ valid: false, status: 'error', message: error?.message || 'Server fout' }, 500)
   }
+})
+
+// ==========================================
+// MANUAL CHECK-IN TOGGLE API
+// ==========================================
+// Voor papieren-ticket-randgevallen of als een scan misging.
+// Body: { ticket_seat_id, checked_in: boolean }
+app.post('/api/admin/tickets/manual-checkin', async (c) => {
+  const user = c.get('user') as SessionUser
+  const body = await c.req.json()
+  const ticketSeatId = parseInt(String(body.ticket_seat_id || '0'), 10)
+  const checkedIn = !!body.checked_in
+
+  if (!ticketSeatId) {
+    return c.json({ success: false, error: 'ticket_seat_id ontbreekt' }, 400)
+  }
+
+  try {
+    if (checkedIn) {
+      await execute(c.env.DB, `
+        UPDATE ticket_seats
+        SET checked_in_at = CURRENT_TIMESTAMP, checked_in_by = ?
+        WHERE id = ? AND checked_in_at IS NULL
+      `, [user.id, ticketSeatId])
+    } else {
+      await execute(c.env.DB, `
+        UPDATE ticket_seats
+        SET checked_in_at = NULL, checked_in_by = NULL
+        WHERE id = ?
+      `, [ticketSeatId])
+    }
+    return c.json({ success: true })
+  } catch (error: any) {
+    return c.json({ success: false, error: error?.message }, 500)
+  }
+})
+
+// ==========================================
+// CHECK-IN STATUS — live aanwezigheidsoverzicht
+// ==========================================
+// Toont alle ticket_seats voor een concert: ingecheckt of niet, met stoel + koper.
+// Bedoeld voor het bestuur aan de balie of de zaalverantwoordelijke.
+app.get('/admin/tickets/concert/:concertId/checkin-status', async (c) => {
+  const user = c.get('user') as SessionUser
+  const concertId = parseInt(c.req.param('concertId'))
+  const filter = String(c.req.query('filter') || 'all') // all | checked | unchecked
+
+  const concert = await queryOne<any>(c.env.DB, `
+    SELECT c.id, c.event_id, e.titel, e.start_at, e.locatie
+    FROM concerts c
+    JOIN events e ON e.id = c.event_id
+    WHERE c.id = ?
+  `, [concertId])
+
+  if (!concert) {
+    return c.text('Concert niet gevonden', 404)
+  }
+
+  // Eén query die alle betaalde ticket_seats geeft + koper + stoel + check-in tijd
+  // Filter op concert_id én status='paid' (ticket-niveau) — pending/cancelled niet tonen.
+  const rows = await queryAll<any>(c.env.DB, `
+    SELECT
+      ts.id AS ticket_seat_id,
+      ts.checked_in_at,
+      ts.checked_in_by,
+      t.id AS ticket_id,
+      t.order_ref,
+      t.koper_naam,
+      t.koper_email,
+      t.categorie AS ticket_categorie,
+      s.section_name,
+      s.row_label,
+      s.seat_number,
+      u.naam AS checked_in_by_naam
+    FROM ticket_seats ts
+    JOIN tickets t ON t.id = ts.ticket_id
+    LEFT JOIN seats s ON s.id = ts.seat_id
+    LEFT JOIN users u ON u.id = ts.checked_in_by
+    WHERE ts.concert_id = ?
+      AND t.status = 'paid'
+      AND ts.status IN ('reserved','paid','confirmed','sold')
+    ORDER BY
+      s.row_label ASC,
+      CAST(s.seat_number AS INTEGER) ASC,
+      t.koper_naam ASC
+  `, [concertId])
+
+  const total = rows.length
+  const checkedIn = rows.filter((r: any) => r.checked_in_at).length
+  const remaining = total - checkedIn
+  const pct = total > 0 ? Math.round((checkedIn / total) * 100) : 0
+
+  const filteredRows = filter === 'checked'
+    ? rows.filter((r: any) => r.checked_in_at)
+    : filter === 'unchecked'
+    ? rows.filter((r: any) => !r.checked_in_at)
+    : rows
+
+  // Format checked_in_at als HH:MM
+  function fmtCheckinTime(iso: string | null): string {
+    if (!iso) return '—'
+    const dt = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T') + 'Z')
+    return dt.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })
+  }
+
+  return c.html(
+    <Layout title={`Check-in status — ${concert.titel}`} user={user}>
+      <div class="max-w-6xl mx-auto px-4 py-8">
+        {/* Breadcrumbs */}
+        <nav class="text-sm text-gray-600 mb-4" aria-label="Breadcrumb">
+          <ol class="flex items-center flex-wrap gap-1">
+            <li><a href="/admin" class="hover:text-animato-primary"><i class="fas fa-home mr-1"></i>Admin</a></li>
+            <li class="text-gray-400">/</li>
+            <li><a href="/admin/tickets" class="hover:text-animato-primary">Ticketbeheer</a></li>
+            <li class="text-gray-400">/</li>
+            <li><a href={`/admin/tickets/concert/${concertId}/settings`} class="hover:text-animato-primary">{concert.titel}</a></li>
+            <li class="text-gray-400">/</li>
+            <li class="text-gray-900 font-medium">Check-in status</li>
+          </ol>
+        </nav>
+
+        {/* Header */}
+        <div class="mb-6 flex items-start justify-between flex-wrap gap-3">
+          <div>
+            <h1 class="text-3xl font-bold text-animato-secondary mb-1" style="font-family: 'Playfair Display', serif;">
+              <i class="fas fa-clipboard-check mr-3"></i>Check-in status
+            </h1>
+            <p class="text-gray-600">{concert.titel}</p>
+            <p class="text-sm text-gray-500">
+              {new Date(concert.start_at).toLocaleDateString('nl-NL', {
+                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+              })}
+            </p>
+          </div>
+          <a href={`/admin/tickets/concert/${concertId}/scan`}
+             class="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg">
+            <i class="fas fa-qrcode"></i>
+            QR-scanner openen
+          </a>
+        </div>
+
+        {/* Stats hero */}
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+            <div class="text-center">
+              <div class="text-4xl font-bold text-gray-900">{total}</div>
+              <div class="text-sm text-gray-600">Totaal verkocht</div>
+            </div>
+            <div class="text-center">
+              <div class="text-4xl font-bold text-green-600">{checkedIn}</div>
+              <div class="text-sm text-gray-600">Ingecheckt</div>
+            </div>
+            <div class="text-center">
+              <div class="text-4xl font-bold text-amber-600">{remaining}</div>
+              <div class="text-sm text-gray-600">Nog niet ingecheckt</div>
+            </div>
+            <div class="text-center">
+              <div class="text-4xl font-bold text-animato-primary">{pct}%</div>
+              <div class="text-sm text-gray-600">Aanwezigheid</div>
+            </div>
+          </div>
+          {/* Progress bar */}
+          <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden">
+            <div class="bg-green-500 h-3 transition-all" style={`width: ${pct}%`}></div>
+          </div>
+        </div>
+
+        {/* Filter tabs + auto-refresh hint */}
+        <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+          <div class="inline-flex rounded-lg overflow-hidden border border-gray-300">
+            <a href={`/admin/tickets/concert/${concertId}/checkin-status?filter=all`}
+               class={`px-4 py-2 text-sm ${filter === 'all' ? 'bg-animato-primary text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}>
+              Alles ({total})
+            </a>
+            <a href={`/admin/tickets/concert/${concertId}/checkin-status?filter=unchecked`}
+               class={`px-4 py-2 text-sm border-l border-gray-300 ${filter === 'unchecked' ? 'bg-amber-500 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}>
+              Nog niet ({remaining})
+            </a>
+            <a href={`/admin/tickets/concert/${concertId}/checkin-status?filter=checked`}
+               class={`px-4 py-2 text-sm border-l border-gray-300 ${filter === 'checked' ? 'bg-green-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}>
+              Ingecheckt ({checkedIn})
+            </a>
+          </div>
+          <div class="flex items-center gap-3">
+            <label class="text-sm text-gray-600 flex items-center gap-2">
+              <input type="checkbox" id="auto-refresh" checked />
+              Auto-refresh (10s)
+            </label>
+            <button onclick="location.reload()" class="text-sm bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded">
+              <i class="fas fa-sync mr-1"></i>Nu verversen
+            </button>
+          </div>
+        </div>
+
+        {/* Search box */}
+        <div class="mb-4">
+          <input type="text" id="search-input" placeholder="Zoek op naam, order-ref of stoel..."
+                 class="w-full border border-gray-300 rounded-lg px-4 py-2"
+                 oninput="filterRows(this.value)" />
+        </div>
+
+        {/* Lijst */}
+        {filteredRows.length === 0 ? (
+          <div class="bg-white rounded-lg shadow p-12 text-center text-gray-500">
+            <i class="fas fa-inbox text-4xl mb-3 text-gray-300"></i>
+            <p>Geen rijen om te tonen.</p>
+          </div>
+        ) : (
+          <div class="bg-white rounded-lg shadow overflow-hidden">
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stoel</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categorie</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Koper</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Order</th>
+                  <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actie</th>
+                </tr>
+              </thead>
+              <tbody class="bg-white divide-y divide-gray-200" id="checkin-tbody">
+                {filteredRows.map((r: any) => {
+                  const seatText = r.row_label && r.seat_number
+                    ? `Rij ${r.row_label} · ${r.seat_number}`
+                    : '—'
+                  const isCheckedIn = !!r.checked_in_at
+                  const searchBlob = `${r.koper_naam || ''} ${r.koper_email || ''} ${r.order_ref || ''} ${seatText}`.toLowerCase()
+                  return (
+                    <tr class={`checkin-row ${isCheckedIn ? 'bg-green-50' : ''}`} data-search={searchBlob}>
+                      <td class="px-4 py-3 text-sm font-medium text-gray-900">{seatText}</td>
+                      <td class="px-4 py-3 text-sm text-gray-700">{r.ticket_categorie || '—'}</td>
+                      <td class="px-4 py-3 text-sm">
+                        <div class="text-gray-900">{r.koper_naam || '—'}</div>
+                        <div class="text-xs text-gray-500">{r.koper_email || ''}</div>
+                      </td>
+                      <td class="px-4 py-3 text-sm font-mono text-xs text-gray-600">{r.order_ref}</td>
+                      <td class="px-4 py-3 text-sm">
+                        {isCheckedIn ? (
+                          <span class="inline-flex items-center gap-1 bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
+                            <i class="fas fa-check"></i>
+                            {fmtCheckinTime(r.checked_in_at)}
+                            {r.checked_in_by_naam && <span class="text-green-600">· {r.checked_in_by_naam}</span>}
+                          </span>
+                        ) : (
+                          <span class="inline-flex items-center gap-1 bg-gray-100 text-gray-600 px-2 py-1 rounded text-xs">
+                            <i class="far fa-clock"></i>
+                            Wacht
+                          </span>
+                        )}
+                      </td>
+                      <td class="px-4 py-3 text-right text-sm">
+                        {isCheckedIn ? (
+                          <button onclick={`toggleCheckin(${r.ticket_seat_id}, false, this)`}
+                                  class="text-xs text-amber-700 hover:text-amber-900 hover:underline">
+                            <i class="fas fa-undo mr-1"></i>Ongedaan
+                          </button>
+                        ) : (
+                          <button onclick={`toggleCheckin(${r.ticket_seat_id}, true, this)`}
+                                  class="text-xs bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded">
+                            <i class="fas fa-check mr-1"></i>Inchecken
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <script dangerouslySetInnerHTML={{ __html: `
+          // Live search filter (client-side, geen extra request)
+          function filterRows(query) {
+            const q = (query || '').toLowerCase().trim();
+            document.querySelectorAll('.checkin-row').forEach(row => {
+              const blob = row.getAttribute('data-search') || '';
+              row.style.display = (!q || blob.indexOf(q) !== -1) ? '' : 'none';
+            });
+          }
+
+          // Manual check-in toggle
+          async function toggleCheckin(ticketSeatId, checkedIn, btn) {
+            btn.disabled = true;
+            const oldHtml = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            try {
+              const r = await fetch('/api/admin/tickets/manual-checkin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ticket_seat_id: ticketSeatId, checked_in: checkedIn })
+              });
+              const data = await r.json();
+              if (!data.success) {
+                alert('Fout: ' + (data.error || 'onbekend'));
+                btn.innerHTML = oldHtml;
+                btn.disabled = false;
+                return;
+              }
+              // Refresh pagina om stats + sortering te updaten
+              location.reload();
+            } catch (e) {
+              alert('Netwerkfout: ' + e.message);
+              btn.innerHTML = oldHtml;
+              btn.disabled = false;
+            }
+          }
+
+          // Auto-refresh elke 10s, behalve als de gebruiker aan het zoeken is
+          let autoRefreshTimer = null;
+          function startAutoRefresh() {
+            stopAutoRefresh();
+            autoRefreshTimer = setInterval(() => {
+              const search = document.getElementById('search-input').value.trim();
+              if (search === '') location.reload();
+            }, 10000);
+          }
+          function stopAutoRefresh() {
+            if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+            autoRefreshTimer = null;
+          }
+          document.getElementById('auto-refresh').addEventListener('change', (e) => {
+            if (e.target.checked) startAutoRefresh(); else stopAutoRefresh();
+          });
+          startAutoRefresh();
+        ` }} />
+      </div>
+    </Layout>
+  )
 })
 
 // ==========================================

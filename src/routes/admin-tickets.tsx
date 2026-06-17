@@ -2267,10 +2267,76 @@ app.get('/admin/tickets/concert/:concertId/scan', async (c) => {
 
         {/* Scanner Interface */}
         <div class="bg-white rounded-lg shadow-md p-6">
-          
-          {/* Manual QR Code Input */}
-          <div class="mb-8">
-            <h2 class="text-xl font-bold text-gray-900 mb-4">Scan Ticket</h2>
+
+          {/* Camera scanner — html5-qrcode via CDN */}
+          <div class="mb-6">
+            <div class="flex items-center justify-between mb-3">
+              <h2 class="text-xl font-bold text-gray-900">
+                <i class="fas fa-camera mr-2 text-animato-primary"></i>
+                Camera scanner
+              </h2>
+              <div class="flex items-center gap-2">
+                <button
+                  id="cam-start-btn"
+                  onclick="startCamera()"
+                  class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium"
+                >
+                  <i class="fas fa-play mr-1"></i>Start camera
+                </button>
+                <button
+                  id="cam-stop-btn"
+                  onclick="stopCamera()"
+                  class="hidden px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium"
+                >
+                  <i class="fas fa-stop mr-1"></i>Stop
+                </button>
+                <button
+                  id="cam-flip-btn"
+                  onclick="flipCamera()"
+                  class="hidden px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-sm font-medium"
+                  title="Wissel tussen voor- en achtercamera"
+                >
+                  <i class="fas fa-sync-alt"></i>
+                </button>
+                <button
+                  id="cam-torch-btn"
+                  onclick="toggleTorch()"
+                  class="hidden px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-800 rounded-lg text-sm font-medium"
+                  title="Zaklamp aan/uit"
+                >
+                  <i class="fas fa-bolt"></i>
+                </button>
+              </div>
+            </div>
+
+            {/* Live video container */}
+            <div id="cam-reader-wrap" class="hidden">
+              <div id="cam-reader" class="rounded-lg overflow-hidden bg-black mx-auto" style="max-width: 480px;"></div>
+              <p id="cam-status" class="text-sm text-gray-600 mt-2 text-center">
+                <i class="fas fa-circle-notch fa-spin mr-1"></i>
+                Camera starten...
+              </p>
+            </div>
+
+            {/* Permission / error hint (initially hidden, only shown after attempt) */}
+            <div id="cam-error" class="hidden bg-amber-50 border-l-4 border-amber-400 p-4 mt-2">
+              <p class="text-sm text-amber-800">
+                <i class="fas fa-exclamation-triangle mr-1"></i>
+                <span id="cam-error-msg">Camera kon niet worden geopend.</span>
+              </p>
+              <p class="text-xs text-amber-700 mt-1">
+                Tip: HTTPS is vereist en je moet camera-toegang toestaan in de browser-prompt.
+                Werkt niet? Gebruik dan een externe QR-scanner of typ de code hieronder in.
+              </p>
+            </div>
+          </div>
+
+          {/* Manual QR Code Input — fallback */}
+          <div class="mb-8 pt-6 border-t border-gray-200">
+            <h2 class="text-lg font-semibold text-gray-800 mb-3">
+              <i class="fas fa-keyboard mr-2 text-gray-500"></i>
+              Of handmatig invoeren / externe scanner
+            </h2>
             <div class="flex gap-4">
               <input
                 type="text"
@@ -2289,7 +2355,7 @@ app.get('/admin/tickets/concert/:concertId/scan', async (c) => {
             </div>
             <p class="text-sm text-gray-500 mt-2">
               <i class="fas fa-info-circle mr-1"></i>
-              Gebruik een QR-scanner of typ de code handmatig in
+              Bluetooth/USB QR-scanner werkt als toetsenbord — typ in het veld of laat de scanner het invullen
             </p>
           </div>
 
@@ -2359,12 +2425,188 @@ app.get('/admin/tickets/concert/:concertId/scan', async (c) => {
           </div>
         </div>
 
+        {/* html5-qrcode library voor camera-scan (MIT, ~70KB gzipped) */}
+        <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+
         {/* JavaScript */}
         <script dangerouslySetInnerHTML={{ __html: `
           let scanned = 0;
           let valid = 0;
           let rescanned = 0;
           let invalid = 0;
+
+          // ─── Camera scanner state ───────────────────────────────────────
+          let html5QrCode = null;          // Html5Qrcode instance
+          let availableCameras = [];        // [{id, label}, ...]
+          let currentCameraIdx = 0;         // welke camera nu actief
+          let cameraRunning = false;
+          let torchOn = false;
+          let lastScannedCode = '';
+          let lastScannedAt = 0;
+          const DEBOUNCE_MS = 2500;         // dezelfde QR niet < 2.5s opnieuw verwerken
+
+          function showCamError(msg) {
+            const err = document.getElementById('cam-error');
+            const txt = document.getElementById('cam-error-msg');
+            txt.textContent = msg;
+            err.classList.remove('hidden');
+          }
+          function hideCamError() {
+            document.getElementById('cam-error').classList.add('hidden');
+          }
+
+          async function startCamera() {
+            hideCamError();
+            if (!window.Html5Qrcode) {
+              showCamError('Camera-library kon niet geladen worden — check internet of HTTPS.');
+              return;
+            }
+            try {
+              // Cameras enumereren (vraagt direct permissie)
+              if (availableCameras.length === 0) {
+                availableCameras = await Html5Qrcode.getCameras();
+              }
+              if (!availableCameras || availableCameras.length === 0) {
+                showCamError('Geen camera gedetecteerd op dit toestel.');
+                return;
+              }
+
+              // Voorkeur: achtercamera (label bevat 'back' of 'rear' of 'environment')
+              if (currentCameraIdx === 0 && availableCameras.length > 1) {
+                const rearIdx = availableCameras.findIndex(c =>
+                  /back|rear|environment|achter/i.test(c.label || ''));
+                if (rearIdx >= 0) currentCameraIdx = rearIdx;
+              }
+
+              document.getElementById('cam-reader-wrap').classList.remove('hidden');
+              document.getElementById('cam-status').innerHTML =
+                '<i class="fas fa-circle-notch fa-spin mr-1"></i>Camera starten...';
+
+              html5QrCode = new Html5Qrcode('cam-reader', { verbose: false });
+              const camId = availableCameras[currentCameraIdx].id;
+
+              await html5QrCode.start(
+                camId,
+                {
+                  fps: 10,
+                  qrbox: (vw, vh) => {
+                    // Vierkant scan-frame: 70% van kortste zijde
+                    const min = Math.min(vw, vh);
+                    const size = Math.floor(min * 0.7);
+                    return { width: size, height: size };
+                  },
+                  aspectRatio: 1.333,
+                  // Voorkeur formaat: QR_CODE only (sneller, minder false-positives)
+                  formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE]
+                },
+                onCamScanSuccess,
+                onCamScanError
+              );
+
+              cameraRunning = true;
+              document.getElementById('cam-start-btn').classList.add('hidden');
+              document.getElementById('cam-stop-btn').classList.remove('hidden');
+              if (availableCameras.length > 1) {
+                document.getElementById('cam-flip-btn').classList.remove('hidden');
+              }
+              // Torch alleen tonen als de camera hem ondersteunt
+              checkTorchSupport();
+              document.getElementById('cam-status').innerHTML =
+                '<i class="fas fa-circle text-green-500 mr-1"></i>Live — richt de camera op een QR-code';
+            } catch (e) {
+              console.error('startCamera failed:', e);
+              const m = (e && e.message) || String(e);
+              if (/permission|denied|notallowed/i.test(m)) {
+                showCamError('Camera-toegang geweigerd. Klik op het slot-icoon in de adresbalk om opnieuw toestemming te geven.');
+              } else if (/secure|https/i.test(m)) {
+                showCamError('Camera werkt alleen op HTTPS. Gebruik animato-live.pages.dev (zonder http://).');
+              } else {
+                showCamError('Camera kon niet starten: ' + m);
+              }
+            }
+          }
+
+          async function stopCamera() {
+            if (!html5QrCode || !cameraRunning) return;
+            try {
+              await html5QrCode.stop();
+              await html5QrCode.clear();
+            } catch (e) { /* niet kritiek */ }
+            html5QrCode = null;
+            cameraRunning = false;
+            torchOn = false;
+            document.getElementById('cam-reader-wrap').classList.add('hidden');
+            document.getElementById('cam-start-btn').classList.remove('hidden');
+            document.getElementById('cam-stop-btn').classList.add('hidden');
+            document.getElementById('cam-flip-btn').classList.add('hidden');
+            document.getElementById('cam-torch-btn').classList.add('hidden');
+          }
+
+          async function flipCamera() {
+            if (availableCameras.length < 2) return;
+            currentCameraIdx = (currentCameraIdx + 1) % availableCameras.length;
+            await stopCamera();
+            await startCamera();
+          }
+
+          async function checkTorchSupport() {
+            try {
+              const trackSettings = html5QrCode.getRunningTrackCameraCapabilities &&
+                html5QrCode.getRunningTrackCameraCapabilities();
+              const torchSupported = trackSettings && trackSettings.torchFeature &&
+                trackSettings.torchFeature().isSupported && trackSettings.torchFeature().isSupported();
+              if (torchSupported) {
+                document.getElementById('cam-torch-btn').classList.remove('hidden');
+              }
+            } catch (e) { /* feature detection — best-effort */ }
+          }
+
+          async function toggleTorch() {
+            if (!html5QrCode) return;
+            try {
+              const caps = html5QrCode.getRunningTrackCameraCapabilities();
+              const torch = caps.torchFeature();
+              torchOn = !torchOn;
+              await torch.apply(torchOn);
+              const btn = document.getElementById('cam-torch-btn');
+              btn.classList.toggle('bg-yellow-300', torchOn);
+              btn.classList.toggle('bg-gray-200', !torchOn);
+            } catch (e) {
+              console.warn('Torch toggle failed:', e);
+            }
+          }
+
+          function onCamScanSuccess(decodedText, decodedResult) {
+            const now = Date.now();
+            // Debounce: zelfde QR niet < DEBOUNCE_MS opnieuw verwerken
+            if (decodedText === lastScannedCode && (now - lastScannedAt) < DEBOUNCE_MS) {
+              return;
+            }
+            lastScannedCode = decodedText;
+            lastScannedAt = now;
+
+            // Korte visuele bevestiging op de video — tijdens validatie blijft camera draaien
+            const status = document.getElementById('cam-status');
+            const oldHtml = status.innerHTML;
+            status.innerHTML = '<i class="fas fa-bolt text-amber-500 mr-1"></i>QR herkend — valideren...';
+
+            // Vul ook het manual-input veld (zodat de gebruiker ziet wat er gescand werd)
+            document.getElementById('qr-input').value = decodedText;
+            validateTicket().finally(() => {
+              setTimeout(() => { status.innerHTML = oldHtml; }, 1500);
+            });
+          }
+
+          function onCamScanError(errMsg) {
+            // html5-qrcode roept dit elke frame zonder QR aan — bewust stil
+          }
+
+          // Stop camera als de pagina dichtgaat (release lens)
+          window.addEventListener('beforeunload', () => {
+            if (cameraRunning) stopCamera();
+          });
+          // ────────────────────────────────────────────────────────────────
+
 
           // Tonen van WebAudio beep — geen base64-blob (zou anders in HTML opzwellen)
           function beep(freq, duration) {

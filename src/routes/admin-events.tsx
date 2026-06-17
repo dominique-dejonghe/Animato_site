@@ -11,7 +11,7 @@ import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 import { createEventOccurrences, formatRecurrenceRule } from '../utils/recurring-events'
 import { generateICS, generateBulkICS, generateGoogleCalendarURL } from '../utils/ics'
 import { uploadDataUrlToR2, deleteFromR2, isDataUrl, r2KeyFromUrl } from '../utils/r2-storage'
-import { notifyAllActiveMembers } from '../utils/notifications'
+import { notifyAllActiveMembers, cleanupNotificationsForEvent } from '../utils/notifications'
 import { formatBrusselsDate, formatBrusselsTime, formatBrusselsDateTime, brusselsLocalToUTC, utcToBrusselsLocal } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -1695,14 +1695,24 @@ app.post('/admin/events/:id/delete', async (c) => {
   const id = c.req.param('id')
 
   try {
-    // Check if this is a recurring parent event
+    // Check if this is a recurring parent event + slug ophalen voor notif-cleanup
     const event = await queryOne<any>(
       c.env.DB,
-      `SELECT is_recurring FROM events WHERE id = ?`,
+      `SELECT is_recurring, slug FROM events WHERE id = ?`,
       [id]
     )
 
+    // Verzamel ook slugs van eventuele kind-occurrences
+    const childSlugs: string[] = []
     if (event?.is_recurring) {
+      const children = await queryAll<any>(
+        c.env.DB,
+        `SELECT slug FROM events WHERE parent_event_id = ?`,
+        [id]
+      )
+      for (const ch of children) {
+        if (ch.slug) childSlugs.push(ch.slug)
+      }
       // Delete all child occurrences
       await execute(
         c.env.DB,
@@ -1724,6 +1734,18 @@ app.post('/admin/events/:id/delete', async (c) => {
       `DELETE FROM event_attendance WHERE event_id = ?`,
       [id]
     )
+
+    // Cleanup notificaties (best-effort): voorkomt 'page not found' bij ledenklik
+    try {
+      if (event?.slug) {
+        await cleanupNotificationsForEvent(c.env.DB, event.slug)
+      }
+      for (const s of childSlugs) {
+        await cleanupNotificationsForEvent(c.env.DB, s)
+      }
+    } catch (e) {
+      console.warn('[event-delete] notification cleanup failed:', e)
+    }
 
     return c.json({ success: true })
   } catch (error) {

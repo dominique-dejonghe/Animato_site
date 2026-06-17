@@ -10,7 +10,7 @@ import { requireAuth, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll, execute, noCacheHeaders } from '../utils/db'
 import { setCookie } from 'hono/cookie'
 import { generateToken, hashPassword } from '../utils/auth'
-import { notifyAllActiveMembers } from '../utils/notifications'
+import { notifyAllActiveMembers, cleanupNotificationsForEvent } from '../utils/notifications'
 import { formatBrusselsDate, formatBrusselsTime, formatBrusselsDateTime } from '../utils/time'
 import { uploadDataUrlToR2, isDataUrl } from '../utils/r2-storage'
 
@@ -5678,7 +5678,7 @@ const handleContentDelete = async (c: any) => {
       // Delete the post itself
       await c.env.DB.prepare('DELETE FROM posts WHERE id = ?').bind(contentId).run()
     } else if (contentType === 'events') {
-      const evtRow: any = await c.env.DB.prepare(`SELECT titel FROM events WHERE id = ?`).bind(contentId).first()
+      const evtRow: any = await c.env.DB.prepare(`SELECT titel, slug FROM events WHERE id = ?`).bind(contentId).first()
       if (!evtRow) {
         const msg = 'Event niet gevonden (mogelijk al verwijderd).'
         if (wantsJson) return c.json({ ok: false, error: msg }, 404)
@@ -5697,6 +5697,15 @@ const handleContentDelete = async (c: any) => {
       try { await c.env.DB.prepare('DELETE FROM event_rsvps WHERE event_id = ?').bind(contentId).run() } catch (e) {}
 
       await c.env.DB.prepare('DELETE FROM events WHERE id = ?').bind(contentId).run()
+
+      // Ruim notificaties op die naar dit event verwijzen (anders → 404 voor leden)
+      try {
+        if (evtRow.slug) {
+          await cleanupNotificationsForEvent(c.env.DB, evtRow.slug)
+        }
+      } catch (e) {
+        console.warn('[event-delete] notification cleanup failed:', e)
+      }
     }
 
     const redirectUrl = `/admin/content?tab=${contentType}&success=deleted`

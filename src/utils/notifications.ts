@@ -221,16 +221,90 @@ export async function setUserNotificationPrefs(
 }
 
 /**
- * Get unread count for the header badge. Cheap query thanks to the
- * idx_notifications_user_unread compound index.
+ * Verwijder notificaties die naar een (verwijderd) event verwijzen.
+ *
+ * Wordt aangeroepen vanuit alle DELETE-FROM-events code paths zodat leden geen
+ * dode links meer in hun notificatielijst zien (die zou leiden tot een 404
+ * "Pagina niet gevonden"). Matcht zowel /agenda/{slug} als /concerten/{slug}.
+ *
+ * - Werkt best-effort: faalt stilletjes, gooit nooit (event-delete mag niet
+ *   stuk gaan door een notificatie-cleanup failure).
+ * - Slug-matching is tolerant: zowel exact als met query-strings na de slug
+ *   (bv. /agenda/concert-jubile?source=email).
+ */
+export async function cleanupNotificationsForEvent(
+  db: D1Database,
+  slug: string | null | undefined
+): Promise<number> {
+  if (!slug) return 0
+  try {
+    const paths = [
+      `/agenda/${slug}`,
+      `/concerten/${slug}`,
+    ]
+    let totalDeleted = 0
+    for (const path of paths) {
+      // Match exact path OR path met query string (?foo=bar) of trailing slash
+      const r = await db.prepare(
+        `DELETE FROM notifications
+         WHERE link = ? OR link LIKE ? OR link LIKE ?`
+      ).bind(path, path + '?%', path + '/%').run()
+      totalDeleted += Number((r.meta as any)?.changes || 0)
+    }
+    if (totalDeleted > 0) {
+      console.log(`[notifications] cleaned up ${totalDeleted} stale notification(s) for deleted event slug="${slug}"`)
+    }
+    return totalDeleted
+  } catch (e) {
+    console.error('cleanupNotificationsForEvent failed:', e)
+    return 0
+  }
+}
+
+/**
+ * Get unread count for the header badge.
+ *
+ * Filtert dode event-links uit zodat de badge nooit notificaties telt die
+ * naar verwijderde events leiden (zou inconsistent zijn met de UI die de
+ * dode rijen wegfiltert).
  */
 export async function getUnreadCount(db: D1Database, userId: number): Promise<number> {
   try {
-    const row = await db.prepare(
-      `SELECT COUNT(*) as cnt FROM notifications
+    // We tellen ALLE ongelezen items op met een event-link (of zonder link),
+    // en trekken er de items af waarvan de link naar een niet-bestaand event wijst.
+    // In de praktijk is het aantal ongelezen items klein, dus dit blijft snel.
+    const rows = await db.prepare(
+      `SELECT id, link FROM notifications
        WHERE user_id = ? AND is_gelezen = 0`
-    ).bind(userId).first<{ cnt: number }>()
-    return row?.cnt || 0
+    ).bind(userId).all<any>()
+    const all = rows.results || []
+    if (all.length === 0) return 0
+
+    const slugRegex = /^\/(?:agenda|concerten)\/([^/?#]+)/
+    const slugSet = new Set<string>()
+    for (const n of all) {
+      if (!n.link) continue
+      const m = String(n.link).match(slugRegex)
+      if (m) slugSet.add(m[1])
+    }
+
+    if (slugSet.size === 0) return all.length
+
+    const slugs = Array.from(slugSet)
+    const placeholders = slugs.map(() => '?').join(',')
+    const existingResult = await db.prepare(
+      `SELECT slug FROM events WHERE slug IN (${placeholders})`
+    ).bind(...slugs).all<any>()
+    const existingSlugs = new Set((existingResult.results || []).map((r: any) => r.slug))
+
+    let count = 0
+    for (const n of all) {
+      if (!n.link) { count++; continue }
+      const m = String(n.link).match(slugRegex)
+      if (!m) { count++; continue }
+      if (existingSlugs.has(m[1])) count++
+    }
+    return count
   } catch (e) {
     return 0
   }
@@ -238,6 +312,11 @@ export async function getUnreadCount(db: D1Database, userId: number): Promise<nu
 
 /**
  * Get notifications for a user, newest first.
+ *
+ * Defensieve filter: notificaties met een link naar /agenda/{slug} of
+ * /concerten/{slug} waar het bijbehorende event NIET (meer) bestaat worden
+ * uit het resultaat gefilterd EN meteen uit de database verwijderd (best-effort).
+ * Zo zien leden nooit dode links die zouden leiden naar 'Pagina niet gevonden'.
  */
 export async function getNotificationsForUser(
   db: D1Database,
@@ -253,8 +332,56 @@ export async function getNotificationsForUser(
        WHERE user_id = ? ${where}
        ORDER BY created_at DESC
        LIMIT ?`
-    ).bind(userId, limit).all()
-    return result.results || []
+    ).bind(userId, limit).all<any>()
+    const rows = result.results || []
+
+    // Collect unieke slugs uit event-links
+    const slugRegex = /^\/(?:agenda|concerten)\/([^/?#]+)/
+    const slugSet = new Set<string>()
+    for (const n of rows) {
+      if (!n.link) continue
+      const m = String(n.link).match(slugRegex)
+      if (m) slugSet.add(m[1])
+    }
+
+    if (slugSet.size === 0) return rows
+
+    // Check welke slugs nog bestaan in events
+    const slugs = Array.from(slugSet)
+    const placeholders = slugs.map(() => '?').join(',')
+    const existingResult = await db.prepare(
+      `SELECT slug FROM events WHERE slug IN (${placeholders})`
+    ).bind(...slugs).all<any>()
+    const existingSlugs = new Set((existingResult.results || []).map((r: any) => r.slug))
+
+    // Splits in 'levend' vs 'dood'
+    const deadIds: number[] = []
+    const liveRows: any[] = []
+    for (const n of rows) {
+      if (!n.link) { liveRows.push(n); continue }
+      const m = String(n.link).match(slugRegex)
+      if (!m) { liveRows.push(n); continue }
+      if (existingSlugs.has(m[1])) {
+        liveRows.push(n)
+      } else {
+        deadIds.push(n.id)
+      }
+    }
+
+    // Ruim dode notificaties stil op (fire-and-forget; mag falen)
+    if (deadIds.length > 0) {
+      try {
+        const delPlaceholders = deadIds.map(() => '?').join(',')
+        await db.prepare(
+          `DELETE FROM notifications WHERE id IN (${delPlaceholders}) AND user_id = ?`
+        ).bind(...deadIds, userId).run()
+        console.log(`[notifications] auto-cleaned ${deadIds.length} stale notification(s) for user ${userId}`)
+      } catch (e) {
+        // niet-fataal — gebruiker ziet ze gewoon weg uit de UI
+      }
+    }
+
+    return liveRows
   } catch (e) {
     return []
   }

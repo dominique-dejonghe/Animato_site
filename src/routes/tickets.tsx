@@ -938,12 +938,30 @@ app.post('/api/tickets/order', async (c) => {
         _links: { checkout: { href: `${siteUrl}/tickets/bevestiging/${orderRef}?mock=true` } }
       }
     } else {
+      // Split-on-last-space heuristiek: "Jan Janssens" → voornaam="Jan", achternaam="Janssens"
+      // "Jan Pieter Van der Velde" → voornaam="Jan Pieter Van der", achternaam="Velde"
+      // (Eenvoudig en goed-genoeg; spaties in achternaam komen zeldzaam voor en
+      // het is enkel voor Mollie-dashboard metadata, niet voor facturatie.)
+      const nameParts = koperNaam.trim().split(/\s+/)
+      const voornaam = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : (nameParts[0] || '')
+      const achternaam = nameParts.length > 1 ? nameParts[nameParts.length - 1] : ''
+
       molliePayment = await createMolliePayment(mollieKey, {
         amount: totalAmount,
-        description: `Tickets ${event.titel} - ${orderRef}`,
+        // Leesbare description met klantnaam → komt zo in Mollie-dashboard + bankafschrift
+        description: `Tickets ${event.titel} - ${koperNaam} - ${orderRef}`.substring(0, 255),
         redirectUrl: `${siteUrl}/tickets/bevestiging/${orderRef}`,
         webhookUrl: `${siteUrl}/api/webhooks/mollie`,
-        metadata: { type: 'ticket', order_ref: orderRef, concert_id: concertId }
+        metadata: {
+          type: 'ticket',
+          order_ref: orderRef,
+          concert_id: concertId,
+          // Klantnaam-velden (zichtbaar in Mollie-dashboard, gefilterd doorzoekbaar)
+          koper_naam: koperNaam,
+          voornaam,
+          achternaam,
+          koper_email: koperEmail
+        }
       })
       if (!molliePayment) throw new Error('Kon geen betaling aanmaken')
     }

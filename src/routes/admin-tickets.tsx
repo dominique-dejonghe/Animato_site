@@ -7,7 +7,9 @@ import { getMollieMode } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { releaseStaleLocks } from '../utils/seat-locks'
 import { sendEmail, ticketEmail } from '../utils/email'
-import { generateTicketPdf, uint8ArrayToBase64 } from '../utils/ticket-pdf'
+import { generateTicketPdf, generateSeatTicketPdf, generateSeatTicketPdfs, uint8ArrayToBase64 } from '../utils/ticket-pdf'
+import { zipTicketPdfs } from '../utils/ticket-zip'
+import { getSiteUrl } from '../utils/site-url'
 
 const app = new Hono()
 
@@ -617,6 +619,16 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
                             <i class="fas fa-paper-plane"></i>
                           </button>
                         )}
+                        {ticket.status === 'paid' && (
+                          <a
+                            href={`/admin/tickets/order/${encodeURIComponent(ticket.order_ref)}/zip`}
+                            class="text-indigo-600 hover:text-indigo-900 mr-3"
+                            title="Download alle PDF-tickets (ZIP) — handig voor WhatsApp/mail doorsturen"
+                            target="_blank"
+                          >
+                            <i class="fas fa-file-archive"></i>
+                          </a>
+                        )}
                         <a
                           href={`mailto:${ticket.koper_email}`}
                           class="text-green-600 hover:text-green-900 mr-3"
@@ -834,7 +846,8 @@ app.post('/api/admin/tickets/:id/resend', async (c) => {
 
     // Haal álle ticket-rijen + concert-info voor deze order op
     const rows = await queryAll<any>(c.env.DB,
-      `SELECT t.*, e.titel, e.start_at, e.locatie
+      `SELECT t.*, e.titel, e.start_at, e.locatie, e.adres,
+              c.doors_open_at, c.concert_start_at
        FROM tickets t
        JOIN concerts c ON c.id = t.concert_id
        JOIN events e   ON e.id = c.event_id
@@ -854,12 +867,48 @@ app.post('/api/admin/tickets/:id/resend', async (c) => {
       }, 400)
     }
 
-    // Bouw mail + PDF identiek aan de webhook-flow
+    // Bouw mail + PDF identiek aan de webhook-flow (per-seat indien stoelen gekoppeld)
     const eventDate = new Date(ticket.start_at)
     const concertDatum = eventDate.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-    const concertTijd  = eventDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+    const aanvangDate = ticket.concert_start_at ? new Date(ticket.concert_start_at) : eventDate
+    const concertTijd = aanvangDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+    const concertDoorsOpen = ticket.doors_open_at
+      ? new Date(ticket.doors_open_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+      : null
     const totaalBedrag = rows.reduce((s: number, t: any) => s + (Number(t.prijs_totaal) || 0), 0)
     const ticketsSummary = rows.map((t: any) => `${t.aantal}× ${t.categorie}`).join(', ')
+
+    // Per-seat lookup (zoals webhook)
+    let seatRows: any[] = []
+    try {
+      const r = await c.env.DB.prepare(
+        `SELECT ts.id AS ticket_seat_id, ts.ticket_id, t.qr_code, t.categorie, t.prijs_totaal,
+                s.section_name, s.row_label, s.seat_number
+         FROM ticket_seats ts
+         JOIN tickets t ON t.id = ts.ticket_id
+         JOIN seats s ON s.id = ts.seat_id
+         WHERE t.order_ref = ?
+         ORDER BY s.row_label, s.seat_number`
+      ).bind(ref.order_ref).all<any>()
+      seatRows = r?.results || []
+    } catch (e) {
+      console.warn('[resend] seat-lookup mislukt:', (e as any)?.message)
+    }
+
+    // Optionele member-portal link
+    let memberPortalUrl: string | undefined = undefined
+    try {
+      const u = await queryOne<any>(c.env.DB,
+        `SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND status = 'actief' LIMIT 1`,
+        [ticket.koper_email])
+      if (u) {
+        const siteUrl = await getSiteUrl(c)
+        memberPortalUrl = `${siteUrl}/leden/mijn-tickets/${encodeURIComponent(ticket.order_ref)}`
+      }
+    } catch {}
+
+    // Logo bytes (optioneel)
+    const logoBytes = await loadAdminLogoBytes(c.env.DB)
 
     const emailHtml = ticketEmail({
       orderRef: ticket.order_ref,
@@ -870,32 +919,63 @@ app.post('/api/admin/tickets/:id/resend', async (c) => {
       concertLocatie: ticket.locatie,
       tickets: ticketsSummary,
       qrCode: rows.map((t: any) => t.qr_code).join(', '),
-      totaalBedrag
+      totaalBedrag,
+      memberPortalUrl,
+      seatCount: seatRows.length
     })
 
     let attachments: any[] = []
     try {
-      const pdfBytes = await generateTicketPdf({
-        order_ref: ticket.order_ref,
-        koper_naam: ticket.koper_naam,
-        koper_email: ticket.koper_email,
-        concert_titel: ticket.titel,
-        concert_datum: concertDatum,
-        concert_tijd: concertTijd,
-        concert_locatie: ticket.locatie || '',
-        totaal_bedrag: totaalBedrag,
-        lines: rows.map((t: any) => ({
-          qr_code: t.qr_code,
-          categorie: t.categorie,
-          aantal: t.aantal,
-          prijs_totaal: Number(t.prijs_totaal) || 0
+      if (seatRows.length > 0) {
+        const pdfs = await generateSeatTicketPdfs({
+          order_ref: ticket.order_ref,
+          koper_naam: ticket.koper_naam,
+          koper_email: ticket.koper_email,
+          concert_titel: ticket.titel,
+          concert_datum: concertDatum,
+          concert_tijd: concertTijd,
+          concert_doors_open: concertDoorsOpen,
+          concert_locatie: ticket.locatie || '',
+          concert_adres: ticket.adres || null,
+          logo_png_bytes: logoBytes,
+          seats: seatRows.map((s: any) => ({
+            qr_code: `${s.qr_code}-${s.ticket_seat_id}`,
+            categorie: s.categorie,
+            prijs: Number(s.prijs_totaal) / Math.max(1, seatRows.filter(x => x.ticket_id === s.ticket_id).length),
+            seat_label: `Rij ${s.row_label} — Stoel ${s.seat_number}`,
+            seat_sectie: s.section_name || null
+          }))
+        })
+        attachments = pdfs.map(p => ({
+          filename: p.filename,
+          content: uint8ArrayToBase64(p.bytes),
+          contentType: 'application/pdf'
         }))
-      })
-      attachments = [{
-        filename: `tickets-${ticket.order_ref}.pdf`,
-        content: uint8ArrayToBase64(pdfBytes),
-        contentType: 'application/pdf'
-      }]
+      } else {
+        const pdfBytes = await generateTicketPdf({
+          order_ref: ticket.order_ref,
+          koper_naam: ticket.koper_naam,
+          koper_email: ticket.koper_email,
+          concert_titel: ticket.titel,
+          concert_datum: concertDatum,
+          concert_tijd: concertTijd,
+          concert_doors_open: concertDoorsOpen,
+          concert_locatie: ticket.locatie || '',
+          concert_adres: ticket.adres || null,
+          totaal_bedrag: totaalBedrag,
+          lines: rows.map((t: any) => ({
+            qr_code: t.qr_code,
+            categorie: t.categorie,
+            aantal: t.aantal,
+            prijs_totaal: Number(t.prijs_totaal) || 0
+          }))
+        })
+        attachments = [{
+          filename: `tickets-${ticket.order_ref}.pdf`,
+          content: uint8ArrayToBase64(pdfBytes),
+          contentType: 'application/pdf'
+        }]
+      }
     } catch (pdfErr: any) {
       console.error('[resend] PDF generation failed:', pdfErr?.message || pdfErr)
       return c.json({ success: false, error: 'PDF genereren mislukt: ' + (pdfErr?.message || 'onbekend') }, 500)
@@ -2513,9 +2593,11 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
   }
 
   // Alle stoelen + huidige status voor dit concert + koper-info
+  // ts.id (ticket_seat_id) wordt gebruikt voor per-stoel PDF-download.
   const seats = await queryAll<any>(c.env.DB, `
     SELECT
       s.id, s.row_label, s.seat_number, s.x, s.y, s.type, s.status as base_status,
+      ts.id as ticket_seat_id,
       ts.status as booking_status,
       ts.lock_expires_at,
       ts.note as admin_note,
@@ -2539,6 +2621,10 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
   const locked = seats.filter(s => s.booking_status === 'locked').length
   const blocked = seats.filter(s => s.base_status === 'blocked' && !s.booking_status).length
   const available = total - sold - locked - blocked
+  // Bezettingspercentage (optie B per keuze: % van ALLE stoelen op het plan, sold-only)
+  // Reserved telt apart eronder.
+  const bezettingPct = total > 0 ? Math.round((sold / total) * 100) : 0
+  const reservedPct = total > 0 ? Math.round((locked / total) * 100) : 0
 
   return c.html(
     <Layout title={`Zaalplan - ${concert.titel}`} user={user}>
@@ -2562,6 +2648,44 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
             <span><i class="fas fa-map-marker-alt mr-2"></i>{concert.locatie}</span>
             <span><i class="fas fa-chair mr-2"></i>{concert.plan_naam}</span>
           </div>
+        </div>
+
+        {/* Bezettings-progressbar — prominent bovenaan */}
+        <div class="bg-white rounded-lg shadow p-4 mb-4">
+          <div class="flex items-center justify-between mb-2">
+            <div>
+              <span class="text-sm font-semibold text-gray-700">Bezetting van de zaal</span>
+              <span class="text-xs text-gray-500 ml-2">({sold} van {total} stoelen verkocht)</span>
+            </div>
+            <div class="text-right">
+              <span class={`text-3xl font-bold ${bezettingPct >= 90 ? 'text-red-600' : bezettingPct >= 70 ? 'text-orange-600' : bezettingPct >= 40 ? 'text-amber-600' : 'text-green-600'}`}>
+                {bezettingPct}%
+              </span>
+              {locked > 0 && (
+                <span class="text-xs text-orange-600 ml-2">
+                  +{reservedPct}% gereserveerd
+                </span>
+              )}
+            </div>
+          </div>
+          {/* Stacked progress bar: verkocht (rood) + gereserveerd (oranje, gestreept) op een grijze achtergrond */}
+          <div class="w-full bg-gray-200 rounded-full h-3 overflow-hidden relative">
+            <div
+              class="h-3 bg-red-500 absolute left-0 top-0 transition-all"
+              style={`width: ${bezettingPct}%`}
+              title={`Verkocht: ${sold}`}
+            ></div>
+            <div
+              class="h-3 bg-orange-400 absolute top-0 transition-all"
+              style={`left: ${bezettingPct}%; width: ${reservedPct}%; background-image: repeating-linear-gradient(45deg, transparent, transparent 4px, rgba(255,255,255,.3) 4px, rgba(255,255,255,.3) 8px);`}
+              title={`Gereserveerd: ${locked}`}
+            ></div>
+          </div>
+          {bezettingPct >= 90 && (
+            <div class="mt-2 text-xs text-red-700 font-semibold">
+              <i class="fas fa-fire mr-1"></i> Zaal bijna vol — denk eraan om "Uitverkocht" te markeren in de instellingen.
+            </div>
+          )}
         </div>
 
         {/* Telling-cards */}
@@ -2774,6 +2898,13 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
           if (!s.booking_status && s.base_status !== 'blocked') {
             html += '<button onclick="manualReserve(' + s.id + ')" class="w-full bg-orange-500 text-white text-sm px-3 py-2 rounded hover:bg-orange-600"><i class="fas fa-bookmark mr-1"></i>Handmatig reserveren</button>';
           }
+          // PDF-download knop voor verkochte EN gereserveerde stoelen met ticket_seat_id
+          // (admin kan dan rechtstreeks via WhatsApp/mail doorsturen)
+          if (s.ticket_seat_id && (s.booking_status === 'sold' || s.booking_status === 'locked')) {
+            html += '<a href="/admin/tickets/concert/' + concertId + '/seat-pdf/' + s.ticket_seat_id
+                  + '" target="_blank" class="block w-full text-center bg-purple-600 text-white text-sm px-3 py-2 rounded hover:bg-purple-700">'
+                  + '<i class="fas fa-file-pdf mr-1"></i>Download PDF-ticket</a>';
+          }
           if (s.booking_status === 'locked' || s.booking_status === 'sold') {
             html += '<button onclick="releaseSeat(' + s.id + ')" class="w-full bg-gray-200 text-gray-800 text-sm px-3 py-2 rounded hover:bg-gray-300"><i class="fas fa-unlock mr-1"></i>Vrijgeven</button>';
           }
@@ -2822,6 +2953,227 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
       `}} />
     </Layout>
   )
+})
+
+// ==========================================
+// ADMIN: PDF DOWNLOAD per stoel + ZIP per bestelling
+// ==========================================
+// Wordt gebruikt:
+//  - vanuit de seating-overview (per-stoel knop) → 1 PDF
+//  - vanuit de orders-pagina (resend-knop ZIP) → bundle voor doorsturen
+
+/**
+ * Helper: laad optionele logo bytes uit settings.
+ */
+async function loadAdminLogoBytes(db: D1Database): Promise<Uint8Array | null> {
+  try {
+    const row = await queryOne<any>(db,
+      `SELECT value FROM system_settings
+       WHERE key IN ('ticket_logo_url','site_logo_url')
+       ORDER BY CASE key WHEN 'ticket_logo_url' THEN 0 ELSE 1 END
+       LIMIT 1`,
+      [])
+    if (!row?.value || !/^https?:\/\//.test(row.value)) return null
+    const resp = await fetch(row.value)
+    if (!resp.ok) return null
+    const ct = resp.headers.get('content-type') || ''
+    if (!ct.includes('png')) return null
+    return new Uint8Array(await resp.arrayBuffer())
+  } catch {
+    return null
+  }
+}
+
+// 1 PDF voor 1 stoel
+app.get('/admin/tickets/concert/:concertId/seat-pdf/:ticketSeatId', async (c) => {
+  const concertId = parseInt(c.req.param('concertId'))
+  const ticketSeatId = parseInt(c.req.param('ticketSeatId'))
+  if (!Number.isFinite(concertId) || !Number.isFinite(ticketSeatId)) {
+    return c.text('Invalid id', 400)
+  }
+
+  // Haal seat + ticket + concert info op
+  const row = await queryOne<any>(c.env.DB, `
+    SELECT ts.id AS ticket_seat_id, ts.ticket_id,
+           t.order_ref, t.koper_naam, t.koper_email, t.qr_code, t.categorie, t.prijs_totaal, t.aantal,
+           s.section_name, s.row_label, s.seat_number,
+           e.titel AS concert_titel, e.start_at, e.locatie, e.adres,
+           c.doors_open_at, c.concert_start_at
+    FROM ticket_seats ts
+    JOIN tickets t ON t.id = ts.ticket_id
+    JOIN seats s ON s.id = ts.seat_id
+    JOIN concerts c ON c.id = t.concert_id
+    JOIN events e ON e.id = c.event_id
+    WHERE ts.id = ? AND t.concert_id = ?
+  `, [ticketSeatId, concertId])
+
+  if (!row) return c.text('Stoel niet gevonden', 404)
+
+  const aanvangDate = row.concert_start_at ? new Date(row.concert_start_at) : new Date(row.start_at)
+  const concertDatum = new Date(row.start_at).toLocaleDateString('nl-NL', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+  })
+  const concertTijd = aanvangDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+  const doorsOpen = row.doors_open_at
+    ? new Date(row.doors_open_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+    : null
+
+  // Tel hoeveel stoelen er in deze bestelling zijn voor index/total
+  const allSeats = await queryAll<any>(c.env.DB, `
+    SELECT ts.id, s.row_label, s.seat_number
+    FROM ticket_seats ts
+    JOIN tickets t ON t.id = ts.ticket_id
+    JOIN seats s ON s.id = ts.seat_id
+    WHERE t.order_ref = ?
+    ORDER BY s.row_label, s.seat_number
+  `, [row.order_ref])
+  const idxInOrder = allSeats.findIndex((x: any) => x.id === ticketSeatId) + 1
+  const total = allSeats.length
+
+  const logoBytes = await loadAdminLogoBytes(c.env.DB)
+
+  const pdfBytes = await generateSeatTicketPdf({
+    order_ref: row.order_ref,
+    koper_naam: row.koper_naam || 'Onbekend',
+    koper_email: row.koper_email || '',
+    concert_titel: row.concert_titel,
+    concert_datum: concertDatum,
+    concert_tijd: concertTijd,
+    concert_doors_open: doorsOpen,
+    concert_locatie: row.locatie || '',
+    concert_adres: row.adres || null,
+    categorie: row.categorie || 'Volwassene',
+    prijs: Number(row.prijs_totaal) / Math.max(1, total),
+    qr_code: `${row.qr_code}-${row.ticket_seat_id}`,
+    seat_label: `Rij ${row.row_label} — Stoel ${row.seat_number}`,
+    seat_sectie: row.section_name || null,
+    ticket_index: idxInOrder || 1,
+    ticket_total: total || 1,
+    logo_png_bytes: logoBytes
+  })
+
+  const safeLabel = `rij-${row.row_label}-stoel-${row.seat_number}`
+  return new Response(pdfBytes, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${row.order_ref}-${safeLabel}.pdf"`,
+      'Cache-Control': 'private, no-store'
+    }
+  })
+})
+
+// ZIP voor een hele bestelling (alle PDF's per stoel + LEES-MIJ.txt)
+app.get('/admin/tickets/order/:orderRef/zip', async (c) => {
+  const orderRef = c.req.param('orderRef')
+
+  // Order-header
+  const order = await queryOne<any>(c.env.DB, `
+    SELECT t.order_ref, t.koper_naam, t.koper_email,
+           SUM(t.prijs_totaal) AS totaal_bedrag, SUM(t.aantal) AS totaal_kaarten,
+           e.titel AS concert_titel, e.start_at, e.locatie, e.adres,
+           c.doors_open_at, c.concert_start_at
+    FROM tickets t
+    JOIN concerts c ON c.id = t.concert_id
+    JOIN events e ON e.id = c.event_id
+    WHERE t.order_ref = ?
+    GROUP BY t.order_ref
+  `, [orderRef])
+  if (!order) return c.text('Bestelling niet gevonden', 404)
+
+  // Stoelen
+  const seats = await queryAll<any>(c.env.DB, `
+    SELECT ts.id AS ticket_seat_id, ts.ticket_id, t.qr_code, t.categorie, t.prijs_totaal AS line_total,
+           s.section_name, s.row_label, s.seat_number
+    FROM ticket_seats ts
+    JOIN tickets t ON t.id = ts.ticket_id
+    JOIN seats s ON s.id = ts.seat_id
+    WHERE t.order_ref = ?
+    ORDER BY s.row_label, s.seat_number
+  `, [orderRef])
+
+  const logoBytes = await loadAdminLogoBytes(c.env.DB)
+  const aanvangDate = order.concert_start_at ? new Date(order.concert_start_at) : new Date(order.start_at)
+  const concertDatum = new Date(order.start_at).toLocaleDateString('nl-NL', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+  })
+  const concertTijd = aanvangDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+  const doorsOpen = order.doors_open_at
+    ? new Date(order.doors_open_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+    : null
+
+  // Per-stoel PDFs (met seats) of fallback legacy PDF
+  if (seats.length > 0) {
+    const pdfs = await generateSeatTicketPdfs({
+      order_ref: orderRef,
+      koper_naam: order.koper_naam || '',
+      koper_email: order.koper_email || '',
+      concert_titel: order.concert_titel,
+      concert_datum: concertDatum,
+      concert_tijd: concertTijd,
+      concert_doors_open: doorsOpen,
+      concert_locatie: order.locatie || '',
+      concert_adres: order.adres || null,
+      logo_png_bytes: logoBytes,
+      seats: seats.map((s: any) => ({
+        qr_code: `${s.qr_code}-${s.ticket_seat_id}`,
+        categorie: s.categorie,
+        prijs: Number(s.line_total) / Math.max(1, seats.filter((x: any) => x.ticket_id === s.ticket_id).length),
+        seat_label: `Rij ${s.row_label} — Stoel ${s.seat_number}`,
+        seat_sectie: s.section_name || null
+      }))
+    })
+    const readme = `Tickets — ${order.concert_titel}
+Bestelling: ${orderRef}
+Koper: ${order.koper_naam} (${order.koper_email})
+Datum: ${concertDatum}
+Locatie: ${order.locatie}
+Aantal stoelen: ${seats.length}
+
+Elk PDF-bestand bevat één ticket voor één stoel. Verspreid de juiste PDF
+aan de juiste persoon (per WhatsApp / email).
+`
+    const zipBytes = zipTicketPdfs(pdfs, readme)
+    return new Response(zipBytes, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': `attachment; filename="tickets-${orderRef}.zip"`,
+        'Cache-Control': 'private, no-store'
+      }
+    })
+  }
+
+  // Fallback: geen seats → legacy multi-pagina PDF
+  const lines = await queryAll<any>(c.env.DB, `
+    SELECT qr_code, categorie, aantal, prijs_totaal FROM tickets WHERE order_ref = ?
+  `, [orderRef])
+  const pdfBytes = await generateTicketPdf({
+    order_ref: orderRef,
+    koper_naam: order.koper_naam || '',
+    koper_email: order.koper_email || '',
+    concert_titel: order.concert_titel,
+    concert_datum: concertDatum,
+    concert_tijd: concertTijd,
+    concert_doors_open: doorsOpen,
+    concert_locatie: order.locatie || '',
+    concert_adres: order.adres || null,
+    totaal_bedrag: Number(order.totaal_bedrag) || 0,
+    lines: lines.map((l: any) => ({
+      qr_code: l.qr_code,
+      categorie: l.categorie,
+      aantal: l.aantal,
+      prijs_totaal: Number(l.prijs_totaal) || 0
+    }))
+  })
+  return new Response(pdfBytes, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="tickets-${orderRef}.pdf"`,
+      'Cache-Control': 'private, no-store'
+    }
+  })
 })
 
 // ==========================================

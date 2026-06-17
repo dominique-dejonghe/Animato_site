@@ -3,8 +3,9 @@ import { queryOne, execute } from '../utils/db'
 import { getMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { sendEmail, ticketEmail } from '../utils/email'
-import { generateTicketPdf, uint8ArrayToBase64 } from '../utils/ticket-pdf'
+import { generateTicketPdf, generateSeatTicketPdfs, uint8ArrayToBase64 } from '../utils/ticket-pdf'
 import { createNotification } from '../utils/notifications'
+import { getSiteUrl } from '../utils/site-url'
 import type { Bindings } from '../types'
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -245,8 +246,11 @@ app.post('/api/webhooks/mollie', async (c) => {
     // === TICKET FLOW (Default fallback) ===
     // BUG-FIX (#240): één Mollie-payment kan meerdere ticket-rijen omvatten (multi-categorie).
     // Vroeger gebruikten we queryOne dat slechts één rij updatte → de overige rijen bleven pending hangen.
+    // UITBREIDING: ook concert-specifieke velden ophalen voor PDF (adres, doors_open, etc.)
     const ticketRows = await (c.env.DB.prepare(
-      `SELECT t.*, e.titel, e.start_at, e.locatie
+      `SELECT t.*,
+              e.titel, e.start_at, e.locatie, e.adres,
+              c.doors_open_at, c.concert_start_at
        FROM tickets t
        JOIN concerts c ON c.id = t.concert_id
        JOIN events e ON e.id = c.event_id
@@ -293,13 +297,131 @@ app.post('/api/webhooks/mollie', async (c) => {
       }
 
       // If payment is completed, send ticket email — één mail voor de hele order
-      // + PDF in bijlage met scanbare QR-code per ticket-line.
+      // + PDF in bijlage. Vanaf nu: één PDF per stoel (als seats gekoppeld zijn),
+      // anders fallback naar legacy multi-pagina PDF.
       if (newStatus === 'paid' && oldStatus !== 'paid') {
         const eventDate = new Date(ticket.start_at)
         const totaalBedrag = ticketLines.reduce((s: number, t: any) => s + (Number(t.prijs_totaal) || 0), 0)
         const ticketsSummary = ticketLines.map((t: any) => `${t.aantal}× ${t.categorie}`).join(', ')
         const concertDatum = eventDate.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-        const concertTijd = eventDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+        // Aanvang concert: prefer concerts.concert_start_at, fallback op events.start_at
+        const aanvangDate = ticket.concert_start_at ? new Date(ticket.concert_start_at) : eventDate
+        const concertTijd = aanvangDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+        const concertDoorsOpen = ticket.doors_open_at
+          ? new Date(ticket.doors_open_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+          : null
+
+        // Member-portal link: enkel tonen als koper_email match met een actief user-account
+        let memberPortalUrl: string | undefined = undefined
+        try {
+          const userRow = await queryOne<any>(c.env.DB,
+            `SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND status = 'actief' LIMIT 1`,
+            [ticket.koper_email])
+          if (userRow) {
+            const siteUrl = await getSiteUrl(c)
+            memberPortalUrl = `${siteUrl}/leden/mijn-tickets/${encodeURIComponent(ticket.order_ref)}`
+          }
+        } catch (e) {
+          console.warn('[webhooks] user-lookup voor portal-link mislukt:', (e as any)?.message)
+        }
+
+        // Haal per-seat info op (alle stoelen in deze bestelling, met label + sectie)
+        // We doen één query over alle tickets in deze betaling — JOIN naar seats voor label/sectie.
+        let seatRows: any[] = []
+        try {
+          const r = await c.env.DB.prepare(
+            `SELECT ts.id AS ticket_seat_id, ts.ticket_id, ts.status AS seat_status,
+                    t.qr_code, t.categorie, t.prijs_totaal,
+                    s.section_name, s.row_label, s.seat_number
+             FROM ticket_seats ts
+             JOIN tickets t ON t.id = ts.ticket_id
+             JOIN seats s ON s.id = ts.seat_id
+             WHERE t.betaling_id = ?
+             ORDER BY s.row_label, s.seat_number`
+          ).bind(paymentId).all<any>()
+          seatRows = r?.results || []
+        } catch (e) {
+          console.warn('[webhooks] seat-lookup mislukt:', (e as any)?.message)
+        }
+
+        // Optionele Animato-logo (uit settings → R2 url)
+        let logoBytes: Uint8Array | null = null
+        try {
+          const logoSetting = await queryOne<any>(c.env.DB,
+            `SELECT value FROM system_settings WHERE key = 'ticket_logo_url' OR key = 'site_logo_url' ORDER BY key DESC LIMIT 1`,
+            [])
+          if (logoSetting?.value && /^https?:\/\//.test(logoSetting.value)) {
+            const resp = await fetch(logoSetting.value)
+            if (resp.ok) {
+              const ct = resp.headers.get('content-type') || ''
+              if (ct.includes('png')) {
+                logoBytes = new Uint8Array(await resp.arrayBuffer())
+              }
+            }
+          }
+        } catch (e) {
+          // Logo is optioneel — niet kritiek
+        }
+
+        // PDF-bijlagen genereren — best-effort, mail moet ook vertrekken als PDF crasht
+        let attachments: any[] = []
+        try {
+          if (seatRows.length > 0) {
+            // Per-seat PDF's (NIEUW)
+            const seatTickets = seatRows.map((sr: any) => ({
+              qr_code: `${sr.qr_code}-${sr.ticket_seat_id}`,  // QR uniek per stoel
+              categorie: sr.categorie,
+              prijs: Number(sr.prijs_totaal) / Math.max(1, seatRows.filter(x => x.ticket_id === sr.ticket_id).length),
+              seat_label: `Rij ${sr.row_label} — Stoel ${sr.seat_number}`,
+              seat_sectie: sr.section_name || null
+            }))
+            const pdfs = await generateSeatTicketPdfs({
+              order_ref: ticket.order_ref,
+              koper_naam: ticket.koper_naam,
+              koper_email: ticket.koper_email,
+              concert_titel: ticket.titel,
+              concert_datum: concertDatum,
+              concert_tijd: concertTijd,
+              concert_doors_open: concertDoorsOpen,
+              concert_locatie: ticket.locatie || '',
+              concert_adres: ticket.adres || null,
+              logo_png_bytes: logoBytes,
+              seats: seatTickets
+            })
+            attachments = pdfs.map(p => ({
+              filename: p.filename,
+              content: uint8ArrayToBase64(p.bytes),
+              contentType: 'application/pdf'
+            }))
+          } else {
+            // Geen seats gekoppeld → fallback: legacy multi-pagina order-PDF
+            const pdfBytes = await generateTicketPdf({
+              order_ref: ticket.order_ref,
+              koper_naam: ticket.koper_naam,
+              koper_email: ticket.koper_email,
+              concert_titel: ticket.titel,
+              concert_datum: concertDatum,
+              concert_tijd: concertTijd,
+              concert_doors_open: concertDoorsOpen,
+              concert_locatie: ticket.locatie || '',
+              concert_adres: ticket.adres || null,
+              totaal_bedrag: totaalBedrag,
+              lines: ticketLines.map((t: any) => ({
+                qr_code: t.qr_code,
+                categorie: t.categorie,
+                aantal: t.aantal,
+                prijs_totaal: Number(t.prijs_totaal) || 0
+              }))
+            })
+            attachments = [{
+              filename: `tickets-${ticket.order_ref}.pdf`,
+              content: uint8ArrayToBase64(pdfBytes),
+              contentType: 'application/pdf'
+            }]
+          }
+        } catch (pdfErr: any) {
+          console.error('[webhooks] PDF generation failed (continuing without attachment):', pdfErr?.message || pdfErr)
+        }
 
         const emailHtml = ticketEmail({
           orderRef: ticket.order_ref,
@@ -310,36 +432,10 @@ app.post('/api/webhooks/mollie', async (c) => {
           concertLocatie: ticket.locatie,
           tickets: ticketsSummary,
           qrCode: ticketLines.map((t: any) => t.qr_code).join(', '),
-          totaalBedrag: totaalBedrag
+          totaalBedrag: totaalBedrag,
+          memberPortalUrl,
+          seatCount: seatRows.length
         })
-
-        // PDF-bijlage genereren — best-effort, mail moet ook vertrekken als PDF crasht
-        let attachments: any[] = []
-        try {
-          const pdfBytes = await generateTicketPdf({
-            order_ref: ticket.order_ref,
-            koper_naam: ticket.koper_naam,
-            koper_email: ticket.koper_email,
-            concert_titel: ticket.titel,
-            concert_datum: concertDatum,
-            concert_tijd: concertTijd,
-            concert_locatie: ticket.locatie || '',
-            totaal_bedrag: totaalBedrag,
-            lines: ticketLines.map((t: any) => ({
-              qr_code: t.qr_code,
-              categorie: t.categorie,
-              aantal: t.aantal,
-              prijs_totaal: Number(t.prijs_totaal) || 0
-            }))
-          })
-          attachments = [{
-            filename: `tickets-${ticket.order_ref}.pdf`,
-            content: uint8ArrayToBase64(pdfBytes),
-            contentType: 'application/pdf'
-          }]
-        } catch (pdfErr: any) {
-          console.error('[webhooks] PDF generation failed (continuing without attachment):', pdfErr?.message || pdfErr)
-        }
 
         await sendEmail({
           to: ticket.koper_email,
@@ -348,6 +444,27 @@ app.post('/api/webhooks/mollie', async (c) => {
           attachments
         }, c.env.RESEND_API_KEY)
 
+        // Notificatie voor het lid (indien email matcht met user)
+        if (memberPortalUrl) {
+          try {
+            const userRow = await queryOne<any>(c.env.DB,
+              `SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND status = 'actief' LIMIT 1`,
+              [ticket.koper_email])
+            if (userRow) {
+              await createNotification(
+                c.env.DB,
+                userRow.id,
+                'concert',
+                `🎫 Je tickets voor "${ticket.titel}" zijn klaar`,
+                `${seatRows.length || ticketLines.reduce((s, t) => s + (t.aantal || 0), 0)} ticket(s) beschikbaar in je portaal. Klik om te bekijken en te downloaden.`,
+                `/leden/mijn-tickets/${encodeURIComponent(ticket.order_ref)}`
+              )
+            }
+          } catch (e) {
+            console.warn('[webhooks] notificatie aanmaken mislukt:', (e as any)?.message)
+          }
+        }
+
         await execute(c.env.DB,
           `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
            VALUES (NULL, 'payment_completed', 'tickets', ?, ?)`,
@@ -355,7 +472,8 @@ app.post('/api/webhooks/mollie', async (c) => {
             payment_id: paymentId,
             order_ref: ticket.order_ref,
             amount: totaalBedrag,
-            line_count: ticketLines.length
+            line_count: ticketLines.length,
+            seat_count: seatRows.length
           })]
         )
       }

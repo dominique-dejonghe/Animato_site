@@ -196,6 +196,10 @@ export function ticketEmail(data: {
   tickets: string
   qrCode: string
   totaalBedrag: number
+  /** Indien het emailadres matcht met een actief lid → link naar /leden/mijn-tickets */
+  memberPortalUrl?: string
+  /** Aantal stoelen waarvoor er een aparte PDF in de bijlage zit (informatief) */
+  seatCount?: number
 }): string {
   return `
 <!DOCTYPE html>
@@ -257,7 +261,9 @@ export function ticketEmail(data: {
     <div class="qr-section">
       <h3 style="margin: 0 0 15px 0; color: #10B981;">📎 Je tickets zitten in bijlage</h3>
       <p style="margin: 0 0 10px 0;">
-        Je vindt <strong>${data.tickets}</strong> als PDF-bijlage bij deze mail. Elk ticket heeft een eigen scanbare QR-code.
+        ${data.seatCount && data.seatCount > 0
+          ? `Je vindt <strong>${data.seatCount} individuele PDF-ticket${data.seatCount > 1 ? 's' : ''}</strong> als bijlage bij deze mail — één per stoel. Elk ticket heeft een eigen scanbare QR-code.`
+          : `Je vindt <strong>${data.tickets}</strong> als PDF-bijlage bij deze mail. Elk ticket heeft een eigen scanbare QR-code.`}
       </p>
       <p style="margin: 0; font-size: 13px; color: #555;">
         Print de PDF uit óf toon de QR-code op je smartphone bij de ingang.
@@ -266,6 +272,17 @@ export function ticketEmail(data: {
         Order: ${data.orderRef}
       </div>
     </div>
+
+    ${data.memberPortalUrl ? `
+    <div style="background: linear-gradient(135deg, #10A8CF 0%, #0891B2 100%); color: white; padding: 20px; border-radius: 10px; margin: 20px 0;">
+      <h4 style="margin: 0 0 10px 0; font-size: 18px;">🎵 Tip voor Animato-leden</h4>
+      <p style="margin: 0 0 12px 0;">
+        Je tickets zijn ook beschikbaar in je ledenportaal — handig als je de mail kwijt bent.
+      </p>
+      <a href="${data.memberPortalUrl}" style="display: inline-block; background: white; color: #0891B2; padding: 10px 18px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+        📋 Bekijk in ledenportaal
+      </a>
+    </div>` : ''}
     
     <div style="background: #DBEAFE; border-left: 4px solid #3B82F6; padding: 15px; border-radius: 6px; margin: 20px 0;">
       <h4 style="margin: 0 0 10px 0;">💡 Belangrijke informatie</h4>

@@ -41,6 +41,7 @@ import adminCommentsRoutes from './routes/admin-comments'
 import editablePagesRoutes from './routes/editable-pages'
 import adminSeatingRoutes from './routes/admin-seating'
 import ledenActivityRoutes from './routes/leden-activity'
+import ledenTicketsRoutes from './routes/leden-tickets'
 import welkomRoutes from './routes/welkom'
 import newMembersRoutes from './routes/new-members'
 import adminCommunicationsRoutes from './routes/admin-communications' // Imported
@@ -162,6 +163,10 @@ app.route('/', webhooksRoutes)
 // Mollie-redirect. Anders 401't de leden-wildcard de hele flow en
 // blijft je betaling pending. (Bug ontdekt 2026-06-13)
 app.route('/', ticketsRoutes)
+
+// Leden ticket-portal MOET vóór de catch-all ledenRoutes komen, anders vangt
+// die de /leden/mijn-tickets wildcard af voor we daar aan toe komen.
+app.route('/', ledenTicketsRoutes)
 
 // Leden portal routes
 app.route('/', ledenRoutes)

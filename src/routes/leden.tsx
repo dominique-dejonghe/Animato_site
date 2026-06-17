@@ -142,6 +142,24 @@ app.get('/leden', async (c) => {
     [`%${user.stemgroep || ''}%`]
   )
 
+  // Toekomstige ticket-bestellingen voor dit lid (strikte email-match)
+  // → Wordt enkel als kaartje getoond als er minstens één toekomstige bestelling is.
+  const upcomingTickets = await queryAll<any>(
+    c.env.DB,
+    `SELECT t.order_ref, e.titel AS concert_titel, e.start_at, e.locatie,
+            SUM(t.aantal) AS aantal_kaarten
+     FROM tickets t
+     JOIN concerts c ON c.id = t.concert_id
+     JOIN events e ON e.id = c.event_id
+     WHERE LOWER(t.koper_email) = LOWER(?)
+       AND t.status = 'paid'
+       AND datetime(e.start_at) >= datetime('now')
+     GROUP BY t.order_ref
+     ORDER BY datetime(e.start_at) ASC
+     LIMIT 3`,
+    [user.email]
+  )
+
   // Get latest nieuws for members
   // Bug #202 — DB slaat stemgroep als 'S','A','T','B' op,
   // posts.zichtbaarheid gebruikt 'sopraan'/'alt'/'tenor'/'bas'.
@@ -1020,6 +1038,7 @@ app.get('/leden', async (c) => {
               { key: null,           href: '/leden/streaks',       icon: null,                  iconBg: 'bg-orange-100',                    iconColor: '',                             title: 'Streaks',        desc: 'Aanwezigheid & badges',         border: 'border-2 border-orange-200', emoji: '🔥' },
               { key: null,           href: '/leden/reglementen',   icon: 'fas fa-scroll',       iconBg: 'bg-amber-100',                     iconColor: 'text-amber-700 text-xl',       title: 'Reglementen',    desc: 'Koor-kompas & afspraken',       border: '' },
               { key: 'voice_analyzer', href: '/stem-test',         icon: 'fas fa-microphone',   iconBg: 'bg-purple-100',                    iconColor: 'text-purple-600 text-xl',      title: 'Stem Test',      desc: 'Test je stembereik',            border: '' },
+              { key: null,           href: '/leden/mijn-tickets',  icon: 'fas fa-ticket-alt',   iconBg: 'bg-cyan-100',                      iconColor: 'text-cyan-700 text-xl',        title: 'Mijn Tickets',   desc: 'Download concerttickets',       border: '' },
               { key: null,           href: '/leden/profiel',       icon: 'fas fa-id-card',      iconBg: 'bg-animato-primary bg-opacity-10', iconColor: 'text-animato-primary text-xl', title: 'Mijn profiel',   desc: 'Persoonsgegevens bewerken',     border: '', isProfile: true },
             ]
             // Filter: admin sees everything, members only see enabled modules (null key = always visible)
@@ -1071,6 +1090,49 @@ app.get('/leden', async (c) => {
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Left column - Events & News */}
             <div class="lg:col-span-2 space-y-8">
+
+              {/* ── MIJN TICKETS — alleen tonen als er toekomstige bestellingen zijn ── */}
+              {upcomingTickets.length > 0 && (
+                <div class="bg-gradient-to-br from-animato-primary to-animato-secondary rounded-xl shadow-lg p-6 text-white">
+                  <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-2xl font-bold flex items-center gap-2" style="font-family: 'Playfair Display', serif;">
+                      <i class="fas fa-ticket-alt"></i>
+                      Mijn Tickets
+                    </h2>
+                    <a href="/leden/mijn-tickets" class="text-white/90 hover:text-white text-sm underline whitespace-nowrap">
+                      Bekijk alle
+                    </a>
+                  </div>
+                  <p class="text-blue-50 text-sm mb-4">
+                    Je hebt {upcomingTickets.length} aankomende bestelling{upcomingTickets.length > 1 ? 'en' : ''}. Download je tickets per stoel of als ZIP.
+                  </p>
+                  <div class="space-y-2">
+                    {upcomingTickets.map((tk: any) => {
+                      const d = new Date(tk.start_at)
+                      const datumStr = d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })
+                      const tijdStr = d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+                      return (
+                        <a
+                          href={`/leden/mijn-tickets/${encodeURIComponent(tk.order_ref)}`}
+                          class="block bg-white/10 hover:bg-white/20 backdrop-blur-sm rounded-lg p-3 transition border border-white/20"
+                        >
+                          <div class="flex items-center justify-between">
+                            <div class="flex-1 min-w-0">
+                              <div class="font-semibold truncate">{tk.concert_titel}</div>
+                              <div class="text-xs text-blue-50 mt-0.5">
+                                <i class="fas fa-calendar mr-1"></i> {datumStr} · {tijdStr} ·{' '}
+                                <i class="fas fa-ticket-alt mx-1"></i> {tk.aantal_kaarten} kaart{tk.aantal_kaarten > 1 ? 'en' : ''}
+                              </div>
+                            </div>
+                            <i class="fas fa-chevron-right ml-2 text-white/70"></i>
+                          </div>
+                        </a>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Upcoming events */}
               <div class="bg-white rounded-lg shadow-md p-6">
                 <div class="flex items-center justify-between mb-4">

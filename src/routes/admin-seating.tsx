@@ -344,25 +344,48 @@ function renderEditor(c: any, layout: any) {
         el.innerText = seat.seat_number || String(index + 1);
       }
 
-      // ── Drag ──────────────────────────────────────
+      // ── Mousedown / drag / click-detection ──────────
+      // Slimme afhandeling:
+      //  - Korte klik zonder beweging  → context-menu (type wisselen, verwijderen...)
+      //  - Klik + slepen (>3px)         → drag de stoel
+      //  - Shift+klik                   → selectie toggle (zonder context-menu)
+      //  - Rechtsklik                   → context-menu (zelfde als korte klik)
       var dragging = false;
+      var movedSignificantly = false;
       var offX = 0, offY = 0;
+      var startX = 0, startY = 0;
 
       el.addEventListener('mousedown', function(e) {
         if (e.button !== 0) return;
         e.stopPropagation();
+        // Shift+klik = selectie-modus; geen drag, geen context-menu (wordt door 'click' afgehandeld)
+        if (e.shiftKey) return;
         dragging = true;
-        isDraggingAnySeat = true;
+        isDraggingAnySeat = false; // pas op true als er écht beweging is
+        movedSignificantly = false;
+        startX = e.clientX;
+        startY = e.clientY;
         var rect = wrapper.getBoundingClientRect();
         offX = e.clientX - rect.left - seat.x;
         offY = e.clientY - rect.top  - seat.y;
         el.style.zIndex = 9999;
-        el.style.cursor = 'grabbing';
         e.preventDefault();
       });
 
       function onMove(e) {
         if (!dragging) return;
+        // Detecteer of de gebruiker écht aan het slepen is (>3px beweging)
+        if (!movedSignificantly) {
+          var dx = Math.abs(e.clientX - startX);
+          var dy = Math.abs(e.clientY - startY);
+          if (dx + dy > 3) {
+            movedSignificantly = true;
+            isDraggingAnySeat = true;
+            el.style.cursor = 'grabbing';
+          } else {
+            return; // nog geen echte beweging
+          }
+        }
         var rect = wrapper.getBoundingClientRect();
         var nx = e.clientX - rect.left - offX;
         var ny = e.clientY - rect.top  - offY;
@@ -374,11 +397,21 @@ function renderEditor(c: any, layout: any) {
         seat.y = ny;
       }
 
-      function onUp() {
-        if (dragging) {
-          dragging = false;
-          el.style.zIndex = '';
-          el.style.cursor = 'grab';
+      function onUp(e) {
+        if (!dragging) return;
+        var wasMoved = movedSignificantly;
+        dragging = false;
+        el.style.zIndex = '';
+        el.style.cursor = 'grab';
+
+        if (!wasMoved) {
+          // Geen drag → toon context-menu
+          // (we doen het hier i.p.v. via click-event omdat click bij drag-besturing
+          //  niet altijd betrouwbaar afgaat)
+          // Bevries 'isDraggingAnySeat' niet — we zaten al op false
+          openSeatContextMenu(index, e.clientX, e.clientY);
+        } else {
+          // Was drag — voorkom dat onmiddellijk daarna een canvas-click een nieuwe stoel plaatst
           setTimeout(function() { isDraggingAnySeat = false; }, 50);
         }
       }
@@ -386,14 +419,11 @@ function renderEditor(c: any, layout: any) {
       window.addEventListener('mousemove', onMove);
       window.addEventListener('mouseup', onUp);
 
-      // ── Right-click remove ────────────────────────
+      // ── Rechtsklik op stoel = ook context-menu ───────────
       el.addEventListener('contextmenu', function(e) {
         e.preventDefault();
         e.stopPropagation();
-        seats.splice(index, 1);
-        // Reset selection because indices shift
-        selectedIndices = [];
-        renderSeats();
+        openSeatContextMenu(index, e.clientX, e.clientY);
       });
 
       // ── Shift+click → toggle selection for alignment ──
@@ -466,13 +496,22 @@ function renderEditor(c: any, layout: any) {
       tag.addEventListener('contextmenu', function(e) {
         e.preventDefault();
         e.stopPropagation();
-        if (!confirm('Hele rij "' + lbl + '" verwijderen? (' + g.count + ' stoel' + (g.count===1?'':'en') + ')\\n\\nLet op: stoelen die in een bestaand concert verkocht zijn, blijven beschermd bij opslaan.')) return;
+        if (!confirm('Hele rij "' + lbl + '" verwijderen? (' + g.count + ' stoel' + (g.count===1?'':'en') + ')\\n\\nDe rijen daarachter schuiven automatisch op om het gat te sluiten.\\n\\nLet op: stoelen die in een bestaand concert verkocht zijn, blijven beschermd bij opslaan.')) return;
         // Verwijder by reverse-sort om indices stabiel te houden
         var sorted = g.indices.slice().sort(function(a,b){ return b-a; });
         sorted.forEach(function(i) { seats.splice(i, 1); });
         selectedIndices = [];
         renderSeats();
         updateAlignToolbar();
+        // Sluit automatisch het gat dat door deze rij is achtergelaten
+        var gapsClosed = closeRowGaps({ silent: true });
+        if (gapsClosed > 0) {
+          var toast = document.createElement('div');
+          toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#3B82F6;color:#fff;padding:10px 18px;border-radius:8px;font-weight:500;z-index:9999;box-shadow:0 10px 25px rgba(0,0,0,.15);font-size:13px';
+          toast.innerHTML = '<i class="fas fa-compress-arrows-alt mr-2"></i>Rij verwijderd en gat gesloten.';
+          document.body.appendChild(toast);
+          setTimeout(function(){ if (document.body.contains(toast)) document.body.removeChild(toast); }, 3000);
+        }
       });
       wrapper.appendChild(tag);
     });
@@ -836,6 +875,93 @@ function renderEditor(c: any, layout: any) {
     updateAlignToolbar();
   }
 
+  // ── Rij-gaten sluiten ──────────────────────────────
+  // Detecteert ongewone verticale gaten tussen opeenvolgende rijen en
+  // schuift de rijen daarachter omhoog naar de normale rij-afstand.
+  // BEHOUDT relatieve positie binnen elke rij (zodat gebogen rijen
+  // niet platgeslagen worden).
+  //
+  // Returns: aantal pixels dat verschoven is (0 = geen gaten gedetecteerd).
+  function closeRowGaps(options) {
+    options = options || {};
+    var silent = !!options.silent;
+
+    if (seats.length === 0) {
+      if (!silent) alert('Geen stoelen aanwezig.');
+      return 0;
+    }
+
+    // 1. Groepeer per row_label
+    var groups = {};
+    seats.forEach(function(s, idx) {
+      var lbl = (s.row_label == null ? '__nolabel__' : String(s.row_label));
+      if (!groups[lbl]) groups[lbl] = { label: lbl, minY: Infinity, maxY: -Infinity, sumY: 0, count: 0, indices: [] };
+      groups[lbl].minY = Math.min(groups[lbl].minY, s.y);
+      groups[lbl].maxY = Math.max(groups[lbl].maxY, s.y);
+      groups[lbl].sumY += s.y;
+      groups[lbl].count++;
+      groups[lbl].indices.push(idx);
+    });
+    var groupList = Object.values(groups);
+    groupList.forEach(function(g) { g.avgY = g.sumY / g.count; });
+    groupList.sort(function(a, b) { return a.avgY - b.avgY; });
+
+    if (groupList.length < 2) {
+      if (!silent) alert('Maar één rij — niets te sluiten.');
+      return 0;
+    }
+
+    // 2. Bereken delta's tussen opeenvolgende rijen (op minY, want gebogen
+    //    rijen kunnen rond hun centrum schommelen).
+    var deltas = [];
+    for (var i = 1; i < groupList.length; i++) {
+      deltas.push(groupList[i].minY - groupList[i-1].minY);
+    }
+
+    // 3. Mediaan-delta = normale rij-afstand (robuust tegen outliers)
+    var sortedDeltas = deltas.slice().sort(function(a,b){ return a-b; });
+    var median = sortedDeltas[Math.floor(sortedDeltas.length / 2)];
+
+    if (median <= 0) {
+      // Rare data: alle rijen op dezelfde Y? Niets te doen.
+      if (!silent) alert('Rij-afstanden zijn te onregelmatig om automatisch te sluiten.');
+      return 0;
+    }
+
+    // 4. Drempel: meer dan 1.5× mediaan = "gat"
+    var gapThreshold = median * 1.5;
+
+    // 5. Loop door rijen, accumuleer offset bij elke gedetecteerde gap
+    var cumulativeShift = 0;
+    var gapsClosed = 0;
+    for (var i2 = 1; i2 < groupList.length; i2++) {
+      var prev = groupList[i2-1];
+      var curr = groupList[i2];
+      var observedDelta = curr.minY - prev.minY;
+      if (observedDelta > gapThreshold) {
+        // Sluit dit gat: verschuif curr (en alles erna) zodat afstand = median
+        var thisGapShift = observedDelta - median;
+        cumulativeShift += thisGapShift;
+        gapsClosed++;
+      }
+      if (cumulativeShift > 0) {
+        // Pas verschuiving toe op alle stoelen van deze rij
+        curr.indices.forEach(function(idx) {
+          if (seats[idx]) seats[idx].y -= cumulativeShift;
+        });
+        // Update geaccumuleerde info voor volgende iteratie
+        curr.minY -= cumulativeShift;
+        curr.maxY -= cumulativeShift;
+        curr.avgY -= cumulativeShift;
+      }
+    }
+
+    if (gapsClosed > 0) {
+      renderSeats();
+    }
+    return gapsClosed;
+  }
+
   function alignSelected(mode) {
     if (selectedIndices.length < 2) return;
     var sel = selectedIndices.map(function(i) { return seats[i]; }).filter(Boolean);
@@ -1162,7 +1288,7 @@ function renderEditor(c: any, layout: any) {
     }
   }
 
-  // Wire-up de knop
+  // Wire-up de knoppen
   var renumberBtn = document.getElementById('renumberRowsBtn');
   if (renumberBtn) {
     renumberBtn.addEventListener('click', function(e) {
@@ -1170,6 +1296,164 @@ function renderEditor(c: any, layout: any) {
       e.preventDefault();
       renumberRows();
     });
+  }
+
+  var closeGapsBtn = document.getElementById('closeGapsBtn');
+  if (closeGapsBtn) {
+    closeGapsBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      e.preventDefault();
+      var gapsClosed = closeRowGaps();
+      var toast = document.createElement('div');
+      if (gapsClosed > 0) {
+        toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#10B981;color:#fff;padding:12px 20px;border-radius:8px;font-weight:600;z-index:9999;box-shadow:0 10px 25px rgba(0,0,0,.15)';
+        toast.innerHTML = '<i class="fas fa-check-circle mr-2"></i>' + gapsClosed + ' gat' + (gapsClosed===1?'':'en') + ' gesloten. Vergeet niet op te slaan!';
+      } else {
+        toast.style.cssText = 'position:fixed;top:20px;right:20px;background:#6B7280;color:#fff;padding:12px 20px;border-radius:8px;font-weight:600;z-index:9999;box-shadow:0 10px 25px rgba(0,0,0,.15)';
+        toast.innerHTML = '<i class="fas fa-info-circle mr-2"></i>Geen rij-gaten gevonden.';
+      }
+      document.body.appendChild(toast);
+      setTimeout(function(){ if (document.body.contains(toast)) document.body.removeChild(toast); }, 3500);
+    });
+  }
+
+  // ── Context-menu voor één stoel ─────────────────────
+  // Verschijnt bij korte klik (geen drag) of rechtsklik op een stoel.
+  // Acties: type wisselen + verwijderen. Buurstoel-suggestie bij wheelchair.
+  var currentSeatMenu = null;
+  function closeSeatContextMenu() {
+    if (currentSeatMenu && document.body.contains(currentSeatMenu)) {
+      document.body.removeChild(currentSeatMenu);
+    }
+    currentSeatMenu = null;
+  }
+
+  function openSeatContextMenu(seatIndex, mouseX, mouseY) {
+    closeSeatContextMenu();
+    var seat = seats[seatIndex];
+    if (!seat) return;
+
+    var typeLabel = {
+      'standard': 'Standaard',
+      'wheelchair': 'Rolstoelplaats',
+      'companion': 'Begeleider',
+      'restricted_view': 'Beperkt zicht'
+    }[seat.type] || 'Standaard';
+
+    var menu = document.createElement('div');
+    menu.style.cssText = 'position:fixed;z-index:10000;background:#fff;border:1px solid #D1D5DB;border-radius:8px;box-shadow:0 10px 25px rgba(0,0,0,.15);padding:6px;min-width:200px;font-size:13px;';
+
+    // Header met huidige info
+    var header = document.createElement('div');
+    header.style.cssText = 'padding:6px 10px;border-bottom:1px solid #E5E7EB;margin-bottom:4px;color:#374151;';
+    header.innerHTML = '<div style="font-weight:600;font-size:12px">Rij ' + escapeHtml(seat.row_label || '?') + ' · stoel ' + escapeHtml(seat.seat_number || '?') + '</div>' +
+                      '<div style="font-size:11px;color:#6B7280;margin-top:2px">Huidig: ' + typeLabel + '</div>';
+    menu.appendChild(header);
+
+    // Type-knoppen
+    var typeBtns = [
+      { type: 'standard',       label: 'Standaard',       icon: 'fa-circle',          color: '#3B82F6' },
+      { type: 'wheelchair',     label: 'Rolstoelplaats',  icon: 'fa-wheelchair',      color: '#10B981' },
+      { type: 'companion',      label: 'Begeleider',      icon: 'fa-hands-helping',   color: '#60A5FA' },
+      { type: 'restricted_view', label: 'Beperkt zicht',  icon: 'fa-eye-slash',       color: '#9CA3AF' }
+    ];
+
+    typeBtns.forEach(function(opt) {
+      var btn = document.createElement('button');
+      var isCurrent = seat.type === opt.type;
+      btn.style.cssText = 'display:flex;align-items:center;width:100%;padding:7px 10px;border:none;background:' + (isCurrent ? '#F3F4F6' : 'transparent') + ';color:#111827;text-align:left;cursor:' + (isCurrent ? 'default' : 'pointer') + ';border-radius:4px;font-size:13px;';
+      btn.innerHTML = '<i class="fas ' + opt.icon + '" style="color:' + opt.color + ';width:18px;text-align:center;margin-right:8px"></i>' +
+                      '<span>' + opt.label + '</span>' +
+                      (isCurrent ? '<i class="fas fa-check" style="margin-left:auto;color:#10B981;font-size:11px"></i>' : '');
+      if (!isCurrent) {
+        btn.addEventListener('mouseenter', function() { btn.style.background = '#F9FAFB'; });
+        btn.addEventListener('mouseleave', function() { btn.style.background = 'transparent'; });
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          changeSingleSeatType(seatIndex, opt.type);
+          closeSeatContextMenu();
+        });
+      }
+      menu.appendChild(btn);
+    });
+
+    // Separator
+    var sep = document.createElement('div');
+    sep.style.cssText = 'height:1px;background:#E5E7EB;margin:4px 0;';
+    menu.appendChild(sep);
+
+    // Verwijder-knop
+    var delBtn = document.createElement('button');
+    delBtn.style.cssText = 'display:flex;align-items:center;width:100%;padding:7px 10px;border:none;background:transparent;color:#DC2626;text-align:left;cursor:pointer;border-radius:4px;font-size:13px;';
+    delBtn.innerHTML = '<i class="fas fa-trash" style="width:18px;text-align:center;margin-right:8px"></i><span>Verwijder stoel</span>';
+    delBtn.addEventListener('mouseenter', function() { delBtn.style.background = '#FEE2E2'; });
+    delBtn.addEventListener('mouseleave', function() { delBtn.style.background = 'transparent'; });
+    delBtn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      closeSeatContextMenu();
+      seats.splice(seatIndex, 1);
+      selectedIndices = [];
+      renderSeats();
+      updateAlignToolbar();
+    });
+    menu.appendChild(delBtn);
+
+    // Positionering: probeer rechts-naast de muiscursor, anders links
+    document.body.appendChild(menu);
+    var rect = menu.getBoundingClientRect();
+    var x = mouseX + 8;
+    var y = mouseY + 8;
+    if (x + rect.width > window.innerWidth) x = mouseX - rect.width - 8;
+    if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 8;
+    if (x < 4) x = 4;
+    if (y < 4) y = 4;
+    menu.style.left = x + 'px';
+    menu.style.top = y + 'px';
+
+    currentSeatMenu = menu;
+
+    // Sluit bij klik buiten
+    setTimeout(function() {
+      function outsideHandler(e) {
+        if (!menu.contains(e.target)) {
+          closeSeatContextMenu();
+          document.removeEventListener('mousedown', outsideHandler);
+        }
+      }
+      document.addEventListener('mousedown', outsideHandler);
+    }, 0);
+  }
+
+  // Wijzig type van één enkele stoel — met buurstoel-suggestie voor wheelchair
+  function changeSingleSeatType(seatIndex, newType) {
+    var seat = seats[seatIndex];
+    if (!seat) return;
+    seat.type = newType;
+
+    if (newType === 'wheelchair') {
+      // Zoek dichtstbijzijnde buurstoel in dezelfde rij die nog 'standard' is
+      var best = null, bestDist = Infinity;
+      seats.forEach(function(other, j) {
+        if (j === seatIndex) return;
+        if (other.row_label !== seat.row_label) return;
+        if (other.type === 'wheelchair' || other.type === 'companion') return;
+        var dx = Math.abs(other.x - seat.x);
+        var dy = Math.abs(other.y - seat.y);
+        if (dy > 30) return;
+        var dist = dx + dy;
+        if (dist < bestDist && dx < 80) {
+          bestDist = dist;
+          best = j;
+        }
+      });
+      if (best !== null) {
+        if (confirm('Wil je de buurstoel (rij ' + (seats[best].row_label || '?') + ', stoel ' + (seats[best].seat_number || '?') + ') als begeleider markeren?')) {
+          seats[best].type = 'companion';
+        }
+      }
+    }
+
+    renderSeats();
   }
 
   // ── Save ───────────────────────────────────────────
@@ -1782,13 +2066,23 @@ function renderEditor(c: any, layout: any) {
                 </div>
               </div>
 
-              {/* Hernummer-rijen knop — los van selectie, want dit werkt over alle rijen */}
-              <div class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              {/* Hernummer-rijen + Sluit-gaten knoppen — los van selectie */}
+              <div class="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
                 <div class="flex items-center justify-between flex-wrap gap-3">
+                  <div class="text-sm text-blue-900">
+                    <i class="fas fa-compress-arrows-alt mr-1"></i>
+                    <strong>Verticale gaten sluiten:</strong>
+                    <span class="text-xs text-blue-700 ml-1">Schuift rijen na een verwijderde rij netjes naar boven (geen "gat" meer).</span>
+                  </div>
+                  <button id="closeGapsBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-blue-400 text-blue-800 rounded hover:bg-blue-100 font-semibold">
+                    <i class="fas fa-compress-arrows-alt mr-1"></i> Sluit rij-gaten
+                  </button>
+                </div>
+                <div class="flex items-center justify-between flex-wrap gap-3 pt-2 border-t border-blue-200">
                   <div class="text-sm text-blue-900">
                     <i class="fas fa-sort-alpha-down mr-1"></i>
                     <strong>Rijen hernummeren:</strong>
-                    <span class="text-xs text-blue-700 ml-1">Maakt de reeks weer aaneensluitend na rij-verwijderingen (bv. na O wegdoen wordt P → O, Q → P).</span>
+                    <span class="text-xs text-blue-700 ml-1">Maakt de label-reeks weer aaneensluitend (bv. na O wegdoen wordt P → O, Q → P).</span>
                   </div>
                   <button id="renumberRowsBtn" type="button" class="px-3 py-1.5 text-xs bg-white border border-blue-400 text-blue-800 rounded hover:bg-blue-100 font-semibold">
                     <i class="fas fa-sort-alpha-down mr-1"></i> Hernummer rijen
@@ -1797,7 +2091,7 @@ function renderEditor(c: any, layout: any) {
               </div>
 
               <p class="text-xs text-gray-500 mt-2 text-center">
-                <strong>Klik</strong> = stoel toevoegen &nbsp;|&nbsp; <strong>Blok Toe</strong> = rechte rijen &nbsp;|&nbsp; <strong>Slepen</strong> = verplaatsen &nbsp;|&nbsp; <strong>Shift+klik</strong> = uitlijnen / type wijzigen &nbsp;|&nbsp; <strong>Klik rij-label</strong> = hele rij selecteren &nbsp;|&nbsp; <strong>Rechtsklik</strong> = verwijderen
+                <strong>Klik op stoel</strong> = menu (type wisselen, verwijderen) &nbsp;|&nbsp; <strong>Slepen</strong> = verplaatsen &nbsp;|&nbsp; <strong>Shift+klik</strong> = meerdere selecteren &nbsp;|&nbsp; <strong>Klik op rij-label</strong> = hele rij selecteren &nbsp;|&nbsp; <strong>Rechtsklik op rij-label</strong> = rij verwijderen
               </p>
             </div>
           </div>

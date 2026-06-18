@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
-import { requireAuth, requireRole, requireBestuurslid } from '../middleware/auth'
+import { requireAuth, requireRole } from '../middleware/auth'
 import { queryAll, queryOne, execute } from '../utils/db'
 
 const app = new Hono<{ Bindings: Bindings }>()

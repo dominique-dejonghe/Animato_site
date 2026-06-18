@@ -796,17 +796,25 @@ app.get('/admin/lidgelden', async (c) => {
                   <h3 class="font-bold text-gray-800 mb-3 text-sm flex items-center">
                     <i class="fas fa-chart-bar text-blue-500 mr-2"></i> Betalingstrend (8 weken)
                   </h3>
-                  <div class="flex items-end gap-1 h-32">
-                    {weeklyTrend.map((w) => (
-                      <div class="flex-1 flex flex-col items-center justify-end" title={`${w.week}: ${w.count} betaling${w.count === 1 ? '' : 'en'} (€${w.amount.toFixed(0)})`}>
-                        <div class="text-[10px] text-gray-500 mb-1">{w.count > 0 ? w.count : ''}</div>
-                        <div
-                          class="w-full bg-blue-400 hover:bg-blue-500 transition rounded-t"
-                          style={`height: ${(w.count / maxWeekCount) * 100}%; min-height: ${w.count > 0 ? '4px' : '0'}`}
-                        ></div>
-                        <div class="text-[9px] text-gray-400 mt-1">{w.week}</div>
-                      </div>
-                    ))}
+                  <div class="flex items-stretch gap-2 h-36">
+                    {weeklyTrend.map((w) => {
+                      const pct = (w.count / maxWeekCount) * 100
+                      return (
+                        <div class="flex-1 flex flex-col" title={`${w.week}: ${w.count} betaling${w.count === 1 ? '' : 'en'} (€${w.amount.toFixed(0)})`}>
+                          {/* Plot-area: 1 flexrij die volledig de beschikbare ruimte boven het label opvult */}
+                          <div class="flex-1 flex flex-col justify-end items-center min-h-0">
+                            <div class="text-[10px] font-semibold text-gray-600 leading-none mb-0.5 h-3">
+                              {w.count > 0 ? w.count : ''}
+                            </div>
+                            <div
+                              class="w-full bg-blue-400 hover:bg-blue-500 transition rounded-t"
+                              style={`height: ${pct}%; min-height: ${w.count > 0 ? '4px' : '0'};`}
+                            ></div>
+                          </div>
+                          <div class="text-[10px] text-gray-400 text-center mt-1 leading-none">{w.week}</div>
+                        </div>
+                      )
+                    })}
                   </div>
                 </div>
 

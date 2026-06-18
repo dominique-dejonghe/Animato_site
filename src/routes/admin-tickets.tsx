@@ -3184,7 +3184,7 @@ app.get('/admin/tickets/test-checklist', async (c) => {
   const db = c.env.DB
 
   // Verzamel diagnostiek-info live
-  const mollieMode = await getMollieMode(c.env)
+  const mollieMode = getMollieMode(await getMollieApiKey(c.env))
   const webhookCalls24h = await queryOne<any>(db,
     `SELECT COUNT(*) as n FROM mollie_webhook_log WHERE created_at >= datetime('now', '-1 day')`)
   const errors24h = await queryOne<any>(db,

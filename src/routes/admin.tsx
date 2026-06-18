@@ -1747,7 +1747,7 @@ app.get('/admin/leden', async (c) => {
           
           {/* Stats Bar */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
               <a href="/admin/leden?status=actief" class="text-center hover:bg-gray-50 rounded-lg py-1 transition cursor-pointer" title="Toon alle actieve leden">
                 <p class="text-2xl font-bold text-gray-900">{counts.all?.count || 0}</p>
                 <p class="text-sm text-gray-600">Actieve leden</p>
@@ -1773,14 +1773,21 @@ app.get('/admin/leden', async (c) => {
                 </p>
                 <p class="text-sm text-gray-600">Pianist</p>
               </a>
-              <div class="text-center">
+              <a href="/admin/leden?role=admin&status=actief" class="text-center hover:bg-red-50 rounded-lg py-1 transition cursor-pointer" title="Toon admins">
                 <p class="text-2xl font-bold text-red-600">{counts.admin?.count || 0}</p>
                 <p class="text-sm text-gray-600">Admins</p>
-              </div>
-              <div class="text-center">
+              </a>
+              <a href="/admin/leden?status=actief" class="text-center hover:bg-green-50 rounded-lg py-1 transition cursor-pointer" title="Toon alle actieve leden">
                 <p class="text-2xl font-bold text-green-600">{counts.actief?.count || 0}</p>
                 <p class="text-sm text-gray-600">Actief</p>
-              </div>
+              </a>
+              <a href="/admin/leden?status=inactief" class="text-center hover:bg-gray-100 rounded-lg py-1 transition cursor-pointer" title="Toon inactieve leden (gestopt maar bewaard voor historie)">
+                <p class="text-2xl font-bold text-gray-500 flex items-center justify-center">
+                  <i class="fas fa-user-slash text-sm mr-1"></i>
+                  {counts.inactief?.count || 0}
+                </p>
+                <p class="text-sm text-gray-600">Inactief</p>
+              </a>
               <div class="text-center border-l-2 border-animato-accent pl-4">
                 <p class="text-2xl font-bold text-animato-accent flex items-center justify-center">
                   <i class="fas fa-circle text-xs mr-2 animate-pulse"></i>

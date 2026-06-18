@@ -2,13 +2,28 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
-import { requireRole, requireBestuurslid } from '../middleware/auth'
+import { requireAuth, requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryAll, queryOne, execute } from '../utils/db'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-// Middleware
-app.use('/admin/*', requireBestuurslid)
+// Middleware — strikt admin/moderator only (geen pure bestuursleden).
+// Zaalplannen-beheer is een technische taak (stoeltypes, lay-out, rolstoelen,
+// rij-nummers) die niet bij de bestuurlijke verantwoordelijkheid hoort.
+// Bestuursleden zien deze sectie ook niet meer in het sidebar-menu.
+//
+// Scope strikt op /admin/seating/* en /api/admin/seating/* om te vermijden
+// dat deze middleware andere admin-routes hijackt (Hono-valstrik).
+// requireRole eist een door requireAuth gezette user op c.get('user'),
+// dus eerst requireAuth dan requireRole.
+app.use('/admin/seating', requireAuth)
+app.use('/admin/seating', requireRole('admin', 'moderator'))
+app.use('/admin/seating/*', requireAuth)
+app.use('/admin/seating/*', requireRole('admin', 'moderator'))
+app.use('/api/admin/seating', requireAuth)
+app.use('/api/admin/seating', requireRole('admin', 'moderator'))
+app.use('/api/admin/seating/*', requireAuth)
+app.use('/api/admin/seating/*', requireRole('admin', 'moderator'))
 
 // =====================================================
 // OVERVIEW

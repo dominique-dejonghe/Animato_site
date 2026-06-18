@@ -1155,6 +1155,9 @@ app.get('/admin/lidgelden', async (c) => {
                       <th class="px-3 py-2 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="tijd" data-sort-type="number" title="Sorteer op dagen (open dagen of dagen tot betaling)">
                         Tijd <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
                       </th>
+                      <th class="px-3 py-2 text-left font-medium text-gray-500 cursor-pointer select-none hover:bg-gray-200 transition" data-sort-col="betaaldop" data-sort-type="number" title="Sorteer op betaaldatum — recentste eerst (desc) of oudste eerst (asc). Niet-betaalden onderaan.">
+                        Betaald op <i class="fas fa-sort text-gray-300 ml-1 text-xs sort-icon"></i>
+                      </th>
                       <th class="px-3 py-2 text-right font-medium text-gray-500">Actie</th>
                     </tr>
                   </thead>
@@ -1167,6 +1170,10 @@ app.get('/admin/lidgelden', async (c) => {
                       const tijdSortValue = m.status === 'paid'
                         ? (m.daysToPay !== null ? m.daysToPay : -1)
                         : (m.daysOpen || 0) + 10000  // open lidgelden hoger, zodat ze bij desc bovenaan komen
+                      // Sort-key voor "Betaald op": timestamp ms voor betaalden, 0 voor open (zodat ze onderaan staan bij desc, bovenaan bij asc)
+                      const betaaldOpSortValue = m.status === 'paid' && m.paid_at
+                        ? new Date(m.paid_at).getTime()
+                        : 0
                       return (
                       <tr
                         data-search={`${fullName} ${m.email || ''}`.toLowerCase()}
@@ -1175,6 +1182,7 @@ app.get('/admin/lidgelden', async (c) => {
                         data-sort-bedrag={Number(m.amount) || 0}
                         data-sort-status={m.status === 'paid' ? '1-paid' : '2-open'}
                         data-sort-tijd={tijdSortValue}
+                        data-sort-betaaldop={betaaldOpSortValue}
                       >
                         <td class="px-3 py-2">
                           <div class="font-medium text-gray-900">{m.voornaam} {m.achternaam}</div>
@@ -1215,6 +1223,16 @@ app.get('/admin/lidgelden', async (c) => {
                             <span class={`px-2 py-1 rounded ${m.daysOpen > 30 ? 'bg-red-100 text-red-700' : m.daysOpen > 14 ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-700'}`} title={`${m.daysOpen} dagen open`}>
                               <i class="fas fa-clock mr-1"></i>{m.daysOpen}d open
                             </span>
+                          )}
+                        </td>
+                        <td class="px-3 py-2 text-xs whitespace-nowrap">
+                          {m.status === 'paid' && m.paid_at ? (
+                            <div class="flex flex-col">
+                              <span class="text-gray-700 font-medium">{formatBrusselsDate(m.paid_at, { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                              <span class="text-gray-400">{formatBrusselsTime(m.paid_at)}</span>
+                            </div>
+                          ) : (
+                            <span class="text-gray-300">—</span>
                           )}
                         </td>
                         <td class="px-3 py-2 text-right">

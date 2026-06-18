@@ -2035,18 +2035,55 @@ app.post('/api/admin/lidgelden/sync-mollie-bulk', async (c) => {
   const { getMolliePayment } = await import('../utils/mollie')
   const apiKey = await getMollieApiKey(c.env)
 
-  let paidCount = 0, errorCount = 0, unchanged = 0
+  let paidCount = 0, errorCount = 0, unchanged = 0, expiredReset = 0
   for (const m of rows) {
     try {
       const pmt = await getMolliePayment(apiKey, m.mollie_payment_id)
       if (!pmt) { errorCount++; continue }
 
-      const newStatus = pmt.status === 'paid' ? 'paid'
-                      : pmt.status === 'open' ? 'pending'
-                      : pmt.status === 'pending' ? 'pending'
-                      : 'cancelled'
+      // BUG-FIX 2026-06-17: 'expired' en 'canceled'/'failed' bij Mollie betekenen
+      // NIET dat het lidgeld geannuleerd is. Het betekent dat de éne Mollie-
+      // betaaltransactie verlopen is — maar het lid moet nog steeds betalen
+      // (alleen via een nieuwe link). Eerder gooiden we alles in 'cancelled',
+      // waardoor 11 leden uit de Openstaand-tegel verdwenen en onzichtbaar
+      // werden in alle KPI's.
+      //
+      // Nieuwe semantiek:
+      //   Mollie 'paid'                    → lokaal 'paid'  (verwerk volledig)
+      //   Mollie 'open'/'pending'          → lokaal 'pending' (geen wijziging)
+      //   Mollie 'expired'/'canceled'/'failed' → lokaal 'pending' + reset
+      //                                          mollie_payment_id zodat lid
+      //                                          opnieuw een betaallink krijgt
+      //                                          via /send-link
+      //   Mollie 'authorized'              → lokaal 'pending' (nog niet captured)
+      const ms = pmt.status
+      let newStatus: 'paid' | 'pending' | 'cancelled'
+      let resetMollieId = false
+      if (ms === 'paid') {
+        newStatus = 'paid'
+      } else if (ms === 'open' || ms === 'pending' || ms === 'authorized') {
+        newStatus = 'pending'
+      } else if (ms === 'expired' || ms === 'canceled' || ms === 'failed') {
+        // Belangrijk: terug op pending zetten EN mollie_payment_id resetten
+        newStatus = 'pending'
+        resetMollieId = true
+      } else {
+        // Onbekende Mollie status — speel safe en behandel als pending
+        console.warn(`[bulk-sync] onbekende Mollie status '${ms}' voor membership ${m.id}, behandeld als pending`)
+        newStatus = 'pending'
+      }
 
-      if (newStatus === 'pending') { unchanged++; continue }
+      if (newStatus === 'pending' && !resetMollieId) { unchanged++; continue }
+
+      if (resetMollieId) {
+        await execute(db,
+          `UPDATE user_memberships
+           SET status = 'pending', mollie_payment_id = NULL, paid_at = NULL
+           WHERE id = ?`,
+          [m.id])
+        expiredReset++
+        continue
+      }
 
       await execute(db,
         `UPDATE user_memberships
@@ -2081,6 +2118,7 @@ app.post('/api/admin/lidgelden/sync-mollie-bulk', async (c) => {
     paid: String(paidCount),
     unchanged: String(unchanged),
     errors: String(errorCount),
+    expired_reset: String(expiredReset),
     checked: String(rows.length),
   })
   if (yearId) params2.set('season_id', yearId)
@@ -2117,16 +2155,35 @@ app.post('/api/admin/lidgelden/sync-mollie', async (c) => {
       return c.redirect(`/admin/lidgelden?season_id=${m.year_id}&error=mollie_not_found`)
     }
 
-    const newStatus = molliePmt.status === 'paid' ? 'paid'
-                    : molliePmt.status === 'open' ? 'pending'
-                    : molliePmt.status === 'pending' ? 'pending'
-                    : 'cancelled'
+    // BUG-FIX 2026-06-17: identieke mapping als in bulk-sync. Mollie 'expired'
+    // betekent dat de betaaltransactie verlopen is — niet dat het lidgeld
+    // geannuleerd is. We resetten dan mollie_payment_id zodat een nieuwe
+    // link kan worden aangemaakt.
+    const ms = molliePmt.status
+    let newStatus: 'paid' | 'pending' | 'cancelled' = 'pending'
+    let resetMollieId = false
+    if (ms === 'paid') {
+      newStatus = 'paid'
+    } else if (ms === 'open' || ms === 'pending' || ms === 'authorized') {
+      newStatus = 'pending'
+    } else if (ms === 'expired' || ms === 'canceled' || ms === 'failed') {
+      newStatus = 'pending'
+      resetMollieId = true
+    }
 
-    await execute(db,
-      `UPDATE user_memberships
-       SET status = ?, paid_at = CASE WHEN ? = 'paid' AND paid_at IS NULL THEN CURRENT_TIMESTAMP ELSE paid_at END
-       WHERE id = ?`,
-      [newStatus, newStatus, m.id])
+    if (resetMollieId) {
+      await execute(db,
+        `UPDATE user_memberships
+         SET status = 'pending', mollie_payment_id = NULL, paid_at = NULL
+         WHERE id = ?`,
+        [m.id])
+    } else {
+      await execute(db,
+        `UPDATE user_memberships
+         SET status = ?, paid_at = CASE WHEN ? = 'paid' AND paid_at IS NULL THEN CURRENT_TIMESTAMP ELSE paid_at END
+         WHERE id = ?`,
+        [newStatus, newStatus, m.id])
+    }
 
     if (newStatus === 'paid') {
       // Sluit lidgeld-notifs + bevestiging

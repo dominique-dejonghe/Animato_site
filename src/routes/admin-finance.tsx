@@ -64,7 +64,7 @@ app.get('/admin/lidgelden', async (c) => {
 
   // If no seasons exist yet, activeSeason might be null
   const memberships: any[] = activeSeason ? await queryAll(db, `
-    SELECT um.*, u.email, p.voornaam, p.achternaam
+    SELECT um.*, u.email, u.stemgroep, p.voornaam, p.achternaam
     FROM user_memberships um
     JOIN users u ON um.user_id = u.id
     LEFT JOIN profiles p ON u.id = p.user_id
@@ -540,12 +540,111 @@ app.get('/admin/lidgelden', async (c) => {
                     Als alles betaald is tonen we een rustige "Alles betaald" tegel zonder
                     bedragteller of details. */}
                 {pending.length > 0 ? (
-                  <div class={`bg-white p-4 rounded shadow border-l-4 border-amber-500 hover:bg-amber-50 transition ${filter === 'pending' ? 'ring-2 ring-amber-400' : ''}`}>
-                    <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=pending`} class="block cursor-pointer">
-                      <p class="text-gray-500 text-sm">Openstaand ({pending.length})</p>
-                      <p class="text-2xl font-bold">€ {openAmount.toFixed(2)}</p>
-                      <p class="text-xs text-gray-400 mt-1">Gemiddeld {avgDaysOpen} dagen open</p>
-                    </a>
+                  <div class={`bg-white p-4 rounded shadow border-l-4 border-amber-500 transition relative ${filter === 'pending' ? 'ring-2 ring-amber-400' : ''}`} id="openstaandCard">
+                    {/* Header — klikbaar als filter-shortcut, met een aparte "Toon namen"
+                        knop ernaast zodat we niet ongewild filteren bij het bekijken. */}
+                    <div class="flex items-start justify-between gap-2 mb-1">
+                      <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=pending`}
+                         class="flex-1 block cursor-pointer hover:opacity-80 transition">
+                        <p class="text-gray-500 text-sm">Openstaand ({pending.length})</p>
+                        <p class="text-2xl font-bold">€ {openAmount.toFixed(2)}</p>
+                        <p class="text-xs text-gray-400 mt-1">Gemiddeld {avgDaysOpen} dagen open</p>
+                      </a>
+                      {/* Aparte knop om popover te tonen — niet de hele tegel, anders
+                          interfereert dat met de filter-link */}
+                      <button
+                        type="button"
+                        onclick="document.getElementById('openstaandPreview').classList.toggle('hidden')"
+                        class="shrink-0 text-xs px-2 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 rounded inline-flex items-center gap-1 transition"
+                        title="Toon snel wie nog niet betaalde, gesorteerd op dagen open"
+                      >
+                        <i class="fas fa-users"></i> Toon namen
+                      </button>
+                    </div>
+
+                    {/* Popover — wie heeft nog niet betaald?
+                        Sortering: meest dringend bovenaan = grootste daysOpen (langste wachttijd).
+                        Visuele indicatie: rood badge voor >30d (overdue), oranje voor 15-30d, grijs voor <15d. */}
+                    <div
+                      id="openstaandPreview"
+                      class="absolute left-0 right-0 top-full mt-2 bg-white border border-gray-200 rounded-lg shadow-2xl hidden"
+                      style="z-index: 9999; max-height: 480px; overflow-y: auto;"
+                    >
+                      <div class="px-4 py-2.5 bg-amber-50 border-b border-amber-100 sticky top-0 flex items-center justify-between">
+                        <div class="text-xs font-semibold text-gray-700">
+                          <i class="fas fa-clock mr-1 text-amber-600"></i>
+                          {pending.length} lid{pending.length === 1 ? '' : 'leden'} moet{pending.length === 1 ? '' : 'en'} nog betalen
+                          <span class="ml-2 text-[10px] font-normal text-gray-500">— gesorteerd op dagen open</span>
+                        </div>
+                        <button
+                          type="button"
+                          onclick="document.getElementById('openstaandPreview').classList.add('hidden')"
+                          class="text-gray-400 hover:text-gray-700 text-sm"
+                          title="Sluiten"
+                        >
+                          <i class="fas fa-times"></i>
+                        </button>
+                      </div>
+                      <ul class="divide-y divide-gray-100 text-left">
+                        {[...pending]
+                          .sort((a: any, b: any) => (b.daysOpen || 0) - (a.daysOpen || 0))
+                          .map((m: any) => {
+                            const d = m.daysOpen || 0
+                            const isOverdue = d > 30
+                            const isWarning = d > 14 && d <= 30
+                            const badgeClass = isOverdue
+                              ? 'bg-red-100 text-red-700 border border-red-200'
+                              : isWarning
+                                ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                                : 'bg-gray-100 text-gray-600 border border-gray-200'
+                            const dotClass = isOverdue ? 'bg-red-500' : isWarning ? 'bg-amber-500' : 'bg-gray-400'
+                            const fullName = `${m.voornaam || ''} ${m.achternaam || ''}`.trim() || m.email || `Lid ${m.user_id}`
+                            return (
+                              <li class="px-4 py-2 text-xs hover:bg-amber-50 flex items-center gap-2">
+                                <span class={`inline-block w-2 h-2 rounded-full ${dotClass} shrink-0`} title={`${d} dagen open`}></span>
+                                <div class="flex-1 min-w-0">
+                                  <div class="font-medium text-gray-800 flex items-center gap-1.5 flex-wrap">
+                                    <span class="truncate">{fullName}</span>
+                                    {m.stemgroep && <span class="text-[9px] px-1.5 py-0.5 bg-gray-100 rounded text-gray-600 shrink-0">{m.stemgroep}</span>}
+                                    <span class={`text-[10px] px-1.5 py-0.5 rounded shrink-0 ${badgeClass}`}>{d}d</span>
+                                    <span class="text-[10px] text-gray-500 shrink-0">€{Number(m.amount || 0).toFixed(2)}</span>
+                                    {m.type && <span class="text-[9px] px-1.5 py-0.5 bg-blue-50 text-blue-700 rounded shrink-0">{m.type}</span>}
+                                  </div>
+                                  <div class="text-[10px] text-gray-500 truncate">{m.email}</div>
+                                </div>
+                                {/* Snelle betaallink-mail — gebruikt send-link (werkt écht),
+                                    niet /remind (was een no-op stub). */}
+                                <form action="/api/admin/lidgelden/send-link" method="POST" class="shrink-0"
+                                      onsubmit={`return confirm('Verstuur betaalmail (Mollie-link) naar ${fullName}?')`}>
+                                  <input type="hidden" name="membership_id" value={m.id} />
+                                  <button type="submit"
+                                          class="text-[10px] px-2 py-1 bg-white hover:bg-amber-100 text-amber-700 border border-amber-200 rounded inline-flex items-center gap-1"
+                                          title={`Stuur betaalmail naar ${m.email}`}>
+                                    <i class="fas fa-paper-plane"></i>
+                                  </button>
+                                </form>
+                              </li>
+                            )
+                          })}
+                      </ul>
+                      {/* Footer — bulk-acties net binnen handbereik */}
+                      <div class="px-4 py-2 bg-gray-50 border-t border-gray-200 sticky bottom-0 flex items-center justify-between gap-2">
+                        <a href={`/admin/lidgelden?season_id=${activeSeason.id}&filter=pending`}
+                           class="text-[10px] text-amber-700 hover:text-amber-900 inline-flex items-center gap-1">
+                          <i class="fas fa-filter"></i> Filter op deze lijst in tabel
+                        </a>
+                        <form action="/api/admin/lidgelden/bulk-remind" method="POST"
+                              onsubmit={`return confirm('Verstuur herinneringsmail naar alle ${pending.length} openstaande leden?')`}>
+                          <input type="hidden" name="season_id" value={activeSeason.id} />
+                          <input type="hidden" name="filter" value="pending" />
+                          <button type="submit"
+                                  class="text-[10px] px-2 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded inline-flex items-center gap-1">
+                            <i class="fas fa-paper-plane"></i> Herinner allen
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+
                     {/* Bulk-sync knop: bevraagt Mollie voor ALLE pending items in dit seizoen.
                         Lost het 'webhook kwam nooit door'-probleem op in één klik. */}
                     <form action="/api/admin/lidgelden/sync-mollie-bulk" method="POST" class="mt-2"

@@ -119,13 +119,6 @@ app.get('/admin/tickets', async (c) => {
           </div>
           <div class="flex flex-wrap gap-2">
             <a
-              href="/admin/tickets/test-checklist"
-              class="bg-white border border-gray-300 text-gray-700 px-4 py-3 rounded-lg hover:bg-gray-50 transition inline-flex items-center"
-              title="Diagnostiek + stappenplan voor live Mollie-test"
-            >
-              <i class="fas fa-vial mr-2"></i>Test-checklist
-            </a>
-            <a
               href="/admin/events/nieuw?type=concert"
               class="bg-animato-primary text-white px-6 py-3 rounded-lg hover:bg-opacity-90 transition inline-flex items-center"
             >

@@ -483,9 +483,16 @@ app.post('/api/auth/login', async (c) => {
       // If no specific redirect, send admin/moderator to admin panel
       if (user.role === 'admin' || user.role === 'moderator') {
         finalRedirect = '/admin'
+      } else if (user.role === 'kaartkoper') {
+        // Kaartkopers hebben GEEN toegang tot /leden — stuur naar hun eigen portaal
+        finalRedirect = '/mijn-tickets'
       } else {
         finalRedirect = '/leden'
       }
+    } else if (user.role === 'kaartkoper' && redirect.startsWith('/leden')) {
+      // Iemand probeert na inloggen naar een leden-pagina te gaan,
+      // maar is enkel kaartkoper — fall back naar /mijn-tickets ipv 403
+      finalRedirect = '/mijn-tickets'
     }
 
     // Welkom-splash voor leden die hem nog niet gezien hebben.

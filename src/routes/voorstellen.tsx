@@ -2,13 +2,13 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { queryAll, queryOne } from '../utils/db'
-import { requireAuth } from '../middleware/auth'
+import { requireLid } from '../middleware/auth'
 import { linkifyAndEmbed } from '../utils/text'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Auth middleware - all members can access proposals
-app.use('/leden/*', requireAuth)
+app.use('/leden/*', requireLid)
 
 // =====================================================
 // LEDEN VOORSTELLEN OVERZICHT

@@ -28,7 +28,7 @@ export type Bindings = {
 // USER & AUTHENTICATION
 // =====================================================
 
-export type UserRole = 'admin' | 'moderator' | 'stemleider' | 'lid' | 'bezoeker'
+export type UserRole = 'admin' | 'moderator' | 'stemleider' | 'lid' | 'bezoeker' | 'dirigent' | 'pianist' | 'kaartkoper'
 export type Stemgroep = 'S' | 'A' | 'T' | 'B'
 export type UserStatus = 'actief' | 'inactief' | 'proeflid' | 'uitgenodigd'
 

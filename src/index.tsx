@@ -25,6 +25,7 @@ import adminLocatiesRoutes from './routes/admin-locaties'
 import adminFotoboekRoutes from './routes/admin-fotoboek'
 import adminTicketsRoutes from './routes/admin-tickets'
 import ticketsRoutes from './routes/tickets'
+import accountRoutes from './routes/account'
 import webhooksRoutes from './routes/webhooks'
 import apiRoutes from './routes/api'
 import photosRoutes from './routes/photos'
@@ -165,6 +166,10 @@ app.route('/', webhooksRoutes)
 // Mollie-redirect. Anders 401't de leden-wildcard de hele flow en
 // blijft je betaling pending. (Bug ontdekt 2026-06-13)
 app.route('/', ticketsRoutes)
+
+// Kaartkoper-portaal: /account/setup, /mijn-tickets alias, /profiel
+// MOET voor ledenRoutes — anders vangt de leden-wildcard /profiel op.
+app.route('/', accountRoutes)
 
 // ⚠️ TIJDELIJKE E2E-TEST ROUTE — MOET vóór ledenTicketsRoutes staan,
 // want die heeft `app.use('*', requireAuth)` op lijn 24 die anders deze

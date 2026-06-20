@@ -316,8 +316,16 @@ app.post('/api/webhooks/mollie', async (c) => {
           ? new Date(ticket.doors_open_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
           : null
 
-        // Member-portal link: enkel tonen als koper_email match met een actief user-account
+        // Member-portal link & kaartkoper-account magic-link
+        // ------------------------------------------------------------------
+        // Drie scenario's voor de koper:
+        //   (a) Bestaand actief user-account (lid/admin/kaartkoper/...) → toon
+        //       "Bekijk in ledenportaal" met memberPortalUrl.
+        //   (b) Géén user-account → maak een 'kaartkoper'-account aan met een
+        //       14-daagse magic-link en toon "Activeer mijn account".
+        //   (c) E-mail leeg of corrupt → niets tonen.
         let memberPortalUrl: string | undefined = undefined
+        let accountSetupUrl: string | undefined = undefined
         try {
           const userRow = await queryOne<any>(c.env.DB,
             `SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND status = 'actief' LIMIT 1`,
@@ -325,9 +333,17 @@ app.post('/api/webhooks/mollie', async (c) => {
           if (userRow) {
             const siteUrl = await getSiteUrl(c)
             memberPortalUrl = `${siteUrl}/leden/mijn-tickets/${encodeURIComponent(ticket.order_ref)}`
+          } else if (ticket.koper_email && ticket.koper_email.includes('@')) {
+            // Nieuwe kaartkoper aanmaken — passwordless, magic-link in mail
+            const { ensureKaartkoperAccount } = await import('../utils/kaartkoper')
+            const result = await ensureKaartkoperAccount(c.env.DB, ticket.koper_email, ticket.koper_naam || '')
+            if (result.created && result.setup_token) {
+              const siteUrl = await getSiteUrl(c)
+              accountSetupUrl = `${siteUrl}/account/setup?token=${encodeURIComponent(result.setup_token)}`
+            }
           }
         } catch (e) {
-          console.warn('[webhooks] user-lookup voor portal-link mislukt:', (e as any)?.message)
+          console.warn('[webhooks] user-lookup / kaartkoper-creatie mislukt:', (e as any)?.message)
         }
 
         // Haal per-seat info op (alle stoelen in deze bestelling, met label + sectie)
@@ -439,7 +455,8 @@ app.post('/api/webhooks/mollie', async (c) => {
           qrCode: ticketLines.map((t: any) => t.qr_code).join(', '),
           totaalBedrag: totaalBedrag,
           memberPortalUrl,
-          seatCount: seatRows.length
+          seatCount: seatRows.length,
+          accountSetupUrl
         })
 
         await sendEmail({

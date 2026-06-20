@@ -3,13 +3,13 @@
 
 import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
-import { requireAuth } from '../middleware/auth'
+import { requireLid } from '../middleware/auth'
 import { queryOne, queryAll, execute } from '../utils/db'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
 // Auth required for all walkthrough API endpoints
-app.use('*', requireAuth)
+app.use('*', requireLid)
 
 // =====================================================
 // GET TOURS FOR CURRENT USER

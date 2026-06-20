@@ -11,13 +11,13 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { queryAll, queryOne, execute } from '../utils/db'
-import { requireAuth, requireAdmin } from '../middleware/auth'
+import { requireLid, requireAdmin } from '../middleware/auth'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-app.use('/leden/quiz', requireAuth)
-app.use('/leden/quiz/*', requireAuth)
-app.use('/api/leden/quiz/*', requireAuth)
+app.use('/leden/quiz', requireLid)
+app.use('/leden/quiz/*', requireLid)
+app.use('/api/leden/quiz/*', requireLid)
 app.use('/admin/quiz', requireAdmin)
 app.use('/admin/quiz/*', requireAdmin)
 app.use('/api/admin/quiz/*', requireAdmin)

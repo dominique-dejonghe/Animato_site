@@ -384,6 +384,66 @@ export async function requireBestuurslid(c: Context<{ Bindings: Bindings }>, nex
 }
 
 /**
+ * Require an actual MEMBER (lid/stemleider/dirigent/pianist/moderator/admin/bezoeker).
+ *
+ * Specifiek bedoeld om de rol 'kaartkoper' UIT TE SLUITEN van alle leden-
+ * functionaliteit (partituren, repetities, ledenlijst, forum, polls, foto's,
+ * walkthroughs, quiz, etc.). Kaartkopers mogen enkel:
+ *   - /mijn-tickets  (hun PDF-tickets herafdrukken)
+ *   - /profiel       (vereenvoudigd profiel updaten)
+ *   - publieke pagina's (zonder auth: home, concerten, agenda, nieuws, ...)
+ *
+ * Gebruik DEZE middleware in plaats van requireAuth op alle /leden/* paths.
+ *
+ * Voor browser-requests redirecten we netjes naar /mijn-tickets met een
+ * korte uitleg. Voor API-requests retourneren we 403 JSON.
+ */
+export async function requireLid(c: Context<{ Bindings: Bindings }>, next: Next) {
+  // Stap 1: standaard auth — zet user op c of stuurt 401-response
+  let proceed = false
+  await requireAuth(c, async () => { proceed = true })
+  if (!proceed) {
+    // requireAuth heeft al een response gegenereerd (401 / sessie verlopen)
+    return
+  }
+
+  const user = c.get('user') as SessionUser | undefined
+  if (!user) {
+    return c.json({ error: 'Niet ingelogd' }, 401)
+  }
+
+  // Stap 2: kaartkoper expliciet uitsluiten — vriendelijke redirect
+  if (user.role === 'kaartkoper') {
+    const path = c.req.path
+    const wantsHtml = (c.req.header('Accept') || '').includes('text/html') &&
+                      !path.startsWith('/api/')
+    if (wantsHtml) {
+      return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Geen toegang</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
+        </head>
+        <body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
+          <div class="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center">
+            <i class="fas fa-ticket-alt text-amber-500 text-5xl mb-4"></i>
+            <h1 class="text-2xl font-bold text-gray-800 mb-2">Enkel voor koorleden</h1>
+            <p class="text-gray-600 mb-2">Deze pagina is voorbehouden voor leden van het koor.</p>
+            <p class="text-gray-500 text-sm mb-6">Als kaartkoper kan je je tickets bekijken en je profiel beheren.</p>
+            <div class="flex flex-col gap-2">
+              <a href="/mijn-tickets" class="inline-block px-6 py-3 text-white rounded-lg font-medium hover:opacity-90 transition" style="background-color:#00A9CE">
+                <i class="fas fa-ticket-alt mr-2"></i>Naar mijn tickets
+              </a>
+              <a href="/" class="text-sm text-gray-500 hover:underline">Of naar de homepage</a>
+            </div>
+          </div>
+        </body></html>`, 403)
+    }
+    return c.json({ error: 'Alleen voor koorleden', yourRole: user.role }, 403)
+  }
+
+  await next()
+}
+
+/**
  * Optional auth - attach user if present but don't require
  */
 export async function optionalAuth(c: Context<{ Bindings: Bindings }>, next: Next) {

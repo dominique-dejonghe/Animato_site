@@ -84,9 +84,9 @@ app.get('/admin', async (c) => {
 
   const stats = {
     // Alle actieve users tellen mee — lid, stemleider, pianist, dirigent, admin, moderator
-    total_leden: await safeCount(`SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
+    total_leden: await safeCount(`SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND role != 'kaartkoper'`),
     // Niet-actieve leden — gestopt maar bewaard voor historie. Test-accounts uitgesloten.
-    total_inactieve_leden: await safeCount(`SELECT COUNT(*) as count FROM users WHERE status = 'inactief' AND (is_test_account IS NULL OR is_test_account = 0)`),
+    total_inactieve_leden: await safeCount(`SELECT COUNT(*) as count FROM users WHERE status = 'inactief' AND role != 'kaartkoper' AND (is_test_account IS NULL OR is_test_account = 0)`),
     total_posts: await safeCount(`SELECT COUNT(*) as count FROM posts WHERE is_published = 1`),
     total_events: await safeCount(`SELECT COUNT(*) as count FROM events WHERE datetime(start_at) > datetime('now')`),
     total_albums: await safeCount(`SELECT COUNT(*) as count FROM albums WHERE is_publiek = 1`),
@@ -178,7 +178,7 @@ app.get('/admin', async (c) => {
               COALESCE(p.voornaam, '') as voornaam, COALESCE(p.achternaam, '') as achternaam
        FROM users u
        LEFT JOIN profiles p ON p.user_id = u.id
-       WHERE u.status = 'actief' AND u.role != 'admin'
+       WHERE u.status = 'actief' AND u.role NOT IN ('admin','kaartkoper')
        ORDER BY u.is_test_account DESC, p.achternaam ASC, p.voornaam ASC`
     ) || []
   } catch (e) {
@@ -1626,9 +1626,13 @@ app.get('/admin/leden', async (c) => {
   }
 
   // Role filter
+  // Standaard filteren we kaartkopers UIT de ledenlijst — het zijn geen koorleden.
+  // Admin kan ze expliciet bekijken via ?role=kaartkoper.
   if (role !== 'all') {
     query += ` AND u.role = ?`
     params.push(role)
+  } else {
+    query += ` AND u.role != 'kaartkoper'`
   }
 
   // Stemgroep filter
@@ -1694,6 +1698,7 @@ app.get('/admin/leden', async (c) => {
     inactief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'inactief' AND (is_test_account IS NULL OR is_test_account = 0)`),
     online: await queryOne<any>(c.env.DB, `SELECT COUNT(DISTINCT user_id) as count FROM user_sessions WHERE is_active = 1`),
     bestuur: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE is_bestuurslid = 1 AND status = 'actief'`),
+    kaartkoper: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'kaartkoper' AND status = 'actief'`),
   }
 
   return c.html(
@@ -1890,13 +1895,14 @@ app.get('/admin/leden', async (c) => {
                     onchange="this.form.submit()"
                     class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                   >
-                    <option value="all" selected={role === 'all'}>Alle rollen</option>
+                    <option value="all" selected={role === 'all'}>Alle rollen (excl. kaartkopers)</option>
                     <option value="lid" selected={role === 'lid'}>Lid</option>
                     <option value="stemleider" selected={role === 'stemleider'}>Stemleider</option>
                     <option value="moderator" selected={role === 'moderator'}>Moderator</option>
                     <option value="admin" selected={role === 'admin'}>Admin</option>
                     <option value="dirigent" selected={role === 'dirigent'}>Dirigent</option>
                     <option value="pianist" selected={role === 'pianist'}>Pianist</option>
+                    <option value="kaartkoper" selected={role === 'kaartkoper'}>🎫 Kaartkoper ({counts.kaartkoper?.count || 0})</option>
                   </select>
                 </div>
                 <div>
@@ -3374,6 +3380,7 @@ app.get('/admin/leden/:id', async (c) => {
                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
                     >
                       <option value="bezoeker" selected={member.role === 'bezoeker'}>Bezoeker</option>
+                      <option value="kaartkoper" selected={member.role === 'kaartkoper'}>🎫 Kaartkoper (geen ledenrechten)</option>
                       <option value="lid" selected={member.role === 'lid'}>Lid</option>
                       <option value="stemleider" selected={member.role === 'stemleider'}>Stemleider</option>
                       <option value="moderator" selected={member.role === 'moderator'}>Moderator</option>

@@ -205,9 +205,17 @@ export function hasRole(user: SessionUser, requiredRole: UserRole | UserRole[]):
     admin: 4,
     moderator: 3,
     stemleider: 2,
+    dirigent: 1,
+    pianist: 1,
     lid: 1,
-    bezoeker: 0
-  }
+    bezoeker: 0,
+    // kaartkoper staat BUITEN de leden-hiërarchie: zelfs lager dan bezoeker.
+    // Routes die requireRole('lid') doen, weigeren kaartkopers automatisch.
+    // Voor expliciete duidelijkheid is er bovendien `isKaartkoper()` + de
+    // `requireLid` middleware die kaartkopers met een vriendelijke pagina
+    // tegenhoudt (geen rauwe 403).
+    kaartkoper: -1
+  } as Record<UserRole, number>
 
   const userLevel = roleHierarchy[user.role]
 
@@ -248,6 +256,14 @@ export function canModerate(user: SessionUser): boolean {
  */
 export function isAdmin(user: SessionUser): boolean {
   return user.role === 'admin'
+}
+
+/**
+ * Check if user is a kaartkoper (ticket-only customer).
+ * Used to EXCLUDE them from member functionality.
+ */
+export function isKaartkoper(user: SessionUser | null | undefined): boolean {
+  return !!user && user.role === 'kaartkoper'
 }
 
 // =====================================================

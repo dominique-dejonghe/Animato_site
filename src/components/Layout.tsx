@@ -343,6 +343,39 @@ export const Layout: FC<LayoutProps> = ({
               {/* Auth Buttons */}
               <div class="flex items-center space-x-4">
                 {user ? (
+                  user.role === 'kaartkoper' ? (
+                    <>
+                      {/* Kaartkoper-dropdown: enkel Mijn tickets + Profiel + Uitloggen */}
+                      <div class="relative group" id="kaartkoper-dropdown">
+                        <button
+                          type="button"
+                          class="hidden lg:flex items-center gap-2 text-gray-700 hover:text-animato-primary transition"
+                          onclick="this.nextElementSibling.classList.toggle('hidden')"
+                          aria-haspopup="true"
+                        >
+                          <i class="fas fa-user-circle text-lg"></i>
+                          <span>Mijn account</span>
+                          <i class="fas fa-chevron-down text-xs"></i>
+                        </button>
+                        <div class="hidden absolute right-0 top-full mt-2 w-52 bg-white shadow-xl rounded-lg border border-gray-200 py-2 z-50">
+                          <a href="/mijn-tickets" class="block px-4 py-2 hover:bg-gray-50 text-gray-700">
+                            <i class="fas fa-ticket-alt mr-2 text-blue-500"></i>Mijn tickets
+                          </a>
+                          <a href="/profiel" class="block px-4 py-2 hover:bg-gray-50 text-gray-700">
+                            <i class="fas fa-user-edit mr-2 text-blue-500"></i>Profiel
+                          </a>
+                          <hr class="my-1" />
+                          <a href="/api/auth/logout" class="block px-4 py-2 hover:bg-gray-50 text-gray-600">
+                            <i class="fas fa-sign-out-alt mr-2"></i>Uitloggen
+                          </a>
+                        </div>
+                      </div>
+                      {/* Mobile: simpele link naar mijn-tickets */}
+                      <a href="/mijn-tickets" class="lg:hidden text-gray-700 hover:text-animato-primary transition">
+                        <i class="fas fa-ticket-alt mr-1"></i>Tickets
+                      </a>
+                    </>
+                  ) : (
                   <>
                     {/* Admin/Bestuur link — admins, moderators én bestuursleden */}
                     {(user.role === 'admin' || user.role === 'moderator' || user.is_bestuurslid === 1) && (
@@ -369,6 +402,7 @@ export const Layout: FC<LayoutProps> = ({
                       Uitloggen
                     </a>
                   </>
+                  )
                 ) : (
                   <>
                     <a href="/word-lid" class="hidden lg:block bg-animato-accent text-white px-4 py-2 rounded-lg hover:bg-yellow-600 transition font-semibold">
@@ -404,6 +438,22 @@ export const Layout: FC<LayoutProps> = ({
               ))}
               
               {user ? (
+                user.role === 'kaartkoper' ? (
+                  <>
+                    {/* Kaartkoper mobile menu — enkel tickets, profiel, uitloggen */}
+                    <div class="border-t border-gray-300 my-2"></div>
+                    <a href="/mijn-tickets" class="block text-gray-700 hover:text-animato-primary">
+                      <i class="fas fa-ticket-alt mr-2 text-blue-500"></i>Mijn tickets
+                    </a>
+                    <a href="/profiel" class="block text-gray-700 hover:text-animato-primary">
+                      <i class="fas fa-user-edit mr-2 text-blue-500"></i>Profiel
+                    </a>
+                    <div class="border-t border-gray-300 my-2"></div>
+                    <a href="/api/auth/logout" class="block text-red-600 hover:text-red-700 font-medium">
+                      <i class="fas fa-sign-out-alt mr-2"></i>Uitloggen
+                    </a>
+                  </>
+                ) : (
                 <>
                   {/* Admin/Bestuur link in mobile menu */}
                   {(user.role === 'admin' || user.role === 'moderator' || user.is_bestuurslid === 1) && (
@@ -431,6 +481,7 @@ export const Layout: FC<LayoutProps> = ({
                     Uitloggen
                   </a>
                 </>
+                )
               ) : (
                 <>
                   {/* Login and Word Lid in mobile menu for non-authenticated users */}

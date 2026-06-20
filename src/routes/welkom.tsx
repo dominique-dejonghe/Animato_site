@@ -15,12 +15,12 @@
 import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
-import { requireAuth } from '../middleware/auth'
+import { requireLid } from '../middleware/auth'
 import { execute, queryOne } from '../utils/db'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-app.use('/leden/welkom', requireAuth)
+app.use('/leden/welkom', requireLid)
 
 app.get('/leden/welkom', async (c) => {
   const user = c.get('user') as SessionUser

@@ -15,13 +15,13 @@
 
 import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
-import { requireAuth } from '../middleware/auth'
+import { requireLid } from '../middleware/auth'
 import { queryAll, execute } from '../utils/db'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-app.use('/api/leden/new-members', requireAuth)
-app.use('/api/leden/new-members/*', requireAuth)
+app.use('/api/leden/new-members', requireLid)
+app.use('/api/leden/new-members/*', requireLid)
 
 // =====================================================
 // GET /api/leden/new-members

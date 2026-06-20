@@ -5,7 +5,7 @@ import { Hono } from 'hono'
 import { getCookie, setCookie } from 'hono/cookie'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
-import { requireAuth } from '../middleware/auth'
+import { requireAuth, requireLid } from '../middleware/auth'
 import { queryOne, queryAll, execute } from '../utils/db'
 import { createMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
@@ -30,7 +30,8 @@ function getDefaultAvatar(stemgroep: string): string {
 }
 
 // Apply auth middleware to all leden routes
-app.use('*', requireAuth)
+// requireLid = requireAuth + expliciete kaartkoper-uitsluiting (vriendelijke redirect naar /mijn-tickets)
+app.use('*', requireLid)
 
 // Check impersonation status on every leden request
 app.use('*', async (c, next) => {

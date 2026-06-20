@@ -200,6 +200,8 @@ export function ticketEmail(data: {
   memberPortalUrl?: string
   /** Aantal stoelen waarvoor er een aparte PDF in de bijlage zit (informatief) */
   seatCount?: number
+  /** Magic-link naar /account/setup?token=... — alleen voor NIEUWE kaartkopers (geen bestaand account) */
+  accountSetupUrl?: string
 }): string {
   return `
 <!DOCTYPE html>
@@ -282,6 +284,20 @@ export function ticketEmail(data: {
       <a href="${data.memberPortalUrl}" style="display: inline-block; background: white; color: #0891B2; padding: 10px 18px; border-radius: 6px; text-decoration: none; font-weight: bold;">
         📋 Bekijk in ledenportaal
       </a>
+    </div>` : ''}
+
+    ${data.accountSetupUrl ? `
+    <div style="background: linear-gradient(135deg, #3B82F6 0%, #2563EB 100%); color: white; padding: 20px; border-radius: 10px; margin: 20px 0;">
+      <h4 style="margin: 0 0 10px 0; font-size: 18px;">🔐 Maak een account aan om je tickets te beheren</h4>
+      <p style="margin: 0 0 12px 0;">
+        Wil je je tickets later opnieuw afdrukken, of je gegevens aanpassen? Activeer dan een gratis account. Geen verplichting — je kan deze mail ook gewoon bewaren.
+      </p>
+      <a href="${data.accountSetupUrl}" style="display: inline-block; background: white; color: #2563EB; padding: 12px 22px; border-radius: 6px; text-decoration: none; font-weight: bold;">
+        ▶ Activeer mijn account
+      </a>
+      <p style="margin: 12px 0 0 0; font-size: 12px; opacity: 0.85;">
+        Deze link is 14 dagen geldig. Klik erop, kies een wachtwoord, en je bent klaar.
+      </p>
     </div>` : ''}
     
     <div style="background: #DBEAFE; border-left: 4px solid #3B82F6; padding: 15px; border-radius: 6px; margin: 20px 0;">

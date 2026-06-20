@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
-import { requireAuth } from '../middleware/auth'
+import { requireLid } from '../middleware/auth'
 import { queryOne, queryAll, execute } from '../utils/db'
 import { createMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
@@ -9,7 +9,7 @@ import { getSiteUrl } from '../utils/site-url'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-app.use('*', requireAuth)
+app.use('*', requireLid)
 
 // === ACTIVITY INDEX PAGE ===
 app.get('/leden/activiteiten', async (c) => {

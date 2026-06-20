@@ -455,6 +455,23 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                     </div>
                   </div>
 
+                  {/* Mindervaliden-info — duidelijke melding hoe een rolstoelplaats te vragen */}
+                  <div class="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <div class="flex items-start gap-3">
+                      <i class="fas fa-wheelchair text-blue-600 text-xl mt-0.5"></i>
+                      <div class="flex-1 text-sm text-gray-700">
+                        <p class="font-semibold text-gray-900 mb-1">Plaats voor mindervaliden nodig?</p>
+                        <p>
+                          Mail vóór je bestelling naar{' '}
+                          <a href="mailto:gemengdkooranimato@gmail.com?subject=Aanvraag mindervaliden-plaats" class="text-blue-700 hover:underline font-medium">
+                            gemengdkooranimato@gmail.com
+                          </a>{' '}
+                          zodat we de juiste plaats voor je kunnen voorzien.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
                   {/* Terms */}
                   <div class="mb-6">
                     <label class="flex items-start">
@@ -537,6 +554,40 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                     rightTag.innerText = lbl;
                     map.appendChild(rightTag);
                 });
+
+                // ── Gang tussen rij B en C — enkel voor cc Binder (plan_id = 1) ──
+                // Visueel: gestippelde lijn met label "GANG" op halverwege tussen B en C.
+                const SEATING_PLAN_ID = ${concert.seating_plan_id || 'null'};
+                if (SEATING_PLAN_ID === 1) {
+                    const yB = Object.entries(yMap).find(([_, g]) => g.lbl === 'B');
+                    const yC = Object.entries(yMap).find(([_, g]) => g.lbl === 'C');
+                    if (yB && yC) {
+                        const yBn = Number(yB[0]);
+                        const yCn = Number(yC[0]);
+                        const yMid = yBn + (yCn - yBn) / 2 + 16; // +16 = halve stoelhoogte
+                        // Bepaal links/rechts grens op basis van breedste rij
+                        let minX = Infinity, maxX = -Infinity;
+                        Object.values(yMap).forEach(g => {
+                            if (g.minX < minX) minX = g.minX;
+                            if (g.maxX > maxX) maxX = g.maxX;
+                        });
+                        const aisleW = (maxX + 32) - minX;
+                        const aisle = document.createElement('div');
+                        aisle.className = 'absolute pointer-events-none';
+                        aisle.style.cssText = 'left:' + minX + 'px;top:' + (yMid - 10) + 'px;'
+                            + 'width:' + aisleW + 'px;height:20px;z-index:3;'
+                            + 'border-top:2px dashed #94a3b8;border-bottom:2px dashed #94a3b8;'
+                            + 'background:repeating-linear-gradient(45deg,#f1f5f9,#f1f5f9 6px,#e2e8f0 6px,#e2e8f0 12px);'
+                            + 'display:flex;align-items:center;justify-content:center;';
+                        const lblG = document.createElement('span');
+                        lblG.innerHTML = '<i class="fas fa-walking" style="margin-right:6px"></i>GANG';
+                        lblG.style.cssText = 'background:#fff;padding:1px 10px;border:1px solid #94a3b8;'
+                            + 'border-radius:10px;font-size:10px;font-weight:bold;color:#475569;'
+                            + 'letter-spacing:.1em;';
+                        aisle.appendChild(lblG);
+                        map.appendChild(aisle);
+                    }
+                }
 
                 seats.forEach(seat => {
                     const el = document.createElement('div');

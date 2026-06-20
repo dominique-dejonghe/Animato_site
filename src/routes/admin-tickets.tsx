@@ -3524,6 +3524,7 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
       <script dangerouslySetInnerHTML={{ __html: `
         const seats = ${JSON.stringify(seats)};
         const concertId = ${concertId};
+        const SEATING_PLAN_ID = ${concert.seating_plan_id || 'null'};
         const map = document.getElementById('seatMap');
         const detail = document.getElementById('seat-detail');
         let selected = null;
@@ -3583,6 +3584,39 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
             rightTag.innerText = lbl;
             map.appendChild(rightTag);
           });
+
+          // ── Gang tussen rij B en C — enkel voor cc Binder (plan_id = 1) ──
+          if (SEATING_PLAN_ID === 1) {
+            const yBEntry = Object.entries(yMap).find(function(e) { return e[1].lbl === 'B'; });
+            const yCEntry = Object.entries(yMap).find(function(e) { return e[1].lbl === 'C'; });
+            if (yBEntry && yCEntry) {
+              const yBn = Number(yBEntry[0]);
+              const yCn = Number(yCEntry[0]);
+              const yMid = yBn + (yCn - yBn) / 2 + 16;
+              let minX = Infinity, maxX = -Infinity;
+              Object.values(yMap).forEach(function(g) {
+                if (g.minX < minX) minX = g.minX;
+                if (g.maxX > maxX) maxX = g.maxX;
+              });
+              const aisleW = (maxX + 32) - minX;
+              const aisle = document.createElement('div');
+              aisle.className = 'absolute pointer-events-none';
+              aisle.setAttribute('data-static', 'true');
+              aisle.style.cssText = 'left:' + minX + 'px;top:' + (yMid - 10) + 'px;'
+                + 'width:' + aisleW + 'px;height:20px;z-index:3;'
+                + 'border-top:2px dashed #94a3b8;border-bottom:2px dashed #94a3b8;'
+                + 'background:repeating-linear-gradient(45deg,#f1f5f9,#f1f5f9 6px,#e2e8f0 6px,#e2e8f0 12px);'
+                + 'display:flex;align-items:center;justify-content:center;';
+              const lblG = document.createElement('span');
+              lblG.innerHTML = '<i class="fas fa-walking" style="margin-right:6px"></i>GANG';
+              lblG.style.cssText = 'background:#fff;padding:1px 10px;border:1px solid #94a3b8;'
+                + 'border-radius:10px;font-size:10px;font-weight:bold;color:#475569;'
+                + 'letter-spacing:.1em;';
+              aisle.appendChild(lblG);
+              map.appendChild(aisle);
+            }
+          }
+
           // Stoelen renderen
           seats.forEach(seat => {
             const el = document.createElement('div');

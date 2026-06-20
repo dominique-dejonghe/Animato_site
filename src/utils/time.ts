@@ -35,7 +35,8 @@ type DateInput = string | number | Date | null | undefined
  */
 function isNaiveLocalString(s: string): boolean {
   // "2026-05-09T19:30" of "2026-05-09T19:30:00" — geen Z, geen +HH:MM
-  return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(s)
+  // Ook spatie-gescheiden (SQLite-stijl): "2026-05-09 19:30:00" — die normaliseren we mee.
+  return /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2})?$/.test(s)
 }
 
 /**
@@ -79,12 +80,14 @@ function toDate(input: DateInput): Date | null {
   // Naive Brussels-local string? Hang de juiste offset eraan zodat
   // `new Date()` 'm niet als UTC interpreteert.
   if (isNaiveLocalString(s)) {
-    const offsetMin = brusselsOffsetMinutesFor(s)
+    // Normaliseer spatie naar 'T' zodat Date.parse altijd ISO-stijl ziet
+    const sIso = s.replace(' ', 'T')
+    const offsetMin = brusselsOffsetMinutesFor(sIso)
     const sign = offsetMin >= 0 ? '+' : '-'
     const abs = Math.abs(offsetMin)
     const hh = String(Math.floor(abs / 60)).padStart(2, '0')
     const mm = String(abs % 60).padStart(2, '0')
-    const padded = s.length === 16 ? s + ':00' : s
+    const padded = sIso.length === 16 ? sIso + ':00' : sIso
     const d = new Date(`${padded}${sign}${hh}:${mm}`)
     return isNaN(d.getTime()) ? null : d
   }

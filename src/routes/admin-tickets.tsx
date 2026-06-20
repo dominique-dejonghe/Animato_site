@@ -3473,14 +3473,27 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
           {/* Zaalplan visualisatie */}
           <div class="lg:col-span-3">
             <div class="bg-white rounded-lg shadow-md p-4">
-              <div class="flex justify-between items-center mb-3">
+              <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
                 <h2 class="font-semibold text-gray-900"><i class="fas fa-map mr-2 text-gray-500"></i>Klik op een stoel voor details</h2>
-                <div class="flex gap-3 text-xs">
+                <div class="flex gap-3 text-xs items-center flex-wrap">
                   <span class="flex items-center"><span class="inline-block w-3 h-3 bg-blue-500 rounded-sm mr-1"></span>Beschikbaar</span>
                   <span class="flex items-center"><span class="inline-block w-3 h-3 bg-orange-500 rounded-sm mr-1"></span>Locked</span>
                   <span class="flex items-center"><span class="inline-block w-3 h-3 bg-red-600 rounded-sm mr-1"></span>Verkocht</span>
                   <span class="flex items-center"><span class="inline-block w-3 h-3 bg-gray-400 rounded-sm mr-1"></span>Geblokkeerd</span>
+                  <button
+                    id="bulkModeBtn"
+                    type="button"
+                    onclick="toggleBulkMode()"
+                    class="ml-2 px-3 py-1 text-xs font-semibold rounded-full border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                    title="Schakelt bulk-modus aan: elke klik op een vrije stoel selecteert hem voor een fysieke verkoop."
+                  >
+                    <i class="fas fa-hand-pointer mr-1"></i>Bulk-modus
+                  </button>
                 </div>
+              </div>
+              <div class="text-xs text-gray-500 mb-2">
+                <i class="fas fa-info-circle mr-1 text-gray-400"></i>
+                Voor <strong>fysieke verkoop</strong>: hou <kbd class="px-1 border rounded bg-gray-100">Shift</kbd>/<kbd class="px-1 border rounded bg-gray-100">Ctrl</kbd>/<kbd class="px-1 border rounded bg-gray-100">⌘</kbd> ingedrukt en klik meerdere vrije stoelen aan — of activeer Bulk-modus hierboven.
               </div>
               {/* Frame: flex-centered, geen scrollbars meer. JS schaalt automatisch
                   zodat het hele zaalplan past binnen de beschikbare breedte. */}
@@ -3519,6 +3532,44 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
             </div>
           </div>
         </div>
+
+        {/* Floating bulk-action bar — verschijnt zodra ≥1 stoel geselecteerd is via Shift/Ctrl/⌘+klik of Bulk-modus.
+            Bedoeld voor fysieke kaartverkoop: admin/bestuur reserveert meerdere stoelen tegelijk voor 1 koper. */}
+        <div
+          id="bulkActionBar"
+          class="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white rounded-xl shadow-2xl hidden z-50"
+          style="min-width: 340px;"
+        >
+          <div class="flex items-center gap-3 px-5 py-3 flex-wrap">
+            <div class="flex items-center">
+              <i class="fas fa-shopping-cart text-xl mr-2 text-blue-200"></i>
+              <div>
+                <div class="text-xs uppercase tracking-wider text-blue-200">Fysieke verkoop</div>
+                <div class="font-bold text-lg leading-tight">
+                  <span id="bulkCount">0</span>
+                  <span id="bulkCountLabel">stoel</span> geselecteerd
+                </div>
+              </div>
+            </div>
+            <div class="flex gap-2 ml-2">
+              <button
+                type="button"
+                onclick="bulkReserve()"
+                class="bg-white text-blue-700 font-semibold text-sm px-4 py-2 rounded-lg hover:bg-blue-50 shadow"
+              >
+                <i class="fas fa-check-circle mr-1"></i>Reserveer voor 1 koper
+              </button>
+              <button
+                type="button"
+                onclick="clearBulk()"
+                class="bg-blue-700 text-white text-sm px-3 py-2 rounded-lg hover:bg-blue-800 border border-blue-500"
+                title="Wis selectie"
+              >
+                <i class="fas fa-times mr-1"></i>Wis
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <script dangerouslySetInnerHTML={{ __html: `
@@ -3528,6 +3579,10 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
         const map = document.getElementById('seatMap');
         const detail = document.getElementById('seat-detail');
         let selected = null;
+        // Bulk-selectie voor fysieke-kaartverkoop: meerdere vrije stoelen aanvinken
+        // voor 1 koper. Activeer via Shift/Ctrl/⌘+klik, of klik in "bulk-mode" (toggle-knop)
+        const bulkSelection = new Set();
+        let bulkMode = false;
 
         function colorFor(s) {
           if (s.booking_status === 'sold') return { bg: '#DC2626', fg: 'white' };
@@ -3628,14 +3683,39 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
             el.style.backgroundColor = c.bg;
             el.style.color = c.fg;
             el.title = (seat.row_label || '') + '-' + seat.seat_number + (seat.koper_naam ? ' — ' + seat.koper_naam : '');
-            if (selected && selected.id === seat.id) {
+            const isBulkPicked = bulkSelection.has(seat.id);
+            if (isBulkPicked) {
+              el.style.outline = '3px solid #2563EB';
+              el.style.outlineOffset = '1px';
+              el.style.zIndex = '15';
+              // Checkmark overlay
+              const check = document.createElement('div');
+              check.style.cssText = 'position:absolute;top:-6px;right:-6px;background:#2563EB;color:white;width:14px;height:14px;border-radius:50%;font-size:9px;display:flex;align-items:center;justify-content:center;font-weight:bold;box-shadow:0 0 0 2px white;';
+              check.innerHTML = '<i class="fas fa-check" style="font-size:7px"></i>';
+              el.appendChild(check);
+            } else if (selected && selected.id === seat.id) {
               el.style.outline = '3px solid #F59E0B';
               el.style.outlineOffset = '1px';
               el.style.zIndex = '20';
             }
-            el.onclick = () => { selected = seat; render(); showDetail(seat); };
+            el.onclick = (ev) => {
+              // Bulk-toggle: Shift/Ctrl/⌘+klik OF bulk-mode aan, en enkel voor vrije stoelen
+              const isFree = !seat.booking_status && seat.base_status !== 'blocked';
+              const wantsBulk = ev.shiftKey || ev.ctrlKey || ev.metaKey || bulkMode;
+              if (wantsBulk && isFree) {
+                if (bulkSelection.has(seat.id)) bulkSelection.delete(seat.id);
+                else bulkSelection.add(seat.id);
+                render();
+                updateBulkBar();
+                return;
+              }
+              selected = seat;
+              render();
+              showDetail(seat);
+            };
             map.appendChild(el);
           });
+          updateBulkBar();
         }
 
         // ── Auto-fit zaalplan binnen het frame, vergelijkbaar met publieke ticketpagina ──
@@ -3724,6 +3804,67 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
         function escapeHtml(s) {
           return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
         }
+
+        // ── Bulk-selectie helpers voor fysieke kaartverkoop ──
+        function updateBulkBar() {
+          const bar = document.getElementById('bulkActionBar');
+          if (!bar) return;
+          const count = bulkSelection.size;
+          const cEl = document.getElementById('bulkCount');
+          const lblEl = document.getElementById('bulkCountLabel');
+          if (cEl) cEl.textContent = String(count);
+          if (lblEl) lblEl.textContent = count === 1 ? 'stoel' : 'stoelen';
+          bar.classList.toggle('hidden', count === 0);
+        }
+
+        function toggleBulkMode() {
+          bulkMode = !bulkMode;
+          const btn = document.getElementById('bulkModeBtn');
+          if (btn) {
+            if (bulkMode) {
+              btn.classList.remove('bg-white', 'text-gray-700', 'border-gray-300');
+              btn.classList.add('bg-blue-600', 'text-white', 'border-blue-700');
+              btn.innerHTML = '<i class="fas fa-check-square mr-1"></i>Bulk-modus AAN';
+            } else {
+              btn.classList.add('bg-white', 'text-gray-700', 'border-gray-300');
+              btn.classList.remove('bg-blue-600', 'text-white', 'border-blue-700');
+              btn.innerHTML = '<i class="fas fa-hand-pointer mr-1"></i>Bulk-modus';
+            }
+          }
+        }
+        window.toggleBulkMode = toggleBulkMode;
+
+        window.clearBulk = function() {
+          bulkSelection.clear();
+          render();
+        };
+
+        window.bulkReserve = async function() {
+          const count = bulkSelection.size;
+          if (count === 0) return;
+          const naam = prompt('Naam van de koper (verschijnt op alle ' + count + ' stoelen):');
+          if (!naam || !naam.trim()) return;
+          const note = prompt('Notitie (optioneel, bv. "betaald cash aan Jan"):') || '';
+          if (!confirm('Bevestig: ' + count + ' stoel' + (count === 1 ? '' : 'en') + ' reserveren voor "' + naam.trim() + '"?')) return;
+          const ids = Array.from(bulkSelection);
+          try {
+            const res = await fetch('/api/admin/tickets/concert/' + concertId + '/manual-reserve-bulk', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ naam: naam.trim(), note: note.trim() || null, seatIds: ids })
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({ error: 'Onbekende fout' }));
+              alert('Fout bij reserveren: ' + (err.error || res.statusText));
+              return;
+            }
+            const data = await res.json();
+            alert('✓ ' + (data.aantal || count) + ' stoel' + (count === 1 ? '' : 'en') + ' gereserveerd voor ' + naam.trim() + ' (orderref: ' + data.order_ref + ')');
+            location.reload();
+          } catch (e) {
+            alert('Netwerkfout: ' + (e && e.message ? e.message : e));
+          }
+        };
 
         window.manualReserve = async function(seatId) {
           const naam = prompt('Naam van de gast (verschijnt in zaalplan):');
@@ -3993,6 +4134,85 @@ aan de juiste persoon (per WhatsApp / email).
 // ==========================================
 // PHASE 4: HANDMATIGE STOEL-RESERVATIE
 // ==========================================
+// Bulk-versie: reserveer meerdere stoelen tegelijk onder ÉÉN koper.
+// Body: { naam, note?, seatIds: number[] }
+// Maakt één ticket met aantal=N en N ticket_seats rijen.
+// Bedoeld voor admins die fysieke kaarten verkopen aan iemand die bv. 5 stoelen wil.
+app.post('/api/admin/tickets/concert/:concertId/manual-reserve-bulk', async (c) => {
+  const user = c.get('user') as SessionUser
+  const concertId = parseInt(c.req.param('concertId'))
+
+  try {
+    const { naam, note, seatIds } = await c.req.json().catch(() => ({} as any))
+    if (!naam || typeof naam !== 'string') return c.json({ error: 'Naam is verplicht' }, 400)
+    if (!Array.isArray(seatIds) || seatIds.length === 0) {
+      return c.json({ error: 'Geen stoelen geselecteerd' }, 400)
+    }
+    const ids = seatIds.map(Number).filter(n => Number.isFinite(n) && n > 0)
+    if (ids.length === 0) return c.json({ error: 'Ongeldige stoel-IDs' }, 400)
+
+    // Check of er één al bezet is (atomair: één placeholder per ID)
+    const placeholders = ids.map(() => '?').join(',')
+    const bezet = await queryAll<any>(c.env.DB,
+      `SELECT seat_id FROM ticket_seats
+       WHERE concert_id = ? AND status IN ('locked','sold') AND seat_id IN (${placeholders})`,
+      [concertId, ...ids])
+    if (bezet.length > 0) {
+      return c.json({ error: 'Een of meer stoelen zijn al bezet', bezet_ids: bezet.map((b: any) => b.seat_id) }, 409)
+    }
+
+    // Concert + stoelen ophalen
+    const concert = await queryOne<any>(c.env.DB, `SELECT id FROM concerts WHERE id = ?`, [concertId])
+    if (!concert) return c.json({ error: 'Concert niet gevonden' }, 404)
+    const seats = await queryAll<any>(c.env.DB,
+      `SELECT id, row_label, seat_number FROM seats WHERE id IN (${placeholders})`,
+      ids)
+    if (seats.length !== ids.length) {
+      return c.json({ error: 'Niet alle stoelen gevonden in de database' }, 404)
+    }
+
+    const orderRef = 'ADM-' + Math.random().toString(36).slice(2, 8).toUpperCase()
+    const qrCode = 'QR-' + Math.random().toString(36).slice(2, 12).toUpperCase()
+    const aantal = ids.length
+
+    // 1 ticket aanmaken met aantal=N
+    const ticketRes: any = await execute(c.env.DB, `
+      INSERT INTO tickets (
+        concert_id, order_ref, koper_email, koper_naam, koper_telefoon,
+        aantal, categorie, prijs_totaal, status, qr_code, betaling_id, betaald_at
+      ) VALUES (?, ?, ?, ?, '', ?, ?, 0, 'paid', ?, NULL, CURRENT_TIMESTAMP)
+    `, [
+      concertId, orderRef, `admin-${user.id}@animato.local`, naam,
+      aantal, 'Handmatige bulk-reservatie', qrCode
+    ])
+    const ticketId = ticketRes?.meta?.last_row_id
+    if (!ticketId) throw new Error('Ticket kon niet aangemaakt worden')
+
+    // N ticket_seats rijen
+    for (const sid of ids) {
+      await execute(c.env.DB, `
+        INSERT INTO ticket_seats (ticket_id, seat_id, concert_id, status, lock_expires_at, created_by_user_id, note)
+        VALUES (?, ?, ?, 'sold', NULL, ?, ?)
+      `, [ticketId, sid, concertId, user.id, note || null])
+    }
+
+    // Capaciteit-teller bijwerken
+    await execute(c.env.DB, `UPDATE concerts SET verkocht = verkocht + ? WHERE id = ?`, [aantal, concertId])
+
+    // Audit
+    const seatLabels = seats.map((s: any) => `${s.row_label}-${s.seat_number}`).join(',')
+    await execute(c.env.DB,
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta) VALUES (?, 'manual_bulk_reserve', 'tickets', ?, ?)`,
+      [user.id, ticketId, JSON.stringify({ concert_id: concertId, aantal, seats: seatLabels, naam, note })]
+    )
+
+    return c.json({ ok: true, ticket_id: ticketId, order_ref: orderRef, aantal })
+  } catch (e: any) {
+    console.error('manual-reserve-bulk faalde:', e)
+    return c.json({ error: e.message || 'Onbekende fout' }, 500)
+  }
+})
+
 // Voor papieren/telefoon-reservaties: admin reserveert handmatig een stoel.
 // Maakt een 'ticket' aan met status='paid' (geen Mollie-flow) en een ticket_seats
 // rij met status='sold'. De stoel telt onmiddellijk mee in de telling.

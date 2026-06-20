@@ -87,6 +87,10 @@ app.get('/admin', async (c) => {
     total_leden: await safeCount(`SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND role != 'kaartkoper'`),
     // Niet-actieve leden — gestopt maar bewaard voor historie. Test-accounts uitgesloten.
     total_inactieve_leden: await safeCount(`SELECT COUNT(*) as count FROM users WHERE status = 'inactief' AND role != 'kaartkoper' AND (is_test_account IS NULL OR is_test_account = 0)`),
+    // Kaartkopers — mensen die enkel tickets kochten, GEEN ledenfunctionaliteit.
+    total_kaartkopers: await safeCount(`SELECT COUNT(*) as count FROM users WHERE role = 'kaartkoper'`),
+    // Kaartkopers die hun account nog niet geactiveerd hebben (magic-link niet gevolgd).
+    total_kaartkopers_pending: await safeCount(`SELECT COUNT(*) as count FROM users WHERE role = 'kaartkoper' AND (account_setup_completed IS NULL OR account_setup_completed = 0)`),
     total_posts: await safeCount(`SELECT COUNT(*) as count FROM posts WHERE is_published = 1`),
     total_events: await safeCount(`SELECT COUNT(*) as count FROM events WHERE datetime(start_at) > datetime('now')`),
     total_albums: await safeCount(`SELECT COUNT(*) as count FROM albums WHERE is_publiek = 1`),
@@ -478,6 +482,36 @@ app.get('/admin', async (c) => {
               </div>
               <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 Bekijk alle leden <i class="fas fa-arrow-right text-xs"></i>
+              </span>
+            </a>
+            )}
+
+            {isFullAdmin && (
+              <a href="/admin/leden?role=kaartkoper&status=all" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg hover:border-blue-400 transition cursor-pointer group" title="Mensen die enkel tickets kochten — geen toegang tot ledenfunctionaliteit">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Kaartkopers</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-blue-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-ticket-alt text-blue-600 text-base"></i>
+                </div>
+              </div>
+              <div>
+                <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_kaartkopers?.count || 0}</p>
+                {(stats.total_kaartkopers_pending?.count || 0) > 0 ? (
+                  <p class="text-xs text-amber-600 mt-1" title="Magic-link nog niet gevolgd — wachten op activatie">
+                    <i class="fas fa-hourglass-half mr-1"></i>
+                    {stats.total_kaartkopers_pending?.count || 0} nog niet geactiveerd
+                  </p>
+                ) : (stats.total_kaartkopers?.count || 0) > 0 ? (
+                  <p class="text-xs text-gray-500 mt-1">
+                    <i class="fas fa-check-circle mr-1 text-green-500"></i>
+                    Allen geactiveerd
+                  </p>
+                ) : (
+                  <p class="text-xs text-gray-400 mt-1">Nog geen kaartkopers</p>
+                )}
+              </div>
+              <span class="text-xs text-blue-600 group-hover:underline inline-flex items-center gap-1 font-medium">
+                Bekijk kaartkopers <i class="fas fa-arrow-right text-xs"></i>
               </span>
             </a>
             )}
@@ -1752,7 +1786,7 @@ app.get('/admin/leden', async (c) => {
           
           {/* Stats Bar */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-4">
               <a href="/admin/leden?status=actief" class="text-center hover:bg-gray-50 rounded-lg py-1 transition cursor-pointer" title="Toon alle actieve leden">
                 <p class="text-2xl font-bold text-gray-900">{counts.all?.count || 0}</p>
                 <p class="text-sm text-gray-600">Actieve leden</p>
@@ -1792,6 +1826,13 @@ app.get('/admin/leden', async (c) => {
                   {counts.inactief?.count || 0}
                 </p>
                 <p class="text-sm text-gray-600">Inactief</p>
+              </a>
+              <a href="/admin/leden?role=kaartkoper&status=all" class="text-center hover:bg-blue-50 rounded-lg py-1 transition cursor-pointer" title="Ticketkopers — geen ledenfunctionaliteit">
+                <p class="text-2xl font-bold text-blue-600 flex items-center justify-center">
+                  <i class="fas fa-ticket-alt text-sm mr-1"></i>
+                  {counts.kaartkoper?.count || 0}
+                </p>
+                <p class="text-sm text-gray-600">Kaartkopers</p>
               </a>
               <div class="text-center border-l-2 border-animato-accent pl-4">
                 <p class="text-2xl font-bold text-animato-accent flex items-center justify-center">

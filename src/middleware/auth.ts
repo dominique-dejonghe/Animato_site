@@ -7,6 +7,29 @@ import type { Bindings, SessionUser, UserRole, Stemgroep } from '../types'
 import { verifyToken, hasRole, canAccessStem, canModerate, isAdmin } from '../utils/auth'
 
 // =====================================================
+// HELPERS
+// =====================================================
+
+/**
+ * Voegt profielfoto toe aan SessionUser en zet user op context.
+ * De foto_url is niet in het JWT-payload (zou expiring/stale data zijn),
+ * dus we halen 'm op uit profiles tabel per request. 1 lichte indexed query.
+ * Niet-blokkerend: bij DB-fout valt foto_url terug op null en gaat de
+ * request gewoon door (gebruiker ziet dan generiek icon).
+ */
+async function attachPhotoAndSetUser(c: Context<{ Bindings: Bindings }>, user: SessionUser): Promise<void> {
+  try {
+    const row = await c.env.DB.prepare(
+      'SELECT foto_url FROM profiles WHERE user_id = ? LIMIT 1'
+    ).bind(user.id).first<{ foto_url: string | null }>()
+    user.foto_url = row?.foto_url || null
+  } catch (_) {
+    user.foto_url = null
+  }
+  c.set('user', user)
+}
+
+// =====================================================
 // AUTH MIDDLEWARE
 // =====================================================
 
@@ -99,8 +122,8 @@ export async function requireAuth(c: Context<{ Bindings: Bindings }>, next: Next
     return c.json({ error: 'Ongeldige of verlopen sessie' }, 401)
   }
 
-  // Attach user to context
-  c.set('user', user)
+  // Attach user (met profielfoto) to context
+  await attachPhotoAndSetUser(c, user)
 
   // Heartbeat: raak user_sessions.updated_at aan zodat we
   // inactiviteit kunnen meten op /admin/audit. Niet-blokkerend.
@@ -305,7 +328,7 @@ export async function requireBestuurslid(c: Context<{ Bindings: Bindings }>, nex
         is_bestuurslid: (dbIsBestuurslid ? 1 : 0) as 0 | 1,
         stemgroep: (dbRow.stemgroep ?? user.stemgroep) as Stemgroep | null,
       }
-      c.set('user', refreshedUser)
+      await attachPhotoAndSetUser(c, refreshedUser)
 
       // Cookie stilletjes verversen — nieuwe JWT met juiste claims.
       // Best-effort: als er iets fout gaat, log + ga toch door (toegang
@@ -346,7 +369,7 @@ export async function requireBestuurslid(c: Context<{ Bindings: Bindings }>, nex
       setCookie(c, 'admin_impersonate_token', '', {
         maxAge: 0, httpOnly: true, secure: true, sameSite: 'Lax', path: '/'
       })
-      c.set('user', adminUser)
+      await attachPhotoAndSetUser(c, adminUser)
       await next()
       return
     }
@@ -455,7 +478,7 @@ export async function optionalAuth(c: Context<{ Bindings: Bindings }>, next: Nex
     const user = await verifyToken(token, jwtSecret)
 
     if (user) {
-      c.set('user', user)
+      await attachPhotoAndSetUser(c, user)
       // Heartbeat: zie requireAuth
       try {
         const tokenPrefix = token.substring(0, 32)

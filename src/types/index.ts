@@ -77,6 +77,7 @@ export interface SessionUser {
   voornaam: string
   achternaam: string
   is_bestuurslid?: number
+  foto_url?: string | null  // Profielfoto URL (geladen door requireAuth middleware uit profiles tabel)
 }
 
 // =====================================================

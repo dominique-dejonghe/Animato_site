@@ -8,7 +8,7 @@ interface LayoutProps {
   title?: string
   description?: string
   children: any
-  user?: { voornaam: string; achternaam: string; role: string } | null
+  user?: { voornaam: string; achternaam: string; role: string; foto_url?: string | null; is_bestuurslid?: number } | null
   currentPath?: string
   impersonating?: boolean
   // OpenGraph / social-share metadata — gebruikt voor mooie WhatsApp / Facebook / LinkedIn preview-kaarten
@@ -33,6 +33,24 @@ export const Layout: FC<LayoutProps> = ({
   const fullTitle = title === 'Gemengd Koor Animato' ? title : `${title} | Gemengd Koor Animato`
   // Default OG-image = Animato logo (kleine fallback, dan toont WhatsApp tenminste iets visueel)
   const finalOgImage = ogImage || 'https://animato-live.pages.dev/static/images/animato-logo-full.png'
+
+  // Avatar voor de header: kleine ronde profielfoto als ingelogde user er een heeft,
+  // anders een fallback fa-user-circle icon (zoals voorheen).
+  // We renderen 1 element zodat de layout-flow constant blijft.
+  const renderHeaderAvatar = (extraClass = 'mr-2') => {
+    if (user?.foto_url) {
+      return (
+        <img
+          src={user.foto_url}
+          alt={user.voornaam}
+          class={`w-7 h-7 rounded-full object-cover border border-gray-200 ${extraClass}`}
+          loading="lazy"
+          referrerpolicy="no-referrer"
+        />
+      )
+    }
+    return <i class={`fas fa-user-circle text-lg ${extraClass}`}></i>
+  }
 
   // =====================================================
   // NAV-ITEMS — mix van statische items met editable_pages (show_in_nav=1)
@@ -353,7 +371,7 @@ export const Layout: FC<LayoutProps> = ({
                           onclick="this.nextElementSibling.classList.toggle('hidden')"
                           aria-haspopup="true"
                         >
-                          <i class="fas fa-user-circle text-lg"></i>
+                          {renderHeaderAvatar('')}
                           <span>Mijn account</span>
                           <i class="fas fa-chevron-down text-xs"></i>
                         </button>
@@ -393,9 +411,9 @@ export const Layout: FC<LayoutProps> = ({
                       ></span>
                     </a>
                     {/* Leden portal link */}
-                    <a href="/leden" class="hidden lg:block text-gray-700 hover:text-animato-primary transition">
-                      <i class="fas fa-user-circle mr-2"></i>
-                      {user.voornaam}
+                    <a href="/leden" class="hidden lg:inline-flex items-center gap-2 text-gray-700 hover:text-animato-primary transition">
+                      {renderHeaderAvatar('')}
+                      <span>{user.voornaam}</span>
                     </a>
                     {/* Uitloggen - Desktop only (hidden on mobile to prevent accidental clicks) */}
                     <a href="/api/auth/logout" class="hidden lg:block text-sm text-gray-600 hover:text-gray-900">

@@ -24,6 +24,7 @@ import adminLocationsRoutes from './routes/admin-locations'
 import adminLocatiesRoutes from './routes/admin-locaties'
 import adminFotoboekRoutes from './routes/admin-fotoboek'
 import adminTicketsRoutes from './routes/admin-tickets'
+import adminScannerRoutes from './routes/admin-scanner'
 import ticketsRoutes from './routes/tickets'
 import accountRoutes from './routes/account'
 import webhooksRoutes from './routes/webhooks'
@@ -346,6 +347,7 @@ app.route('/', adminLocationsRoutes)
 app.route('/', adminLocatiesRoutes)
 app.route('/', adminFotoboekRoutes)
 app.route('/', adminTicketsRoutes)
+app.route('/', adminScannerRoutes)
 app.route('/', adminPollsRoutes)
 app.route('/', adminVoorstellenRoutes)
 app.route('/', adminActivityRoutes)

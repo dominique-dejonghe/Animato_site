@@ -61,6 +61,12 @@ app.get('/admin', async (c) => {
   // Pure bestuursleden (is_bestuurslid=1 zonder admin/moderator role) krijgen
   // alleen tegels te zien die voor hen relevant zijn (financiën + bestuur).
   const isFullAdmin = user.role === 'admin' || user.role === 'moderator'
+  // Wie mag tickets scannen? Admin/moderator + bestuur, plus iedereen met
+  // expliciet 'can_scan_tickets' vinkje (zie /admin/leden/:id). Wordt in
+  // Fase 6 van de QR-scanner uitbreiding ingevuld.
+  const canScanTickets = isFullAdmin
+    || user.is_bestuurslid === 1
+    || (user as any).can_scan_tickets === 1
 
   // Disable caching for admin pages
   noCacheHeaders(c)
@@ -91,6 +97,15 @@ app.get('/admin', async (c) => {
     total_kaartkopers: await safeCount(`SELECT COUNT(*) as count FROM users WHERE role = 'kaartkoper'`),
     // Kaartkopers die hun account nog niet geactiveerd hebben (magic-link niet gevolgd).
     total_kaartkopers_pending: await safeCount(`SELECT COUNT(*) as count FROM users WHERE role = 'kaartkoper' AND (account_setup_completed IS NULL OR account_setup_completed = 0)`),
+    // Komende concerten met verkochte tickets — relevant voor QR-scanner tegel
+    upcoming_concerts_with_tickets: await safeCount(
+      `SELECT COUNT(DISTINCT c.id) as count
+       FROM concerts c
+       JOIN events e ON e.id = c.event_id
+       WHERE datetime(e.start_at) >= datetime('now', '-1 day')
+         AND datetime(e.start_at) < datetime('now', '+90 days')
+         AND EXISTS (SELECT 1 FROM tickets t WHERE t.concert_id = c.id AND t.status = 'paid')`
+    ),
     total_posts: await safeCount(`SELECT COUNT(*) as count FROM posts WHERE is_published = 1`),
     total_events: await safeCount(`SELECT COUNT(*) as count FROM events WHERE datetime(start_at) > datetime('now')`),
     total_albums: await safeCount(`SELECT COUNT(*) as count FROM albums WHERE is_publiek = 1`),
@@ -617,6 +632,25 @@ app.get('/admin', async (c) => {
               <p class="text-3xl font-bold text-gray-900 leading-none">{stats.last_attendance?.count || 0}</p>
               <span class="text-xs text-animato-primary group-hover:underline inline-flex items-center gap-1 font-medium">
                 QR Check-in & Streaks <i class="fas fa-arrow-right text-xs"></i>
+              </span>
+            </a>
+            )}
+
+            {/* Concert QR-scanner — ingang naar de scan-flow per concert.
+                Bewust GEEN fa-qrcode (al gebruikt voor aanwezigheid) en geen
+                fa-ticket-alt (al gebruikt voor kaartkopers) — kiezen voor
+                fa-camera-retro met teal-accent voor visuele rust. */}
+            {(isFullAdmin || canScanTickets) && (
+              <a href="/admin/scanner" class="bg-white rounded-lg shadow-md p-4 flex flex-col gap-3 overflow-hidden hover:shadow-lg hover:border-teal-400 transition cursor-pointer group" title="Tickets scannen aan de ingang van een concert">
+              <div class="flex items-start justify-between gap-2">
+                <p class="text-xs font-medium text-gray-500 uppercase tracking-wide leading-tight">Ticket-scanner</p>
+                <div class="flex-shrink-0 w-9 h-9 bg-teal-100 rounded-lg flex items-center justify-center">
+                  <i class="fas fa-camera-retro text-teal-600 text-base"></i>
+                </div>
+              </div>
+              <p class="text-3xl font-bold text-gray-900 leading-none">{stats.upcoming_concerts_with_tickets?.count || 0}</p>
+              <span class="text-xs text-teal-600 group-hover:underline inline-flex items-center gap-1 font-medium">
+                {(stats.upcoming_concerts_with_tickets?.count || 0) > 0 ? 'Scan tickets' : 'Geen concerten'} <i class="fas fa-arrow-right text-xs"></i>
               </span>
             </a>
             )}

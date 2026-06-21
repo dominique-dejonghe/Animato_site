@@ -35,8 +35,10 @@ app.get('/admin/scanner', async (c) => {
   const user = c.get('user') as SessionUser
   noCacheHeaders(c)
 
-  // Komende concerten met verkochte tickets (laatste 24u + volgende 90 dagen)
+  // Komende concerten met verkochte tickets (laatste 24u + volgende 365 dagen)
   // Inclusief totaal-betaald + ingecheckte counts voor live progress-bar
+  // 365 dagen = ruim genoeg voor concerten die maanden vooruit worden gepland
+  // Filter total_tickets > 0 zorgt dat verre concerten zonder verkoop niet tonen
   const concerts = await queryAll<any>(c.env.DB, `
     SELECT
       c.id AS concert_id,
@@ -56,7 +58,7 @@ app.get('/admin/scanner', async (c) => {
     FROM concerts c
     JOIN events e ON e.id = c.event_id
     WHERE datetime(e.start_at) >= datetime('now', '-1 day')
-      AND datetime(e.start_at) < datetime('now', '+90 days')
+      AND datetime(e.start_at) < datetime('now', '+365 days')
     ORDER BY e.start_at ASC
   `, [])
 

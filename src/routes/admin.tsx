@@ -98,12 +98,13 @@ app.get('/admin', async (c) => {
     // Kaartkopers die hun account nog niet geactiveerd hebben (magic-link niet gevolgd).
     total_kaartkopers_pending: await safeCount(`SELECT COUNT(*) as count FROM users WHERE role = 'kaartkoper' AND (account_setup_completed IS NULL OR account_setup_completed = 0)`),
     // Komende concerten met verkochte tickets — relevant voor QR-scanner tegel
+    // 365 dagen window: concerten worden vaak maanden vooruit gepland
     upcoming_concerts_with_tickets: await safeCount(
       `SELECT COUNT(DISTINCT c.id) as count
        FROM concerts c
        JOIN events e ON e.id = c.event_id
        WHERE datetime(e.start_at) >= datetime('now', '-1 day')
-         AND datetime(e.start_at) < datetime('now', '+90 days')
+         AND datetime(e.start_at) < datetime('now', '+365 days')
          AND EXISTS (SELECT 1 FROM tickets t WHERE t.concert_id = c.id AND t.status = 'paid')`
     ),
     total_posts: await safeCount(`SELECT COUNT(*) as count FROM posts WHERE is_published = 1`),

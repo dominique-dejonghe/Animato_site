@@ -140,8 +140,13 @@ app.post('/api/photos/upload', requireAuth, async (c) => {
       try { await deleteFromR2(c.env.R2, oldKey) } catch {}
     }
 
-    // profiles.foto_url blijft wijzen naar /api/photos/<userId> (serveert nu R2-content)
-    const photoUrl = `/api/photos/${targetUserId}`
+    // profiles.foto_url wijst naar /api/photos/<userId>?v=<timestamp>
+    // De ?v=<ts> query-string is een cache-buster: elke nieuwe upload geeft
+    // een nieuwe URL waardoor browser/CDN gegarandeerd de nieuwe foto laadt.
+    // Het serving endpoint negeert de query string en levert gewoon de actuele
+    // R2-content uit member_photos.r2_key.
+    const cacheBuster = Date.now()
+    const photoUrl = `/api/photos/${targetUserId}?v=${cacheBuster}`
     await c.env.DB.prepare(
       'UPDATE profiles SET foto_url = ? WHERE user_id = ?'
     ).bind(photoUrl, targetUserId).run()

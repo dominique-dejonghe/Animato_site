@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import * as XLSX from 'xlsx'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
@@ -494,6 +495,66 @@ app.get('/admin/projects/:id', async (c) => {
     [projectId]
   )
 
+  // === LIVE TICKETVERKOOP (alleen als project gekoppeld aan een concert-event) ===
+  // De voorzitter raamt "390 × €20" in Excel; wij tonen wat er daadwerkelijk
+  // verkocht is via Mollie. Eén query, geen extra DB-roundtrips per render.
+  let ticketStats: any = null
+  if (project.event_id) {
+    ticketStats = await queryOne<any>(
+      c.env.DB,
+      `SELECT
+         c.id AS concert_id,
+         c.capaciteit,
+         COALESCE(SUM(CASE WHEN t.status = 'paid'   THEN t.aantal       ELSE 0 END), 0) AS paid_seats,
+         COALESCE(SUM(CASE WHEN t.status = 'paid'   THEN t.prijs_totaal ELSE 0 END), 0) AS paid_amount,
+         COALESCE(SUM(CASE WHEN t.status = 'paid'   THEN 1              ELSE 0 END), 0) AS paid_orders,
+         COALESCE(SUM(CASE WHEN t.status = 'pending' THEN t.aantal      ELSE 0 END), 0) AS pending_seats,
+         COALESCE(SUM(CASE WHEN t.status = 'used'    THEN 1             ELSE 0 END), 0) AS used_orders
+       FROM concerts c
+       LEFT JOIN tickets t ON t.concert_id = c.id
+       WHERE c.event_id = ?
+       GROUP BY c.id`,
+      [project.event_id]
+    )
+  }
+
+  // === BUDGET BREAKDOWN per categorie (voor donut/bar charts in dashboard) ===
+  const budgetByCategory = await queryAll<any>(
+    c.env.DB,
+    `SELECT type, categorie,
+            SUM(verwacht_bedrag)  AS verwacht,
+            SUM(werkelijk_bedrag) AS werkelijk,
+            COUNT(*)              AS n
+     FROM concert_budget_items
+     WHERE project_id = ?
+     GROUP BY type, categorie
+     ORDER BY type, verwacht DESC`,
+    [projectId]
+  )
+
+  // Top 5 grootste uitgaveposten
+  const topExpenses = await queryAll<any>(
+    c.env.DB,
+    `SELECT omschrijving, categorie, verwacht_bedrag, werkelijk_bedrag, betaald
+     FROM concert_budget_items
+     WHERE project_id = ? AND type = 'uitgave'
+     ORDER BY verwacht_bedrag DESC
+     LIMIT 5`,
+    [projectId]
+  )
+
+  // Taak-statistieken voor dashboard widgets
+  const taskStats = {
+    todo:        tasks.filter((t: any) => t.status === 'todo').length,
+    in_progress: tasks.filter((t: any) => t.status === 'in_progress').length,
+    blocked:     tasks.filter((t: any) => t.status === 'blocked').length,
+    done:        tasks.filter((t: any) => t.status === 'done').length,
+    overdue:     tasks.filter((t: any) =>
+                   t.status !== 'done' && t.deadline &&
+                   new Date(t.deadline) < new Date(new Date().toDateString())
+                 ).length,
+  }
+
   return c.html(
     <Layout title={`Project: ${project.titel}`} user={user}>
       <div class="flex min-h-screen bg-gray-100">
@@ -572,7 +633,7 @@ app.get('/admin/projects/:id', async (c) => {
                     )}
                   </p>
                </div>
-               <div class="flex gap-2 items-center">
+               <div class="flex gap-2 items-center flex-wrap">
                   <span class={`px-4 py-2 rounded-full font-bold uppercase text-sm ${
                     project.status === 'in_uitvoering' ? 'bg-blue-100 text-blue-800' :
                     project.status === 'afgerond' ? 'bg-green-100 text-green-800' :
@@ -581,6 +642,14 @@ app.get('/admin/projects/:id', async (c) => {
                   }`}>
                     {project.status.replace('_', ' ')}
                   </span>
+                  <a
+                    href={`/api/admin/projects/${projectId}/export.xlsx`}
+                    class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-semibold text-sm transition shadow-sm flex items-center gap-2"
+                    title="Volledig projectoverzicht downloaden als Excel"
+                  >
+                    <i class="fas fa-file-excel"></i>
+                    <span class="hidden sm:inline">Excel-export</span>
+                  </a>
                   <button 
                     onclick={`openDeleteModal('/api/admin/projects/${projectId}/delete')`}
                     class="ml-2 bg-red-100 text-red-700 hover:bg-red-200 p-2 rounded-full transition"
@@ -655,88 +724,353 @@ app.get('/admin/projects/:id', async (c) => {
             </div>
           </div>
 
-          {/* DASHBOARD TAB */}
-          {tab === 'dashboard' && (
-            <div class="space-y-6">
-               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  {/* Task Stats */}
-                  <div class="bg-white p-6 rounded-lg shadow border-t-4 border-blue-500">
-                     <h3 class="text-gray-500 text-sm font-semibold uppercase">Taken</h3>
-                     <div class="flex items-end mt-2">
-                        <span class="text-3xl font-bold text-gray-800">
-                           {tasks.filter((t: any) => t.status === 'done').length}
-                        </span>
-                        <span class="text-gray-500 ml-2 mb-1">/ {tasks.length}</span>
-                     </div>
-                     <div class="mt-4 w-full bg-gray-200 rounded-full h-2">
-                        <div class="bg-blue-500 h-2 rounded-full" style={`width: ${tasks.length > 0 ? (tasks.filter((t: any) => t.status === 'done').length / tasks.length) * 100 : 0}%`}></div>
-                     </div>
+          {/* DASHBOARD TAB — vervangt het "Financieel Overzicht"-tabblad van de Excel */}
+          {tab === 'dashboard' && (() => {
+            const verwachtNetto = (project.budget_inkomsten || 0) - (project.budget_uitgaven || 0)
+            const werkelijkNetto = (project.werkelijke_inkomsten || 0) - (project.werkelijke_uitgaven || 0)
+            const marge = project.budget_inkomsten > 0
+              ? (verwachtNetto / project.budget_inkomsten) * 100
+              : 0
+            const daysLeft = project.start_at
+              ? Math.ceil((new Date(project.start_at).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
+              : null
+            // Live ticketverkoop wint van handmatig ingevulde kaartverkoop_werkelijk
+            const liveTicketRevenue = ticketStats?.paid_amount || 0
+            const liveTicketSeats   = ticketStats?.paid_seats  || 0
+            const capacity          = ticketStats?.capaciteit  || 0
+            const seatFillPct       = capacity > 0 ? Math.min(100, (liveTicketSeats / capacity) * 100) : 0
+            // Categorie-data voor charts
+            const expenseCats = budgetByCategory.filter((b: any) => b.type === 'uitgave')
+            const incomeCats  = budgetByCategory.filter((b: any) => b.type === 'inkomst')
+            // Categorie-palet (tailwind kleurnamen, voor Chart.js hieronder)
+            const expensePalette = ['#dc2626','#ea580c','#d97706','#ca8a04','#65a30d','#16a34a','#0891b2','#2563eb','#7c3aed','#c026d3']
+            const incomePalette  = ['#16a34a','#0d9488','#0284c7','#4f46e5','#7c3aed','#db2777']
+
+            return (
+              <div class="space-y-6">
+                {/* === HERO: NETTO RESULTAAT === */}
+                <div class={`rounded-xl shadow-lg p-8 text-white ${werkelijkNetto >= 0 || verwachtNetto >= 0 ? 'bg-gradient-to-br from-emerald-600 to-green-700' : 'bg-gradient-to-br from-rose-600 to-red-700'}`}>
+                  <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                    <div>
+                      <div class="text-sm uppercase tracking-widest opacity-80 mb-2">
+                        <i class="fas fa-chart-line mr-2"></i>
+                        Netto resultaat — verwacht
+                      </div>
+                      <div class="text-5xl font-bold" style="font-family: 'Playfair Display', serif;">
+                        € {verwachtNetto.toLocaleString('nl-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <div class="text-sm opacity-90 mt-2">
+                        Marge: <strong>{marge.toFixed(1)}%</strong> op inkomsten
+                      </div>
+                    </div>
+                    <div class="border-l-2 border-white border-opacity-30 pl-6">
+                      <div class="text-sm uppercase tracking-widest opacity-80 mb-2">
+                        Werkelijk t.o.v. nu
+                      </div>
+                      <div class="text-3xl font-bold">
+                        € {werkelijkNetto.toLocaleString('nl-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </div>
+                      <div class="text-xs opacity-80 mt-1">
+                        Inkomsten reëel: € {(project.werkelijke_inkomsten || 0).toLocaleString('nl-BE', { minimumFractionDigits: 2 })} •
+                        Uitgaven reëel: € {(project.werkelijke_uitgaven || 0).toLocaleString('nl-BE', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* === KPI KAARTEN === */}
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                  {/* Inkomsten */}
+                  <div class="bg-white p-6 rounded-lg shadow border-t-4 border-emerald-500">
+                    <h3 class="text-gray-500 text-xs font-semibold uppercase tracking-wide">
+                      <i class="fas fa-arrow-trend-up text-emerald-500 mr-1"></i>
+                      Inkomsten
+                    </h3>
+                    <div class="mt-2">
+                      <div class="text-2xl font-bold text-emerald-700">
+                        € {(project.budget_inkomsten || 0).toLocaleString('nl-BE')}
+                      </div>
+                      <div class="text-xs text-gray-500 mt-1">verwacht • {incomeCats.length} posten</div>
+                    </div>
                   </div>
 
-                  {/* Budget Stats */}
-                  <div class="bg-white p-6 rounded-lg shadow border-t-4 border-green-500">
-                     <h3 class="text-gray-500 text-sm font-semibold uppercase">Budget Resultaat</h3>
-                     <div class="flex items-end mt-2">
-                        <span class={`text-3xl font-bold ${(project.werkelijke_inkomsten - project.werkelijke_uitgaven) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                           € {(project.werkelijke_inkomsten - project.werkelijke_uitgaven).toFixed(2)}
-                        </span>
-                     </div>
-                     <div class="text-xs text-gray-500 mt-2">
-                        Verwacht: € {(project.budget_inkomsten - project.budget_uitgaven).toFixed(2)}
-                     </div>
+                  {/* Uitgaven */}
+                  <div class="bg-white p-6 rounded-lg shadow border-t-4 border-rose-500">
+                    <h3 class="text-gray-500 text-xs font-semibold uppercase tracking-wide">
+                      <i class="fas fa-arrow-trend-down text-rose-500 mr-1"></i>
+                      Uitgaven
+                    </h3>
+                    <div class="mt-2">
+                      <div class="text-2xl font-bold text-rose-700">
+                        € {(project.budget_uitgaven || 0).toLocaleString('nl-BE')}
+                      </div>
+                      <div class="text-xs text-gray-500 mt-1">verwacht • {expenseCats.length} posten</div>
+                    </div>
                   </div>
-                  
+
+                  {/* Taken */}
+                  <div class="bg-white p-6 rounded-lg shadow border-t-4 border-blue-500">
+                    <h3 class="text-gray-500 text-xs font-semibold uppercase tracking-wide">
+                      <i class="fas fa-check-double text-blue-500 mr-1"></i>
+                      Taken
+                    </h3>
+                    <div class="mt-2">
+                      <div class="text-2xl font-bold text-gray-800">
+                        {taskStats.done}<span class="text-base text-gray-400">/{tasks.length}</span>
+                      </div>
+                      <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2">
+                        <div class="bg-blue-500 h-1.5 rounded-full" style={`width: ${tasks.length > 0 ? (taskStats.done / tasks.length) * 100 : 0}%`}></div>
+                      </div>
+                      {taskStats.overdue > 0 && (
+                        <div class="text-xs text-red-600 mt-1 font-medium">
+                          <i class="fas fa-exclamation-triangle mr-1"></i>
+                          {taskStats.overdue} achterstallig
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Days left */}
                   <div class="bg-white p-6 rounded-lg shadow border-t-4 border-purple-500">
-                     <h3 class="text-gray-500 text-sm font-semibold uppercase">
-                       {project.start_at ? 'Dagen te gaan' : 'Project Status'}
-                     </h3>
-                     <div class="mt-2 text-3xl font-bold text-gray-800">
-                        {project.start_at 
-                          ? Math.ceil((new Date(project.start_at).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
-                          : <span class="text-lg capitalize">{(project.status || 'planning').replace('_', ' ')}</span>
-                        }
-                     </div>
-                     <div class="text-xs text-gray-500 mt-2">
-                        {project.start_at ? 'Tot eventdatum' : 'Losstaand project — geen einddatum'}
-                     </div>
-                  </div>
-               </div>
-               
-               {/* Recent Tasks */}
-               <div class="bg-white rounded-lg shadow p-6">
-                  <h3 class="text-lg font-bold mb-4">Recente Activiteit & Taken</h3>
-                  {tasks.slice(0, 5).map((task: any) => (
-                    <div class="flex items-center justify-between py-3 border-b last:border-0">
-                       <div class="flex items-center">
-                          <span class={`w-3 h-3 rounded-full mr-3 ${
-                             task.status === 'done' ? 'bg-green-500' : 
-                             task.status === 'in_progress' ? 'bg-blue-500' :
-                             task.status === 'blocked' ? 'bg-red-500' : 'bg-gray-300'
-                          }`}></span>
-                          <div>
-                             <div class="font-medium text-gray-900">{task.titel}</div>
-                             <div class="text-xs text-gray-500">
-                                {task.voornaam ? `Verantwoordelijke: ${task.voornaam} ${task.achternaam}` : 'Niet toegewezen'} • 
-                                Deadline: {task.deadline ? new Date(task.deadline).toLocaleDateString() : 'Geen'}
-                             </div>
+                    <h3 class="text-gray-500 text-xs font-semibold uppercase tracking-wide">
+                      <i class="fas fa-hourglass-half text-purple-500 mr-1"></i>
+                      {daysLeft !== null ? 'Dagen te gaan' : 'Project status'}
+                    </h3>
+                    <div class="mt-2">
+                      {daysLeft !== null ? (
+                        <>
+                          <div class={`text-2xl font-bold ${daysLeft < 0 ? 'text-gray-400' : daysLeft < 30 ? 'text-orange-600' : 'text-gray-800'}`}>
+                            {daysLeft < 0 ? 'Verleden' : daysLeft}
                           </div>
-                       </div>
-                       <span class={`px-2 py-1 text-xs rounded ${
-                          task.prioriteit === 'urgent' ? 'bg-red-100 text-red-800' :
-                          task.prioriteit === 'hoog' ? 'bg-orange-100 text-orange-800' :
-                          'bg-gray-100 text-gray-800'
-                       }`}>
-                          {task.prioriteit}
-                       </span>
+                          <div class="text-xs text-gray-500 mt-1">
+                            {daysLeft >= 0 ? 'tot eventdatum' : `${Math.abs(daysLeft)} dagen geleden`}
+                          </div>
+                        </>
+                      ) : (
+                        <div class="text-base font-medium text-gray-700 capitalize">
+                          {(project.status || 'planning').replace('_', ' ')}
+                        </div>
+                      )}
                     </div>
-                  ))}
-                  <div class="mt-4 text-center">
-                     <a href={`/admin/projects/${projectId}?tab=tasks`} class="text-animato-primary font-medium hover:underline">Alle taken bekijken</a>
                   </div>
-               </div>
-            </div>
-          )}
+                </div>
+
+                {/* === LIVE TICKETVERKOOP (alleen bij gekoppeld concert-event) === */}
+                {ticketStats && (
+                  <div class="bg-white rounded-lg shadow p-6 border-l-4 border-animato-primary">
+                    <div class="flex items-center justify-between mb-4">
+                      <h3 class="text-lg font-bold text-gray-800">
+                        <i class="fas fa-ticket text-animato-primary mr-2"></i>
+                        Live ticketverkoop
+                        <span class="ml-2 text-xs font-normal text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">automatisch uit Mollie</span>
+                      </h3>
+                      <a href={`/admin/concerten/${ticketStats.concert_id}/tickets`} class="text-sm text-animato-primary hover:underline">
+                        Alle tickets bekijken →
+                      </a>
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div>
+                        <div class="text-xs text-gray-500 uppercase">Werkelijk ontvangen</div>
+                        <div class="text-2xl font-bold text-emerald-700">€ {liveTicketRevenue.toLocaleString('nl-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                      </div>
+                      <div>
+                        <div class="text-xs text-gray-500 uppercase">Zitjes verkocht</div>
+                        <div class="text-2xl font-bold text-gray-800">{liveTicketSeats}<span class="text-base text-gray-400">/{capacity}</span></div>
+                        <div class="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                          <div class={`h-1.5 rounded-full ${seatFillPct >= 80 ? 'bg-emerald-500' : seatFillPct >= 50 ? 'bg-blue-500' : 'bg-orange-400'}`} style={`width: ${seatFillPct}%`}></div>
+                        </div>
+                      </div>
+                      <div>
+                        <div class="text-xs text-gray-500 uppercase">Bestellingen betaald</div>
+                        <div class="text-2xl font-bold text-gray-800">{ticketStats.paid_orders}</div>
+                      </div>
+                      <div>
+                        <div class="text-xs text-gray-500 uppercase">In bestellingen-wacht</div>
+                        <div class="text-2xl font-bold text-amber-600">{ticketStats.pending_seats}</div>
+                        <div class="text-xs text-gray-500 mt-1">zitjes pending</div>
+                      </div>
+                    </div>
+                    {liveTicketRevenue > 0 && (project.budget_inkomsten || 0) > 0 && (
+                      <div class="mt-4 text-xs text-gray-600 bg-gray-50 rounded-md p-3">
+                        <i class="fas fa-info-circle mr-1 text-gray-400"></i>
+                        Deze cijfers komen rechtstreeks uit de Mollie-tickets en hoeven niet manueel bijgehouden te worden.
+                        Vul "werkelijk bedrag" voor de kaartverkoop-rij dus niet zelf in — het dashboard rekent eraan.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* === CHARTS: KOSTENVERDELING + INKOMSTEN === */}
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4">
+                      <i class="fas fa-chart-pie text-rose-500 mr-2"></i>
+                      Kostenverdeling per categorie
+                    </h3>
+                    {expenseCats.length > 0 ? (
+                      <canvas id="chart-expenses" height="220"></canvas>
+                    ) : (
+                      <div class="text-sm text-gray-400 italic py-12 text-center">Nog geen uitgaven ingevoerd.</div>
+                    )}
+                  </div>
+                  <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4">
+                      <i class="fas fa-chart-bar text-emerald-500 mr-2"></i>
+                      Inkomsten per type
+                    </h3>
+                    {incomeCats.length > 0 ? (
+                      <canvas id="chart-income" height="220"></canvas>
+                    ) : (
+                      <div class="text-sm text-gray-400 italic py-12 text-center">Nog geen inkomsten ingevoerd.</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* === TOP 5 UITGAVEN === */}
+                {topExpenses.length > 0 && (
+                  <div class="bg-white rounded-lg shadow p-6">
+                    <h3 class="text-lg font-bold text-gray-800 mb-4">
+                      <i class="fas fa-medal text-amber-500 mr-2"></i>
+                      Top 5 grootste uitgaveposten
+                    </h3>
+                    <div class="space-y-3">
+                      {topExpenses.map((item: any, i: number) => {
+                        const pct = (project.budget_uitgaven || 0) > 0 ? (item.verwacht_bedrag / project.budget_uitgaven) * 100 : 0
+                        return (
+                          <div>
+                            <div class="flex items-center justify-between mb-1">
+                              <div class="flex items-center gap-2">
+                                <span class="text-xs font-mono text-gray-400">#{i+1}</span>
+                                <span class="font-medium text-gray-800">{item.omschrijving}</span>
+                                {item.betaald ? (
+                                  <span class="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">betaald</span>
+                                ) : null}
+                              </div>
+                              <span class="text-sm font-bold text-gray-700">€ {item.verwacht_bedrag.toLocaleString('nl-BE', { minimumFractionDigits: 2 })}</span>
+                            </div>
+                            <div class="w-full bg-gray-100 rounded-full h-2">
+                              <div class="bg-gradient-to-r from-rose-400 to-rose-600 h-2 rounded-full" style={`width: ${Math.min(100, pct)}%`}></div>
+                            </div>
+                            <div class="text-xs text-gray-500 mt-0.5">{pct.toFixed(1)}% van totaal • {item.categorie}</div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* === RECENTE/URGENTE TAKEN === */}
+                <div class="bg-white rounded-lg shadow p-6">
+                  <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-bold">
+                      <i class="fas fa-tasks text-blue-500 mr-2"></i>
+                      Recente taken
+                    </h3>
+                    <div class="text-xs text-gray-500">
+                      {taskStats.in_progress} bezig • {taskStats.todo} todo • {taskStats.blocked} geblokkeerd
+                    </div>
+                  </div>
+                  {tasks.length === 0 ? (
+                    <div class="text-sm text-gray-400 italic py-6 text-center">Nog geen taken ingevoerd.</div>
+                  ) : (
+                    <>
+                      {tasks.slice(0, 5).map((task: any) => (
+                        <div class="flex items-center justify-between py-3 border-b last:border-0">
+                          <div class="flex items-center min-w-0 flex-1">
+                            <span class={`w-3 h-3 rounded-full mr-3 flex-shrink-0 ${
+                              task.status === 'done' ? 'bg-green-500' :
+                              task.status === 'in_progress' ? 'bg-blue-500' :
+                              task.status === 'blocked' ? 'bg-red-500' : 'bg-gray-300'
+                            }`}></span>
+                            <div class="min-w-0">
+                              <div class="font-medium text-gray-900 truncate">{task.titel}</div>
+                              <div class="text-xs text-gray-500">
+                                {task.voornaam ? `${task.voornaam} ${task.achternaam || ''}` : 'Niet toegewezen'} •
+                                Deadline: {task.deadline ? new Date(task.deadline).toLocaleDateString('nl-BE') : 'geen'}
+                              </div>
+                            </div>
+                          </div>
+                          <span class={`px-2 py-1 text-xs rounded ml-3 flex-shrink-0 ${
+                            task.prioriteit === 'urgent' ? 'bg-red-100 text-red-800' :
+                            task.prioriteit === 'hoog' ? 'bg-orange-100 text-orange-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {task.prioriteit}
+                          </span>
+                        </div>
+                      ))}
+                      <div class="mt-4 text-center">
+                        <a href={`/admin/projects/${projectId}?tab=tasks`} class="text-animato-primary font-medium hover:underline text-sm">
+                          Alle {tasks.length} taken bekijken →
+                        </a>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* === Chart.js inject + render === */}
+                <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+                <script dangerouslySetInnerHTML={{ __html: `
+                  (function() {
+                    var expenseData = ${JSON.stringify(expenseCats.map((c: any) => ({ label: c.categorie, value: c.verwacht })))};
+                    var incomeData  = ${JSON.stringify(incomeCats.map((c: any) => ({ label: c.categorie, value: c.verwacht })))};
+                    var expensePalette = ${JSON.stringify(expensePalette)};
+                    var incomePalette  = ${JSON.stringify(incomePalette)};
+                    function fmt(v) { return '€ ' + (v||0).toLocaleString('nl-BE', { minimumFractionDigits: 2 }); }
+                    function init() {
+                      if (typeof Chart === 'undefined') { setTimeout(init, 100); return; }
+                      var ce = document.getElementById('chart-expenses');
+                      if (ce && expenseData.length > 0) {
+                        new Chart(ce, {
+                          type: 'doughnut',
+                          data: {
+                            labels: expenseData.map(function(d){ return d.label }),
+                            datasets: [{
+                              data: expenseData.map(function(d){ return d.value }),
+                              backgroundColor: expensePalette,
+                              borderWidth: 2, borderColor: '#fff'
+                            }]
+                          },
+                          options: {
+                            responsive: true, maintainAspectRatio: true,
+                            plugins: {
+                              legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } },
+                              tooltip: { callbacks: { label: function(ctx){ return ctx.label + ': ' + fmt(ctx.parsed) } } }
+                            }
+                          }
+                        });
+                      }
+                      var ci = document.getElementById('chart-income');
+                      if (ci && incomeData.length > 0) {
+                        new Chart(ci, {
+                          type: 'bar',
+                          data: {
+                            labels: incomeData.map(function(d){ return d.label }),
+                            datasets: [{
+                              label: 'Verwacht',
+                              data: incomeData.map(function(d){ return d.value }),
+                              backgroundColor: incomePalette,
+                              borderRadius: 6
+                            }]
+                          },
+                          options: {
+                            responsive: true, maintainAspectRatio: true, indexAxis: 'y',
+                            plugins: {
+                              legend: { display: false },
+                              tooltip: { callbacks: { label: function(ctx){ return fmt(ctx.parsed.x) } } }
+                            },
+                            scales: { x: { ticks: { callback: function(v){ return '€ ' + v } } } }
+                          }
+                        });
+                      }
+                    }
+                    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+                    else init();
+                  })();
+                `}} />
+              </div>
+            )
+          })()}
 
           {/* TASKS TAB */}
           {tab === 'tasks' && (
@@ -2054,6 +2388,282 @@ app.post('/api/admin/projects/budget/:id/update', async (c) => {
   }
 
   return c.redirect(`/admin/projects/${project_id}?tab=budget`)
+})
+
+// =====================================================
+// EXCEL EXPORT — vervangt het Excel-bestand van de voorzitter
+// =====================================================
+// Dezelfde 9-sheet structuur als het origineel, maar gevuld met live data
+// uit de database. Voorzitter downloadt → opent → voelt zich thuis.
+
+app.get('/api/admin/projects/:id/export.xlsx', async (c) => {
+  const projectId = c.req.param('id')
+
+  // 1) Project (zelfde realtime aggregatie als de view)
+  const project = await queryOne<any>(
+    c.env.DB,
+    `SELECT p.*, e.titel as event_titel, e.start_at, e.locatie,
+            COALESCE((SELECT SUM(verwacht_bedrag)  FROM concert_budget_items WHERE project_id = p.id AND type = 'inkomst'), 0) as budget_inkomsten,
+            COALESCE((SELECT SUM(verwacht_bedrag)  FROM concert_budget_items WHERE project_id = p.id AND type = 'uitgave'), 0) as budget_uitgaven,
+            COALESCE((SELECT SUM(werkelijk_bedrag) FROM concert_budget_items WHERE project_id = p.id AND type = 'inkomst'), 0) as werkelijke_inkomsten,
+            COALESCE((SELECT SUM(werkelijk_bedrag) FROM concert_budget_items WHERE project_id = p.id AND type = 'uitgave'), 0) as werkelijke_uitgaven
+     FROM concert_projects p
+     LEFT JOIN events e ON e.id = p.event_id
+     WHERE p.id = ?`,
+    [projectId]
+  )
+  if (!project) return c.notFound()
+
+  // 2) Bijhorende data
+  const budgetItems = await queryAll<any>(
+    c.env.DB,
+    `SELECT * FROM concert_budget_items WHERE project_id = ? ORDER BY type, categorie, id`,
+    [projectId]
+  )
+  const tasks = await queryAll<any>(
+    c.env.DB,
+    `SELECT t.*, p.voornaam, p.achternaam
+     FROM concert_project_tasks t
+     LEFT JOIN users u ON u.id = t.verantwoordelijke_id
+     LEFT JOIN profiles p ON p.user_id = u.id
+     WHERE t.project_id = ?
+     ORDER BY CASE t.status WHEN 'done' THEN 4 WHEN 'in_progress' THEN 2 WHEN 'blocked' THEN 3 ELSE 1 END,
+              t.deadline IS NULL, t.deadline`,
+    [projectId]
+  )
+  const documents = await queryAll<any>(
+    c.env.DB,
+    `SELECT titel, type, bestandsnaam, created_at FROM concert_project_documents WHERE project_id = ? ORDER BY created_at DESC`,
+    [projectId]
+  )
+
+  // Live ticketverkoop
+  let ticketStats: any = null
+  if (project.event_id) {
+    ticketStats = await queryOne<any>(
+      c.env.DB,
+      `SELECT c.id AS concert_id, c.capaciteit,
+              COALESCE(SUM(CASE WHEN t.status='paid' THEN t.aantal       ELSE 0 END), 0) AS paid_seats,
+              COALESCE(SUM(CASE WHEN t.status='paid' THEN t.prijs_totaal ELSE 0 END), 0) AS paid_amount,
+              COALESCE(SUM(CASE WHEN t.status='paid' THEN 1              ELSE 0 END), 0) AS paid_orders
+       FROM concerts c LEFT JOIN tickets t ON t.concert_id = c.id
+       WHERE c.event_id = ? GROUP BY c.id`,
+      [project.event_id]
+    )
+  }
+
+  // ===== Workbook opbouwen =====
+  const wb = XLSX.utils.book_new()
+  const exportedAt = new Date().toLocaleString('nl-BE', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit'
+  })
+
+  // ---- Sheet 1: Concertoverzicht ----
+  const eventDate = project.start_at ? new Date(project.start_at) : null
+  const overzicht: any[][] = [
+    ['Animato begroting en planning — CONCERT'],
+    [],
+    ['Concertdetails'],
+    ['Projectnaam:',          project.titel],
+    ['Concertdatum:',         eventDate ? eventDate.toLocaleDateString('nl-BE') : '—'],
+    ['Tijd:',                 eventDate ? eventDate.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' }) : '—'],
+    ['Locatie/Zaal:',         project.locatie || '—'],
+    ['Capaciteit:',           ticketStats?.capaciteit || '—'],
+    ['Status:',               (project.status || 'planning').replace('_', ' ')],
+    [],
+    ['Geëxporteerd op:',      exportedAt],
+    ['Dit Excel-bestand is een momentopname uit de Animato-website.'],
+    ['De live, altijd-actuele versie staat op:', '/admin/projects/' + projectId],
+  ]
+  const wsOverzicht = XLSX.utils.aoa_to_sheet(overzicht)
+  wsOverzicht['!cols'] = [{ wch: 28 }, { wch: 40 }]
+  XLSX.utils.book_append_sheet(wb, wsOverzicht, 'Concertoverzicht')
+
+  // ---- Sheet 2: Taken & Toewijzingen ----
+  const tasksRows: any[][] = [
+    ['TAAKBEHEER'],
+    [],
+    ['ID', 'Taaknaam', 'Status', 'Prioriteit', 'Toegewezen aan', 'Deadline', 'Aangemaakt', 'Notities']
+  ]
+  tasks.forEach((t: any) => {
+    tasksRows.push([
+      t.id,
+      t.titel,
+      (t.status || 'todo').replace('_', ' '),
+      t.prioriteit || 'medium',
+      t.voornaam ? `${t.voornaam} ${t.achternaam || ''}`.trim() : '—',
+      t.deadline ? new Date(t.deadline).toLocaleDateString('nl-BE') : '',
+      t.created_at ? new Date(t.created_at).toLocaleDateString('nl-BE') : '',
+      t.notities || ''
+    ])
+  })
+  const wsTasks = XLSX.utils.aoa_to_sheet(tasksRows)
+  wsTasks['!cols'] = [{ wch: 6 }, { wch: 42 }, { wch: 13 }, { wch: 11 }, { wch: 22 }, { wch: 13 }, { wch: 13 }, { wch: 50 }]
+  XLSX.utils.book_append_sheet(wb, wsTasks, 'Taken & Toewijzingen')
+
+  // ---- Sheet 3: Kostendetails ----
+  const expenseRows: any[][] = [
+    ['GEDETAILLEERDE BEGROTING — UITGAVEN'],
+    [],
+    ['Categorie', 'Omschrijving', 'Verwacht (€)', 'Werkelijk (€)', 'Betaald', 'Betaaldatum', 'Notities']
+  ]
+  const expenses = budgetItems.filter((b: any) => b.type === 'uitgave')
+  expenses.forEach((b: any) => {
+    expenseRows.push([
+      b.categorie || '',
+      b.omschrijving,
+      Number(b.verwacht_bedrag || 0),
+      Number(b.werkelijk_bedrag || 0),
+      b.betaald ? 'JA' : 'NEE',
+      b.betaaldatum || '',
+      b.notities || ''
+    ])
+  })
+  expenseRows.push([])
+  expenseRows.push(['TOTAAL UITGAVEN', '', Number(project.budget_uitgaven || 0), Number(project.werkelijke_uitgaven || 0)])
+  const wsExpenses = XLSX.utils.aoa_to_sheet(expenseRows)
+  wsExpenses['!cols'] = [{ wch: 28 }, { wch: 38 }, { wch: 14 }, { wch: 14 }, { wch: 9 }, { wch: 13 }, { wch: 50 }]
+  XLSX.utils.book_append_sheet(wb, wsExpenses, 'Kostendetails')
+
+  // ---- Sheet 4: Inkomstendetails ----
+  const incomeRows: any[][] = [
+    ['INKOMSTENDETAILS'],
+    [],
+    ['Categorie', 'Omschrijving', 'Verwacht (€)', 'Werkelijk (€)', 'Notities']
+  ]
+  const incomes = budgetItems.filter((b: any) => b.type === 'inkomst')
+  incomes.forEach((b: any) => {
+    incomeRows.push([
+      b.categorie || '',
+      b.omschrijving,
+      Number(b.verwacht_bedrag || 0),
+      Number(b.werkelijk_bedrag || 0),
+      b.notities || ''
+    ])
+  })
+  // Live ticketverkoop als aparte regel
+  if (ticketStats) {
+    incomeRows.push([])
+    incomeRows.push(['— LIVE UIT MOLLIE —', '', '', '', ''])
+    incomeRows.push([
+      'Kaartverkoop (live)',
+      `${ticketStats.paid_seats} zitjes verkocht in ${ticketStats.paid_orders} bestellingen`,
+      '',
+      Number(ticketStats.paid_amount || 0),
+      'Automatisch uit Mollie. Dit overschrijft de manueel ingevulde "werkelijk"-cijfers hierboven niet, maar geeft de actuele werkelijkheid.'
+    ])
+  }
+  incomeRows.push([])
+  incomeRows.push(['TOTAAL INKOMSTEN', '', Number(project.budget_inkomsten || 0), Number(project.werkelijke_inkomsten || 0)])
+  const wsIncome = XLSX.utils.aoa_to_sheet(incomeRows)
+  wsIncome['!cols'] = [{ wch: 28 }, { wch: 50 }, { wch: 14 }, { wch: 14 }, { wch: 60 }]
+  XLSX.utils.book_append_sheet(wb, wsIncome, 'Inkomstendetails')
+
+  // ---- Sheet 5: Financieel Overzicht ----
+  const verwachtNetto  = Number(project.budget_inkomsten || 0) - Number(project.budget_uitgaven || 0)
+  const werkelijkNetto = Number(project.werkelijke_inkomsten || 0) - Number(project.werkelijke_uitgaven || 0)
+  const marge = project.budget_inkomsten > 0 ? (verwachtNetto / project.budget_inkomsten) * 100 : 0
+
+  const overviewRows: any[][] = [
+    ['FINANCIEEL OVERZICHT & WINST/VERLIES'],
+    [],
+    ['Item',                   'Bedrag (€)'],
+    ['Totale inkomsten',       Number(project.budget_inkomsten || 0)],
+    ['Totale uitgaven',        Number(project.budget_uitgaven || 0)],
+    ['NETTO RESULTAAT',        verwachtNetto],
+    ['Marge op inkomsten (%)', Number(marge.toFixed(2))],
+    [],
+    ['WERKELIJKE STAND', ''],
+    ['Werkelijke inkomsten',   Number(project.werkelijke_inkomsten || 0)],
+    ['Werkelijke uitgaven',    Number(project.werkelijke_uitgaven || 0)],
+    ['Werkelijk netto',        werkelijkNetto],
+  ]
+  if (ticketStats) {
+    overviewRows.push([])
+    overviewRows.push(['TICKETVERKOOP LIVE', ''])
+    overviewRows.push(['Capaciteit zaal',           ticketStats.capaciteit])
+    overviewRows.push(['Zitjes verkocht',           ticketStats.paid_seats])
+    overviewRows.push(['Bestellingen betaald',      ticketStats.paid_orders])
+    overviewRows.push(['Ontvangen bedrag (€)',      Number(ticketStats.paid_amount)])
+    const fillPct = ticketStats.capaciteit > 0 ? (ticketStats.paid_seats / ticketStats.capaciteit) * 100 : 0
+    overviewRows.push(['Bezetting (%)',             Number(fillPct.toFixed(1))])
+  }
+  // Kostenuitsplitsing per categorie
+  overviewRows.push([])
+  overviewRows.push(['UITSPLITSING UITGAVEN PER CATEGORIE', ''])
+  const expByCat: Record<string, number> = {}
+  expenses.forEach((b: any) => {
+    const k = b.categorie || 'Overig'
+    expByCat[k] = (expByCat[k] || 0) + Number(b.verwacht_bedrag || 0)
+  })
+  Object.entries(expByCat)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([cat, sum]) => overviewRows.push([cat, sum]))
+
+  const wsOverview = XLSX.utils.aoa_to_sheet(overviewRows)
+  wsOverview['!cols'] = [{ wch: 36 }, { wch: 16 }]
+  XLSX.utils.book_append_sheet(wb, wsOverview, 'Financieel Overzicht')
+
+  // ---- Sheet 6: Documenten ----
+  const docRows: any[][] = [
+    ['DOCUMENTEN'],
+    [],
+    ['Titel', 'Type', 'Bestandsnaam', 'Upload datum']
+  ]
+  documents.forEach((d: any) => {
+    docRows.push([
+      d.titel,
+      d.type || '',
+      d.bestandsnaam || '',
+      d.created_at ? new Date(d.created_at).toLocaleDateString('nl-BE') : ''
+    ])
+  })
+  const wsDocs = XLSX.utils.aoa_to_sheet(docRows)
+  wsDocs['!cols'] = [{ wch: 32 }, { wch: 16 }, { wch: 32 }, { wch: 14 }]
+  XLSX.utils.book_append_sheet(wb, wsDocs, 'Documenten')
+
+  // ---- Sheet 7: Instructies ----
+  const instRows: any[][] = [
+    ['LEES DIT EERST'],
+    [],
+    ['Dit Excel-bestand is een EXPORT uit de Animato-website.'],
+    ['Het is een MOMENTOPNAME. Alle wijzigingen die je hier maakt komen NIET terug in het systeem.'],
+    [],
+    ['Voor live, altijd-actuele cijfers — gebruik:'],
+    ['', '/admin/projects/' + projectId],
+    [],
+    ['Wat zit waar?'],
+    ['Concertoverzicht',       'Basisdetails van het concert (naam, datum, locatie, capaciteit)'],
+    ['Taken & Toewijzingen',   'Alle taken met status, deadline en verantwoordelijke'],
+    ['Kostendetails',          'Alle uitgaveposten met verwacht/werkelijk bedrag + notities'],
+    ['Inkomstendetails',       'Alle inkomstenposten + live ticketverkoop uit Mollie'],
+    ['Financieel Overzicht',   'Netto resultaat, marge, kosten-uitsplitsing per categorie'],
+    ['Documenten',             'Lijst van geüploade documenten (zonder de bestanden zelf)'],
+    [],
+    ['Geëxporteerd op:', exportedAt],
+  ]
+  const wsInst = XLSX.utils.aoa_to_sheet(instRows)
+  wsInst['!cols'] = [{ wch: 26 }, { wch: 64 }]
+  XLSX.utils.book_append_sheet(wb, wsInst, 'Instructies')
+
+  // ===== Schrijven & sturen =====
+  // Workers verwacht ArrayBuffer/Uint8Array, niet Node Buffer
+  const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer
+
+  // Veilige bestandsnaam
+  const safeName = String(project.titel || 'project').replace(/[^a-zA-Z0-9_\- ]/g, '').trim().replace(/\s+/g, '_') || 'project'
+  const today = new Date().toISOString().split('T')[0]
+  const filename = `Animato_${safeName}_${today}.xlsx`
+
+  return new Response(buf, {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'no-store',
+    }
+  })
 })
 
 export default app

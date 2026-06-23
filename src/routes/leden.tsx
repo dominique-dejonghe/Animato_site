@@ -1823,6 +1823,16 @@ app.get('/leden/profiel', async (c) => {
     [user.id]
   )
 
+  // Tijdelijke toggle: laat leden zelf hun "lid sinds"-datum invullen?
+  // Gestuurd vanuit /admin/modules → "Tijdelijke instellingen".
+  const lidSindsSelfEditSetting = await queryOne<any>(c.env.DB,
+    "SELECT value FROM system_settings WHERE key = 'lid_sinds_self_edit_enabled' LIMIT 1"
+  )
+  const lidSindsSelfEditEnabled = lidSindsSelfEditSetting?.value === '1'
+  if (profile) {
+    profile.lid_sinds_self_edit_enabled = lidSindsSelfEditEnabled
+  }
+
   // If no profile exists, create one
   if (!profile || !profile.voornaam) {
     try {
@@ -3280,7 +3290,38 @@ app.get('/leden/profiel', async (c) => {
                     />
                   </div>
 
-                  {profile.role !== 'kaartkoper' && (
+                  {profile.role !== 'kaartkoper' && profile.lid_sinds_self_edit_enabled && (
+                    <div class="md:col-span-2">
+                      <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                        <p class="text-sm text-amber-900 mb-3 flex items-start">
+                          <i class="fas fa-hourglass-half text-amber-600 mr-2 mt-0.5"></i>
+                          <span>
+                            <strong>Tijdelijk:</strong> tot 31 juli 2026 mag je zelf je <em>Lid sinds</em>-datum corrigeren.
+                            Daarna wordt dit veld terug afgesloten en kan enkel een bestuurslid het nog wijzigen.
+                          </span>
+                        </p>
+                        <label for="lid_sinds" class="block text-sm font-medium text-gray-700 mb-1">
+                          <i class="fas fa-calendar-check text-animato-primary mr-1"></i>
+                          Lid sinds
+                        </label>
+                        <input
+                          type="date"
+                          id="lid_sinds"
+                          name="lid_sinds"
+                          value={profile.lid_sinds || ''}
+                          min="2000-01-01"
+                          max={new Date().toISOString().split('T')[0]}
+                          class="w-full md:w-1/2 px-4 py-2 border border-amber-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent bg-white"
+                        />
+                        <p class="mt-2 text-xs text-gray-600">
+                          Wanneer ben jij precies bij Animato gestart? Vul hierboven de juiste maand &amp; jaar in (dag mag een schatting zijn, bv. de 1ste van die maand).
+                          Het "jaren in dit koor"-veld wordt automatisch herberekend op basis hiervan.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {profile.role !== 'kaartkoper' && !profile.lid_sinds_self_edit_enabled && (
                     <div>
                       <label for="jaren_in_koor" class="block text-sm font-medium text-gray-700 mb-1">
                         Jaren in dit koor
@@ -5970,24 +6011,55 @@ app.post('/api/leden/profiel', async (c) => {
     const body = await c.req.parseBody()
     const { voornaam, achternaam, telefoon, straat, huisnummer, bus, postcode, gemeente, bio, muzikale_ervaring, profielfoto_url,
             favoriete_genre, favoriete_componist, favoriete_werk, instrument, zanger_type, geboortedatum } = body
+    const rawLidSinds = body.lid_sinds as string | undefined
 
     // Validation
     if (!voornaam || !achternaam) {
       return c.redirect('/leden/profiel?error=required_fields')
     }
 
-    // #24: jaren_in_koor wordt automatisch berekend uit lid_sinds (gewone leden kunnen niet meer overschrijven, alleen admin via /admin/leden)
+    // Tijdelijke toggle: aanvaarden we 'lid_sinds' uit het self-service formulier?
+    const lidSindsSettingRow = await c.env.DB.prepare(
+      "SELECT value FROM system_settings WHERE key = 'lid_sinds_self_edit_enabled' LIMIT 1"
+    ).first<{ value: string }>()
+    const lidSindsSelfEditEnabled = lidSindsSettingRow?.value === '1'
+
+    // Bestaande lid_sinds + created_at ophalen (voor fallback + voor jaren-berekening)
     const profileRow = await c.env.DB.prepare(
       `SELECT p.lid_sinds, u.created_at FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.user_id = ?`
     ).bind(user.id).first<{ lid_sinds: string | null, created_at: string }>()
-    const lidSinds = profileRow?.lid_sinds ? new Date(profileRow.lid_sinds + 'T00:00:00') : new Date(profileRow?.created_at || new Date())
-    const jaren_in_koor = Math.max(0, new Date().getFullYear() - lidSinds.getFullYear())
+
+    // Bepaal welk lid_sinds we wegschrijven:
+    //   - Toggle UIT → behoud bestaande waarde (negeer veld zelfs als iemand 'm via curl meestuurt)
+    //   - Toggle AAN → valideer YYYY-MM-DD, range 2000-01-01..vandaag, anders behoud oude waarde
+    let nextLidSinds: string | null = profileRow?.lid_sinds || null
+    let lidSindsChanged = false
+    if (lidSindsSelfEditEnabled && typeof rawLidSinds === 'string' && rawLidSinds.trim() !== '') {
+      const cleaned = rawLidSinds.trim()
+      const isShape = /^\d{4}-\d{2}-\d{2}$/.test(cleaned)
+      const asDate = isShape ? new Date(cleaned + 'T00:00:00') : null
+      const minDate = new Date('2000-01-01T00:00:00')
+      const today = new Date(); today.setHours(23, 59, 59, 999)
+      if (asDate && !isNaN(asDate.getTime()) && asDate >= minDate && asDate <= today) {
+        if (cleaned !== profileRow?.lid_sinds) {
+          nextLidSinds = cleaned
+          lidSindsChanged = true
+        }
+      } else {
+        return c.redirect('/leden/profiel?error=lid_sinds_invalid')
+      }
+    }
+
+    // #24: jaren_in_koor blijft automatisch berekend uit lid_sinds (nu mogelijk net aangepast door het lid zelf)
+    const lidSindsRef = nextLidSinds ? new Date(nextLidSinds + 'T00:00:00') : new Date(profileRow?.created_at || new Date())
+    const jaren_in_koor = Math.max(0, new Date().getFullYear() - lidSindsRef.getFullYear())
 
     // Update profile
     const result = await c.env.DB.prepare(
       `UPDATE profiles 
        SET voornaam = ?, achternaam = ?, telefoon = ?, straat = ?, huisnummer = ?, bus = ?, postcode = ?, stad = ?, bio = ?, muzikale_ervaring = ?, foto_url = ?,
-           favoriete_genre = ?, favoriete_componist = ?, favoriete_werk = ?, instrument = ?, jaren_in_koor = ?, zanger_type = ?, geboortedatum = ?
+           favoriete_genre = ?, favoriete_componist = ?, favoriete_werk = ?, instrument = ?, jaren_in_koor = ?, zanger_type = ?, geboortedatum = ?,
+           lid_sinds = ?
        WHERE user_id = ?`
     ).bind(
       voornaam,
@@ -6008,6 +6080,7 @@ app.post('/api/leden/profiel', async (c) => {
       jaren_in_koor || null,
       zanger_type || null,
       geboortedatum || null,
+      nextLidSinds,
       user.id
     ).run()
 
@@ -6024,6 +6097,21 @@ app.post('/api/leden/profiel', async (c) => {
       user.id,
       JSON.stringify({ fields: ['voornaam', 'achternaam', 'smoelenboek_data'] })
     ).run()
+
+    // Extra audit-trail wanneer iemand zelf z'n lid_sinds heeft gewijzigd
+    // (tijdelijke zelfbeheer-actie) — handig om later te kunnen reviewen.
+    if (lidSindsChanged) {
+      try {
+        await c.env.DB.prepare(
+          `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
+           VALUES (?, 'lid_sinds_self_edit', 'profile', ?, ?)`
+        ).bind(
+          user.id,
+          user.id,
+          JSON.stringify({ from: profileRow?.lid_sinds || null, to: nextLidSinds })
+        ).run()
+      } catch (_) { /* non-fatal */ }
+    }
 
     return c.redirect('/leden/profiel?success=profile')
   } catch (error) {

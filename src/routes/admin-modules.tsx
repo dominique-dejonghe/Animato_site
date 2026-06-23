@@ -36,6 +36,12 @@ app.get('/admin/modules', async (c) => {
     ORDER BY category ASC, sort_order ASC
   `, [])
 
+  // Tijdelijke instellingen (system_settings flags, niet gekoppeld aan module_settings)
+  const lidSindsSetting = await queryOne<any>(c.env.DB,
+    "SELECT value FROM system_settings WHERE key = 'lid_sinds_self_edit_enabled' LIMIT 1"
+  )
+  const lidSindsSelfEditEnabled = lidSindsSetting?.value === '1'
+
   // Group by category
   const groupedModules: Record<string, any[]> = {}
   modules.forEach((mod: any) => {
@@ -165,6 +171,60 @@ app.get('/admin/modules', async (c) => {
               </div>
             ))}
 
+            {/* Tijdelijke Instellingen */}
+            <div class="mb-8">
+              <h2 class="text-xl font-semibold text-gray-900 mb-4 flex items-center">
+                <i class="fas fa-hourglass-half text-amber-500 mr-2"></i>
+                Tijdelijke instellingen
+                <span class="ml-3 text-sm text-gray-500 font-normal">
+                  (tijdelijke acties — vergeet ze niet weer uit te zetten)
+                </span>
+              </h2>
+
+              <div class="bg-white rounded-lg shadow-sm border border-gray-200 divide-y divide-gray-200">
+                {/* Lid sinds — zelfbeheer */}
+                <div class="p-6 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                  <div class="flex items-start flex-1">
+                    <div class={`w-12 h-12 rounded-lg flex items-center justify-center mr-4 ${
+                      lidSindsSelfEditEnabled ? 'bg-amber-500 text-white' : 'bg-gray-200 text-gray-400'
+                    }`}>
+                      <i class="fas fa-calendar-check text-xl"></i>
+                    </div>
+                    <div class="flex-1">
+                      <h3 class="font-semibold text-gray-900 text-lg mb-1">
+                        Lid sinds — zelfbeheer
+                      </h3>
+                      <p class="text-sm text-gray-600">
+                        Wanneer aan: koorleden zien op <code class="text-xs bg-gray-100 px-1 rounded">/leden/profiel</code> een bewerkbaar "Lid sinds"-veld en kunnen hun eigen aansluitingsdatum corrigeren.
+                        Wanneer uit: enkel admins kunnen die datum nog wijzigen via <code class="text-xs bg-gray-100 px-1 rounded">/admin/leden/:id</code>.
+                      </p>
+                      <p class="text-xs text-amber-700 mt-2 font-medium">
+                        <i class="fas fa-clock mr-1"></i>
+                        Bedoeld als tijdelijke opkuis-actie (richtdatum 31 juli 2026).
+                      </p>
+                    </div>
+                  </div>
+
+                  <form method="POST" action="/admin/modules/toggle-setting" class="ml-6">
+                    <input type="hidden" name="setting_key" value="lid_sinds_self_edit_enabled" />
+                    <input type="hidden" name="current_state" value={lidSindsSelfEditEnabled ? '1' : '0'} />
+                    <label class="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={lidSindsSelfEditEnabled}
+                        class="sr-only peer"
+                        onchange="this.form.submit()"
+                      />
+                      <div class="w-14 h-7 bg-gray-300 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-500/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-amber-500"></div>
+                      <span class="ml-3 text-sm font-medium text-gray-700">
+                        {lidSindsSelfEditEnabled ? 'Open' : 'Dicht'}
+                      </span>
+                    </label>
+                  </form>
+                </div>
+              </div>
+            </div>
+
             {/* Warning Box */}
             <div class="mt-8 bg-yellow-50 border border-yellow-200 rounded-lg p-6">
               <div class="flex items-start">
@@ -189,6 +249,47 @@ app.get('/admin/modules', async (c) => {
 // =====================================================
 // TOGGLE MODULE
 // =====================================================
+
+// =====================================================
+// TOGGLE SYSTEM SETTING (tijdelijke instellingen)
+// =====================================================
+
+app.post('/admin/modules/toggle-setting', async (c) => {
+  const user = c.get('user') as SessionUser
+  const body = await c.req.parseBody()
+
+  const settingKey = String(body.setting_key || '')
+  const currentState = String(body.current_state || '0')
+  const newState = currentState === '1' ? '0' : '1'
+
+  // Whitelist — voorkomt dat iemand willekeurige system_settings via deze
+  // endpoint kan flippen. Nieuwe tijdelijke toggles toevoegen aan deze lijst.
+  const ALLOWED_KEYS = new Set(['lid_sinds_self_edit_enabled'])
+  if (!ALLOWED_KEYS.has(settingKey)) {
+    return c.redirect('/admin/modules?error=failed')
+  }
+
+  try {
+    await execute(c.env.DB, `
+      INSERT INTO system_settings (key, value)
+      VALUES (?, ?)
+      ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = CURRENT_TIMESTAMP
+    `, [settingKey, newState, newState])
+
+    // Audit trail — wie zet de knop wanneer om?
+    try {
+      await execute(c.env.DB, `
+        INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
+        VALUES (?, 'system_setting_toggle', 'system_setting', NULL, ?)
+      `, [user.id, JSON.stringify({ key: settingKey, new_value: newState })])
+    } catch (_) { /* audit_logs missing is non-fatal */ }
+
+    return c.redirect('/admin/modules?success=updated')
+  } catch (error) {
+    console.error('Error toggling setting:', error)
+    return c.redirect('/admin/modules?error=failed')
+  }
+})
 
 app.post('/admin/modules/toggle', async (c) => {
   const user = c.get('user') as SessionUser

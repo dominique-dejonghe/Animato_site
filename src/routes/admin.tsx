@@ -3295,9 +3295,11 @@ app.get('/admin/leden/:id', async (c) => {
                   }`}>
                     {member.status === 'actief' ? 'Actief' : 'Inactief'}
                   </span>
-                  <span class="text-gray-600">
-                    Lid sinds {member.lid_sinds ? new Date(member.lid_sinds + 'T00:00:00').toLocaleDateString('nl-NL', { month: 'long', year: 'numeric' }) : new Date(member.created_at).toLocaleDateString('nl-NL', { month: 'long', year: 'numeric' })}
-                  </span>
+                  {member.role !== 'kaartkoper' && (
+                    <span class="text-gray-600">
+                      Lid sinds {member.lid_sinds ? new Date(member.lid_sinds + 'T00:00:00').toLocaleDateString('nl-NL', { month: 'long', year: 'numeric' }) : new Date(member.created_at).toLocaleDateString('nl-NL', { month: 'long', year: 'numeric' })}
+                    </span>
+                  )}
                 </div>
                 <div class="flex items-center gap-2 mt-1">
                   <span id="foto-upload-status" class="text-xs text-gray-400">Klik op de foto om te wijzigen</span>
@@ -3408,35 +3410,37 @@ app.get('/admin/leden/:id', async (c) => {
                   </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
-                  <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">
-                      Geboortedatum
-                    </label>
-                    <input
-                      type="date"
-                      name="geboortedatum"
-                      value={member.geboortedatum || ''}
-                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    />
+                {member.role !== 'kaartkoper' && (
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-1">
+                        Geboortedatum
+                      </label>
+                      <input
+                        type="date"
+                        name="geboortedatum"
+                        value={member.geboortedatum || ''}
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label class="block text-sm font-medium text-gray-700 mb-1">
+                        <i class="fas fa-calendar-check text-animato-primary mr-1"></i>
+                        Lid sinds
+                      </label>
+                      <input
+                        type="date"
+                        name="lid_sinds"
+                        value={member.lid_sinds || ''}
+                        class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                      />
+                      <p class="text-xs text-gray-400 mt-1">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        Datum waarop het lid bij Animato is aangesloten. Pas aan indien nodig.
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">
-                      <i class="fas fa-calendar-check text-animato-primary mr-1"></i>
-                      Lid sinds
-                    </label>
-                    <input
-                      type="date"
-                      name="lid_sinds"
-                      value={member.lid_sinds || ''}
-                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                    />
-                    <p class="text-xs text-gray-400 mt-1">
-                      <i class="fas fa-info-circle mr-1"></i>
-                      Datum waarop het lid bij Animato is aangesloten. Pas aan indien nodig.
-                    </p>
-                  </div>
-                </div>
+                )}
               </div>
 
               {/* Role & Permissions */}
@@ -6462,7 +6466,7 @@ app.get('/admin/leeftijden', async (c) => {
       SUM(CASE WHEN p.geboortedatum IS NOT NULL AND p.geboortedatum != '' THEN 1 ELSE 0 END) as met_dob
     FROM users u 
     JOIN profiles p ON p.user_id = u.id 
-    WHERE u.status = 'actief' AND u.is_test_account = 0
+    WHERE u.status = 'actief' AND u.is_test_account = 0 AND u.role != 'kaartkoper'
   `)
 
   const avgRow = await queryOne<any>(c.env.DB, `
@@ -6473,7 +6477,7 @@ app.get('/admin/leeftijden', async (c) => {
       COUNT(*) as n
     FROM users u 
     JOIN profiles p ON p.user_id = u.id 
-    WHERE u.status = 'actief' AND u.is_test_account = 0
+    WHERE u.status = 'actief' AND u.is_test_account = 0 AND u.role != 'kaartkoper'
       AND p.geboortedatum IS NOT NULL AND p.geboortedatum != ''
   `)
 
@@ -6487,7 +6491,7 @@ app.get('/admin/leeftijden', async (c) => {
       MAX(CAST((julianday('now') - julianday(p.geboortedatum)) / 365.25 AS INTEGER)) as oudste
     FROM users u 
     JOIN profiles p ON p.user_id = u.id 
-    WHERE u.status = 'actief' AND u.is_test_account = 0
+    WHERE u.status = 'actief' AND u.is_test_account = 0 AND u.role != 'kaartkoper'
       AND p.geboortedatum IS NOT NULL AND p.geboortedatum != ''
     GROUP BY u.stemgroep
     ORDER BY 
@@ -6508,7 +6512,7 @@ app.get('/admin/leeftijden', async (c) => {
         END as g,
         (julianday('now') - julianday(p.geboortedatum)) / 365.25 as leeftijd
       FROM users u JOIN profiles p ON p.user_id = u.id
-      WHERE u.status = 'actief' AND u.is_test_account = 0
+      WHERE u.status = 'actief' AND u.is_test_account = 0 AND u.role != 'kaartkoper'
         AND p.geboortedatum IS NOT NULL AND p.geboortedatum != ''
     )
     SELECT g, COUNT(*) as aantal, ROUND(AVG(leeftijd),1) as gem,
@@ -6525,7 +6529,7 @@ app.get('/admin/leeftijden', async (c) => {
     WITH base AS (
       SELECT (julianday('now') - julianday(p.geboortedatum)) / 365.25 as leeftijd
       FROM users u JOIN profiles p ON p.user_id = u.id
-      WHERE u.status = 'actief' AND u.is_test_account = 0
+      WHERE u.status = 'actief' AND u.is_test_account = 0 AND u.role != 'kaartkoper'
         AND p.geboortedatum IS NOT NULL AND p.geboortedatum != ''
     )
     SELECT
@@ -6552,7 +6556,7 @@ app.get('/admin/leeftijden', async (c) => {
   const zonderDob = await queryAll<any>(c.env.DB, `
     SELECT u.id, u.email, u.stemgroep, p.voornaam, p.achternaam
     FROM users u JOIN profiles p ON p.user_id = u.id
-    WHERE u.status = 'actief' AND u.is_test_account = 0
+    WHERE u.status = 'actief' AND u.is_test_account = 0 AND u.role != 'kaartkoper'
       AND (p.geboortedatum IS NULL OR p.geboortedatum = '')
     ORDER BY p.voornaam, p.achternaam
   `)

@@ -125,6 +125,7 @@ app.get('/leden', async (c) => {
      FROM users u
      JOIN profiles p ON p.user_id = u.id
      WHERE u.status = 'actief'
+       AND u.role != 'kaartkoper'
        AND p.geboortedatum IS NOT NULL
        AND strftime('%m-%d', p.geboortedatum) BETWEEN ? AND ?
      ORDER BY strftime('%m-%d', p.geboortedatum) ASC`,
@@ -2958,10 +2959,12 @@ app.get('/leden/profiel', async (c) => {
                     {profile.role === 'dirigent' && 'Dirigent'}
                     {profile.role === 'pianist' && 'Pianist'}
                   </span>
-                  <span>
-                    <i class="fas fa-calendar mr-1 text-gray-400"></i>
-                    Lid sinds {(profile.lid_sinds ? new Date(profile.lid_sinds + 'T00:00:00') : new Date(profile.created_at)).toLocaleDateString('nl-NL', { month: 'short', year: 'numeric' })}
-                  </span>
+                  {profile.role !== 'kaartkoper' && (
+                    <span>
+                      <i class="fas fa-calendar mr-1 text-gray-400"></i>
+                      Lid sinds {(profile.lid_sinds ? new Date(profile.lid_sinds + 'T00:00:00') : new Date(profile.created_at)).toLocaleDateString('nl-NL', { month: 'short', year: 'numeric' })}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -2997,18 +3000,20 @@ app.get('/leden/profiel', async (c) => {
                   />
                 </div>
 
-                <div>
-                  <label for="geboortedatum" class="block text-sm font-medium text-gray-700 mb-1">
-                    Geboortedatum
-                  </label>
-                  <input
-                    type="date"
-                    id="geboortedatum"
-                    name="geboortedatum"
-                    value={profile.geboortedatum || ''}
-                    class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
-                  />
-                </div>
+                {profile.role !== 'kaartkoper' && (
+                  <div>
+                    <label for="geboortedatum" class="block text-sm font-medium text-gray-700 mb-1">
+                      Geboortedatum
+                    </label>
+                    <input
+                      type="date"
+                      id="geboortedatum"
+                      name="geboortedatum"
+                      value={profile.geboortedatum || ''}
+                      class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                    />
+                  </div>
+                )}
               </div>
 
               <div>
@@ -3275,24 +3280,26 @@ app.get('/leden/profiel', async (c) => {
                     />
                   </div>
 
-                  <div>
-                    <label for="jaren_in_koor" class="block text-sm font-medium text-gray-700 mb-1">
-                      Jaren in dit koor
-                    </label>
-                    <input
-                      type="number"
-                      id="jaren_in_koor"
-                      name="jaren_in_koor_display"
-                      readonly
-                      value={Math.max(0, new Date().getFullYear() - new Date(profile.lid_sinds || profile.created_at).getFullYear())}
-                      class="w-full px-4 py-2 border border-gray-200 bg-gray-50 rounded-lg text-gray-700 cursor-not-allowed"
-                    />
-                    <p class="mt-1 text-xs text-gray-500">
-                      <i class="fas fa-lock mr-1 text-gray-400"></i>
-                      Automatisch berekend op basis van je aansluitingsdatum (lid sinds {profile.lid_sinds ? new Date(profile.lid_sinds + 'T00:00:00').toLocaleDateString('nl-BE', { month: 'short', year: 'numeric' }) : new Date(profile.created_at).toLocaleDateString('nl-BE', { month: 'short', year: 'numeric' })}).
-                      Klopt dit niet? Vraag een bestuurslid om je <em>Lid sinds</em>-datum aan te passen.
-                    </p>
-                  </div>
+                  {profile.role !== 'kaartkoper' && (
+                    <div>
+                      <label for="jaren_in_koor" class="block text-sm font-medium text-gray-700 mb-1">
+                        Jaren in dit koor
+                      </label>
+                      <input
+                        type="number"
+                        id="jaren_in_koor"
+                        name="jaren_in_koor_display"
+                        readonly
+                        value={Math.max(0, new Date().getFullYear() - new Date(profile.lid_sinds || profile.created_at).getFullYear())}
+                        class="w-full px-4 py-2 border border-gray-200 bg-gray-50 rounded-lg text-gray-700 cursor-not-allowed"
+                      />
+                      <p class="mt-1 text-xs text-gray-500">
+                        <i class="fas fa-lock mr-1 text-gray-400"></i>
+                        Automatisch berekend op basis van je aansluitingsdatum (lid sinds {profile.lid_sinds ? new Date(profile.lid_sinds + 'T00:00:00').toLocaleDateString('nl-BE', { month: 'short', year: 'numeric' }) : new Date(profile.created_at).toLocaleDateString('nl-BE', { month: 'short', year: 'numeric' })}).
+                        Klopt dit niet? Vraag een bestuurslid om je <em>Lid sinds</em>-datum aan te passen.
+                      </p>
+                    </div>
+                  )}
 
                   <div>
                     <label for="zanger_type" class="block text-sm font-medium text-gray-700 mb-1">
@@ -4681,6 +4688,7 @@ app.get('/leden/smoelenboek', async (c) => {
        FROM users u
        JOIN profiles p ON p.user_id = u.id
        WHERE u.status = 'actief'
+         AND u.role != 'kaartkoper'
          AND p.geboortedatum IS NOT NULL
          AND strftime('%m-%d', p.geboortedatum) BETWEEN ? AND ?
        ORDER BY strftime('%m-%d', p.geboortedatum) ASC`,
@@ -4693,6 +4701,7 @@ app.get('/leden/smoelenboek', async (c) => {
        FROM users u
        JOIN profiles p ON p.user_id = u.id
        WHERE u.status = 'actief'
+         AND u.role != 'kaartkoper'
          AND p.geboortedatum IS NOT NULL
          AND strftime('%m-%d', p.geboortedatum) > ?
        ORDER BY strftime('%m-%d', p.geboortedatum) ASC

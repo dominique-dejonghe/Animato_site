@@ -7,6 +7,7 @@ import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { queryAll, queryOne, execute } from '../utils/db'
 import { verifyToken } from '../utils/auth'
+import { formatBrusselsDate, formatBrusselsTime } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -150,9 +151,8 @@ app.get('/checkin/:token', async (c) => {
     user = await verifyToken(authToken, c.env.JWT_SECRET)
   }
 
-  const eventDate = new Date(qrToken.start_at)
-  const dateStr = eventDate.toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-  const timeStr = eventDate.toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })
+  const dateStr = formatBrusselsDate(qrToken.start_at, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const timeStr = formatBrusselsTime(qrToken.start_at)
 
   // Not logged in - redirect to login with return URL
   if (!user) {

@@ -7,7 +7,7 @@ import { Layout } from '../components/Layout'
 import { optionalAuth } from '../middleware/auth'
 import { queryOne, queryAll, paginate } from '../utils/db'
 import { processBodyLinks } from '../utils/text'
-import { formatBrusselsDateTime } from '../utils/time'
+import { formatBrusselsDateTime, formatBrusselsDate, parseBrusselsDate } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -220,7 +220,7 @@ app.get('/nieuws', async (c) => {
                     <div class="p-6">
                       <div class="flex items-center text-sm text-gray-500 mb-3">
                         <i class="far fa-calendar mr-2"></i>
-                        {new Date(artikel.published_at).toLocaleDateString('nl-BE', {
+                        {formatBrusselsDate(artikel.published_at, {
                           day: 'numeric',
                           month: 'long',
                           year: 'numeric'
@@ -496,7 +496,7 @@ app.get('/nieuws/:slug', async (c) => {
           <header class="mb-8">
             <div class="text-center mb-6">
               <div class="text-animato-primary text-sm font-semibold mb-2">
-                {new Date(artikel.published_at).toLocaleDateString('nl-BE', {
+                {formatBrusselsDate(artikel.published_at, {
                   weekday: 'long',
                   day: 'numeric',
                   month: 'long',
@@ -701,8 +701,7 @@ app.get('/nieuws/:slug', async (c) => {
                       const naam = `${cm.voornaam || ''} ${cm.achternaam || ''}`.trim() || 'Lid'
                       const initialen = (cm.voornaam?.[0] || '?') + (cm.achternaam?.[0] || '')
                       const canDelete = user.id === cm.user_id || user.role === 'admin' || user.role === 'moderator'
-                      const dt = new Date((cm.created_at || '').replace(' ', 'T') + 'Z')
-                      const dtStr = formatBrusselsDateTime(dt, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+                      const dtStr = formatBrusselsDateTime((cm.created_at || '').replace(' ', 'T') + 'Z', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
                       return (
                         <li class="bg-white border border-gray-200 rounded-lg p-4 flex gap-3">
                           {cm.foto_url ? (
@@ -787,7 +786,7 @@ app.get('/nieuws/:slug', async (c) => {
                     class="group bg-white border border-gray-200 rounded-lg p-4 hover:border-animato-primary transition"
                   >
                     <div class="text-animato-primary text-sm mb-2">
-                      {new Date(item.published_at).toLocaleDateString('nl-BE')}
+                      {formatBrusselsDate(item.published_at)}
                     </div>
                     <h3 class="font-semibold text-gray-900 group-hover:text-animato-primary transition line-clamp-2">
                       {item.titel}
@@ -1118,7 +1117,7 @@ const postDetailHandler = async (c: any) => {
 
   const auteurNaam = post.auteur_voornaam ? `${post.auteur_voornaam} ${post.auteur_achternaam || ''}`.trim() : 'Animato'
   const dateStr = post.published_at
-    ? new Date(post.published_at).toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+    ? formatBrusselsDate(post.published_at, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
     : ''
 
   // Visibility badge — public_share toont expliciet de "publiek deelbaar"-status
@@ -1292,7 +1291,7 @@ app.get('/preview/:slug', async (c) => {
     : (post.cover_image && post.cover_image.startsWith('/') ? `${baseUrl}${post.cover_image}` : undefined)
   const description = (post.excerpt || 'Een artikel van Gemengd Koor Animato — log in om verder te lezen.').trim()
   const dateStr = post.published_at
-    ? new Date(post.published_at).toLocaleDateString('nl-BE', { day: 'numeric', month: 'long', year: 'numeric' })
+    ? formatBrusselsDate(post.published_at, { day: 'numeric', month: 'long', year: 'numeric' })
     : ''
 
   return c.html(

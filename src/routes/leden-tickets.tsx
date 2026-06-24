@@ -18,6 +18,7 @@ import { requireAuth } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
 import { generateSeatTicketPdf, generateSeatTicketPdfs, generateTicketPdf } from '../utils/ticket-pdf'
 import { zipTicketPdfs } from '../utils/ticket-zip'
+import { parseBrusselsDate, formatBrusselsTime, formatBrusselsDate } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -118,12 +119,12 @@ async function fetchOrderDetail(db: D1Database, orderRef: string, email: string)
  * Geformatteerde datum/tijd voor PDF.
  */
 function formatConcertDatum(startAt: string): string {
-  return new Date(startAt).toLocaleDateString('nl-NL', {
+  return formatBrusselsDate(startAt, {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
   })
 }
 function formatConcertTijd(t: string): string {
-  return new Date(t).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+  return formatBrusselsTime(t)
 }
 
 /**
@@ -157,8 +158,8 @@ app.get('/leden/mijn-tickets', async (c) => {
 
   // Split toekomstig/verleden
   const now = new Date()
-  const upcoming = orders.filter((o: any) => new Date(o.start_at) >= now)
-  const past = orders.filter((o: any) => new Date(o.start_at) < now)
+  const upcoming = orders.filter((o: any) => (parseBrusselsDate(o.start_at)?.getTime() ?? 0) >= now.getTime())
+  const past = orders.filter((o: any) => (parseBrusselsDate(o.start_at)?.getTime() ?? 0) < now.getTime())
 
   return c.html(
     <Layout title="Mijn Tickets" user={user}>
@@ -231,11 +232,10 @@ app.get('/leden/mijn-tickets', async (c) => {
 // REUSABLE: Order-card component
 // ─────────────────────────────────────────────────────────────────────
 function OrderCard({ order, isPast }: { order: any; isPast: boolean }) {
-  const startDate = new Date(order.start_at)
-  const datum = startDate.toLocaleDateString('nl-NL', {
+  const datum = formatBrusselsDate(order.start_at, {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
   })
-  const tijd = startDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+  const tijd = formatBrusselsTime(order.start_at)
 
   return (
     <div class={`bg-white rounded-xl shadow-md overflow-hidden border-l-4 ${isPast ? 'border-gray-300' : 'border-animato-primary'} hover:shadow-lg transition-shadow`}>
@@ -303,14 +303,11 @@ app.get('/leden/mijn-tickets/:order_ref', async (c) => {
   }
 
   const { order, seats, lines } = detail
-  const startDate = new Date(order.start_at)
-  const datum = startDate.toLocaleDateString('nl-NL', {
+  const datum = formatBrusselsDate(order.start_at, {
     weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
   })
-  const tijd = startDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
-  const doorsOpen = order.doors_open_at
-    ? new Date(order.doors_open_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
-    : null
+  const tijd = formatBrusselsTime(order.start_at)
+  const doorsOpen = order.doors_open_at ? formatBrusselsTime(order.doors_open_at) : null
 
   return c.html(
     <Layout title={`Tickets — ${order.concert_titel}`} user={user}>
@@ -444,9 +441,7 @@ app.get('/leden/mijn-tickets/:order_ref/seat/:ticket_seat_id', async (c) => {
 
   const logoBytes = await loadLogoBytes(c.env.DB, fetch)
 
-  const aanvangDate = detail.order.concert_start_at
-    ? new Date(detail.order.concert_start_at)
-    : new Date(detail.order.start_at)
+  const aanvangSource = detail.order.concert_start_at ?? detail.order.start_at
 
   const pdfBytes = await generateSeatTicketPdf({
     order_ref: orderRef,
@@ -454,10 +449,8 @@ app.get('/leden/mijn-tickets/:order_ref/seat/:ticket_seat_id', async (c) => {
     koper_email: detail.order.koper_email,
     concert_titel: detail.order.concert_titel,
     concert_datum: formatConcertDatum(detail.order.start_at),
-    concert_tijd: aanvangDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' }),
-    concert_doors_open: detail.order.doors_open_at
-      ? new Date(detail.order.doors_open_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
-      : null,
+    concert_tijd: formatBrusselsTime(aanvangSource),
+    concert_doors_open: detail.order.doors_open_at ? formatBrusselsTime(detail.order.doors_open_at) : null,
     concert_locatie: detail.order.locatie || '',
     concert_adres: detail.order.adres || null,
     categorie: seat.categorie,
@@ -492,14 +485,10 @@ app.get('/leden/mijn-tickets/:order_ref/zip', async (c) => {
   if (!detail) return c.text('Bestelling niet gevonden of geen toegang', 404)
 
   const logoBytes = await loadLogoBytes(c.env.DB, fetch)
-  const aanvangDate = detail.order.concert_start_at
-    ? new Date(detail.order.concert_start_at)
-    : new Date(detail.order.start_at)
+  const aanvangSource = detail.order.concert_start_at ?? detail.order.start_at
   const concertDatum = formatConcertDatum(detail.order.start_at)
-  const concertTijd = aanvangDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
-  const concertDoorsOpen = detail.order.doors_open_at
-    ? new Date(detail.order.doors_open_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
-    : null
+  const concertTijd = formatBrusselsTime(aanvangSource)
+  const concertDoorsOpen = detail.order.doors_open_at ? formatBrusselsTime(detail.order.doors_open_at) : null
 
   // Met seats → ZIP met per-stoel PDF's
   if (detail.seats.length > 0) {

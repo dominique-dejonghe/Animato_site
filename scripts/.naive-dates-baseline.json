@@ -1,7 +1,7 @@
 {
   "description": "Baseline van bestaande naive `new Date(<db-veld>)` overtredingen. Nieuwe hits zijn build-fouten. Fix legacy en run `npm run check:dates -- --update-baseline`.",
-  "generated_at": "2026-06-24T21:07:22.178Z",
-  "count": 62,
+  "generated_at": "2026-06-24T21:26:50.017Z",
+  "count": 47,
   "entries": [
     {
       "file": "src/components/Layout.tsx",
@@ -133,10 +133,6 @@
     },
     {
       "file": "src/routes/agenda.tsx",
-      "field": "geboortedatum"
-    },
-    {
-      "file": "src/routes/agenda.tsx",
       "field": "start_at"
     },
     {
@@ -148,52 +144,12 @@
       "field": "start_at"
     },
     {
-      "file": "src/routes/checkin.tsx",
-      "field": "start_at"
-    },
-    {
       "file": "src/routes/leden-activity.tsx",
       "field": "start_at"
     },
     {
-      "file": "src/routes/leden-tickets.tsx",
-      "field": "concert_start_at"
-    },
-    {
-      "file": "src/routes/leden-tickets.tsx",
-      "field": "doors_open_at"
-    },
-    {
-      "file": "src/routes/leden-tickets.tsx",
-      "field": "start_at"
-    },
-    {
-      "file": "src/routes/leden.tsx",
-      "field": "created_at"
-    },
-    {
       "file": "src/routes/leden.tsx",
       "field": "geboortedatum"
-    },
-    {
-      "file": "src/routes/leden.tsx",
-      "field": "lid_sinds"
-    },
-    {
-      "file": "src/routes/leden.tsx",
-      "field": "published_at"
-    },
-    {
-      "file": "src/routes/leden.tsx",
-      "field": "start_at"
-    },
-    {
-      "file": "src/routes/nieuws.tsx",
-      "field": "created_at"
-    },
-    {
-      "file": "src/routes/nieuws.tsx",
-      "field": "published_at"
     },
     {
       "file": "src/routes/public.tsx",
@@ -212,24 +168,8 @@
       "field": "start_at"
     },
     {
-      "file": "src/routes/tickets.tsx",
-      "field": "start_at"
-    },
-    {
       "file": "src/routes/voorstellen.tsx",
       "field": "created_at"
-    },
-    {
-      "file": "src/routes/webhooks.tsx",
-      "field": "concert_start_at"
-    },
-    {
-      "file": "src/routes/webhooks.tsx",
-      "field": "doors_open_at"
-    },
-    {
-      "file": "src/routes/webhooks.tsx",
-      "field": "start_at"
     },
     {
       "file": "src/utils/badges.ts",

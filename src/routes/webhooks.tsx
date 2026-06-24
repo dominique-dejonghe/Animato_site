@@ -6,6 +6,7 @@ import { sendEmail, ticketEmail } from '../utils/email'
 import { generateTicketPdf, generateSeatTicketPdfs, uint8ArrayToBase64 } from '../utils/ticket-pdf'
 import { createNotification } from '../utils/notifications'
 import { getSiteUrl } from '../utils/site-url'
+import { formatBrusselsDate, formatBrusselsTime } from '../utils/time'
 import type { Bindings } from '../types'
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -305,16 +306,13 @@ app.post('/api/webhooks/mollie', async (c) => {
       // + PDF in bijlage. Vanaf nu: één PDF per stoel (als seats gekoppeld zijn),
       // anders fallback naar legacy multi-pagina PDF.
       if (newStatus === 'paid' && oldStatus !== 'paid') {
-        const eventDate = new Date(ticket.start_at)
         const totaalBedrag = ticketLines.reduce((s: number, t: any) => s + (Number(t.prijs_totaal) || 0), 0)
         const ticketsSummary = ticketLines.map((t: any) => `${t.aantal}× ${t.categorie}`).join(', ')
-        const concertDatum = eventDate.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+        const concertDatum = formatBrusselsDate(ticket.start_at, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
         // Aanvang concert: prefer concerts.concert_start_at, fallback op events.start_at
-        const aanvangDate = ticket.concert_start_at ? new Date(ticket.concert_start_at) : eventDate
-        const concertTijd = aanvangDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
-        const concertDoorsOpen = ticket.doors_open_at
-          ? new Date(ticket.doors_open_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
-          : null
+        const aanvangSource = ticket.concert_start_at ?? ticket.start_at
+        const concertTijd = formatBrusselsTime(aanvangSource)
+        const concertDoorsOpen = ticket.doors_open_at ? formatBrusselsTime(ticket.doors_open_at) : null
 
         // Member-portal link & kaartkoper-account magic-link
         // ------------------------------------------------------------------

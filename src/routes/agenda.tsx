@@ -215,7 +215,7 @@ app.get('/agenda', async (c) => {
   // Group events by month
   const eventsByMonth: Record<string, any[]> = {}
   events.forEach((event: any) => {
-    const monthKey = new Date(event.start_at).toLocaleDateString('nl-BE', { year: 'numeric', month: 'long' })
+    const monthKey = formatBrusselsDate(event.start_at, { year: 'numeric', month: 'long' })
     if (!eventsByMonth[monthKey]) {
       eventsByMonth[monthKey] = []
     }
@@ -450,7 +450,9 @@ app.get('/agenda', async (c) => {
                               </div>
                               <div class="flex flex-wrap gap-3">
                                 {members.map((m: any) => {
-                                  const age = m.geboortedatum ? new Date(date).getFullYear() - new Date(m.geboortedatum).getFullYear() : null
+                                  const age = m.geboortedatum
+                                    ? ((parseBrusselsDate(date)?.getFullYear() ?? 0) - (parseBrusselsDate(m.geboortedatum + 'T00:00:00')?.getFullYear() ?? 0))
+                                    : null
                                   return (
                                   <div class="flex items-center gap-2">
                                     {m.foto_url
@@ -498,10 +500,10 @@ app.get('/agenda', async (c) => {
                             {/* Date block */}
                             <div class="flex-shrink-0 text-center bg-animato-primary bg-opacity-10 rounded-lg p-4 w-24">
                               <div class="text-3xl font-bold text-animato-primary">
-                                {new Date(event.start_at).getDate()}
+                                {formatBrusselsDate(event.start_at, { day: 'numeric' })}
                               </div>
                               <div class="text-sm text-gray-600 uppercase">
-                                {new Date(event.start_at).toLocaleDateString('nl-BE', { month: 'short' })}
+                                {formatBrusselsDate(event.start_at, { month: 'short' })}
                               </div>
                             </div>
 
@@ -1012,7 +1014,7 @@ app.get('/concerten', async (c) => {
                       <div class="space-y-2 text-gray-600 mb-4">
                         <div class="flex items-center">
                           <i class="far fa-calendar mr-3 text-animato-primary"></i>
-                          {new Date(concert.start_at).toLocaleDateString('nl-BE', {
+                          {formatBrusselsDate(concert.start_at, {
                             weekday: 'long',
                             day: 'numeric',
                             month: 'long',
@@ -1347,7 +1349,7 @@ app.get('/concerten/:slug', async (c) => {
                     <div>
                       <div class="text-sm text-gray-500">Datum</div>
                       <div class="font-semibold">
-                        {new Date(concert.start_at).toLocaleDateString('nl-BE', {
+                        {formatBrusselsDate(concert.start_at, {
                           day: 'numeric',
                           month: 'short',
                           year: 'numeric'
@@ -2352,7 +2354,7 @@ app.get('/agenda/:slug', async (c) => {
                 <div>
                   <div class="text-sm text-gray-500">Datum</div>
                   <div class="font-semibold">
-                    {new Date(event.start_at).toLocaleDateString('nl-BE', {
+                    {formatBrusselsDate(event.start_at, {
                       weekday: 'long',
                       day: 'numeric',
                       month: 'long',

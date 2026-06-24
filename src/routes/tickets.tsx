@@ -1088,13 +1088,12 @@ app.post('/api/tickets/order', async (c) => {
     await execute(c.env.DB, `UPDATE concerts SET verkocht = verkocht + ? WHERE id = ?`, [totalTickets, concertId])
 
     // Send email
-    const eventDate = new Date(event.start_at)
     await sendEmail({
       to: koperEmail,
       subject: `Bestelbevestiging ${orderRef} - ${event.titel}`,
       html: orderConfirmationEmail({
         orderRef, koperNaam, concertTitel: event.titel,
-        concertDatum: eventDate.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
+        concertDatum: formatBrusselsDate(event.start_at, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }),
         concertLocatie: event.locatie,
         tickets: Object.values(groupedTickets).map((t: any) => `${t.aantal}x ${t.categorie} (€${t.prijs.toFixed(2)})`).join(', '),
         totaalBedrag: totalAmount,
@@ -1162,7 +1161,6 @@ app.get('/tickets/bevestiging/:orderRef', async (c) => {
     ticketLines.forEach((t: any) => t.status = 'paid')
   }
 
-  const eventDate = new Date(ticket.start_at)
   const totaalAantal = ticketLines.reduce((sum: number, t: any) => sum + (t.aantal || 0), 0)
   const totaalBedrag = ticketLines.reduce((sum: number, t: any) => sum + (t.prijs_totaal || 0), 0)
   const isPending = ticketLines.some((t: any) => t.status === 'pending')
@@ -1192,7 +1190,7 @@ app.get('/tickets/bevestiging/:orderRef', async (c) => {
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
             <h2 class="font-semibold text-gray-900 mb-4 text-lg"><i class="fas fa-music mr-2 text-animato-primary"></i>{ticket.titel}</h2>
             <div class="text-sm text-gray-600 mb-4">
-              <div><i class="fas fa-calendar mr-2 w-4"></i>{eventDate.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
+              <div><i class="fas fa-calendar mr-2 w-4"></i>{formatBrusselsDate(ticket.start_at, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</div>
               <div><i class="fas fa-map-marker-alt mr-2 w-4"></i>{ticket.locatie}</div>
               <div><i class="fas fa-user mr-2 w-4"></i>{ticket.koper_naam} ({ticket.koper_email})</div>
             </div>

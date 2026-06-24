@@ -14,7 +14,7 @@ import { processBodyLinks } from '../utils/text'
 import { getNotificationsForUser, getUnreadCount, markAsRead, markAllAsRead, getNotificationStyle, notifyUserIfEnabled, getUserNotificationPrefs, setUserNotificationPrefs } from '../utils/notifications'
 import type { NotificationType } from '../utils/notifications'
 import { pickSpotlight } from '../utils/spotlight'
-import { formatBrusselsDateTime } from '../utils/time'
+import { formatBrusselsDateTime, formatBrusselsDate, formatBrusselsTime, parseBrusselsDate } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1174,9 +1174,8 @@ app.get('/leden', async (c) => {
                   </p>
                   <div class="space-y-2">
                     {upcomingTickets.map((tk: any) => {
-                      const d = new Date(tk.start_at)
-                      const datumStr = d.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })
-                      const tijdStr = d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+                      const datumStr = formatBrusselsDate(tk.start_at, { day: 'numeric', month: 'short', year: 'numeric' })
+                      const tijdStr = formatBrusselsTime(tk.start_at)
                       return (
                         <a
                           href={`/leden/mijn-tickets/${encodeURIComponent(tk.order_ref)}`}
@@ -1225,7 +1224,7 @@ app.get('/leden', async (c) => {
                             <h3 class="font-semibold text-gray-900">{event.titel}</h3>
                             <p class="text-sm text-gray-600 mt-1">
                               <i class="far fa-calendar mr-1"></i>
-                              {new Date(event.start_at).toLocaleDateString('nl-BE', { 
+                              {formatBrusselsDate(event.start_at, { 
                                 weekday: 'short', 
                                 day: 'numeric', 
                                 month: 'short' 
@@ -1265,7 +1264,7 @@ app.get('/leden', async (c) => {
                         class="block border-b border-gray-200 pb-3 last:border-0 hover:bg-gray-50 p-2 rounded transition"
                       >
                         <div class="text-animato-primary text-xs mb-1">
-                          {new Date(item.published_at).toLocaleDateString('nl-BE')}
+                          {formatBrusselsDate(item.published_at)}
                         </div>
                         <h3 class="font-semibold text-gray-900 hover:text-animato-primary">
                           {item.titel}
@@ -1314,7 +1313,7 @@ app.get('/leden', async (c) => {
                             {mat.type.toUpperCase()}
                           </span>
                           <span class="text-xs text-gray-500">
-                            {new Date(mat.created_at).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })}
+                            {formatBrusselsDate(mat.created_at, { day: 'numeric', month: 'short' })}
                           </span>
                         </div>
                         <h4 class="font-semibold text-sm text-gray-900 line-clamp-1">
@@ -1669,7 +1668,7 @@ app.get('/leden/donaties', async (c) => {
                                 <tbody class="divide-y divide-gray-100">
                                     {donations.map((d: any) => (
                                         <tr>
-                                            <td class="px-4 py-3 text-gray-600">{new Date(d.created_at).toLocaleDateString('nl-BE')}</td>
+                                            <td class="px-4 py-3 text-gray-600">{formatBrusselsDate(d.created_at)}</td>
                                             <td class="px-4 py-3 font-semibold text-gray-900">€ {d.amount.toFixed(2)}</td>
                                             <td class="px-4 py-3">
                                                 {d.status === 'paid' ? (
@@ -2375,8 +2374,7 @@ app.get('/leden/profiel', async (c) => {
                     })}
                     {archivedNotifs.map((n: any) => {
                       const style = getNotificationStyle(n.type)
-                      const d = n.gelezen_at ? new Date(n.gelezen_at) : new Date(n.created_at)
-                      const rel = d.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })
+                      const rel = formatBrusselsDate(n.gelezen_at || n.created_at, { day: 'numeric', month: 'short' })
                       return (
                         <li class="profiel-archive-item flex items-center gap-3 py-3 px-2 -mx-2 rounded-lg hover:bg-gray-50 transition opacity-80"
                             data-restore-type="notification"
@@ -2421,7 +2419,7 @@ app.get('/leden/profiel', async (c) => {
                 <ul class="divide-y divide-gray-100">
                   {allNotifications.map((n: any) => {
                     const style = getNotificationStyle(n.type)
-                    const created = new Date(n.created_at)
+                    const created = parseBrusselsDate(n.created_at) ?? new Date()
                     const isUnread = !n.is_gelezen
                     const diffMs = Date.now() - created.getTime()
                     const diffMin = Math.floor(diffMs / 60000)
@@ -2784,7 +2782,7 @@ app.get('/leden/profiel', async (c) => {
                     {myActivities.map((act: any) => (
                       <tr>
                         <td class="py-3 text-sm text-gray-600">
-                          {new Date(act.start_at).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          {formatBrusselsDate(act.start_at, { day: 'numeric', month: 'short', year: 'numeric' })}
                         </td>
                         <td class="py-3">
                           <span class="font-medium text-gray-900">{act.titel}</span>
@@ -2961,7 +2959,7 @@ app.get('/leden/profiel', async (c) => {
 
               <div class="text-xs text-gray-500 text-right">
                 <i class="far fa-clock mr-1"></i>
-                Getest op {new Date(voiceAnalysis.created_at).toLocaleDateString('nl-NL', { 
+                Getest op {formatBrusselsDate(voiceAnalysis.created_at, { 
                   day: 'numeric', 
                   month: 'long', 
                   year: 'numeric' 
@@ -3036,7 +3034,7 @@ app.get('/leden/profiel', async (c) => {
                   {profile.role !== 'kaartkoper' && (
                     <span>
                       <i class="fas fa-calendar mr-1 text-gray-400"></i>
-                      Lid sinds {(profile.lid_sinds ? new Date(profile.lid_sinds + 'T00:00:00') : new Date(profile.created_at)).toLocaleDateString('nl-NL', { month: 'short', year: 'numeric' })}
+                      Lid sinds {formatBrusselsDate(profile.lid_sinds ? profile.lid_sinds + 'T00:00:00' : profile.created_at, { month: 'short', year: 'numeric' })}
                     </span>
                   )}
                 </div>
@@ -3395,12 +3393,12 @@ app.get('/leden/profiel', async (c) => {
                         id="jaren_in_koor"
                         name="jaren_in_koor_display"
                         readonly
-                        value={Math.max(0, new Date().getFullYear() - new Date(profile.lid_sinds || profile.created_at).getFullYear())}
+                        value={Math.max(0, new Date().getFullYear() - ((parseBrusselsDate((profile.lid_sinds ? profile.lid_sinds + 'T00:00:00' : profile.created_at))?.getFullYear()) ?? new Date().getFullYear()))}
                         class="w-full px-4 py-2 border border-gray-200 bg-gray-50 rounded-lg text-gray-700 cursor-not-allowed"
                       />
                       <p class="mt-1 text-xs text-gray-500">
                         <i class="fas fa-lock mr-1 text-gray-400"></i>
-                        Automatisch berekend op basis van je aansluitingsdatum (lid sinds {profile.lid_sinds ? new Date(profile.lid_sinds + 'T00:00:00').toLocaleDateString('nl-BE', { month: 'short', year: 'numeric' }) : new Date(profile.created_at).toLocaleDateString('nl-BE', { month: 'short', year: 'numeric' })}).
+                        Automatisch berekend op basis van je aansluitingsdatum (lid sinds {formatBrusselsDate(profile.lid_sinds ? profile.lid_sinds + 'T00:00:00' : profile.created_at, { month: 'short', year: 'numeric' })}).
                         Klopt dit niet? Vraag een bestuurslid om je <em>Lid sinds</em>-datum aan te passen.
                       </p>
                     </div>
@@ -4975,7 +4973,7 @@ app.get('/leden/smoelenboek', async (c) => {
                 <i class="fas fa-calendar-check text-amber-400"></i>
                 <span class="text-sm">
                   {nextBirthdayMember
-                    ? <>Volgende jarige: <strong>{nextBirthdayMember.voornaam} {nextBirthdayMember.achternaam}</strong> op {new Date(nextBirthdayMember.geboortedatum).toLocaleDateString('nl-BE', { day: 'numeric', month: 'long' })}</>
+                    ? <>Volgende jarige: <strong>{nextBirthdayMember.voornaam} {nextBirthdayMember.achternaam}</strong> op {formatBrusselsDate(nextBirthdayMember.geboortedatum + 'T00:00:00', { day: 'numeric', month: 'long' })}</>
                     : 'Geen verjaardagen geregistreerd.'}
                 </span>
               </div>
@@ -5295,7 +5293,7 @@ app.get('/leden/smoelenboek/:id', async (c) => {
     memberCurrentStreak >= 5 ? { name: 'Trouw Lid', icon: 'fas fa-star', bg: 'bg-blue-100 text-blue-700' } : null
 
   // Calculate jaren bij Animato from lid_sinds (or fallback to created_at)
-  const lidSindsDate = member.lid_sinds ? new Date(member.lid_sinds + 'T00:00:00') : new Date(member.created_at)
+  const lidSindsDate = parseBrusselsDate(member.lid_sinds ? member.lid_sinds + 'T00:00:00' : member.created_at) ?? new Date()
   const now = new Date()
   const jarenBerekend = now.getFullYear() - lidSindsDate.getFullYear()
 
@@ -5439,7 +5437,7 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                                             <div>
                                                 <span class="block text-xs text-gray-500 uppercase tracking-wide">Geboortedatum</span>
                                                 <span class="font-medium text-gray-800">
-                                                    {new Date(member.geboortedatum).toLocaleDateString('nl-BE', {day: 'numeric', month: 'long', year: 'numeric'})}
+                                                    {formatBrusselsDate(member.geboortedatum + 'T00:00:00', {day: 'numeric', month: 'long', year: 'numeric'})}
                                                 </span>
                                             </div>
                                         )}
@@ -5914,7 +5912,7 @@ app.get('/leden/verjaardagen', async (c) => {
   const byMonth: Record<string, any[]> = {}
   const monthNames = ['Januari','Februari','Maart','April','Mei','Juni','Juli','Augustus','September','Oktober','November','December']
   for (const m of members) {
-    const d = new Date(m.geboortedatum)
+    const d = parseBrusselsDate(m.geboortedatum + 'T00:00:00') ?? parseBrusselsDate(m.geboortedatum) ?? new Date()
     const key = String(d.getMonth()) // 0-indexed
     if (!byMonth[key]) byMonth[key] = []
     byMonth[key].push(m)
@@ -5995,7 +5993,7 @@ app.get('/leden/verjaardagen', async (c) => {
                 </div>
                 <div class="divide-y divide-gray-100">
                   {byMonth[monthKey].map((m: any) => {
-                    const bd = new Date(m.geboortedatum)
+                    const bd = parseBrusselsDate(m.geboortedatum + 'T00:00:00') ?? parseBrusselsDate(m.geboortedatum) ?? new Date()
                     const isThisWeek = (() => {
                       const day = today.getDay()
                       const diffToMon = (day === 0 ? -6 : 1 - day)
@@ -6115,7 +6113,9 @@ app.post('/api/leden/profiel', async (c) => {
     }
 
     // #24: jaren_in_koor blijft automatisch berekend uit lid_sinds (nu mogelijk net aangepast door het lid zelf)
-    const lidSindsRef = nextLidSinds ? new Date(nextLidSinds + 'T00:00:00') : new Date(profileRow?.created_at || new Date())
+    const lidSindsRef = nextLidSinds
+      ? (parseBrusselsDate(nextLidSinds + 'T00:00:00') ?? new Date())
+      : (parseBrusselsDate(profileRow?.created_at) ?? new Date())
     const jaren_in_koor = Math.max(0, new Date().getFullYear() - lidSindsRef.getFullYear())
 
     // Update profile

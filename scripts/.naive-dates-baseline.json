@@ -1,0 +1,255 @@
+{
+  "description": "Baseline van bestaande naive `new Date(<db-veld>)` overtredingen. Nieuwe hits zijn build-fouten. Fix legacy en run `npm run check:dates -- --update-baseline`.",
+  "generated_at": "2026-06-24T21:07:22.178Z",
+  "count": 62,
+  "entries": [
+    {
+      "file": "src/components/Layout.tsx",
+      "field": "created_at"
+    },
+    {
+      "file": "src/index.tsx",
+      "field": "concert_start_at"
+    },
+    {
+      "file": "src/index.tsx",
+      "field": "doors_open_at"
+    },
+    {
+      "file": "src/index.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/admin-activity.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/admin-attendance.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/admin-calendar.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/admin-events.tsx",
+      "field": "deadline"
+    },
+    {
+      "file": "src/routes/admin-feedback.tsx",
+      "field": "created_at"
+    },
+    {
+      "file": "src/routes/admin-finance.tsx",
+      "field": "created_at"
+    },
+    {
+      "file": "src/routes/admin-fotoboek.tsx",
+      "field": "datum"
+    },
+    {
+      "file": "src/routes/admin-meetings.tsx",
+      "field": "deadline"
+    },
+    {
+      "file": "src/routes/admin-meetings.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/admin-modules.tsx",
+      "field": "updated_at"
+    },
+    {
+      "file": "src/routes/admin-pages.tsx",
+      "field": "updated_at"
+    },
+    {
+      "file": "src/routes/admin-polls.tsx",
+      "field": "created_at"
+    },
+    {
+      "file": "src/routes/admin-projects.tsx",
+      "field": "created_at"
+    },
+    {
+      "file": "src/routes/admin-projects.tsx",
+      "field": "deadline"
+    },
+    {
+      "file": "src/routes/admin-projects.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/admin-scanner.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/admin-seating.tsx",
+      "field": "datum"
+    },
+    {
+      "file": "src/routes/admin-tickets.tsx",
+      "field": "concert_start_at"
+    },
+    {
+      "file": "src/routes/admin-tickets.tsx",
+      "field": "created_at"
+    },
+    {
+      "file": "src/routes/admin-tickets.tsx",
+      "field": "doors_open_at"
+    },
+    {
+      "file": "src/routes/admin-tickets.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/admin-voorstellen.tsx",
+      "field": "created_at"
+    },
+    {
+      "file": "src/routes/admin.tsx",
+      "field": "created_at"
+    },
+    {
+      "file": "src/routes/admin.tsx",
+      "field": "lid_sinds"
+    },
+    {
+      "file": "src/routes/admin.tsx",
+      "field": "published_at"
+    },
+    {
+      "file": "src/routes/admin.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/admin.tsx",
+      "field": "updated_at"
+    },
+    {
+      "file": "src/routes/agenda.tsx",
+      "field": "end_at"
+    },
+    {
+      "file": "src/routes/agenda.tsx",
+      "field": "geboortedatum"
+    },
+    {
+      "file": "src/routes/agenda.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/api.tsx",
+      "field": "end_at"
+    },
+    {
+      "file": "src/routes/api.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/checkin.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/leden-activity.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/leden-tickets.tsx",
+      "field": "concert_start_at"
+    },
+    {
+      "file": "src/routes/leden-tickets.tsx",
+      "field": "doors_open_at"
+    },
+    {
+      "file": "src/routes/leden-tickets.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/leden.tsx",
+      "field": "created_at"
+    },
+    {
+      "file": "src/routes/leden.tsx",
+      "field": "geboortedatum"
+    },
+    {
+      "file": "src/routes/leden.tsx",
+      "field": "lid_sinds"
+    },
+    {
+      "file": "src/routes/leden.tsx",
+      "field": "published_at"
+    },
+    {
+      "file": "src/routes/leden.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/nieuws.tsx",
+      "field": "created_at"
+    },
+    {
+      "file": "src/routes/nieuws.tsx",
+      "field": "published_at"
+    },
+    {
+      "file": "src/routes/public.tsx",
+      "field": "created_at"
+    },
+    {
+      "file": "src/routes/public.tsx",
+      "field": "datum"
+    },
+    {
+      "file": "src/routes/public.tsx",
+      "field": "published_at"
+    },
+    {
+      "file": "src/routes/public.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/tickets.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/routes/voorstellen.tsx",
+      "field": "created_at"
+    },
+    {
+      "file": "src/routes/webhooks.tsx",
+      "field": "concert_start_at"
+    },
+    {
+      "file": "src/routes/webhooks.tsx",
+      "field": "doors_open_at"
+    },
+    {
+      "file": "src/routes/webhooks.tsx",
+      "field": "start_at"
+    },
+    {
+      "file": "src/utils/badges.ts",
+      "field": "lid_sinds"
+    },
+    {
+      "file": "src/utils/ics.ts",
+      "field": "end_at"
+    },
+    {
+      "file": "src/utils/ics.ts",
+      "field": "start_at"
+    },
+    {
+      "file": "src/utils/recurring-events.ts",
+      "field": "end_at"
+    },
+    {
+      "file": "src/utils/recurring-events.ts",
+      "field": "start_at"
+    }
+  ]
+}

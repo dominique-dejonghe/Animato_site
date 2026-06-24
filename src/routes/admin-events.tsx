@@ -12,7 +12,7 @@ import { createEventOccurrences, formatRecurrenceRule } from '../utils/recurring
 import { generateICS, generateBulkICS, generateGoogleCalendarURL } from '../utils/ics'
 import { uploadDataUrlToR2, deleteFromR2, isDataUrl, r2KeyFromUrl, uploadInlineDataUrlsInHtml } from '../utils/r2-storage'
 import { notifyAllActiveMembers, cleanupNotificationsForEvent } from '../utils/notifications'
-import { formatBrusselsDate, formatBrusselsTime, formatBrusselsDateTime, brusselsLocalToUTC, utcToBrusselsLocal } from '../utils/time'
+import { formatBrusselsDate, formatBrusselsTime, formatBrusselsDateTime, brusselsLocalToUTC, utcToBrusselsLocal, parseBrusselsDate } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1818,7 +1818,7 @@ function renderEventForm(event: any | null, locations: any[], activity: any | nu
 
         {/* Ticketstatus banner (alleen voor concerten met concert-record) */}
         {isEdit && isConcert && concert && (() => {
-          const voorverkoopStart = concert.voorverkoop_start_at ? new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')) : null
+          const voorverkoopStart = parseBrusselsDate(concert.voorverkoop_start_at)
           const voorverkoopInToekomst = !!(voorverkoopStart && voorverkoopStart.getTime() > Date.now())
           const fmtDate = voorverkoopStart
             ? formatBrusselsDateTime(voorverkoopStart, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })

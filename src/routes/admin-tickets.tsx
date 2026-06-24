@@ -11,6 +11,7 @@ import { generateTicketPdf, generateSeatTicketPdf, generateSeatTicketPdfs, uint8
 import { zipTicketPdfs } from '../utils/ticket-zip'
 import { getSiteUrl } from '../utils/site-url'
 import { uploadDataUrlToR2, isDataUrl } from '../utils/r2-storage'
+import { parseBrusselsDate, formatBrusselsDate, formatBrusselsDateTime } from '../utils/time'
 
 const app = new Hono()
 
@@ -58,8 +59,8 @@ app.get('/admin/tickets', async (c) => {
   // Bereken status per concert
   const now = Date.now()
   const withStatus = allConcerts.map((row: any) => {
-    const startTs = row.start_at ? new Date(String(row.start_at).replace(' ', 'T')).getTime() : 0
-    const voorverkoopTs = row.voorverkoop_start_at ? new Date(String(row.voorverkoop_start_at).replace(' ', 'T')).getTime() : 0
+    const startTs = parseBrusselsDate(row.start_at)?.getTime() ?? 0
+    const voorverkoopTs = parseBrusselsDate(row.voorverkoop_start_at)?.getTime() ?? 0
     const isPast = startTs > 0 && startTs < now
     const isSoldOut = row.uitverkocht == 1
     const isAnnounced = !isSoldOut && !isPast && (row.tickets_aangekondigd == 1 || (voorverkoopTs > 0 && voorverkoopTs > now))
@@ -288,8 +289,8 @@ app.get('/admin/tickets', async (c) => {
                             ) : concert._status === 'announced' ? (
                               <span class="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold" title={concert.voorverkoop_start_at ? `Voorverkoop start ${concert.voorverkoop_start_at}` : 'Tickets volgen binnenkort'}>
                                 <i class="fas fa-hourglass-half mr-1"></i>
-                                {concert.voorverkoop_start_at && new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')).getTime() > Date.now()
-                                  ? `VOORVERKOOP OP ${new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })}`
+                                {concert.voorverkoop_start_at && (parseBrusselsDate(concert.voorverkoop_start_at)?.getTime() ?? 0) > Date.now()
+                                  ? `VOORVERKOOP OP ${formatBrusselsDate(concert.voorverkoop_start_at, { day: 'numeric', month: 'short' })}`
                                   : 'AANGEKONDIGD'}
                               </span>
                             ) : concert._status === 'open' ? (
@@ -1376,7 +1377,7 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
                     </h3>
                     <p class="text-xs text-indigo-800 mt-1">
                       Standaard nemen we het uur over van de agenda-afspraak
-                      (<strong>{concert.start_at ? new Date(String(concert.start_at).replace(' ', 'T')).toLocaleString('nl-BE', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Brussels' }) : '—'}</strong>).
+                      (<strong>{concert.start_at ? formatBrusselsDateTime(concert.start_at, { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '—'}</strong>).
                       Hieronder kan je deuren-open en aanvang apart instellen — handig
                       voor concertposters of bestellingsmails.
                     </p>

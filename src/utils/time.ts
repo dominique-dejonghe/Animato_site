@@ -69,6 +69,20 @@ function brusselsOffsetMinutesFor(naiveLocal: string): number {
   return Math.round((brusAsUtc - asUtc.getTime()) / 60000)
 }
 
+/**
+ * Publieke parse-helper: zet een naive Brussels-string ("2026-10-10T19:30"),
+ * SQLite-stijl spatie ("2026-10-10 19:30:00"), of UTC-suffix ("...Z") om
+ * naar een Date-object met correcte tijdzone-interpretatie.
+ *
+ * Vermijd `new Date(naiveString)` direct — op Cloudflare Workers (UTC)
+ * shift dat het uur +1u (winter) of +2u (zomer).
+ *
+ * Geeft null bij invalid input.
+ */
+export function parseBrusselsDate(input: DateInput): Date | null {
+  return toDate(input)
+}
+
 function toDate(input: DateInput): Date | null {
   if (input === null || input === undefined || input === '') return null
   if (input instanceof Date) return isNaN(input.getTime()) ? null : input

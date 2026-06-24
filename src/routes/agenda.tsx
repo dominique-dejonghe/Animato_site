@@ -8,7 +8,7 @@ import { Layout } from '../components/Layout'
 import { optionalAuth } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
 import { processBodyLinks } from '../utils/text'
-import { formatBrusselsTime, formatBrusselsDate, formatBrusselsDateTime } from '../utils/time'
+import { formatBrusselsTime, formatBrusselsDate, formatBrusselsDateTime, parseBrusselsDate } from '../utils/time'
 import { notifyUserIfEnabled } from '../utils/notifications'
 import { getReactionsForTargets } from '../utils/comment-reactions'
 
@@ -998,7 +998,7 @@ app.get('/concerten', async (c) => {
                         </div>
                       )}
                       {/* Voorverkoop-nog-niet-open badge */}
-                      {concert.uitverkocht != 1 && concert.voorverkoop_start_at && new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')).getTime() > Date.now() && (
+                      {concert.uitverkocht != 1 && concert.voorverkoop_start_at && (parseBrusselsDate(concert.voorverkoop_start_at)?.getTime() ?? 0) > Date.now() && (
                         <div class="absolute top-4 right-4 bg-amber-500 text-white px-3 py-1 rounded-full text-sm font-semibold shadow">
                           <i class="fas fa-clock mr-1"></i>
                           Voorverkoop binnenkort
@@ -1250,7 +1250,7 @@ app.get('/concerten/:slug', async (c) => {
 
   // Ticket-status logica
   // Prioriteit: uitverkocht > (aangekondigd OR datum in toekomst) > verkoop open > gratis
-  const voorverkoopStart = concert.voorverkoop_start_at ? new Date(String(concert.voorverkoop_start_at).replace(' ', 'T')) : null
+  const voorverkoopStart = parseBrusselsDate(concert.voorverkoop_start_at)
   const voorverkoopDatumInToekomst = !!(voorverkoopStart && voorverkoopStart.getTime() > Date.now())
   const ticketsAangekondigd = concert.tickets_aangekondigd == 1
   // "Nog niet beschikbaar"-modus is actief als: admin heeft expliciet aangevinkt OF er is een toekomstige datum

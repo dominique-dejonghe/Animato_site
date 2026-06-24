@@ -6,6 +6,7 @@ import { MemberPicker, MemberPickerScript } from '../components/MemberPicker'
 import { TaskCommentsCollapsible, TaskCommentsScript } from '../components/TaskComments'
 import { requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
+import { formatBrusselsTime } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -101,7 +102,7 @@ app.get('/admin/meetings', async (c) => {
                               {new Date(meeting.start_at).toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                               <span class="mx-2">|</span>
                               <i class="far fa-clock mr-2 w-4"></i>
-                              {new Date(meeting.start_at).toLocaleTimeString('nl-BE', { hour: '2-digit', minute: '2-digit' })}
+                              {formatBrusselsTime(meeting.start_at)}
                             </div>
                             <div class="text-sm text-gray-500">
                               <i class="fas fa-map-marker-alt mr-2 w-4"></i>
@@ -392,7 +393,7 @@ app.get('/admin/meetings/:id', async (c) => {
                  </h1>
                  <p class="text-gray-600 mt-2 flex items-center gap-4">
                     <span><i class="far fa-calendar-alt mr-2"></i>{new Date(meeting.start_at).toLocaleDateString('nl-BE')}</span>
-                    <span><i class="far fa-clock mr-2"></i>{new Date(meeting.start_at).toLocaleTimeString('nl-BE', {hour: '2-digit', minute:'2-digit'})}</span>
+                    <span><i class="far fa-clock mr-2"></i>{formatBrusselsTime(meeting.start_at)}</span>
                     <span><i class="fas fa-map-marker-alt mr-2"></i>{meeting.locatie}</span>
                  </p>
                </div>

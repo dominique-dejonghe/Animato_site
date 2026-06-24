@@ -9,6 +9,7 @@ import { createMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { getSiteUrl } from '../utils/site-url'
 import { releaseStaleLocks, lockExpiryTimestamp } from '../utils/seat-locks'
+import { formatBrusselsTime, formatBrusselsDate, formatBrusselsDateTime, parseBrusselsDate } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -87,18 +88,22 @@ app.get('/concerten/:eventId/tickets', async (c) => {
     `, [concert.id, concert.seating_plan_id])
   }
 
-  // Bug #214 — eigen ticket-uren met fallback op events.start_at
+  // Bug #214 + #213 — eigen ticket-uren met fallback op events.start_at.
+  // CRUCIAAL: gebruik brusselsDate() helper die naive Brussels-strings
+  // correct interpreteert. `new Date("2026-10-10T19:30")` parsed dat als
+  // UTC op Cloudflare Workers → uur schuift +2u in zomertijd!
   const concertStartRaw = concert.concert_start_at || concert.start_at
   const doorsOpenRaw = concert.doors_open_at
-  const concertStartDate = new Date(String(concertStartRaw).replace(' ', 'T'))
-  const doorsOpenDate = doorsOpenRaw ? new Date(String(doorsOpenRaw).replace(' ', 'T')) : null
+  const concertStartDate = parseBrusselsDate(concertStartRaw)!
+  const doorsOpenDate = parseBrusselsDate(doorsOpenRaw)
   // Voor "is concert al voorbij?" check: gebruik concert-start (of fallback)
   const eventDate = concertStartDate
   const isPast = eventDate < new Date()
   // Toon ook deuren+concert apart als deuren expliciet vóór concert-start liggen
   const showDoorsLine = !!doorsOpenDate && doorsOpenDate.getTime() < concertStartDate.getTime()
-  const fmtTime = (d: Date) => d.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Brussels' })
-  const fmtDate = (d: Date) => d.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Europe/Brussels' })
+  // Gebruik centrale Brussels-helpers (timeZone wordt automatisch toegepast)
+  const fmtTime = (d: Date) => formatBrusselsTime(d)
+  const fmtDate = (d: Date) => formatBrusselsDate(d, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
 
   return c.html(
     <Layout title={`Tickets - ${concert.titel}`} user={user}>

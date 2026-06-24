@@ -6,6 +6,7 @@ import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { requireAuth, requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryAll, noCacheHeaders } from '../utils/db'
+import { formatBrusselsTime } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -303,9 +304,9 @@ function renderMonthView(
                       event.type === 'concert' ? 'bg-purple-100 text-purple-800 hover:bg-purple-200' :
                       'bg-gray-100 text-gray-800 hover:bg-gray-200'
                     }`}
-                    title={`${event.titel} - ${new Date(event.start_at).toLocaleTimeString('nl-NL', {hour: '2-digit', minute: '2-digit'})}`}
+                    title={`${event.titel} - ${formatBrusselsTime(event.start_at)}`}
                   >
-                    {new Date(event.start_at).toLocaleTimeString('nl-NL', {hour: '2-digit', minute: '2-digit'})} {event.titel}
+                    {formatBrusselsTime(event.start_at)} {event.titel}
                   </a>
                 ))}
                 {dayEvents.length > 3 && (
@@ -378,7 +379,7 @@ function renderWeekView(
                     }`}
                   >
                     <div class="text-xs font-semibold text-gray-900">
-                      {new Date(event.start_at).toLocaleTimeString('nl-NL', {hour: '2-digit', minute: '2-digit'})}
+                      {formatBrusselsTime(event.start_at)}
                     </div>
                     <div class="text-sm font-medium mt-1">{event.titel}</div>
                     {event.locatie_naam && (

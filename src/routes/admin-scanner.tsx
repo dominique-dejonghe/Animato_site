@@ -20,6 +20,7 @@ import { Layout } from '../components/Layout'
 import { type SessionUser } from '../middleware/auth'
 import { requireTicketScanner } from '../middleware/scanner'
 import { queryAll, queryOne, execute, noCacheHeaders } from '../utils/db'
+import { formatBrusselsDateTime } from '../utils/time'
 
 const app = new Hono()
 
@@ -227,7 +228,7 @@ app.get('/admin/scanner/:concertId', async (c) => {
             <div>
               <h1 class="text-lg font-bold text-gray-900 leading-tight">{concert.titel}</h1>
               <p class="text-xs text-gray-500">
-                {new Date(concert.start_at.includes('T') ? concert.start_at : concert.start_at.replace(' ', 'T') + 'Z').toLocaleString('nl-BE', {
+                {formatBrusselsDateTime(concert.start_at, {
                   weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
                 })} · {concert.locatie || '—'}
               </p>

@@ -7,6 +7,7 @@ import { Layout } from '../components/Layout'
 import { optionalAuth } from '../middleware/auth'
 import { queryAll, queryOne } from '../utils/db'
 import { processBodyLinks } from '../utils/text'
+import { formatBrusselsDate } from '../utils/time'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -274,11 +275,11 @@ app.get('/', async (c) => {
                       <div class="text-gray-600 text-sm space-y-1">
                         <div>
                           <i class="fas fa-calendar mr-2 text-animato-primary"></i>
-                          {new Date(concert.start_at).toLocaleDateString('nl-BE', { 
-                            weekday: 'long', 
-                            year: 'numeric', 
-                            month: 'long', 
-                            day: 'numeric' 
+                          {formatBrusselsDate(concert.start_at, {
+                            weekday: 'long',
+                            year: 'numeric',
+                            month: 'long',
+                            day: 'numeric'
                           })}
                         </div>
                         <div>

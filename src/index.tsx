@@ -66,6 +66,7 @@ import adminAiNewsRoutes from './routes/admin-ai-news'
 import checkinRoutes from './routes/checkin'
 import r2Routes from './routes/r2'
 import adminR2MigrateRoutes from './routes/admin-r2-migrate'
+import badgesRoutes from './routes/badges'
 
 // =====================================================
 // APP INITIALIZATION
@@ -329,6 +330,9 @@ app.get('/_e2e_ticket_pdf_preview/:secret/:ticketSeatId', async (c: any) => {
 // Leden ticket-portal MOET vóór de catch-all ledenRoutes komen, anders vangt
 // die de /leden/mijn-tickets wildcard af voor we daar aan toe komen.
 app.route('/', ledenTicketsRoutes)
+
+// Badges-routes: ook vóór de catch-all ledenRoutes om botsing met /leden/* te vermijden
+app.route('/', badgesRoutes)
 
 // Leden portal routes
 app.route('/', ledenRoutes)

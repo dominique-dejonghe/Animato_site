@@ -90,28 +90,40 @@ export async function requireAuth(c: Context<{ Bindings: Bindings }>, next: Next
   }
 
   if (!user) {
-    // Onderscheid: helemaal geen token vs ongeldig token. Voor admin-paths
-    // willen we HTML i.p.v. JSON tonen (vriendelijker dan een rauwe dump
-    // van { error: "..." }). De handler op /admin neemt dit over.
+    // Onderscheid: HTML-pagina vs API-call. Bij HTML-pagina's (zoals /leden/polls,
+    // /leden/agenda, /admin/*) willen we de gebruiker vriendelijk doorsturen naar
+    // /login?redirect=<originele-url>. Bij API-calls geven we JSON 401 zodat het
+    // frontend-JS dat netjes kan opvangen.
     const path = c.req.path
+    const url = new URL(c.req.url)
+    const fullPath = url.pathname + url.search
     const wantsHtml = (c.req.header('Accept') || '').includes('text/html') &&
                       !path.startsWith('/api/')
-    if (wantsHtml && (path === '/admin' || path.startsWith('/admin/'))) {
-      // Wis stale cookies preventief zodat de gebruiker een schone re-login krijgt
+
+    if (wantsHtml) {
+      // Wis stale cookies preventief → schone re-login zonder cookie-spook
       const { setCookie } = await import('hono/cookie')
       setCookie(c, 'auth_token', '', { maxAge: 0, path: '/', httpOnly: true, secure: true, sameSite: 'Lax' })
       setCookie(c, 'admin_impersonate_token', '', { maxAge: 0, path: '/', httpOnly: true, secure: true, sameSite: 'Lax' })
-      return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><title>Sessie verlopen</title>
+
+      const hadToken = !!(authToken || impersonateToken)
+      const title = hadToken ? 'Sessie verlopen' : 'Even inloggen'
+      const message = hadToken
+        ? 'Je sessie is verlopen of niet meer geldig. Log opnieuw in om verder te gaan.'
+        : 'Je moet ingelogd zijn om deze pagina te bekijken. Na het inloggen brengen we je meteen terug.'
+      const icon = hadToken ? 'fa-clock' : 'fa-sign-in-alt'
+
+      return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${title}</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
         </head>
         <body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
           <div class="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 text-center">
-            <i class="fas fa-clock text-amber-500 text-5xl mb-4"></i>
-            <h1 class="text-2xl font-bold text-gray-800 mb-2">Sessie verlopen</h1>
-            <p class="text-gray-600 mb-6">Je beheerderssessie is niet meer geldig. Log opnieuw in om verder te gaan.</p>
-            <a href="/login?redirect=${encodeURIComponent(path)}" class="inline-block px-6 py-3 bg-animato-primary text-white rounded-lg font-medium hover:bg-animato-secondary transition" style="background-color:#00A9CE">
-              <i class="fas fa-sign-in-alt mr-2"></i>Opnieuw inloggen
+            <i class="fas ${icon} text-animato-primary text-5xl mb-4" style="color:#00A9CE"></i>
+            <h1 class="text-2xl font-bold text-gray-800 mb-2">${title}</h1>
+            <p class="text-gray-600 mb-6">${message}</p>
+            <a href="/login?redirect=${encodeURIComponent(fullPath)}" class="inline-block px-6 py-3 text-white rounded-lg font-medium hover:opacity-90 transition" style="background-color:#00A9CE">
+              <i class="fas fa-sign-in-alt mr-2"></i>Inloggen
             </a>
           </div>
         </body></html>`, 401)

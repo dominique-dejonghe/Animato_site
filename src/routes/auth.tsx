@@ -477,6 +477,14 @@ app.post('/api/auth/login', async (c) => {
       [user.id, user.id, JSON.stringify({ method: 'password', remember }), ipAddress, userAgent]
     )
 
+    // Badges-evaluatie na login (niet-blokkerend, stil falen bij DB-issues).
+    // Kent badges toe als criteria gehaald — gebruiker ziet ze bij volgend bezoek
+    // aan /leden/badges. Geen redirect-flow om te vermijden dat we de login traag maken.
+    try {
+      const { evaluateBadges } = await import('../utils/badges')
+      await evaluateBadges(c.env.DB, user.id)
+    } catch (_) { /* stil falen — niet kritiek voor login */ }
+
     // Smart redirect based on role
     let finalRedirect = redirect
     if (redirect === '/leden' || redirect === '/') {

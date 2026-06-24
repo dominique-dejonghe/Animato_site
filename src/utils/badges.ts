@@ -90,9 +90,9 @@ async function gatherUserStats(db: D1Database, userId: number): Promise<UserStat
     profile?.telefoon && profile?.adres && profile?.foto_url
   ) ? 1 : 0
 
-  // 6. Lidmaatschap in jaren (uit users.lid_sinds)
+  // 6. Lidmaatschap in jaren (uit profiles.lid_sinds — NIET users)
   const userRow = await queryOne<{ lid_sinds: string | null, geboortedatum: string | null }>(db,
-    `SELECT u.lid_sinds, p.geboortedatum
+    `SELECT p.lid_sinds, p.geboortedatum
        FROM users u
        LEFT JOIN profiles p ON p.user_id = u.id
       WHERE u.id = ? LIMIT 1`,

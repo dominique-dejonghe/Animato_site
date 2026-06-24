@@ -761,34 +761,34 @@ app.get('/leden', async (c) => {
             </div>
           )}
 
-          {/* 🏅 Badges-widget — gamification */}
+          {/* 🏅 Badges-widget — site-kleuren, badges met neon-glow ringen behouden */}
           {badgeWidget && (badgeWidget.earned > 0 || badgeWidget.newCount > 0) && (
-            <a href="/leden/badges" class="block mb-8 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 rounded-2xl shadow-lg overflow-hidden border border-gray-700 hover:border-amber-400/50 transition group">
-              <div class="px-5 py-4 flex items-center justify-between flex-wrap gap-3">
-                <div class="flex items-center gap-3 text-white">
-                  <div class="w-10 h-10 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full flex items-center justify-center shadow-lg">
+            <a href="/leden/badges" class="block mb-8 bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md hover:border-animato-primary/40 transition group">
+              <div class="bg-gradient-to-r from-animato-primary to-animato-secondary px-5 py-4 flex items-center justify-between flex-wrap gap-3 text-white">
+                <div class="flex items-center gap-3">
+                  <div class="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center border border-white/30">
                     <i class="fas fa-medal text-white text-lg"></i>
                   </div>
                   <div>
-                    <h2 class="text-lg font-bold" style="font-family: 'Playfair Display', serif;">
+                    <h2 class="text-lg font-bold flex items-center gap-2 flex-wrap" style="font-family: 'Playfair Display', serif;">
                       Mijn badges
                       {badgeWidget.newCount > 0 && (
-                        <span class="ml-2 bg-amber-400 text-gray-900 text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wide">
+                        <span class="bg-amber-300 text-gray-900 text-[10px] font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wide shadow-md">
                           {badgeWidget.newCount} NIEUW
                         </span>
                       )}
                     </h2>
-                    <p class="text-xs text-gray-400 mt-0.5">
-                      <span class="text-amber-400 font-bold">{badgeWidget.earned}</span> van {badgeWidget.total} verdiend
+                    <p class="text-xs text-white/80 mt-0.5">
+                      <span class="font-bold text-white">{badgeWidget.earned}</span> van {badgeWidget.total} verdiend
                     </p>
                   </div>
                 </div>
-                <span class="text-xs text-gray-400 group-hover:text-white transition whitespace-nowrap">
+                <span class="text-xs text-white/90 group-hover:text-white whitespace-nowrap font-semibold">
                   Bekijk alles <i class="fas fa-arrow-right ml-1"></i>
                 </span>
               </div>
               {badgeWidget.recent.length > 0 && (
-                <div class="px-5 pb-5 flex gap-3 overflow-x-auto">
+                <div class="px-5 py-4 flex gap-3 overflow-x-auto bg-gray-50/50">
                   {badgeWidget.recent.map((b: any) => {
                     const colorMap: any = {
                       sky:'sky',emerald:'emerald',orange:'orange',amber:'amber',pink:'pink',
@@ -801,7 +801,7 @@ app.get('/leden', async (c) => {
                         <div class={`mx-auto w-16 h-16 rounded-full bg-${k}-50 ring-4 ring-${k}-400 shadow-lg shadow-${k}-400/40 flex items-center justify-center mb-1`}>
                           <i class={`fas ${b.icon} text-2xl text-${k}-600`}></i>
                         </div>
-                        <div class="text-[10px] text-gray-300 font-medium truncate">{b.naam}</div>
+                        <div class="text-[10px] text-gray-700 font-medium truncate">{b.naam}</div>
                       </div>
                     )
                   })}

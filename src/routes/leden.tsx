@@ -21,11 +21,11 @@ const app = new Hono<{ Bindings: Bindings }>()
 // Default cartoon avatars per stemgroep (famous singers!)
 function getDefaultAvatar(stemgroep: string): string {
   switch (stemgroep) {
-    case 'S': return '/static/avatars/sopraan-callas.png'     // Maria Callas
-    case 'A': return '/static/avatars/alt-bartoli.png'        // Cecilia Bartoli
-    case 'T': return '/static/avatars/tenor-pavarotti.png'    // Luciano Pavarotti
-    case 'B': return '/static/avatars/bas-terfel.png'         // Bryn Terfel
-    default:  return '/static/avatars/tenor-pavarotti.png'    // Pavarotti als default
+    case 'S': return '/static/avatars/sopraan-callas.webp'     // Maria Callas
+    case 'A': return '/static/avatars/alt-bartoli.webp'        // Cecilia Bartoli
+    case 'T': return '/static/avatars/tenor-pavarotti.webp'    // Luciano Pavarotti
+    case 'B': return '/static/avatars/bas-terfel.webp'         // Bryn Terfel
+    default:  return '/static/avatars/tenor-pavarotti.webp'    // Pavarotti als default
   }
 }
 

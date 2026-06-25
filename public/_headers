@@ -1,0 +1,51 @@
+# Cloudflare Pages headers configuration
+# Docs: https://developers.cloudflare.com/pages/configuration/headers/
+#
+# Strategy:
+#  - Static immutable assets (versioned via filename) → 1 jaar cache
+#  - Avatars/images/fonts → 30 dagen cache (kunnen wijzigen)
+#  - JS/CSS in /static/ → 30 dagen cache (we hebben geen content-hashes in filenames)
+#  - HTML pages: nooit hier — geregeld in code via c.header('Cache-Control')
+
+# ─────────────────────────────────────────────────────────────
+# Avatars — immutable behalve wanneer we ze opnieuw genereren
+# ─────────────────────────────────────────────────────────────
+/static/avatars/*
+  Cache-Control: public, max-age=2592000, stale-while-revalidate=86400
+  X-Content-Type-Options: nosniff
+
+# ─────────────────────────────────────────────────────────────
+# Images & fonts — lange cache, ze veranderen zelden
+# ─────────────────────────────────────────────────────────────
+/static/images/*
+  Cache-Control: public, max-age=2592000, stale-while-revalidate=86400
+  X-Content-Type-Options: nosniff
+
+/static/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+  X-Content-Type-Options: nosniff
+  Access-Control-Allow-Origin: *
+
+# ─────────────────────────────────────────────────────────────
+# CSS / JS in /static — 30 dagen cache
+# (Bij grote release: bump via querystring of rename file)
+# ─────────────────────────────────────────────────────────────
+/static/css/*
+  Cache-Control: public, max-age=2592000, stale-while-revalidate=86400
+
+/static/js/*
+  Cache-Control: public, max-age=2592000, stale-while-revalidate=86400
+
+/static/*.css
+  Cache-Control: public, max-age=2592000, stale-while-revalidate=86400
+
+/static/*.js
+  Cache-Control: public, max-age=2592000, stale-while-revalidate=86400
+
+# ─────────────────────────────────────────────────────────────
+# Global security headers (alle pages)
+# ─────────────────────────────────────────────────────────────
+/*
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Content-Type-Options: nosniff

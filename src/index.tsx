@@ -81,6 +81,55 @@ const app = new Hono<{ Bindings: Bindings }>()
 // Logger middleware
 app.use('*', logger())
 
+// ─────────────────────────────────────────────────────────────────────
+// EDGE-CACHE voor publieke pagina's (anonieme bezoekers)
+// ─────────────────────────────────────────────────────────────────────
+// Strategie:
+//   - Alleen GET-requests
+//   - Alleen wanneer er GEEN auth_token cookie is (anders zien leden cached
+//     content van andere leden — privacy-bug)
+//   - Alleen op een witte lijst van échte publieke routes
+//   - Cache-Control: public, s-maxage=60 → Cloudflare edge cache't 60s,
+//     browser revalidate't onmiddellijk
+//
+// Effect: tweede bezoeker binnen 60s krijgt response uit edge-cache (≈5ms)
+// in plaats van Worker-render (160-180ms). Stale-while-revalidate zorgt dat
+// een verlopen cache nog steeds onmiddellijk geserved wordt terwijl op de
+// achtergrond ververst wordt.
+const PUBLIC_CACHEABLE_ROUTES = [
+  /^\/$/,                    // homepage
+  /^\/agenda\/?$/,           // agenda overzicht
+  /^\/concerten\/?$/,        // concerten overzicht
+  /^\/nieuws\/?$/,           // nieuws overzicht
+  /^\/over-ons\/?$/,         // statische pagina
+  /^\/contact\/?$/,          // statische pagina
+]
+app.use('*', async (c, next) => {
+  // Beslis BEFORE next() of we mogen cachen (request-level info)
+  const isCacheable =
+    c.req.method === 'GET' &&
+    PUBLIC_CACHEABLE_ROUTES.some(re => re.test(c.req.path)) &&
+    !/(?:^|;\s*)auth_token=/.test(c.req.header('Cookie') || '')
+
+  await next()
+
+  if (!isCacheable) return
+  if (c.res.status !== 200) return
+  // Niet overschrijven als route zelf al een Cache-Control header zette
+  if (c.res.headers.get('Cache-Control')) return
+
+  // In Hono 4 + Cloudflare Pages is `c.res.headers.set()` na await next() onbetrouwbaar
+  // (response is mogelijk al immutable). De zekere methode: rewrap.
+  const newHeaders = new Headers(c.res.headers)
+  newHeaders.set('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300')
+  newHeaders.set('Vary', 'Cookie')
+  c.res = new Response(c.res.body, {
+    status: c.res.status,
+    statusText: c.res.statusText,
+    headers: newHeaders,
+  })
+})
+
 // CORS voor API routes
 app.use('/api/*', cors({
   origin: '*',

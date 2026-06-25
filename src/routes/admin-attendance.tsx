@@ -412,7 +412,7 @@ app.get('/admin/attendance', async (c) => {
                             <td class="py-3">
                               <div class="flex items-center gap-3">
                                 <div class="w-8 h-8 bg-animato-primary bg-opacity-10 rounded-full flex items-center justify-center text-sm font-bold text-animato-primary overflow-hidden">
-                                  <img src={u.foto_url || (u.stemgroep === 'S' ? '/static/avatars/sopraan-callas.png' : u.stemgroep === 'A' ? '/static/avatars/alt-bartoli.png' : u.stemgroep === 'T' ? '/static/avatars/tenor-pavarotti.png' : '/static/avatars/bas-terfel.png')} class="w-full h-full object-cover" />
+                                  <img src={u.foto_url || (u.stemgroep === 'S' ? '/static/avatars/sopraan-callas.webp' : u.stemgroep === 'A' ? '/static/avatars/alt-bartoli.webp' : u.stemgroep === 'T' ? '/static/avatars/tenor-pavarotti.webp' : '/static/avatars/bas-terfel.webp')} class="w-full h-full object-cover" />
                                 </div>
                                 <span class="font-medium text-gray-900">{u.voornaam} {u.achternaam}</span>
                               </div>

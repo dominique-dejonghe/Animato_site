@@ -14,11 +14,11 @@ const app = new Hono<{ Bindings: Bindings }>()
 // Default cartoon avatars per stemgroep (famous singers!)
 function getDefaultAvatar(stemgroep: string): string {
   switch (stemgroep) {
-    case 'S': return '/static/avatars/sopraan-callas.png'
-    case 'A': return '/static/avatars/alt-bartoli.png'
-    case 'T': return '/static/avatars/tenor-pavarotti.png'
-    case 'B': return '/static/avatars/bas-terfel.png'
-    default:  return '/static/avatars/tenor-pavarotti.png'
+    case 'S': return '/static/avatars/sopraan-callas.webp'
+    case 'A': return '/static/avatars/alt-bartoli.webp'
+    case 'T': return '/static/avatars/tenor-pavarotti.webp'
+    case 'B': return '/static/avatars/bas-terfel.webp'
+    default:  return '/static/avatars/tenor-pavarotti.webp'
   }
 }
 

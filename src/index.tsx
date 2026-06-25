@@ -6,9 +6,10 @@ import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { serveStatic } from 'hono/cloudflare-workers'
 import type { Bindings } from './types'
-import { generateSeatTicketPdf as e2eGenerateSeatTicketPdf } from './utils/ticket-pdf'
-import { queryOne as e2eQueryOne } from './utils/db'
 import { fetchNavPages, runWithNavPages } from './utils/nav-context'
+// NB: pdf-lib + ticket-pdf worden lazy geladen in de _e2e debug-routes
+// (zie regel ~270, ~305) om te voorkomen dat élke route ze in z'n bundle krijgt.
+// Top-level import zou Vite dwingen ze altijd te bundlen.
 
 // Import routes
 import publicRoutes from './routes/public'
@@ -246,6 +247,7 @@ app.get('/_e2e_ticket_pdf_debug/:secret', async (c: any) => {
   try {
     const { qrToPngBytes } = await import('./utils/qr-to-png')
     const { PDFDocument, StandardFonts } = await import('pdf-lib')
+    const { generateSeatTicketPdf: e2eGenerateSeatTicketPdf } = await import('./utils/ticket-pdf')
     const pdf = await PDFDocument.create()
     await safe('embedFont Helvetica', async () => {
       const f = await pdf.embedFont(StandardFonts.Helvetica)
@@ -302,8 +304,8 @@ app.get('/_e2e_ticket_pdf_debug/:secret', async (c: any) => {
 })
 
 app.get('/_e2e_ticket_pdf_preview/:secret/:ticketSeatId', async (c: any) => {
-  const generateSeatTicketPdf = e2eGenerateSeatTicketPdf
-  const queryOne = e2eQueryOne
+  const { generateSeatTicketPdf } = await import('./utils/ticket-pdf')
+  const { queryOne } = await import('./utils/db')
   const secret = c.req.param('secret')
   if (secret !== 'gx5h-anim-2026-test-tmp') return c.text('forbidden', 403)
   const tsId = parseInt(c.req.param('ticketSeatId'))

@@ -605,19 +605,49 @@ app.get('/admin/polls/nieuw', async (c) => {
                 </div>
               </div>
 
-              {/* Anoniem */}
+              {/* Anonimiteit — expliciete keuze */}
               <div class="mb-8">
-                <label class="flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    name="anoniem"
-                    value="1"
-                    class="w-5 h-5 text-animato-primary border-gray-300 rounded focus:ring-2 focus:ring-animato-primary"
-                  />
-                  <span class="ml-3 text-sm font-medium text-gray-700">
-                    Anonieme stemming (verberg wie gestemd heeft)
-                  </span>
+                <label class="block text-sm font-medium text-gray-700 mb-3">
+                  <i class="fas fa-user-shield mr-1 text-animato-primary"></i>
+                  Zichtbaarheid van stemmen <span class="text-red-500">*</span>
                 </label>
+                <div class="space-y-2">
+                  <label class="flex items-start gap-3 p-3 border-2 border-animato-primary bg-cyan-50 rounded-lg cursor-pointer hover:bg-cyan-100 transition has-[:checked]:border-animato-primary has-[:checked]:bg-cyan-50">
+                    <input
+                      type="radio"
+                      name="anoniem"
+                      value="0"
+                      checked
+                      class="w-5 h-5 mt-0.5 text-animato-primary focus:ring-2 focus:ring-animato-primary"
+                    />
+                    <div class="flex-1">
+                      <div class="text-sm font-semibold text-gray-900">
+                        <i class="fas fa-eye mr-1 text-green-600"></i>
+                        Niet anoniem — admin ziet wie wat stemde
+                      </div>
+                      <div class="text-xs text-gray-600 mt-1">
+                        Aanbevolen voor de meeste polls. Admins kunnen in het resultaten-overzicht zien welk lid welke optie koos. Stemmers blijven onderling onbekend.
+                      </div>
+                    </div>
+                  </label>
+                  <label class="flex items-start gap-3 p-3 border-2 border-gray-200 bg-white rounded-lg cursor-pointer hover:bg-gray-50 transition has-[:checked]:border-amber-500 has-[:checked]:bg-amber-50">
+                    <input
+                      type="radio"
+                      name="anoniem"
+                      value="1"
+                      class="w-5 h-5 mt-0.5 text-amber-600 focus:ring-2 focus:ring-amber-500"
+                    />
+                    <div class="flex-1">
+                      <div class="text-sm font-semibold text-gray-900">
+                        <i class="fas fa-user-secret mr-1 text-amber-600"></i>
+                        Anoniem — niemand ziet wie wat stemde
+                      </div>
+                      <div class="text-xs text-gray-600 mt-1">
+                        Voor gevoelige onderwerpen (bv. bestuursverkiezingen). Ook admins zien enkel totalen per stemgroep, geen namen. <strong>Niet terug te draaien</strong> na de eerste stem.
+                      </div>
+                    </div>
+                  </label>
+                </div>
               </div>
 
               <hr class="my-8" />
@@ -936,19 +966,50 @@ app.get('/admin/polls/:id/edit', async (c) => {
                 </select>
               </div>
 
-              {/* Anoniem */}
+              {/* Anonimiteit — expliciete keuze */}
               <div class="mb-6">
-                <label class="flex items-center">
-                  <input 
-                    type="checkbox" 
-                    name="anoniem"
-                    checked={poll.anoniem === 1}
-                    class="w-5 h-5 text-animato-primary border-gray-300 rounded focus:ring-animato-primary"
-                  />
-                  <span class="ml-3 text-sm font-medium text-gray-700">
-                    Anonieme stemming (stemmen niet zichtbaar voor admin)
-                  </span>
+                <label class="block text-sm font-medium text-gray-700 mb-3">
+                  <i class="fas fa-user-shield mr-1 text-animato-primary"></i>
+                  Zichtbaarheid van stemmen <span class="text-red-500">*</span>
                 </label>
+                <div class="space-y-2">
+                  <label class={`flex items-start gap-3 p-3 border-2 rounded-lg cursor-pointer transition ${poll.anoniem !== 1 ? 'border-animato-primary bg-cyan-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>
+                    <input
+                      type="radio"
+                      name="anoniem"
+                      value="0"
+                      checked={poll.anoniem !== 1}
+                      class="w-5 h-5 mt-0.5 text-animato-primary focus:ring-2 focus:ring-animato-primary"
+                    />
+                    <div class="flex-1">
+                      <div class="text-sm font-semibold text-gray-900">
+                        <i class="fas fa-eye mr-1 text-green-600"></i>
+                        Niet anoniem — admin ziet wie wat stemde
+                      </div>
+                      <div class="text-xs text-gray-600 mt-1">
+                        Aanbevolen voor de meeste polls. Admins kunnen in het resultaten-overzicht zien welk lid welke optie koos.
+                      </div>
+                    </div>
+                  </label>
+                  <label class={`flex items-start gap-3 p-3 border-2 rounded-lg cursor-pointer transition ${poll.anoniem === 1 ? 'border-amber-500 bg-amber-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>
+                    <input
+                      type="radio"
+                      name="anoniem"
+                      value="1"
+                      checked={poll.anoniem === 1}
+                      class="w-5 h-5 mt-0.5 text-amber-600 focus:ring-2 focus:ring-amber-500"
+                    />
+                    <div class="flex-1">
+                      <div class="text-sm font-semibold text-gray-900">
+                        <i class="fas fa-user-secret mr-1 text-amber-600"></i>
+                        Anoniem — niemand ziet wie wat stemde
+                      </div>
+                      <div class="text-xs text-gray-600 mt-1">
+                        Voor gevoelige onderwerpen (bv. bestuursverkiezingen). Ook admins zien enkel totalen per stemgroep, geen namen.
+                      </div>
+                    </div>
+                  </label>
+                </div>
               </div>
 
               {/* Poll Opties */}
@@ -1083,7 +1144,8 @@ app.post('/api/admin/polls/:id/update', async (c) => {
   const max_stemmen = parseInt(body.max_stemmen as string)
   const eind_datum = (body.eind_datum as string) || null
   const toon_resultaten = body.toon_resultaten as string
-  const anoniem = body.anoniem ? 1 : 0
+  // Radio-pair stuurt "0" of "1" als string — beide truthy, dus expliciet vergelijken
+  const anoniem = body.anoniem === '1' ? 1 : 0
 
   // Validation
   if (!titel || !type || !doelgroep || !status || !max_stemmen || !toon_resultaten) {
@@ -1141,7 +1203,8 @@ app.post('/api/admin/polls/create', async (c) => {
   const max_stemmen = parseInt(body.max_stemmen as string)
   const eind_datum = (body.eind_datum as string) || null
   const toon_resultaten = body.toon_resultaten as string
-  const anoniem = body.anoniem ? 1 : 0
+  // Radio-pair stuurt "0" of "1" als string — beide truthy, dus expliciet vergelijken
+  const anoniem = body.anoniem === '1' ? 1 : 0
 
   // Validation
   if (!titel || !type || !doelgroep || !status || !max_stemmen || !toon_resultaten) {

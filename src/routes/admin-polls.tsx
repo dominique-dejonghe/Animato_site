@@ -294,7 +294,15 @@ app.get('/admin/polls', async (c) => {
                         </div>
 
                         {/* Actions */}
-                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2 flex-wrap">
+                          <a
+                            href={`/admin/polls/${poll.id}/resultaten`}
+                            class="px-3 py-1 text-animato-primary hover:bg-cyan-50 rounded transition text-sm font-semibold border border-animato-primary/30"
+                            title="Bekijk wie wat gestemd heeft"
+                          >
+                            <i class="fas fa-chart-bar mr-1"></i>
+                            Resultaten
+                          </a>
                           <a 
                             href={`/leden/polls/${poll.id}`}
                             class="px-3 py-1 text-blue-600 hover:bg-blue-50 rounded transition text-sm"
@@ -1222,6 +1230,657 @@ app.post('/api/admin/polls/:id/delete', async (c) => {
   ).bind(pollId).run()
 
   return c.redirect('/admin/polls?success=deleted')
+})
+
+// =====================================================
+// ADMIN: RESULTATEN-OVERZICHT (wie stemde wat)
+// =====================================================
+// Toont voor één poll een overzicht van wie wat gestemd heeft.
+// Respecteert poll.anoniem=1 (toon dan ENKEL geaggregeerde tellingen).
+// Datamodel: poll_votes (poll_id, option_id, user_id, created_at), niet 1 rij
+// per kiezer maar 1 rij per (kiezer, optie). Bij max_stemmen>1 kan dezelfde
+// user_id dus meerdere keren voorkomen.
+
+// Avatar-mapping per stemgroep (consistent met leden.tsx)
+function avatarForStemgroep(s: string | null | undefined): string {
+  switch (s) {
+    case 'S': return '/static/avatars/sopraan-callas.webp'
+    case 'A': return '/static/avatars/alt-bartoli.webp'
+    case 'T': return '/static/avatars/tenor-pavarotti.webp'
+    case 'B': return '/static/avatars/bas-terfel.webp'
+    default:  return '/static/avatars/tenor-pavarotti.webp'
+  }
+}
+
+function stemgroepLabel(s: string | null | undefined): string {
+  switch (s) {
+    case 'S': return 'Sopraan'
+    case 'A': return 'Alt'
+    case 'T': return 'Tenor'
+    case 'B': return 'Bas'
+    default:  return 'Onbekend'
+  }
+}
+
+function stemgroepBadgeClasses(s: string | null | undefined): string {
+  // Consistent met admin.tsx kleurconventie
+  switch (s) {
+    case 'S': return 'bg-pink-100 text-pink-800'
+    case 'A': return 'bg-purple-100 text-purple-800'
+    case 'T': return 'bg-green-100 text-green-800'
+    case 'B': return 'bg-blue-100 text-blue-800'
+    default:  return 'bg-gray-100 text-gray-700'
+  }
+}
+
+app.get('/admin/polls/:id/resultaten', async (c) => {
+  const user = c.get('user') as SessionUser
+  noCacheHeaders(c)
+
+  const pollId = parseInt(c.req.param('id'))
+  if (!pollId) return c.redirect('/admin/polls?error=invalid_id')
+
+  // Poll-metadata
+  const poll = await queryOne<any>(c.env.DB, `
+    SELECT p.*,
+           u.email AS created_by_email,
+           pr.voornaam AS creator_voornaam,
+           pr.achternaam AS creator_achternaam
+    FROM polls p
+    LEFT JOIN users u ON u.id = p.created_by
+    LEFT JOIN profiles pr ON pr.user_id = u.id
+    WHERE p.id = ?
+  `, [pollId])
+
+  if (!poll) {
+    return c.redirect('/admin/polls?error=not_found')
+  }
+
+  // Opties met aantal stemmen
+  const options = await queryAll<any>(c.env.DB, `
+    SELECT o.id, o.optie_tekst, o.optie_beschrijving, o.volgorde,
+           (SELECT COUNT(*) FROM poll_votes WHERE option_id = o.id) AS vote_count
+    FROM poll_options o
+    WHERE o.poll_id = ?
+    ORDER BY o.volgorde ASC, o.id ASC
+  `, [pollId])
+
+  // Stemmen met user-info — alleen ophalen als poll NIET anoniem is
+  const isAnoniem = poll.anoniem === 1
+  const votesWithUsers = isAnoniem ? [] : await queryAll<any>(c.env.DB, `
+    SELECT v.id AS vote_id, v.option_id, v.user_id, v.created_at,
+           u.email, u.stemgroep, u.status AS user_status,
+           pr.voornaam, pr.achternaam, pr.foto_url
+    FROM poll_votes v
+    JOIN users u ON u.id = v.user_id
+    LEFT JOIN profiles pr ON pr.user_id = u.id
+    WHERE v.poll_id = ?
+    ORDER BY v.created_at ASC
+  `, [pollId])
+
+  // Bij anonieme poll: aggregeer per (option_id, stemgroep) zonder user_id te onthullen
+  const anoniemBreakdown = !isAnoniem ? [] : await queryAll<any>(c.env.DB, `
+    SELECT v.option_id, u.stemgroep, COUNT(*) AS cnt
+    FROM poll_votes v
+    JOIN users u ON u.id = v.user_id
+    WHERE v.poll_id = ?
+    GROUP BY v.option_id, u.stemgroep
+    ORDER BY v.option_id, u.stemgroep
+  `, [pollId])
+
+  // Totaal aantal unieke kiezers + stemmen
+  const totals = await queryOne<any>(c.env.DB, `
+    SELECT COUNT(*) AS total_votes, COUNT(DISTINCT user_id) AS total_voters
+    FROM poll_votes WHERE poll_id = ?
+  `, [pollId])
+  const totalVotes = totals?.total_votes || 0
+  const totalVoters = totals?.total_voters || 0
+
+  // Doelgroep: hoeveel leden konden stemmen? (voor opkomst-percentage)
+  let doelgroepFilter = ''
+  if (poll.doelgroep === 'S' || poll.doelgroep === 'A' || poll.doelgroep === 'T' || poll.doelgroep === 'B') {
+    doelgroepFilter = `AND stemgroep = '${poll.doelgroep}'`
+  } else if (poll.doelgroep === 'bestuur') {
+    doelgroepFilter = `AND is_bestuurslid = 1`
+  }
+  // 'all' en 'SATB' = geen extra filter (= alle actieve leden)
+  const eligible = await queryOne<any>(c.env.DB, `
+    SELECT COUNT(*) AS n FROM users
+    WHERE status = 'active' AND is_test_account = 0 ${doelgroepFilter}
+  `, [])
+  const totalEligible = eligible?.n || 0
+  const opkomst = totalEligible > 0 ? Math.round((totalVoters / totalEligible) * 100) : 0
+
+  // Wie heeft nog NIET gestemd? (handig voor herinneringen)
+  // Alleen ophalen voor NIET-anonieme polls
+  const nietGestemd = isAnoniem ? [] : await queryAll<any>(c.env.DB, `
+    SELECT u.id, u.email, u.stemgroep,
+           pr.voornaam, pr.achternaam, pr.foto_url
+    FROM users u
+    LEFT JOIN profiles pr ON pr.user_id = u.id
+    WHERE u.status = 'active' AND u.is_test_account = 0 ${doelgroepFilter}
+      AND u.id NOT IN (SELECT user_id FROM poll_votes WHERE poll_id = ?)
+    ORDER BY u.stemgroep ASC, pr.voornaam ASC, pr.achternaam ASC
+  `, [pollId])
+
+  // Bouw lookup: option_id → lijst stemmers (voor de UI)
+  const votersByOption = new Map<number, any[]>()
+  for (const o of options) votersByOption.set(o.id, [])
+  for (const v of votesWithUsers) {
+    const arr = votersByOption.get(v.option_id)
+    if (arr) arr.push(v)
+  }
+
+  // Bouw lookup: option_id → { S: n, A: n, T: n, B: n, X: n } voor anoniem-modus
+  const anonByOption = new Map<number, Record<string, number>>()
+  for (const o of options) anonByOption.set(o.id, { S: 0, A: 0, T: 0, B: 0, X: 0 })
+  for (const r of anoniemBreakdown) {
+    const bucket = anonByOption.get(r.option_id)
+    if (!bucket) continue
+    const key = (r.stemgroep === 'S' || r.stemgroep === 'A' || r.stemgroep === 'T' || r.stemgroep === 'B') ? r.stemgroep : 'X'
+    bucket[key] = (bucket[key] || 0) + r.cnt
+  }
+
+  // Max vote_count voor balk-schaling
+  const maxVotes = Math.max(1, ...options.map((o: any) => o.vote_count || 0))
+
+  // Helper voor formatteren created_at (DB-string, geen TZ info → toon ruw "dd-mm HH:MM")
+  function fmtDate(s: string | null | undefined): string {
+    if (!s) return ''
+    // DB-format: YYYY-MM-DD HH:MM:SS (UTC). Toon als "dd MMM HH:MM" in Brussels.
+    try {
+      const d = new Date(s.replace(' ', 'T') + 'Z')
+      return d.toLocaleString('nl-BE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Brussels' })
+    } catch { return s }
+  }
+
+  return c.html(
+    <Layout
+      title={`Resultaten: ${poll.titel}`}
+      user={user}
+      breadcrumbs={[
+        { label: 'Admin', href: '/admin' },
+        { label: 'Polls', href: '/admin/polls' },
+        { label: 'Resultaten', href: `/admin/polls/${pollId}/resultaten` }
+      ]}
+    >
+      <div class="bg-gray-50 min-h-screen py-8">
+        <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Terug-link */}
+          <div class="mb-4">
+            <a href="/admin/polls" class="inline-flex items-center text-sm text-animato-primary hover:underline font-semibold">
+              <i class="fas fa-arrow-left mr-2"></i> Terug naar polls
+            </a>
+          </div>
+
+          {/* Header */}
+          <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 mb-6">
+            <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
+              <div class="flex-1">
+                <div class="flex items-center gap-2 mb-2 flex-wrap">
+                  <span class={`px-3 py-1 text-xs font-bold rounded-full ${
+                    poll.status === 'open' ? 'bg-green-100 text-green-800' :
+                    poll.status === 'gesloten' ? 'bg-gray-200 text-gray-700' :
+                    'bg-yellow-100 text-yellow-800'
+                  }`}>
+                    {poll.status === 'open' ? 'OPEN' : poll.status === 'gesloten' ? 'GESLOTEN' : 'CONCEPT'}
+                  </span>
+                  <span class="px-3 py-1 text-xs font-medium rounded-full bg-blue-100 text-blue-800">
+                    {poll.type}
+                  </span>
+                  <span class="px-3 py-1 text-xs font-medium rounded-full bg-purple-100 text-purple-800">
+                    {poll.doelgroep === 'all' ? 'Alle leden' :
+                     poll.doelgroep === 'bestuur' ? 'Bestuur' :
+                     poll.doelgroep === 'SATB' ? 'Alle stemgroepen' :
+                     `Stemgroep ${poll.doelgroep}`}
+                  </span>
+                  {isAnoniem && (
+                    <span class="px-3 py-1 text-xs font-bold rounded-full bg-amber-100 text-amber-800" title="Geheime stemming — namen worden niet getoond">
+                      <i class="fas fa-user-secret mr-1"></i>
+                      ANONIEM
+                    </span>
+                  )}
+                  {poll.max_stemmen > 1 && (
+                    <span class="px-3 py-1 text-xs font-medium rounded-full bg-cyan-100 text-cyan-800">
+                      Meerkeuze ({poll.max_stemmen}×)
+                    </span>
+                  )}
+                </div>
+                <h1 class="text-2xl md:text-3xl font-bold text-gray-900 mb-2" style="font-family: 'Playfair Display', serif;">
+                  {poll.titel}
+                </h1>
+                {poll.beschrijving && (
+                  <p class="text-gray-600 mb-3">{poll.beschrijving}</p>
+                )}
+                <div class="text-xs text-gray-500 flex items-center gap-4 flex-wrap">
+                  <span>
+                    <i class="fas fa-user mr-1"></i>
+                    Door {poll.creator_voornaam ? `${poll.creator_voornaam} ${poll.creator_achternaam || ''}`.trim() : poll.created_by_email}
+                  </span>
+                  <span>
+                    <i class="fas fa-calendar-plus mr-1"></i>
+                    Gemaakt {fmtDate(poll.created_at)}
+                  </span>
+                  {poll.eind_datum && (
+                    <span class={new Date(poll.eind_datum.replace(' ', 'T') + 'Z') < new Date() ? 'text-red-600 font-semibold' : ''}>
+                      <i class="fas fa-hourglass-end mr-1"></i>
+                      Sluit {fmtDate(poll.eind_datum)}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Actie-knoppen */}
+              <div class="flex flex-col sm:flex-row gap-2">
+                <a
+                  href={`/admin/polls/${pollId}/resultaten/export.csv`}
+                  class="px-4 py-2 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg text-sm font-medium inline-flex items-center justify-center"
+                  title="Download als CSV"
+                >
+                  <i class="fas fa-file-csv mr-2"></i> Export CSV
+                </a>
+                <a
+                  href={`/admin/polls/${pollId}/edit`}
+                  class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium inline-flex items-center justify-center"
+                >
+                  <i class="fas fa-edit mr-2"></i> Bewerk
+                </a>
+              </div>
+            </div>
+          </div>
+
+          {/* Stats-strip */}
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <div class="text-xs text-gray-500 uppercase tracking-wide font-semibold">Stemmers</div>
+              <div class="text-3xl font-bold text-animato-primary mt-1">{totalVoters}</div>
+              <div class="text-xs text-gray-500 mt-1">unieke kiezers</div>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <div class="text-xs text-gray-500 uppercase tracking-wide font-semibold">Stemmen</div>
+              <div class="text-3xl font-bold text-gray-900 mt-1">{totalVotes}</div>
+              <div class="text-xs text-gray-500 mt-1">
+                {poll.max_stemmen > 1 ? `tot ${poll.max_stemmen} per persoon` : '1 per persoon'}
+              </div>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <div class="text-xs text-gray-500 uppercase tracking-wide font-semibold">Opkomst</div>
+              <div class="text-3xl font-bold text-gray-900 mt-1">{opkomst}<span class="text-lg text-gray-500">%</span></div>
+              <div class="text-xs text-gray-500 mt-1">van {totalEligible} stemgerechtigden</div>
+            </div>
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+              <div class="text-xs text-gray-500 uppercase tracking-wide font-semibold">Niet gestemd</div>
+              <div class={`text-3xl font-bold mt-1 ${totalEligible - totalVoters > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                {totalEligible - totalVoters}
+              </div>
+              <div class="text-xs text-gray-500 mt-1">
+                {isAnoniem ? 'lijst verborgen (anoniem)' : 'zie tab "Niet gestemd"'}
+              </div>
+            </div>
+          </div>
+
+          {/* Anoniem-waarschuwing als van toepassing */}
+          {isAnoniem && (
+            <div class="bg-amber-50 border-l-4 border-amber-400 p-4 mb-6 rounded-r-lg">
+              <div class="flex">
+                <i class="fas fa-user-secret text-amber-600 text-xl mr-3 mt-0.5"></i>
+                <div>
+                  <p class="text-sm text-amber-800 font-semibold">Dit is een anonieme poll</p>
+                  <p class="text-sm text-amber-700 mt-1">
+                    Per ontwerp tonen we hier <strong>geen individuele namen</strong>. Je ziet wel hoeveel
+                    leden uit elke stemgroep voor welke optie gestemd hebben. Wie er niet gestemd heeft
+                    is ook verborgen om deductie te voorkomen.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Tabs */}
+          <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+            <div class="border-b border-gray-200 px-4 flex gap-1 overflow-x-auto" id="tab-bar">
+              <button data-tab="per-optie" class="tab-btn px-4 py-3 text-sm font-semibold text-animato-primary border-b-2 border-animato-primary whitespace-nowrap">
+                <i class="fas fa-chart-bar mr-1"></i> Per optie
+              </button>
+              {!isAnoniem && (
+                <button data-tab="per-stemmer" class="tab-btn px-4 py-3 text-sm font-semibold text-gray-500 hover:text-gray-700 border-b-2 border-transparent whitespace-nowrap">
+                  <i class="fas fa-users mr-1"></i> Per stemmer
+                </button>
+              )}
+              {!isAnoniem && (
+                <button data-tab="niet-gestemd" class="tab-btn px-4 py-3 text-sm font-semibold text-gray-500 hover:text-gray-700 border-b-2 border-transparent whitespace-nowrap">
+                  <i class="fas fa-user-slash mr-1"></i> Niet gestemd ({nietGestemd.length})
+                </button>
+              )}
+            </div>
+
+            {/* PANE 1: per optie */}
+            <div data-pane="per-optie" class="p-6">
+              {options.length === 0 ? (
+                <p class="text-center text-gray-500 py-12">
+                  <i class="fas fa-inbox text-4xl mb-3 block"></i>
+                  Deze poll heeft geen opties.
+                </p>
+              ) : (
+                <div class="space-y-5">
+                  {options.map((opt: any) => {
+                    const count = opt.vote_count || 0
+                    const pctOfVoters = totalVoters > 0 ? Math.round((count / totalVoters) * 100) : 0
+                    const pctOfMax = (count / maxVotes) * 100
+                    const voters = votersByOption.get(opt.id) || []
+                    const anonCounts = anonByOption.get(opt.id) || {}
+
+                    // Groepeer voters per stemgroep
+                    const byStemgroep: Record<string, any[]> = { S: [], A: [], T: [], B: [], X: [] }
+                    for (const v of voters) {
+                      const k = (v.stemgroep === 'S' || v.stemgroep === 'A' || v.stemgroep === 'T' || v.stemgroep === 'B') ? v.stemgroep : 'X'
+                      byStemgroep[k].push(v)
+                    }
+
+                    return (
+                      <div class="border border-gray-200 rounded-xl p-4 hover:shadow-md transition">
+                        {/* Optie-header met balk */}
+                        <div class="flex items-baseline justify-between gap-3 mb-2 flex-wrap">
+                          <h3 class="text-lg font-semibold text-gray-900 flex-1">
+                            {opt.optie_tekst}
+                          </h3>
+                          <div class="flex items-center gap-3">
+                            <span class="text-2xl font-bold text-animato-primary">{count}</span>
+                            <span class="text-sm text-gray-500">
+                              ({pctOfVoters}% van kiezers)
+                            </span>
+                          </div>
+                        </div>
+                        {opt.optie_beschrijving && (
+                          <p class="text-sm text-gray-600 mb-3">{opt.optie_beschrijving}</p>
+                        )}
+                        {/* Balk */}
+                        <div class="w-full h-3 bg-gray-100 rounded-full overflow-hidden mb-4">
+                          <div
+                            class="h-full bg-gradient-to-r from-animato-primary to-cyan-500 transition-all duration-500"
+                            style={`width: ${pctOfMax.toFixed(1)}%`}
+                          ></div>
+                        </div>
+
+                        {/* Anoniem: stemgroep-tellers */}
+                        {isAnoniem ? (
+                          <div class="flex gap-2 flex-wrap">
+                            {['S', 'A', 'T', 'B', 'X'].map((sg) => {
+                              const n = anonCounts[sg] || 0
+                              if (n === 0) return null
+                              return (
+                                <span class={`px-2.5 py-1 text-xs font-medium rounded-full ${stemgroepBadgeClasses(sg === 'X' ? null : sg)}`}>
+                                  {stemgroepLabel(sg === 'X' ? null : sg)}: {n}
+                                </span>
+                              )
+                            })}
+                            {count === 0 && (
+                              <span class="text-sm text-gray-400 italic">Nog geen stemmen</span>
+                            )}
+                          </div>
+                        ) : (
+                          <div>
+                            {count === 0 ? (
+                              <p class="text-sm text-gray-400 italic">Nog niemand heeft op deze optie gestemd</p>
+                            ) : (
+                              <div class="space-y-3">
+                                {['S', 'A', 'T', 'B', 'X'].map((sg) => {
+                                  const list = byStemgroep[sg]
+                                  if (list.length === 0) return null
+                                  return (
+                                    <div>
+                                      <div class="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">
+                                        <span class={`px-2 py-0.5 rounded-full ${stemgroepBadgeClasses(sg === 'X' ? null : sg)}`}>
+                                          {stemgroepLabel(sg === 'X' ? null : sg)}
+                                        </span>
+                                        <span class="ml-2 text-gray-600">{list.length} {list.length === 1 ? 'stem' : 'stemmen'}</span>
+                                      </div>
+                                      <div class="flex flex-wrap gap-2">
+                                        {list.map((v: any) => {
+                                          const naam = v.voornaam || v.achternaam
+                                            ? `${v.voornaam || ''} ${v.achternaam || ''}`.trim()
+                                            : v.email
+                                          const avatar = v.foto_url || avatarForStemgroep(v.stemgroep)
+                                          return (
+                                            <span
+                                              class="inline-flex items-center bg-gray-50 border border-gray-200 rounded-full pl-1 pr-3 py-0.5 text-sm hover:bg-white hover:shadow-sm transition"
+                                              title={`${v.email} — gestemd ${fmtDate(v.created_at)}`}
+                                            >
+                                              <img
+                                                src={avatar}
+                                                alt=""
+                                                class="w-6 h-6 rounded-full mr-2 object-cover"
+                                                loading="lazy"
+                                                onerror={`this.src='${avatarForStemgroep(v.stemgroep)}'`}
+                                              />
+                                              <span class="text-gray-800">{naam}</span>
+                                            </span>
+                                          )
+                                        })}
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* PANE 2: per stemmer (alleen bij niet-anoniem) */}
+            {!isAnoniem && (
+              <div data-pane="per-stemmer" class="p-6 hidden">
+                {(() => {
+                  // Groepeer alle votes per user
+                  const byUser = new Map<number, { voter: any, opties: any[] }>()
+                  for (const v of votesWithUsers) {
+                    if (!byUser.has(v.user_id)) {
+                      byUser.set(v.user_id, { voter: v, opties: [] })
+                    }
+                    const opt = options.find((o: any) => o.id === v.option_id)
+                    if (opt) byUser.get(v.user_id)!.opties.push({ ...opt, voted_at: v.created_at })
+                  }
+                  const stemmers = [...byUser.values()].sort((a, b) => {
+                    // Sort: stemgroep dan naam
+                    const sgA = a.voter.stemgroep || 'Z'
+                    const sgB = b.voter.stemgroep || 'Z'
+                    if (sgA !== sgB) return sgA.localeCompare(sgB)
+                    const nA = `${a.voter.voornaam || ''} ${a.voter.achternaam || ''}`.trim().toLowerCase()
+                    const nB = `${b.voter.voornaam || ''} ${b.voter.achternaam || ''}`.trim().toLowerCase()
+                    return nA.localeCompare(nB)
+                  })
+
+                  if (stemmers.length === 0) {
+                    return (
+                      <p class="text-center text-gray-500 py-12">
+                        <i class="fas fa-inbox text-4xl mb-3 block"></i>
+                        Nog niemand heeft gestemd.
+                      </p>
+                    )
+                  }
+
+                  return (
+                    <div class="overflow-hidden border border-gray-200 rounded-xl">
+                      <table class="w-full text-sm">
+                        <thead class="bg-gray-50 border-b border-gray-200">
+                          <tr>
+                            <th class="text-left px-4 py-3 font-semibold text-gray-700">Stemmer</th>
+                            <th class="text-left px-4 py-3 font-semibold text-gray-700">Stemgroep</th>
+                            <th class="text-left px-4 py-3 font-semibold text-gray-700">Gestemd op</th>
+                            <th class="text-left px-4 py-3 font-semibold text-gray-700 whitespace-nowrap">Wanneer</th>
+                          </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                          {stemmers.map(({ voter, opties }) => {
+                            const naam = voter.voornaam || voter.achternaam
+                              ? `${voter.voornaam || ''} ${voter.achternaam || ''}`.trim()
+                              : voter.email
+                            const avatar = voter.foto_url || avatarForStemgroep(voter.stemgroep)
+                            const lastVote = opties.map((o: any) => o.voted_at).sort().slice(-1)[0]
+                            return (
+                              <tr class="hover:bg-gray-50 transition">
+                                <td class="px-4 py-3">
+                                  <div class="flex items-center">
+                                    <img
+                                      src={avatar}
+                                      alt=""
+                                      class="w-8 h-8 rounded-full mr-3 object-cover"
+                                      loading="lazy"
+                                      onerror={`this.src='${avatarForStemgroep(voter.stemgroep)}'`}
+                                    />
+                                    <div>
+                                      <div class="font-semibold text-gray-900">{naam}</div>
+                                      <div class="text-xs text-gray-500">{voter.email}</div>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td class="px-4 py-3">
+                                  <span class={`px-2.5 py-1 text-xs font-medium rounded-full ${stemgroepBadgeClasses(voter.stemgroep)}`}>
+                                    {stemgroepLabel(voter.stemgroep)}
+                                  </span>
+                                </td>
+                                <td class="px-4 py-3">
+                                  <div class="flex flex-wrap gap-1.5">
+                                    {opties.map((o: any) => (
+                                      <span class="px-2 py-0.5 bg-cyan-50 text-cyan-800 border border-cyan-200 rounded text-xs font-medium">
+                                        {o.optie_tekst}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </td>
+                                <td class="px-4 py-3 text-xs text-gray-500 whitespace-nowrap">
+                                  {fmtDate(lastVote)}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
+
+            {/* PANE 3: niet gestemd (alleen bij niet-anoniem) */}
+            {!isAnoniem && (
+              <div data-pane="niet-gestemd" class="p-6 hidden">
+                {nietGestemd.length === 0 ? (
+                  <div class="text-center py-12">
+                    <i class="fas fa-trophy text-5xl text-yellow-500 mb-3 block"></i>
+                    <p class="text-lg font-semibold text-gray-900">100% opkomst!</p>
+                    <p class="text-sm text-gray-500 mt-1">Alle stemgerechtigden hebben gestemd.</p>
+                  </div>
+                ) : (
+                  <div>
+                    <p class="text-sm text-gray-600 mb-4">
+                      <i class="fas fa-info-circle mr-1 text-blue-500"></i>
+                      Deze {nietGestemd.length} leden uit de doelgroep hebben nog niet gestemd.
+                      {poll.status === 'open' && ' Je kunt ze nog herinneren.'}
+                    </p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                      {nietGestemd.map((m: any) => {
+                        const naam = m.voornaam || m.achternaam
+                          ? `${m.voornaam || ''} ${m.achternaam || ''}`.trim()
+                          : m.email
+                        const avatar = m.foto_url || avatarForStemgroep(m.stemgroep)
+                        return (
+                          <div class="flex items-center bg-orange-50 border border-orange-200 rounded-lg p-2.5">
+                            <img
+                              src={avatar}
+                              alt=""
+                              class="w-9 h-9 rounded-full mr-3 object-cover"
+                              loading="lazy"
+                              onerror={`this.src='${avatarForStemgroep(m.stemgroep)}'`}
+                            />
+                            <div class="flex-1 min-w-0">
+                              <div class="font-semibold text-gray-900 text-sm truncate">{naam}</div>
+                              <div class="flex items-center gap-1.5 mt-0.5">
+                                <span class={`px-1.5 py-0.5 text-[10px] font-medium rounded ${stemgroepBadgeClasses(m.stemgroep)}`}>
+                                  {stemgroepLabel(m.stemgroep)}
+                                </span>
+                                <span class="text-[11px] text-gray-500 truncate">{m.email}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Tab-switcher JS — klein inline blokje, geen externe deps */}
+      <script src="/static/js/admin-poll-results-tabs.js" defer></script>
+    </Layout>
+  )
+})
+
+// =====================================================
+// ADMIN: CSV-EXPORT van resultaten
+// =====================================================
+// Levert een CSV met 1 rij per stem. Bij anoniem: geen namen, alleen stemgroep.
+
+app.get('/admin/polls/:id/resultaten/export.csv', async (c) => {
+  const pollId = parseInt(c.req.param('id'))
+  if (!pollId) return c.text('invalid_id', 400)
+
+  const poll = await queryOne<any>(c.env.DB, `SELECT id, titel, anoniem FROM polls WHERE id = ?`, [pollId])
+  if (!poll) return c.text('not_found', 404)
+
+  const isAnoniem = poll.anoniem === 1
+  const rows = await queryAll<any>(c.env.DB, `
+    SELECT o.optie_tekst, u.stemgroep, u.email, pr.voornaam, pr.achternaam, v.created_at
+    FROM poll_votes v
+    JOIN poll_options o ON o.id = v.option_id
+    JOIN users u ON u.id = v.user_id
+    LEFT JOIN profiles pr ON pr.user_id = u.id
+    WHERE v.poll_id = ?
+    ORDER BY o.volgorde ASC, v.created_at ASC
+  `, [pollId])
+
+  function csvEscape(s: any): string {
+    const str = (s === null || s === undefined) ? '' : String(s)
+    if (/[",\n;]/.test(str)) return `"${str.replace(/"/g, '""')}"`
+    return str
+  }
+
+  const header = isAnoniem
+    ? ['Optie', 'Stemgroep', 'Wanneer (UTC)']
+    : ['Optie', 'Voornaam', 'Achternaam', 'Email', 'Stemgroep', 'Wanneer (UTC)']
+
+  const lines = [header.join(';')]
+  for (const r of rows) {
+    if (isAnoniem) {
+      lines.push([r.optie_tekst, r.stemgroep || '', r.created_at].map(csvEscape).join(';'))
+    } else {
+      lines.push([
+        r.optie_tekst, r.voornaam || '', r.achternaam || '', r.email,
+        r.stemgroep || '', r.created_at
+      ].map(csvEscape).join(';'))
+    }
+  }
+
+  const filename = `poll-${pollId}-resultaten-${new Date().toISOString().slice(0, 10)}.csv`
+  // BOM zodat Excel UTF-8 correct herkent
+  const body = '\ufeff' + lines.join('\n')
+  return new Response(body, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+      'Cache-Control': 'no-store',
+    }
+  })
 })
 
 export default app

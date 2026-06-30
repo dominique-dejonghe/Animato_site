@@ -487,14 +487,19 @@ app.get('/admin/polls/nieuw', async (c) => {
               <div class="mb-6">
                 <label class="block text-sm font-medium text-gray-700 mb-2">
                   Beschrijving (optioneel)
+                  <span class="text-xs font-normal text-gray-500 ml-2">— max 1000 tekens, het tekstvak scrollt en is verticaal vergrootbaar</span>
                 </label>
-                <textarea 
+                <textarea
                   name="beschrijving"
-                  rows="3"
+                  rows="6"
                   maxlength="1000"
-                  placeholder="Extra context of uitleg over deze poll"
-                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent resize-none"
+                  placeholder="Extra context of uitleg over deze poll. Je kan hier rustig een langere uitleg kwijt — het vak scrollt automatisch als de tekst te lang wordt, en je kan het manueel verticaal groter slepen via de hoek rechtsonder."
+                  oninput="const c=document.getElementById('beschr-counter-new');if(c){c.textContent=this.value.length;c.parentElement.classList.toggle('text-amber-600',this.value.length>900);c.parentElement.classList.toggle('text-red-600',this.value.length>=1000)}"
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent resize-y min-h-[10rem] max-h-[24rem] overflow-y-auto leading-relaxed"
                 ></textarea>
+                <div class="text-xs text-gray-500 text-right mt-1">
+                  <span id="beschr-counter-new">0</span> / 1000 tekens
+                </div>
               </div>
 
               <div class="grid grid-cols-2 gap-6 mb-6">
@@ -858,13 +863,18 @@ app.get('/admin/polls/:id/edit', async (c) => {
               <div class="mb-6">
                 <label class="block text-sm font-medium text-gray-700 mb-2">
                   Beschrijving (optioneel)
+                  <span class="text-xs font-normal text-gray-500 ml-2">— max 1000 tekens, het tekstvak scrollt en is verticaal vergrootbaar</span>
                 </label>
-                <textarea 
+                <textarea
                   name="beschrijving"
-                  rows="3"
+                  rows="6"
                   maxlength="1000"
-                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent"
+                  oninput="const c=document.getElementById('beschr-counter-edit');if(c){c.textContent=this.value.length;c.parentElement.classList.toggle('text-amber-600',this.value.length>900);c.parentElement.classList.toggle('text-red-600',this.value.length>=1000)}"
+                  class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent resize-y min-h-[10rem] max-h-[24rem] overflow-y-auto leading-relaxed"
                 >{poll.beschrijving || ''}</textarea>
+                <div class="text-xs text-gray-500 text-right mt-1">
+                  <span id="beschr-counter-edit">{(poll.beschrijving || '').length}</span> / 1000 tekens
+                </div>
               </div>
 
               {/* Type */}

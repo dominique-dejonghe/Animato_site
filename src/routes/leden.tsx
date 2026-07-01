@@ -7,7 +7,7 @@ import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { requireAuth, requireLid } from '../middleware/auth'
 import { queryOne, queryAll, execute } from '../utils/db'
-import { createMolliePayment } from '../utils/mollie'
+import { createMolliePayment, getMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { getSiteUrl } from '../utils/site-url'
 import { processBodyLinks } from '../utils/text'
@@ -3905,6 +3905,19 @@ app.get('/leden/betaling-lidgeld', async (c) => {
     return c.redirect('/leden/profiel')
   }
 
+  // 🧹 CLEANUP van stale betaallink: URL gezet maar geen payment_id
+  // Deze rijen dateren van vóór de schema-fix waar we ook payment.id opsloegen.
+  // Zonder id kan de webhook niet mappen én kunnen we de status niet checken →
+  // beter meteen wissen zodat de user een verse link krijgt bij klik op "Betalen".
+  if (membership.mollie_payment_url && !membership.mollie_payment_id) {
+    await execute(
+      c.env.DB,
+      `UPDATE user_memberships SET mollie_payment_url = NULL WHERE id = ?`,
+      [membership.id]
+    )
+    membership.mollie_payment_url = null
+  }
+
   // Fallback waarden als fee_base/fee_full niet gezet zijn op het seizoen
   const feeBase = Number(membership.fee_base ?? 35)
   const feeFull = Number(membership.fee_full ?? 70)
@@ -4252,8 +4265,49 @@ app.post('/api/leden/betaling/online', async (c) => {
 
   // Bij expliciete 'regenerate' actie: oude link wissen
   if (body.regenerate === '1' && membership.mollie_payment_url) {
-    await execute(c.env.DB, `UPDATE user_memberships SET mollie_payment_url = NULL WHERE id = ?`, [membership.id])
+    await execute(c.env.DB,
+      `UPDATE user_memberships SET mollie_payment_url = NULL, mollie_payment_id = NULL WHERE id = ?`,
+      [membership.id])
     membership.mollie_payment_url = null
+    membership.mollie_payment_id = null
+  }
+
+  // 🔧 Auto-cleanup van stale betaallinks
+  // Symptomen die we hier opvangen:
+  //  a) URL gezet maar geen payment_id (oude data van vóór schema-fix)
+  //  b) Payment_id gezet maar Mollie geeft status expired/canceled/failed terug
+  //     (bv. Bancontact/PPRO shortlinks die na 1 klik dood zijn)
+  // In beide gevallen: wissen en verse betaling maken bij de volgende stap.
+  if (membership.mollie_payment_url) {
+    let mustClear = false
+
+    if (!membership.mollie_payment_id) {
+      // Case a: stale row zonder id → onbereikbaar via webhook, meteen wissen
+      mustClear = true
+    } else {
+      // Case b: check echte status bij Mollie
+      try {
+        const existing = await getMolliePayment(await getMollieApiKey(c.env), membership.mollie_payment_id)
+        if (!existing) {
+          mustClear = true
+        } else if (['expired', 'canceled', 'failed'].includes(existing.status)) {
+          mustClear = true
+        }
+        // 'paid' | 'open' | 'pending' | 'authorized' → link nog bruikbaar, niet wissen
+      } catch (err) {
+        // Bij API-fout: veiligheidshalve wissen, dan liever verse link maken
+        console.error('[betaling/online] Mollie status-check faalde, wissen link:', err)
+        mustClear = true
+      }
+    }
+
+    if (mustClear) {
+      await execute(c.env.DB,
+        `UPDATE user_memberships SET mollie_payment_url = NULL, mollie_payment_id = NULL WHERE id = ?`,
+        [membership.id])
+      membership.mollie_payment_url = null
+      membership.mollie_payment_id = null
+    }
   }
 
   const siteUrl = await getSiteUrl(c)

@@ -490,11 +490,11 @@ app.get('/admin/polls/nieuw', async (c) => {
                   <span class="text-xs font-normal text-gray-500 ml-2">— max 1000 tekens, het tekstvak scrollt en is verticaal vergrootbaar</span>
                 </label>
                 <textarea
+                  id="beschr-textarea-new"
                   name="beschrijving"
                   rows="6"
                   maxlength="1000"
                   placeholder="Extra context of uitleg over deze poll. Je kan hier rustig een langere uitleg kwijt — het vak scrollt automatisch als de tekst te lang wordt, en je kan het manueel verticaal groter slepen via de hoek rechtsonder."
-                  oninput="const c=document.getElementById('beschr-counter-new');if(c){c.textContent=this.value.length;c.parentElement.classList.toggle('text-amber-600',this.value.length>900);c.parentElement.classList.toggle('text-red-600',this.value.length>=1000)}"
                   class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent resize-y min-h-[10rem] max-h-[24rem] overflow-y-auto leading-relaxed"
                 ></textarea>
                 <div class="text-xs text-gray-500 text-right mt-1">
@@ -785,6 +785,24 @@ app.get('/admin/polls/nieuw', async (c) => {
 
         </div>
       </div>
+
+      {/* Beschrijving karakter-counter */}
+      <script dangerouslySetInnerHTML={{ __html: `
+        (function() {
+          const ta = document.getElementById('beschr-textarea-new');
+          const counter = document.getElementById('beschr-counter-new');
+          if (!ta || !counter) return;
+          function update() {
+            const len = ta.value.length;
+            counter.textContent = len;
+            const wrap = counter.parentElement;
+            wrap.classList.toggle('text-amber-600', len > 900 && len < 1000);
+            wrap.classList.toggle('text-red-600', len >= 1000);
+          }
+          ta.addEventListener('input', update);
+          update();
+        })();
+      `}} />
     </Layout>
   )
 })
@@ -866,10 +884,10 @@ app.get('/admin/polls/:id/edit', async (c) => {
                   <span class="text-xs font-normal text-gray-500 ml-2">— max 1000 tekens, het tekstvak scrollt en is verticaal vergrootbaar</span>
                 </label>
                 <textarea
+                  id="beschr-textarea-edit"
                   name="beschrijving"
                   rows="6"
                   maxlength="1000"
-                  oninput="const c=document.getElementById('beschr-counter-edit');if(c){c.textContent=this.value.length;c.parentElement.classList.toggle('text-amber-600',this.value.length>900);c.parentElement.classList.toggle('text-red-600',this.value.length>=1000)}"
                   class="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-animato-primary focus:border-transparent resize-y min-h-[10rem] max-h-[24rem] overflow-y-auto leading-relaxed"
                 >{poll.beschrijving || ''}</textarea>
                 <div class="text-xs text-gray-500 text-right mt-1">
@@ -1130,6 +1148,22 @@ app.get('/admin/polls/:id/edit', async (c) => {
             container.appendChild(div);
             optionCount++;
           });
+
+          // Beschrijving karakter-counter
+          (function() {
+            const ta = document.getElementById('beschr-textarea-edit');
+            const counter = document.getElementById('beschr-counter-edit');
+            if (!ta || !counter) return;
+            function update() {
+              const len = ta.value.length;
+              counter.textContent = len;
+              const wrap = counter.parentElement;
+              wrap.classList.toggle('text-amber-600', len > 900 && len < 1000);
+              wrap.classList.toggle('text-red-600', len >= 1000);
+            }
+            ta.addEventListener('input', update);
+            update();
+          })();
         `
       }} />
     </Layout>

@@ -1879,7 +1879,9 @@ app.get('/leden/profiel', async (c) => {
             p.foto_url as profielfoto_url, p.favoriete_genre, p.favoriete_componist, 
             p.favoriete_werk, p.instrument, p.jaren_in_koor, p.geboortedatum,
             p.straat, p.huisnummer, p.bus, p.postcode, p.stad as gemeente,
-            p.smoelenboek_zichtbaar, p.toon_email, p.toon_telefoon, p.lid_sinds
+            p.smoelenboek_zichtbaar, p.toon_email, p.toon_telefoon,
+            p.toon_foto, p.toon_bio, p.toon_stemgroep, p.toon_geboortedatum,
+            p.toon_adres, p.toon_favorieten, p.lid_sinds
      FROM users u
      LEFT JOIN profiles p ON p.user_id = u.id
      WHERE u.id = ?`,
@@ -1911,7 +1913,9 @@ app.get('/leden/profiel', async (c) => {
                 p.voornaam, p.achternaam, p.telefoon, p.adres, p.bio, p.muzikale_ervaring, 
                 p.foto_url as profielfoto_url, p.favoriete_genre, p.favoriete_componist, 
                 p.favoriete_werk, p.instrument, p.jaren_in_koor, p.geboortedatum,
-                p.smoelenboek_zichtbaar, p.toon_email, p.toon_telefoon, p.lid_sinds
+                p.smoelenboek_zichtbaar, p.toon_email, p.toon_telefoon,
+                p.toon_foto, p.toon_bio, p.toon_stemgroep, p.toon_geboortedatum,
+                p.toon_adres, p.toon_favorieten, p.lid_sinds
          FROM users u
          LEFT JOIN profiles p ON p.user_id = u.id
          WHERE u.id = ?`,
@@ -3421,10 +3425,176 @@ app.get('/leden/profiel', async (c) => {
                   </div>
                 </div>
 
-                {/* Hidden fields - Privacy settings always enabled */}
-                <input type="hidden" name="smoelenboek_zichtbaar" value="1" />
-                <input type="hidden" name="toon_email" value="1" />
-                <input type="hidden" name="toon_telefoon" value="1" />
+              </div>
+
+              {/* ═══════════════════════════════════════════════════════════
+                  PRIVACY & ZICHTBAARHEID
+                  Koorlid kiest zelf welke info gedeeld wordt in het smoelenboek.
+                  Master-toggle "zichtbaar in smoelenboek" overrulet al de rest.
+                  Elke sub-toggle is een checkbox — checked = value "1" wordt
+                  meegestuurd; unchecked stuurt niks → backend interpreteert dat
+                  als "0" (uit).
+                  ═══════════════════════════════════════════════════════════ */}
+              <div id="privacy" class="mt-6 p-5 rounded-xl border border-gray-200 bg-gray-50">
+                <div class="flex items-start gap-3 mb-4">
+                  <div class="flex-shrink-0 w-10 h-10 rounded-full bg-animato-primary/10 flex items-center justify-center">
+                    <i class="fas fa-user-shield text-animato-primary"></i>
+                  </div>
+                  <div class="flex-1">
+                    <h3 class="text-lg font-bold text-gray-900">Privacy & zichtbaarheid</h3>
+                    <p class="text-sm text-gray-600 mt-0.5">
+                      Kies zelf welke info je mede-koorleden zien in het smoelenboek.
+                      Admins en jij zelf zien altijd alles.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Master-toggle: helemaal (on)zichtbaar in smoelenboek */}
+                <label class="flex items-start gap-3 p-4 rounded-lg bg-white border border-gray-200 hover:border-animato-primary cursor-pointer mb-4">
+                  <input
+                    type="checkbox"
+                    name="smoelenboek_zichtbaar"
+                    value="1"
+                    checked={profile.smoelenboek_zichtbaar !== 0}
+                    class="mt-1 w-5 h-5 rounded text-animato-primary focus:ring-animato-primary"
+                  />
+                  <div class="flex-1">
+                    <div class="font-semibold text-gray-900 flex items-center gap-2">
+                      <i class="fas fa-users text-animato-primary"></i>
+                      Ik ben zichtbaar in het smoelenboek
+                    </div>
+                    <div class="text-sm text-gray-600 mt-0.5">
+                      Uitgevinkt = je verschijnt helemaal niet in het smoelenboek voor andere leden
+                      (behalve voor jezelf en admins).
+                    </div>
+                  </div>
+                </label>
+
+                <div class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 mt-4">
+                  Welke info deel je concreet?
+                </div>
+
+                {/* Sub-toggles per veld — twee kolommen op sm+ */}
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {/* Foto */}
+                  <label class="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-200 hover:border-animato-primary cursor-pointer">
+                    <input type="checkbox" name="toon_foto" value="1"
+                      checked={profile.toon_foto !== 0}
+                      class="mt-0.5 w-4 h-4 rounded text-animato-primary focus:ring-animato-primary" />
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                        <i class="fas fa-camera text-gray-400 text-xs"></i>
+                        Mijn foto
+                      </div>
+                      <div class="text-xs text-gray-500">Anders zien leden enkel het silhouet</div>
+                    </div>
+                  </label>
+
+                  {/* Stemgroep */}
+                  <label class="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-200 hover:border-animato-primary cursor-pointer">
+                    <input type="checkbox" name="toon_stemgroep" value="1"
+                      checked={profile.toon_stemgroep !== 0}
+                      class="mt-0.5 w-4 h-4 rounded text-animato-primary focus:ring-animato-primary" />
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                        <i class="fas fa-music text-gray-400 text-xs"></i>
+                        Mijn stemgroep
+                      </div>
+                      <div class="text-xs text-gray-500">S / A / T / B</div>
+                    </div>
+                  </label>
+
+                  {/* Email */}
+                  <label class="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-200 hover:border-animato-primary cursor-pointer">
+                    <input type="checkbox" name="toon_email" value="1"
+                      checked={profile.toon_email !== 0}
+                      class="mt-0.5 w-4 h-4 rounded text-animato-primary focus:ring-animato-primary" />
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                        <i class="fas fa-envelope text-gray-400 text-xs"></i>
+                        Mijn e-mailadres
+                      </div>
+                      <div class="text-xs text-gray-500">Klik-om-te-mailen link</div>
+                    </div>
+                  </label>
+
+                  {/* Telefoon */}
+                  <label class="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-200 hover:border-animato-primary cursor-pointer">
+                    <input type="checkbox" name="toon_telefoon" value="1"
+                      checked={profile.toon_telefoon !== 0}
+                      class="mt-0.5 w-4 h-4 rounded text-animato-primary focus:ring-animato-primary" />
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                        <i class="fas fa-phone text-gray-400 text-xs"></i>
+                        Mijn telefoonnummer
+                      </div>
+                      <div class="text-xs text-gray-500">Klik-om-te-bellen link</div>
+                    </div>
+                  </label>
+
+                  {/* Bio */}
+                  <label class="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-200 hover:border-animato-primary cursor-pointer">
+                    <input type="checkbox" name="toon_bio" value="1"
+                      checked={profile.toon_bio !== 0}
+                      class="mt-0.5 w-4 h-4 rounded text-animato-primary focus:ring-animato-primary" />
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                        <i class="fas fa-quote-left text-gray-400 text-xs"></i>
+                        Mijn bio / verhaal
+                      </div>
+                      <div class="text-xs text-gray-500">Persoonlijk stukje tekst</div>
+                    </div>
+                  </label>
+
+                  {/* Muzikale favorieten */}
+                  <label class="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-200 hover:border-animato-primary cursor-pointer">
+                    <input type="checkbox" name="toon_favorieten" value="1"
+                      checked={profile.toon_favorieten !== 0}
+                      class="mt-0.5 w-4 h-4 rounded text-animato-primary focus:ring-animato-primary" />
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                        <i class="fas fa-heart text-gray-400 text-xs"></i>
+                        Muzikale favorieten
+                      </div>
+                      <div class="text-xs text-gray-500">Werk, componist, genre</div>
+                    </div>
+                  </label>
+
+                  {/* Geboortedatum — privacygevoelig, waarschuw */}
+                  <label class="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-200 hover:border-amber-400 cursor-pointer">
+                    <input type="checkbox" name="toon_geboortedatum" value="1"
+                      checked={profile.toon_geboortedatum === 1}
+                      class="mt-0.5 w-4 h-4 rounded text-animato-primary focus:ring-animato-primary" />
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                        <i class="fas fa-birthday-cake text-amber-500 text-xs"></i>
+                        Geboortedatum
+                        <span class="text-xs text-amber-600 font-normal">(privacy)</span>
+                      </div>
+                      <div class="text-xs text-gray-500">Standaard uit</div>
+                    </div>
+                  </label>
+
+                  {/* Adres — privacygevoelig, waarschuw */}
+                  <label class="flex items-start gap-3 p-3 rounded-lg bg-white border border-gray-200 hover:border-amber-400 cursor-pointer">
+                    <input type="checkbox" name="toon_adres" value="1"
+                      checked={profile.toon_adres === 1}
+                      class="mt-0.5 w-4 h-4 rounded text-animato-primary focus:ring-animato-primary" />
+                    <div class="flex-1 min-w-0">
+                      <div class="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                        <i class="fas fa-home text-amber-500 text-xs"></i>
+                        Adres
+                        <span class="text-xs text-amber-600 font-normal">(privacy)</span>
+                      </div>
+                      <div class="text-xs text-gray-500">Standaard uit</div>
+                    </div>
+                  </label>
+                </div>
+
+                <p class="text-xs text-gray-500 mt-4 flex items-start gap-2">
+                  <i class="fas fa-info-circle text-gray-400 mt-0.5"></i>
+                  <span>Naam en jaren-in-koor blijven altijd zichtbaar — dat is het basisminimum voor koorwerking.</span>
+                </p>
               </div>
 
               <div class="flex justify-end gap-3 pt-4 border-t border-gray-200">
@@ -4871,7 +5041,8 @@ app.get('/leden/smoelenboek', async (c) => {
   // Online-status: last_seen_at binnen 5 minuten EN show_online_status = 1.
   // Eigen profiel ziet altijd z'n eigen status (anders verwarrend).
   let query = `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio, p.favoriete_werk,
-            p.toon_email, p.toon_telefoon, u.email, p.telefoon,
+            p.toon_email, p.toon_telefoon, p.toon_foto, p.toon_bio, p.toon_stemgroep, p.toon_favorieten,
+            u.email, p.telefoon,
             u.is_bestuurslid, p.bestuurs_functie,
             CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite,
             COUNT(qc.id) as total_checkins,
@@ -5135,7 +5306,8 @@ app.get('/leden/smoelenboek', async (c) => {
                                 {/* Foto + streak-badge (altijd zichtbaar als streak > 0, ongeacht bio) */}
                                 <div class="relative w-24 h-24 mx-auto mb-4">
                                   <div class="w-24 h-24 bg-gray-200 rounded-full overflow-hidden border-4 border-white shadow-sm">
-                                    <img src={m.foto_url || getDefaultAvatar(m.stemgroep)} class="w-full h-full object-cover" alt={m.voornaam} />
+                                    {/* Respecteer toon_foto privacy-toggle: uit → silhouet */}
+                                    <img src={(m.toon_foto !== 0 && m.foto_url) ? m.foto_url : getDefaultAvatar(m.stemgroep)} class="w-full h-full object-cover" alt={m.voornaam} />
                                   </div>
                                   {/* Online-indicator: groen bolletje bij actieve sessie binnen 5 min */}
                                   {m.is_online === 1 && (
@@ -5161,7 +5333,7 @@ app.get('/leden/smoelenboek', async (c) => {
                                     {m.bestuurs_functie || 'Bestuur'}
                                   </div>
                                 )}
-                                {m.bio && <p class="text-sm text-gray-500 mt-2 line-clamp-2">{m.bio}</p>}
+                                {m.bio && m.toon_bio !== 0 && <p class="text-sm text-gray-500 mt-2 line-clamp-2">{m.bio}</p>}
                               </div>
                           </a>
                           
@@ -5192,8 +5364,9 @@ app.get('/leden/smoelenboek', async (c) => {
                                   <td class="px-6 py-4 whitespace-nowrap">
                                       <div class="flex items-center">
                                           <div class="flex-shrink-0 h-10 w-10 relative">
-                                              {m.foto_url ? (
-                                                  <img class="h-10 w-10 rounded-full object-cover" src={m.foto_url || getDefaultAvatar(m.stemgroep)} alt="" />
+                                              {/* Respecteer toon_foto privacy-toggle */}
+                                              {(m.toon_foto !== 0 && m.foto_url) ? (
+                                                  <img class="h-10 w-10 rounded-full object-cover" src={m.foto_url} alt="" />
                                               ) : (
                                                   <img class="h-10 w-10 rounded-full object-cover" src={getDefaultAvatar(m.stemgroep)} alt="" />
                                               )}
@@ -5298,7 +5471,9 @@ app.get('/leden/smoelenboek/:id', async (c) => {
     c.env.DB,
     `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.bio, 
             p.favoriete_werk, p.favoriete_genre, p.favoriete_componist, p.instrument, p.jaren_in_koor, p.zanger_type,
-            p.toon_email, p.toon_telefoon, u.email, p.telefoon, p.adres, u.created_at, p.geboortedatum, p.lid_sinds,
+            p.toon_email, p.toon_telefoon, p.toon_foto, p.toon_bio, p.toon_stemgroep,
+            p.toon_geboortedatum, p.toon_adres, p.toon_favorieten,
+            u.email, p.telefoon, p.adres, u.created_at, p.geboortedatum, p.lid_sinds,
             u.is_bestuurslid, p.bestuurs_functie,
             CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorite
      FROM users u
@@ -5309,6 +5484,15 @@ app.get('/leden/smoelenboek/:id', async (c) => {
   )
 
   if (!member) return c.redirect('/leden/smoelenboek')
+
+  // ─── Privacy-filter helper ───
+  // Eigen profiel + admin zien ALTIJD alles (nuttig om te zien wat je zelf deelt).
+  // Anders: veld enkel tonen als de bijbehorende toggle = 1 (of veld=NULL).
+  // Sensitive velden zoals geboortedatum/adres krijgen ook een strikte guard.
+  const canShow = (flag: any) => {
+    if (isOwnProfile || isAdmin) return true
+    return flag === 1 || flag === '1'
+  }
 
   // Calculate streak for this member
   const memberCheckins = await queryAll<any>(c.env.DB,
@@ -5403,9 +5587,10 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                     
                     <div class="px-8 pb-8">
                         <div class="flex flex-col md:flex-row items-start md:items-end -mt-12 mb-6">
-                            {/* Clickable photo for zoom */}
+                            {/* Clickable photo for zoom — respecteer toon_foto toggle:
+                                niet zichtbaar → default silhouet i.p.v. echte foto */}
                             <div class="w-32 h-32 rounded-full border-4 border-white shadow-lg overflow-hidden bg-white flex items-center justify-center cursor-pointer" onclick="openPhotoModal()" title="Klik om te vergroten">
-                                <img src={member.foto_url || getDefaultAvatar(member.stemgroep)} class="w-full h-full object-cover" alt={member.voornaam} id="profile-photo-thumb" />
+                                <img src={(canShow(member.toon_foto) && member.foto_url) ? member.foto_url : getDefaultAvatar(member.stemgroep)} class="w-full h-full object-cover" alt={member.voornaam} id="profile-photo-thumb" />
                             </div>
                             <div class="mt-4 md:mt-0 md:ml-6 flex-1">
                                 <div class="flex items-center gap-3 flex-wrap">
@@ -5417,7 +5602,8 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                                     </span>
                                   )}
                                 </div>
-                                <p class="text-gray-600 flex items-center mt-1">
+                                {canShow(member.toon_stemgroep) && (
+                                  <p class="text-gray-600 flex items-center mt-1">
                                     <span class={`inline-block w-3 h-3 rounded-full mr-2 ${
                                         member.stemgroep === 'S' ? 'bg-pink-500' : 
                                         member.stemgroep === 'A' ? 'bg-purple-500' :
@@ -5427,7 +5613,8 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                                     {member.stemgroep === 'S' ? 'Sopraan' : member.stemgroep === 'A' ? 'Alt' : member.stemgroep === 'T' ? 'Tenor' : 'Bas'}
                                     {member.zanger_type && <span class="mx-2 text-gray-300">•</span>}
                                     {member.zanger_type && <span class="capitalize">{member.zanger_type}</span>}
-                                </p>
+                                  </p>
+                                )}
                             </div>
                             <div class="mt-4 md:mt-0 flex gap-2">
                                 {isOwnProfile ? (
@@ -5445,7 +5632,7 @@ app.get('/leden/smoelenboek/:id', async (c) => {
 
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
                             <div class="md:col-span-2 space-y-6">
-                                {member.bio && (
+                                {member.bio && canShow(member.toon_bio) && (
                                     <div>
                                         <h3 class="text-lg font-semibold text-gray-900 mb-2">Over mij</h3>
                                         <p class="text-gray-600 leading-relaxed">{member.bio}</p>
@@ -5455,19 +5642,19 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                                 <div class="bg-gray-50 rounded-lg p-6">
                                     <h3 class="text-lg font-semibold text-gray-900 mb-4">Muzikaal Profiel</h3>
                                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                        {member.favoriete_werk && (
+                                        {member.favoriete_werk && canShow(member.toon_favorieten) && (
                                             <div>
                                                 <span class="block text-xs text-gray-500 uppercase tracking-wide">Favoriete werk</span>
                                                 <span class="font-medium text-gray-800">{member.favoriete_werk}</span>
                                             </div>
                                         )}
-                                        {member.favoriete_componist && (
+                                        {member.favoriete_componist && canShow(member.toon_favorieten) && (
                                             <div>
                                                 <span class="block text-xs text-gray-500 uppercase tracking-wide">Componist</span>
                                                 <span class="font-medium text-gray-800">{member.favoriete_componist}</span>
                                             </div>
                                         )}
-                                        {member.favoriete_genre && (
+                                        {member.favoriete_genre && canShow(member.toon_favorieten) && (
                                             <div>
                                                 <span class="block text-xs text-gray-500 uppercase tracking-wide">Genre</span>
                                                 <span class="font-medium text-gray-800">{member.favoriete_genre}</span>
@@ -5487,7 +5674,7 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                                             <span class="block text-xs text-gray-500 uppercase tracking-wide">Lid sinds</span>
                                             <span class="font-medium text-gray-800">{lidSindsDate.toLocaleDateString('nl-BE', {month: 'long', year: 'numeric'})}</span>
                                         </div>
-                                        {(isOwnProfile || isAdmin) && member.geboortedatum && (
+                                        {canShow(member.toon_geboortedatum) && member.geboortedatum && (
                                             <div>
                                                 <span class="block text-xs text-gray-500 uppercase tracking-wide">Geboortedatum</span>
                                                 <span class="font-medium text-gray-800">
@@ -5554,7 +5741,7 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                                     <ul class="space-y-3">
                                         <li class="flex items-center text-gray-600">
                                             <div class="w-8 flex justify-center"><i class="fas fa-envelope text-gray-400"></i></div>
-                                            {member.toon_email && member.email ? (
+                                            {canShow(member.toon_email) && member.email ? (
                                                 <a href={`mailto:${member.email}`} class="hover:text-animato-primary hover:underline truncate">{member.email}</a>
                                             ) : (
                                                 <span class="italic text-gray-400">Niet zichtbaar</span>
@@ -5562,12 +5749,18 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                                         </li>
                                         <li class="flex items-center text-gray-600">
                                             <div class="w-8 flex justify-center"><i class="fas fa-phone text-gray-400"></i></div>
-                                            {member.toon_telefoon && member.telefoon ? (
+                                            {canShow(member.toon_telefoon) && member.telefoon ? (
                                                 <a href={`tel:${member.telefoon}`} class="hover:text-animato-primary hover:underline">{member.telefoon}</a>
                                             ) : (
                                                 <span class="italic text-gray-400">Niet zichtbaar</span>
                                             )}
                                         </li>
+                                        {canShow(member.toon_adres) && member.adres && (
+                                          <li class="flex items-start text-gray-600">
+                                            <div class="w-8 flex justify-center mt-0.5"><i class="fas fa-home text-gray-400"></i></div>
+                                            <span>{member.adres}</span>
+                                          </li>
+                                        )}
                                     </ul>
                                 </div>
 
@@ -5627,7 +5820,7 @@ app.get('/leden/smoelenboek/:id', async (c) => {
                 <button class="absolute top-2 right-2 text-white text-2xl z-10 hover:text-gray-300" onclick="closePhotoModal()">
                     <i class="fas fa-times"></i>
                 </button>
-                <img src={member.foto_url || getDefaultAvatar(member.stemgroep)} class="max-w-full max-h-screen object-contain rounded-lg shadow-2xl" alt={`${member.voornaam} ${member.achternaam}`} />
+                <img src={(canShow(member.toon_foto) && member.foto_url) ? member.foto_url : getDefaultAvatar(member.stemgroep)} class="max-w-full max-h-screen object-contain rounded-lg shadow-2xl" alt={`${member.voornaam} ${member.achternaam}`} />
                 <p class="text-white text-center mt-3 font-semibold text-lg">{member.voornaam} {member.achternaam}</p>
                 {!member.foto_url && (
                     <p class="text-gray-400 text-center text-sm mt-1 italic">
@@ -6129,6 +6322,20 @@ app.post('/api/leden/profiel', async (c) => {
             favoriete_genre, favoriete_componist, favoriete_werk, instrument, zanger_type, geboortedatum } = body
     const rawLidSinds = body.lid_sinds as string | undefined
 
+    // Privacy-toggles: checkboxes sturen enkel value bij "aan".
+    // → aanwezig én "1" = 1 (delen), anders 0 (verbergen).
+    // Master-toggle smoelenboek_zichtbaar krijgt zelfde behandeling.
+    const asBoolInt = (v: any) => (v === '1' || v === 'on' || v === 'true') ? 1 : 0
+    const smoelenboek_zichtbaar = asBoolInt(body.smoelenboek_zichtbaar)
+    const toon_foto             = asBoolInt(body.toon_foto)
+    const toon_bio              = asBoolInt(body.toon_bio)
+    const toon_stemgroep        = asBoolInt(body.toon_stemgroep)
+    const toon_email            = asBoolInt(body.toon_email)
+    const toon_telefoon         = asBoolInt(body.toon_telefoon)
+    const toon_favorieten       = asBoolInt(body.toon_favorieten)
+    const toon_geboortedatum    = asBoolInt(body.toon_geboortedatum)
+    const toon_adres            = asBoolInt(body.toon_adres)
+
     // Validation
     if (!voornaam || !achternaam) {
       return c.redirect('/leden/profiel?error=required_fields')
@@ -6172,12 +6379,15 @@ app.post('/api/leden/profiel', async (c) => {
       : (parseBrusselsDate(profileRow?.created_at) ?? new Date())
     const jaren_in_koor = Math.max(0, new Date().getFullYear() - lidSindsRef.getFullYear())
 
-    // Update profile
+    // Update profile — INCLUSIEF alle privacy-toggles
     const result = await c.env.DB.prepare(
       `UPDATE profiles 
        SET voornaam = ?, achternaam = ?, telefoon = ?, straat = ?, huisnummer = ?, bus = ?, postcode = ?, stad = ?, bio = ?, muzikale_ervaring = ?, foto_url = ?,
            favoriete_genre = ?, favoriete_componist = ?, favoriete_werk = ?, instrument = ?, jaren_in_koor = ?, zanger_type = ?, geboortedatum = ?,
-           lid_sinds = ?
+           lid_sinds = ?,
+           smoelenboek_zichtbaar = ?, toon_foto = ?, toon_bio = ?, toon_stemgroep = ?,
+           toon_email = ?, toon_telefoon = ?, toon_favorieten = ?,
+           toon_geboortedatum = ?, toon_adres = ?
        WHERE user_id = ?`
     ).bind(
       voornaam,
@@ -6199,6 +6409,15 @@ app.post('/api/leden/profiel', async (c) => {
       zanger_type || null,
       geboortedatum || null,
       nextLidSinds,
+      smoelenboek_zichtbaar,
+      toon_foto,
+      toon_bio,
+      toon_stemgroep,
+      toon_email,
+      toon_telefoon,
+      toon_favorieten,
+      toon_geboortedatum,
+      toon_adres,
       user.id
     ).run()
 

@@ -260,17 +260,44 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                           </div>
                         </div>
 
-                        {/* Frame: aspect-ratio uit DB, mag tot 85vh voor wow-effect.
-                            Subtiel theater-gradient + dikkere border zodat het oog er meteen heen gaat.
+                        {/* ─── MOBILE CTA ───
+                            Op mobile (< md, dus < 768px) is het inline-zaalplan onbruikbaar klein.
+                            We vervangen 'm door een grote knop die de fullscreen-modal opent — daar
+                            is er voldoende ruimte + pinch/pan/zoom.
+                            md:hidden = enkel < 768px zichtbaar. */}
+                        <div class="md:hidden">
+                            <button
+                                type="button"
+                                id="seatMobileOpenBtn"
+                                class="w-full flex items-center gap-4 p-5 rounded-2xl bg-gradient-to-br from-animato-primary to-animato-primary/80 text-white shadow-lg hover:shadow-xl active:scale-[0.99] transition"
+                            >
+                                <div class="flex-shrink-0 w-14 h-14 rounded-full bg-white/20 flex items-center justify-center">
+                                    <i class="fas fa-chair text-2xl"></i>
+                                </div>
+                                <div class="flex-1 text-left">
+                                    <div class="text-lg font-bold flex items-center gap-2">
+                                        Kies je plaatsen
+                                        <span
+                                            id="seatMobileBadge"
+                                            class="hidden inline-flex items-center justify-center min-w-[1.5rem] h-6 px-2 rounded-full bg-animato-accent text-white text-xs font-bold"
+                                        >0</span>
+                                    </div>
+                                    <div class="text-sm opacity-90 mt-0.5">
+                                        Tik om het zaalplan te openen — pinch om te zoomen, sleep om te verschuiven
+                                    </div>
+                                </div>
+                                <i class="fas fa-arrow-right text-xl opacity-80"></i>
+                            </button>
+                        </div>
+
+                        {/* ─── DESKTOP INLINE ZAALPLAN ───
+                            Frame: aspect-ratio uit DB, mag tot 85vh voor wow-effect.
+                            hidden md:flex → verborgen op mobile, zichtbaar vanaf md (768px+).
                             Bij fullscreen-mode verhuist #seatMapScale tijdelijk naar de modal — daarom
                             staat het hier als kind van #seatMapFrame, en plaatsen we het terug bij sluiten. */}
-                        {/* Frame: volledige hoogte automatisch zodat het hele plan past, GEEN scrollbars.
-                            JS berekent fitSeatPlan() op basis van breedte → zaalplan past altijd binnen het
-                            beschikbare scherm zonder overflow. flex-center zorgt dat scale-element gecentreerd
-                            blijft staan, ongeacht zoom-niveau. */}
                         <div
                             id="seatMapFrame"
-                            class="relative overflow-hidden border-2 border-gray-200 rounded-xl bg-gradient-to-b from-gray-50 to-gray-100 p-4 shadow-inner flex items-center justify-center"
+                            class="hidden md:flex relative overflow-hidden border-2 border-gray-200 rounded-xl bg-gradient-to-b from-gray-50 to-gray-100 p-4 shadow-inner items-center justify-center"
                             style="min-height: 400px;"
                         >
                             <div id="seatMapScale" style="transform-origin: center center; transition: transform .15s ease;">
@@ -281,8 +308,9 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                             </div>
                         </div>
 
-                        {/* Zoom-controls voor publieke viewer (alleen zichtbaar als zaalplan groter dan beeld is) */}
-                        <div id="seatZoomControls" class="hidden mt-3 flex items-center justify-center gap-2 text-xs">
+                        {/* Zoom-controls voor publieke viewer (alleen zichtbaar als zaalplan groter dan beeld is)
+                            + hidden op mobile (md:*) omdat het inline plan daar verborgen is */}
+                        <div id="seatZoomControls" class="hidden mt-3 md:flex items-center justify-center gap-2 text-xs">
                             <button type="button" id="seatZoomFit"  class="px-3 py-1.5 rounded border border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100 font-medium"><i class="fas fa-expand-arrows-alt mr-1"></i>Passend</button>
                             <button type="button" id="seatZoomOut"  class="w-8 h-8 rounded border border-gray-300 bg-white hover:bg-gray-50"><i class="fas fa-minus"></i></button>
                             <span id="seatZoomLabel" class="font-mono w-14 text-center">100%</span>
@@ -292,6 +320,23 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                         
                         {/* Hidden inputs for selected seats */}
                         <div id="selectedSeatsInputs"></div>
+
+                        {/* ─── Chip-lijst met geselecteerde stoelen ───
+                            Werkt op alle formats, maar essentieel voor mobile: users zien
+                            direct wat ze geselecteerd hebben zonder te moeten scrollen naar
+                            de modal. Klik op een chip = stoel weer vrijgeven. */}
+                        <div class="mt-4 p-4 rounded-xl border border-gray-200 bg-gray-50">
+                            <div class="flex items-center justify-between mb-2">
+                                <div class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                                    <i class="fas fa-list-ul text-animato-primary"></i>
+                                    Jouw selectie
+                                </div>
+                                <span class="text-xs text-gray-500">Tik op een chip om vrij te geven</span>
+                            </div>
+                            <div id="selectedSeatsChips" class="flex flex-wrap gap-2">
+                                {/* JS vult dit; toont initieel een hint-melding */}
+                            </div>
+                        </div>
 
                         {/* ── Fullscreen modal ──
                             Verborgen by default. JS verplaatst #seatMapScale erin bij open,
@@ -337,17 +382,17 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                                 {/* #seatMapScale komt hier in zodra de modal open is */}
                             </div>
 
-                            {/* Onderbalk: legenda + zoom-controls + tickets-teller */}
-                            <div class="bg-gray-900 text-white border-t border-gray-800 px-4 sm:px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
-                                {/* Legenda (mobiel verborgen, op sm+ zichtbaar) */}
-                                <div class="hidden sm:flex flex-wrap gap-x-4 gap-y-1 text-xs items-center">
+                            {/* ─── DESKTOP-onderbalk ─── (md+) legenda + zoom + tickets-teller */}
+                            <div class="hidden md:flex bg-gray-900 text-white border-t border-gray-800 px-4 sm:px-6 py-3 items-center justify-between gap-3 flex-wrap">
+                                {/* Legenda */}
+                                <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs items-center">
                                     <div class="flex items-center"><div class="w-3.5 h-3.5 bg-blue-500 rounded-t mr-1.5"></div> Beschikbaar</div>
                                     <div class="flex items-center"><div class="w-3.5 h-3.5 bg-gray-400 rounded-t mr-1.5"></div> Bezet</div>
                                     <div class="flex items-center"><div class="w-3.5 h-3.5 bg-animato-accent rounded-t mr-1.5"></div> Geselecteerd</div>
                                     <div class="flex items-center"><div class="w-3.5 h-3.5 bg-green-500 rounded-t mr-1.5"></div> Rolstoel</div>
                                 </div>
 
-                                {/* Zoom-controls — bewust groter dan die op de pagina */}
+                                {/* Zoom-controls */}
                                 <div id="seatFullscreenZoomControls" class="flex items-center gap-2 text-sm">
                                     <button type="button" id="seatFsZoomFit" class="px-3 py-1.5 rounded border border-blue-400 bg-blue-500 text-white hover:bg-blue-600 font-medium"><i class="fas fa-expand-arrows-alt mr-1"></i>Passend</button>
                                     <button type="button" id="seatFsZoomOut" class="w-9 h-9 rounded border border-gray-600 bg-gray-800 hover:bg-gray-700"><i class="fas fa-minus"></i></button>
@@ -356,7 +401,7 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                                     <button type="button" id="seatFsZoom100" class="px-3 py-1.5 rounded border border-gray-600 bg-gray-800 hover:bg-gray-700">1:1</button>
                                 </div>
 
-                                {/* Tickets-teller spiegelt #total-tickets / #total-price van de hoofdpagina */}
+                                {/* Tickets-teller */}
                                 <div class="text-sm flex items-center gap-3">
                                     <span class="text-gray-300">
                                         <i class="fas fa-ticket-alt mr-1"></i>
@@ -366,6 +411,50 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                                         <span id="seatFsTicketTotal">€0.00</span>
                                     </span>
                                 </div>
+                            </div>
+
+                            {/* ─── MOBILE-onderbalk ─── (< md) sticky bottom bar
+                                Alleen op mobile — grote tap-targets (min 48px), grote leesbare cijfers,
+                                één duidelijke primaire CTA "Doorgaan" die de modal sluit en naar de
+                                bestelform scrollt. */}
+                            <div class="md:hidden bg-gray-900 text-white border-t border-gray-800 px-3 py-3 flex items-center gap-3 shadow-2xl">
+                                {/* Compacte zoom-controls (kleiner om ruimte voor CTA te maken) */}
+                                <div class="flex items-center gap-1.5">
+                                    <button
+                                        type="button"
+                                        id="seatFsZoomOutMobile"
+                                        class="w-11 h-11 rounded-lg border border-gray-600 bg-gray-800 hover:bg-gray-700 flex items-center justify-center"
+                                        onclick="document.getElementById('seatFsZoomOut')?.click()"
+                                        aria-label="Uitzoomen"
+                                    ><i class="fas fa-minus"></i></button>
+                                    <button
+                                        type="button"
+                                        id="seatFsZoomFitMobile"
+                                        class="w-11 h-11 rounded-lg border border-blue-400 bg-blue-500 hover:bg-blue-600 flex items-center justify-center"
+                                        onclick="document.getElementById('seatFsZoomFit')?.click()"
+                                        aria-label="Passend maken"
+                                        title="Passend"
+                                    ><i class="fas fa-expand-arrows-alt"></i></button>
+                                    <button
+                                        type="button"
+                                        id="seatFsZoomInMobile"
+                                        class="w-11 h-11 rounded-lg border border-gray-600 bg-gray-800 hover:bg-gray-700 flex items-center justify-center"
+                                        onclick="document.getElementById('seatFsZoomIn')?.click()"
+                                        aria-label="Inzoomen"
+                                    ><i class="fas fa-plus"></i></button>
+                                </div>
+
+                                {/* CTA "Doorgaan" — vult resterende breedte */}
+                                <button
+                                    type="button"
+                                    id="seatMobileContinueBtn"
+                                    class="flex-1 h-11 rounded-lg bg-animato-accent hover:bg-amber-600 text-white font-bold flex items-center justify-center gap-2 shadow-lg active:scale-[0.98] transition"
+                                    onclick="document.getElementById('seatFullscreenCloseBtn')?.click(); setTimeout(function(){ document.getElementById('submit-btn')?.scrollIntoView({behavior:'smooth', block:'center'}); }, 200);"
+                                >
+                                    <span id="seatMobileTotal" class="font-bold"></span>
+                                    <span>Doorgaan</span>
+                                    <i class="fas fa-arrow-right"></i>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -493,394 +582,20 @@ app.get('/concerten/:eventId/tickets', async (c) => {
             </div>
           </div>
 
+          {/* Runtime-config voor seat-map.js (extern, cachebaar).
+              De JS-logica staat in /static/js/seat-map.js — we injecteren enkel
+              de concert-specifieke data hier zodat de logic-file cachebaar blijft. */}
           <script dangerouslySetInnerHTML={{ __html: `
-            const prijzen = ${JSON.stringify(prijzen)};
-            const hasSeatingPlan = ${!!concert.seating_plan_id};
-            const seats = ${JSON.stringify(seats)};
-            let selectedSeats = [];
+            window.ANIMATO_SEATMAP = {
+              prijzen: ${JSON.stringify(prijzen)},
+              seats: ${JSON.stringify(seats)},
+              planW: ${concert.sp_width || 800},
+              planH: ${concert.sp_height || 600},
+              seatingPlanId: ${concert.seating_plan_id || 'null'}
+            };
+          `}} />
+          <script src="/static/js/seat-map.js" defer></script>
 
-            // --- SEATING PLAN LOGIC ---
-            if (hasSeatingPlan) {
-                const map = document.getElementById('seatMap');
-
-                // ── Rij-labels berekenen ──
-                // We renderen voor ELKE unieke y-positie een label, zowel LINKS als RECHTS van
-                // de rij. Zo zien gebruikers altijd duidelijk welke rij het is, ook als de eerste
-                // stoel heel dicht bij de linker- of rechterrand staat.
-                //
-                // Robust: we gebruiken seat.row_label als die bestaat, anders Excel-style fallback
-                // op basis van y-volgorde (A, B, ..., Z, AA, AB...). Zo krijgt elke rij sowieso
-                // een label, ook als de DB-migratie iets gemist heeft.
-                //
-                // De labels staan BUITEN het zaalplan-canvas (negatieve x links, > maxX rechts),
-                // met overflow: visible op de canvas zodat ze toch zichtbaar zijn. Dat voorkomt
-                // dat ze bovenop stoelen vallen wanneer een rij heel dicht bij x=0 begint.
-                function toExcelLetter(idx) {
-                    let s = '';
-                    let n = idx;
-                    while (n >= 0) {
-                        s = String.fromCharCode(65 + (n % 26)) + s;
-                        n = Math.floor(n / 26) - 1;
-                    }
-                    return s;
-                }
-                // Zorg dat labels buiten #seatMap toch tekenbaar zijn
-                map.style.overflow = 'visible';
-
-                // 1) verzamel per UNIEKE y-positie: minX, maxX en de DB-label
-                const yMap = {}; // y -> { minX, maxX, lbl }
-                seats.forEach(seat => {
-                    const k = seat.y;
-                    if (!yMap[k]) yMap[k] = { minX: seat.x, maxX: seat.x, lbl: seat.row_label || '' };
-                    if (seat.x < yMap[k].minX) yMap[k].minX = seat.x;
-                    if (seat.x > yMap[k].maxX) yMap[k].maxX = seat.x;
-                    if (!yMap[k].lbl && seat.row_label) yMap[k].lbl = seat.row_label;
-                });
-                // 2) sorteer y-waarden van boven naar onder
-                const sortedYs = Object.keys(yMap).map(Number).sort((a, b) => a - b);
-                // 3) render labels aan BEIDE kanten van de rij
-                sortedYs.forEach((y, idx) => {
-                    const g = yMap[y];
-                    const lbl = g.lbl || toExcelLetter(idx);
-                    const sharedStyle = 'top:' + (y + 4) + 'px;'
-                        + 'background:rgba(255,255,255,.95);padding:2px 6px;border-radius:4px;'
-                        + 'border:1px solid #cbd5e1;letter-spacing:.05em;z-index:5;'
-                        + 'min-width:24px;text-align:center;line-height:1.1;font-size:11px;';
-                    // Links: 8px buiten de meest-linkse stoel
-                    const leftTag = document.createElement('div');
-                    leftTag.className = 'absolute font-bold text-gray-700 pointer-events-none';
-                    leftTag.style.cssText = 'left:' + (g.minX - 38) + 'px;' + sharedStyle;
-                    leftTag.innerText = lbl;
-                    map.appendChild(leftTag);
-                    // Rechts: 8px voorbij de meest-rechtse stoel (stoel = 32px breed)
-                    const rightTag = document.createElement('div');
-                    rightTag.className = 'absolute font-bold text-gray-700 pointer-events-none';
-                    rightTag.style.cssText = 'left:' + (g.maxX + 32 + 6) + 'px;' + sharedStyle;
-                    rightTag.innerText = lbl;
-                    map.appendChild(rightTag);
-                });
-
-                // ── Gang tussen rij B en C — enkel voor cc Binder (plan_id = 1) ──
-                // Visueel: gestippelde lijn met label "GANG" op halverwege tussen B en C.
-                const SEATING_PLAN_ID = ${concert.seating_plan_id || 'null'};
-                if (SEATING_PLAN_ID === 1) {
-                    const yB = Object.entries(yMap).find(([_, g]) => g.lbl === 'B');
-                    const yC = Object.entries(yMap).find(([_, g]) => g.lbl === 'C');
-                    if (yB && yC) {
-                        const yBn = Number(yB[0]);
-                        const yCn = Number(yC[0]);
-                        const yMid = yBn + (yCn - yBn) / 2 + 16; // +16 = halve stoelhoogte
-                        // Bepaal links/rechts grens op basis van breedste rij
-                        let minX = Infinity, maxX = -Infinity;
-                        Object.values(yMap).forEach(g => {
-                            if (g.minX < minX) minX = g.minX;
-                            if (g.maxX > maxX) maxX = g.maxX;
-                        });
-                        const aisleW = (maxX + 32) - minX;
-                        const aisle = document.createElement('div');
-                        aisle.className = 'absolute pointer-events-none';
-                        aisle.style.cssText = 'left:' + minX + 'px;top:' + (yMid - 10) + 'px;'
-                            + 'width:' + aisleW + 'px;height:20px;z-index:3;'
-                            + 'border-top:2px dashed #94a3b8;border-bottom:2px dashed #94a3b8;'
-                            + 'background:repeating-linear-gradient(45deg,#f1f5f9,#f1f5f9 6px,#e2e8f0 6px,#e2e8f0 12px);'
-                            + 'display:flex;align-items:center;justify-content:center;';
-                        const lblG = document.createElement('span');
-                        lblG.innerHTML = '<i class="fas fa-walking" style="margin-right:6px"></i>GANG';
-                        lblG.style.cssText = 'background:#fff;padding:1px 10px;border:1px solid #94a3b8;'
-                            + 'border-radius:10px;font-size:10px;font-weight:bold;color:#475569;'
-                            + 'letter-spacing:.1em;';
-                        aisle.appendChild(lblG);
-                        map.appendChild(aisle);
-                    }
-                }
-
-                seats.forEach(seat => {
-                    const el = document.createElement('div');
-                    el.className = 'absolute w-8 h-8 rounded-t-lg flex items-center justify-center text-[10px] text-white font-bold shadow-sm transition-transform';
-                    el.style.left = seat.x + 'px';
-                    el.style.top = seat.y + 'px';
-                    el.innerText = seat.seat_number;
-                    el.title = \`\${seat.row_label || ''} - Stoel \${seat.seat_number}\`;
-
-                    if (seat.effective_status === 'available' || seat.effective_status === 'reserved') { // 'reserved' by admin implies available for sale maybe? Assuming 'blocked' or 'sold' is unavailable. Let's assume 'reserved' is blocked for now unless logic changes.
-                         // Actually standard logic: available = buyable. blocked/sold/reserved = unavailable.
-                    }
-
-                    if (seat.effective_status !== 'available') {
-                        el.style.backgroundColor = '#D1D5DB'; // Gray
-                        el.style.cursor = 'not-allowed';
-                        el.title += ' (Niet beschikbaar)';
-                    } else {
-                        el.style.cursor = 'pointer';
-                        el.classList.add('hover:scale-110');
-                        
-                        if (seat.type === 'wheelchair') {
-                            el.style.backgroundColor = '#10B981'; // Green
-                            el.innerHTML = '<i class="fas fa-wheelchair"></i>';
-                        } else {
-                            el.style.backgroundColor = '#3B82F6'; // Blue
-                        }
-
-                        el.onclick = () => toggleSeat(seat, el);
-                    }
-                    map.appendChild(el);
-                });
-
-                // ── Auto-fit & zoom-controls voor het zaalplan ──
-                // "Passend" = vul het kader volledig (mag voorbij 100% gaan).
-                // Cap op 3x zodat heel kleine zaalplannen niet pixelig opblazen.
-                const inlineFrame = document.getElementById('seatMapFrame');
-                const scale = document.getElementById('seatMapScale');
-                const zoomLabel = document.getElementById('seatZoomLabel');
-                const zoomControls = document.getElementById('seatZoomControls');
-                const fsLabel = document.getElementById('seatFsZoomLabel');
-                let seatZoom = 1.0;
-                const planW = ${concert.sp_width || 800};
-                const planH = ${concert.sp_height || 600};
-
-                // ── Bereken de werkelijke bounding box van de stoelen ──
-                // Sommige zaalplannen hebben veel lege ruimte rechts/onder (bv. plan 1 heeft
-                // width=2000 maar stoelen lopen slechts tot x=1020). We meten waar de stoelen
-                // écht staan, zodat 'Passend' op die bbox optimaliseert en het plan
-                // visueel gecentreerd voelt — geen lelijke witte stroken meer naast het plan.
-                const SEAT_SIZE = 32;          // w-8 h-8 = 32px
-                const LABEL_GUTTER = 44;       // ruimte voor rij-labels (links + rechts van de stoelen)
-                const TOP_PADDING = 28;        // ruimte boven voor de PODIUM/SCHERM-balk
-                let bbox = { minX: 0, minY: 0, maxX: planW, maxY: planH };
-                if (seats.length > 0) {
-                    bbox = seats.reduce((acc, s) => ({
-                        minX: Math.min(acc.minX, s.x),
-                        minY: Math.min(acc.minY, s.y),
-                        maxX: Math.max(acc.maxX, s.x + SEAT_SIZE),
-                        maxY: Math.max(acc.maxY, s.y + SEAT_SIZE),
-                    }), { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity });
-                    // Houd ruimte links én rechts voor de rij-labels (we tekenen ze aan beide kanten)
-                    bbox.minX = bbox.minX - LABEL_GUTTER;
-                    bbox.maxX = bbox.maxX + LABEL_GUTTER;
-                    bbox.minY = Math.max(0, bbox.minY - TOP_PADDING);
-                }
-                const contentW = Math.max(50, bbox.maxX - bbox.minX);
-                const contentH = Math.max(50, bbox.maxY - bbox.minY);
-                /** Huidige zichtbare container van #seatMapScale.
-                 *  Wordt naar de modal-stage gewisseld bij fullscreen. */
-                function currentSeatFrame() {
-                    if (!scale) return inlineFrame;
-                    // Loop omhoog tot we het ouder-element vinden dat als 'kader' fungeert
-                    if (scale.parentElement && scale.parentElement.id === 'seatFullscreenStage') {
-                        return scale.parentElement;
-                    }
-                    return inlineFrame;
-                }
-                function applySeatZoom() {
-                    if (!scale) return;
-                    // We combineren scale + translate: eerst translaten zodat het CENTRUM van
-                    // de bbox samenvalt met het centrum van #seatMapScale (= centrum van planW/planH),
-                    // dán schalen. transform-origin = center center zodat de schaling
-                    // het reeds gecentreerde plan niet meer wegduwt.
-                    const cxBbox = (bbox.minX + bbox.maxX) / 2;
-                    const cyBbox = (bbox.minY + bbox.maxY) / 2;
-                    const cxPlan = planW / 2;
-                    const cyPlan = planH / 2;
-                    const tx = cxPlan - cxBbox; // hoeveel naar rechts om bbox-centrum naar plan-centrum te brengen
-                    const ty = cyPlan - cyBbox;
-                    scale.style.transformOrigin = 'center center';
-                    scale.style.transform = 'translate(' + tx + 'px, ' + ty + 'px) scale(' + seatZoom + ')';
-                    const label = Math.round(seatZoom * 100) + '%';
-                    if (zoomLabel) zoomLabel.innerText = label;
-                    if (fsLabel)   fsLabel.innerText   = label;
-                }
-                function fitSeatPlan() {
-                    const frame = currentSeatFrame();
-                    if (!frame || !scale) return;
-                    const isFullscreen = frame.id === 'seatFullscreenStage';
-                    const pad = 32;
-                    const availW = Math.max(50, frame.clientWidth - pad);
-                    let seatZoomNew;
-                    if (isFullscreen) {
-                        // In fullscreen: vul het hele beschikbare scherm (breedte + hoogte)
-                        const availH = Math.max(50, frame.clientHeight - pad);
-                        const sx = availW / contentW;
-                        const sy = availH / contentH;
-                        seatZoomNew = Math.min(sx, sy, 3.0);
-                    } else {
-                        // Inline: schaal op BREEDTE en pas frame-hoogte aan zodat alles past
-                        // zonder scrollbar. Maximum hoogte = 80vh zodat de pagina niet ontspoort
-                        // op heel grote schermen.
-                        const maxFrameH = Math.max(400, Math.round(window.innerHeight * 0.80));
-                        let s = availW / contentW;
-                        // Als de berekende hoogte > maxFrameH zou worden, schalen we kleiner zodat
-                        // het tóch past zonder scrollen.
-                        if (contentH * s + pad > maxFrameH) {
-                            s = (maxFrameH - pad) / contentH;
-                        }
-                        seatZoomNew = Math.min(s, 3.0);
-                        // Zet de frame-hoogte expliciet op wat nodig is — geen overflow meer
-                        const neededH = Math.max(400, Math.ceil(contentH * seatZoomNew) + pad);
-                        frame.style.height = Math.min(neededH, maxFrameH) + 'px';
-                    }
-                    if (seatZoomNew < 0.1) seatZoomNew = 0.1;
-                    seatZoom = seatZoomNew;
-                    applySeatZoom();
-                }
-                if (zoomControls) zoomControls.classList.remove('hidden');
-                // Pagina-knoppen
-                document.getElementById('seatZoomFit')?.addEventListener('click', fitSeatPlan);
-                document.getElementById('seatZoom100')?.addEventListener('click', () => { seatZoom = 1.0; applySeatZoom(); });
-                document.getElementById('seatZoomIn')?.addEventListener('click',  () => { seatZoom = Math.min(3.0, seatZoom + 0.1); applySeatZoom(); });
-                document.getElementById('seatZoomOut')?.addEventListener('click', () => { seatZoom = Math.max(0.1, seatZoom - 0.1); applySeatZoom(); });
-                // Modal-knoppen — zelfde acties, andere ID's
-                document.getElementById('seatFsZoomFit')?.addEventListener('click', fitSeatPlan);
-                document.getElementById('seatFsZoom100')?.addEventListener('click', () => { seatZoom = 1.0; applySeatZoom(); });
-                document.getElementById('seatFsZoomIn')?.addEventListener('click',  () => { seatZoom = Math.min(3.0, seatZoom + 0.1); applySeatZoom(); });
-                document.getElementById('seatFsZoomOut')?.addEventListener('click', () => { seatZoom = Math.max(0.1, seatZoom - 0.1); applySeatZoom(); });
-                window.addEventListener('resize', fitSeatPlan);
-                // Initieel fitten zodat het zaalplan altijd binnen het kader past
-                // Twee passes: één direct (ruwe meting) en één na render-flush
-                setTimeout(fitSeatPlan, 50);
-                setTimeout(fitSeatPlan, 250);
-
-                // ── Fullscreen modal: verhuis #seatMapScale heen-en-weer ──
-                // Alle event-listeners op de stoel-divs blijven intact omdat we
-                // het bestaande DOM-element verplaatsen i.p.v. te klonen.
-                const fsModal   = document.getElementById('seatFullscreenModal');
-                const fsStage   = document.getElementById('seatFullscreenStage');
-                const fsOpenBtn = document.getElementById('seatFullscreenOpenBtn');
-                const fsCloseBtn= document.getElementById('seatFullscreenCloseBtn');
-                function openSeatFullscreen() {
-                    if (!fsModal || !fsStage || !scale || !inlineFrame) return;
-                    fsStage.appendChild(scale);              // verhuis scale naar modal-stage
-                    fsModal.classList.remove('hidden');
-                    fsModal.classList.add('flex');           // flex-col (zie className op modal)
-                    document.body.style.overflow = 'hidden'; // body niet meer scrollen
-                    // Re-fit op het nieuwe kader na een tick zodat dimensies kloppen
-                    setTimeout(fitSeatPlan, 30);
-                    setTimeout(fitSeatPlan, 250);
-                }
-                function closeSeatFullscreen() {
-                    if (!fsModal || !inlineFrame || !scale) return;
-                    inlineFrame.appendChild(scale);          // zet scale terug in zijn originele kader
-                    fsModal.classList.add('hidden');
-                    fsModal.classList.remove('flex');
-                    document.body.style.overflow = '';
-                    setTimeout(fitSeatPlan, 30);
-                    setTimeout(fitSeatPlan, 250);
-                }
-                fsOpenBtn?.addEventListener('click', openSeatFullscreen);
-                fsCloseBtn?.addEventListener('click', closeSeatFullscreen);
-                // ESC = sluiten
-                document.addEventListener('keydown', (e) => {
-                    if (e.key === 'Escape' && fsModal && !fsModal.classList.contains('hidden')) {
-                        closeSeatFullscreen();
-                    }
-                });
-                // Klik op de donkere achtergrond (maar niet op stoelen of UI) = sluiten
-                fsModal?.addEventListener('click', (e) => {
-                    if (e.target === fsModal) closeSeatFullscreen();
-                });
-            }
-
-            function toggleSeat(seat, el) {
-                const idx = selectedSeats.findIndex(s => s.id === seat.id);
-                
-                if (idx > -1) {
-                    // Deselect
-                    selectedSeats.splice(idx, 1);
-                    el.style.backgroundColor = seat.type === 'wheelchair' ? '#10B981' : '#3B82F6';
-                    el.style.zIndex = '0';
-                    el.classList.remove('ring-2', 'ring-offset-1', 'ring-animato-accent');
-                } else {
-                    // Select
-                    selectedSeats.push(seat);
-                    el.style.backgroundColor = '#F59E0B'; // Accent color
-                    el.style.zIndex = '10';
-                    el.classList.add('ring-2', 'ring-offset-1', 'ring-animato-accent');
-                }
-                
-                updateTotal();
-            }
-
-            function updateSeatPrices() {
-                // If multiple categories exist, user selected one from dropdown
-                updateTotal();
-            }
-
-            // --- QUANTITY LOGIC ---
-            function incrementTicket(index) {
-              const input = document.getElementById('ticket-' + index);
-              const max = parseInt(input.getAttribute('max'));
-              const current = parseInt(input.value);
-              if (current < max) {
-                input.value = current + 1;
-                updateTotal();
-              }
-            }
-
-            function decrementTicket(index) {
-              const input = document.getElementById('ticket-' + index);
-              const current = parseInt(input.value);
-              if (current > 0) {
-                input.value = current - 1;
-                updateTotal();
-              }
-            }
-
-            // --- TOTAL CALCULATION ---
-            function updateTotal() {
-              let totalTickets = 0;
-              let totalPrice = 0;
-
-              if (hasSeatingPlan) {
-                  totalTickets = selectedSeats.length;
-                  
-                  // Determine price per seat
-                  let pricePerSeat = prijzen[0].prijs; // Default to first
-                  let categoryName = prijzen[0].categorie;
-
-                  if (prijzen.length > 1) {
-                      const selector = document.getElementById('globalCategory');
-                      if (selector) {
-                          pricePerSeat = parseFloat(selector.value);
-                          categoryName = selector.options[selector.selectedIndex].getAttribute('data-cat');
-                          document.getElementById('seatCategorySelector').classList.remove('hidden');
-                      }
-                  }
-
-                  totalPrice = totalTickets * pricePerSeat;
-
-                  // Render hidden inputs for form submission
-                  const container = document.getElementById('selectedSeatsInputs');
-                  container.innerHTML = '';
-                  selectedSeats.forEach((seat, i) => {
-                      // We send as ticket items
-                      const inputId = document.createElement('input'); inputId.type = 'hidden'; inputId.name = \`seats[\${i}][id]\`; inputId.value = seat.id;
-                      const inputCat = document.createElement('input'); inputCat.type = 'hidden'; inputCat.name = \`seats[\${i}][category]\`; inputCat.value = categoryName;
-                      const inputPrice = document.createElement('input'); inputPrice.type = 'hidden'; inputPrice.name = \`seats[\${i}][price]\`; inputPrice.value = pricePerSeat;
-                      container.appendChild(inputId);
-                      container.appendChild(inputCat);
-                      container.appendChild(inputPrice);
-                  });
-
-              } else {
-                  prijzen.forEach((prijs, index) => {
-                    const aantal = parseInt(document.getElementById('ticket-' + index).value) || 0;
-                    totalTickets += aantal;
-                    totalPrice += aantal * prijs.prijs;
-                  });
-              }
-
-              document.getElementById('total-tickets').textContent = totalTickets;
-              document.getElementById('total-price').textContent = '€' + totalPrice.toFixed(2);
-              // Spiegel naar de fullscreen-modal footer (alleen aanwezig in seating-plan mode)
-              const fsCount = document.getElementById('seatFsTicketCount');
-              const fsTotal = document.getElementById('seatFsTicketTotal');
-              if (fsCount) fsCount.textContent = totalTickets;
-              if (fsTotal) fsTotal.textContent = '€' + totalPrice.toFixed(2);
-
-              const submitBtn = document.getElementById('submit-btn');
-              if (totalTickets > 0) submitBtn.disabled = false;
-              else submitBtn.disabled = true;
-            }
-          ` }} />
         </div>
       </div>
     </Layout>

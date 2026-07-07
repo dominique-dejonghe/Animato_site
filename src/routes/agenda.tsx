@@ -8,7 +8,7 @@ import { Layout } from '../components/Layout'
 import { optionalAuth } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
 import { processBodyLinks } from '../utils/text'
-import { formatBrusselsTime, formatBrusselsDate, formatBrusselsDateTime, parseBrusselsDate } from '../utils/time'
+import { formatBrusselsTime, formatBrusselsDate, formatBrusselsDateTime, parseBrusselsDate, resolveConcertTimes } from '../utils/time'
 import { notifyUserIfEnabled } from '../utils/notifications'
 import { getReactionsForTargets } from '../utils/comment-reactions'
 
@@ -875,12 +875,18 @@ app.get('/concerten', async (c) => {
   // Meerdere rijen samen → SQLITE_TOOBIG. We selecteren ze NIET rechtstreeks.
   // In plaats daarvan: voor base64 (data:...) → NULL teruggeven (de UI valt terug op cover_r2_key via /api/events/<id>/cover).
   // Voor http(s)/r2 paden behouden we de URL.
+  // Bug #217 — TIJD-CONSISTENTIE: haal c.concert_start_at en c.doors_open_at
+  // ook op. In de weergave gebruiken we resolveConcertTimes() zodat overal
+  // hetzelfde tijdstip getoond wordt (concert_start_at heeft voorrang op
+  // events.start_at). Historisch werd events.start_at soms als deuren-tijd
+  // (19:30) gezet terwijl concert_start_at 20:00 bevatte → verwarrend.
   let query = `
     SELECT e.id, e.titel, e.slug, e.start_at, e.end_at, e.locatie,
            CASE WHEN e.image_url LIKE 'data:%' THEN NULL ELSE e.image_url END as image_url,
            e.is_publiek, e.type, e.cover_r2_key,
            CASE WHEN c.poster_url LIKE 'data:%' THEN NULL ELSE c.poster_url END as poster_url,
            c.uitverkocht, c.voorverkoop_start_at, c.ticketing_enabled,
+           c.doors_open_at, c.concert_start_at,
            COALESCE(
              CASE WHEN c.poster_url LIKE 'data:%' THEN NULL ELSE c.poster_url END,
              CASE WHEN e.image_url LIKE 'data:%' THEN NULL ELSE e.image_url END,
@@ -1011,25 +1017,41 @@ app.get('/concerten', async (c) => {
                       <h3 class="text-2xl font-bold text-gray-900 mb-3 group-hover:text-animato-primary transition">
                         {concert.titel}
                       </h3>
-                      <div class="space-y-2 text-gray-600 mb-4">
-                        <div class="flex items-center">
-                          <i class="far fa-calendar mr-3 text-animato-primary"></i>
-                          {formatBrusselsDate(concert.start_at, {
-                            weekday: 'long',
-                            day: 'numeric',
-                            month: 'long',
-                            year: 'numeric'
-                          })}
-                        </div>
-                        <div class="flex items-center">
-                          <i class="far fa-clock mr-3 text-animato-primary"></i>
-                          {formatBrusselsTime(concert.start_at)} uur
-                        </div>
-                        <div class="flex items-center">
-                          <i class="fas fa-map-marker-alt mr-3 text-animato-primary"></i>
-                          {concert.locatie}
-                        </div>
-                      </div>
+                      {/* Bug #217 — TIJD-CONSISTENTIE: gebruik centrale helper zodat
+                          concerten-lijst dezelfde tijd toont als /concerten/:id en tickets.
+                          concert_start_at heeft voorrang; deuren-open apart erbij. */}
+                      {(() => {
+                        const times = resolveConcertTimes(concert)
+                        const dateRaw = times.concertStartRaw || concert.start_at
+                        return (
+                          <div class="space-y-2 text-gray-600 mb-4">
+                            <div class="flex items-center">
+                              <i class="far fa-calendar mr-3 text-animato-primary"></i>
+                              {formatBrusselsDate(dateRaw, {
+                                weekday: 'long',
+                                day: 'numeric',
+                                month: 'long',
+                                year: 'numeric'
+                              })}
+                            </div>
+                            <div class="flex items-center">
+                              <i class="far fa-clock mr-3 text-animato-primary"></i>
+                              <span>
+                                Aanvang: <strong>{times.concertTimeLabel} uur</strong>
+                                {times.showDoors && (
+                                  <span class="text-sm text-gray-500 ml-2">
+                                    · Deuren open: {times.doorsTimeLabel} uur
+                                  </span>
+                                )}
+                              </span>
+                            </div>
+                            <div class="flex items-center">
+                              <i class="fas fa-map-marker-alt mr-3 text-animato-primary"></i>
+                              {concert.locatie}
+                            </div>
+                          </div>
+                        )
+                      })()}
                       {view !== 'past' && (
                         <span class="inline-flex items-center text-animato-primary font-semibold group-hover:underline">
                           {concert.uitverkocht == 1 ? 'Meer info' : 'Meer info & Tickets'}
@@ -1340,56 +1362,61 @@ app.get('/concerten/:slug', async (c) => {
             {/* Main content */}
             <div class="lg:col-span-2">
               {/* Event info */}
-              <div class="bg-white rounded-lg shadow-md p-8 mb-8">
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div class="flex items-center">
-                    <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center mr-4">
-                      <i class="far fa-calendar text-animato-primary text-xl"></i>
-                    </div>
-                    <div>
-                      <div class="text-sm text-gray-500">Datum</div>
-                      <div class="font-semibold">
-                        {formatBrusselsDate(concert.start_at, {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric'
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div class="flex items-center">
-                    <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center mr-4">
-                      <i class="far fa-clock text-animato-primary text-xl"></i>
-                    </div>
-                    <div>
-                      {/* Bug #214 — gebruik concert_start_at als die gezet is,
-                          anders fallback op events.start_at. Toon deuren apart
-                          als die los is ingesteld. */}
-                      <div class="text-sm text-gray-500">Aanvang</div>
-                      <div class="font-semibold">
-                        {formatBrusselsTime(concert.concert_start_at || concert.start_at)} uur
-                      </div>
-                      {concert.doors_open_at && (
-                        <div class="text-xs text-gray-500 mt-0.5">
-                          <i class="fas fa-door-open mr-1"></i>
-                          Deuren open: <strong>{formatBrusselsTime(concert.doors_open_at)} uur</strong>
+              {/* Bug #217 — TIJD-CONSISTENTIE: alle tijd-info via één helper zodat
+                  aanvangs- en deuren-tijd overal identiek getoond worden. */}
+              {(() => {
+                const times = resolveConcertTimes(concert)
+                const dateRaw = times.concertStartRaw || concert.start_at
+                return (
+                  <div class="bg-white rounded-lg shadow-md p-8 mb-8">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                      <div class="flex items-center">
+                        <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center mr-4">
+                          <i class="far fa-calendar text-animato-primary text-xl"></i>
                         </div>
-                      )}
-                    </div>
-                  </div>
+                        <div>
+                          <div class="text-sm text-gray-500">Datum</div>
+                          <div class="font-semibold">
+                            {formatBrusselsDate(dateRaw, {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric'
+                            })}
+                          </div>
+                        </div>
+                      </div>
 
-                  <div class="flex items-center">
-                    <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center mr-4">
-                      <i class="fas fa-map-marker-alt text-animato-primary text-xl"></i>
-                    </div>
-                    <div>
-                      <div class="text-sm text-gray-500">Locatie</div>
-                      <div class="font-semibold">{concert.locatie}</div>
+                      <div class="flex items-center">
+                        <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center mr-4">
+                          <i class="far fa-clock text-animato-primary text-xl"></i>
+                        </div>
+                        <div>
+                          <div class="text-sm text-gray-500">Aanvang</div>
+                          <div class="font-semibold">
+                            {times.concertTimeLabel} uur
+                          </div>
+                          {times.showDoors && (
+                            <div class="text-xs text-gray-500 mt-0.5">
+                              <i class="fas fa-door-open mr-1"></i>
+                              Deuren open: <strong>{times.doorsTimeLabel} uur</strong>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div class="flex items-center">
+                        <div class="w-12 h-12 bg-animato-primary bg-opacity-10 rounded-lg flex items-center justify-center mr-4">
+                          <i class="fas fa-map-marker-alt text-animato-primary text-xl"></i>
+                        </div>
+                        <div>
+                          <div class="text-sm text-gray-500">Locatie</div>
+                          <div class="font-semibold">{concert.locatie}</div>
+                        </div>
+                      </div>
                     </div>
                   </div>
-                </div>
-              </div>
+                )
+              })()}
 
               {/* Description */}
               {concert.beschrijving && (
@@ -1901,19 +1928,24 @@ app.get('/concerten/:slug', async (c) => {
                   </div>
                 )}
 
-                {/* Add to calendar */}
+                {/* Add to calendar — Bug #217: gebruik concert_start_at zodat mensen
+                    het CONCERT-uur in hun agenda krijgen, niet het deuren-uur. */}
                 <div class="mt-6 pt-6 border-t border-gray-200">
                   <p class="text-xs text-gray-500 text-center mb-3">Toevoegen aan kalender</p>
+                  {(() => {
+                    const calStart = (concert.concert_start_at || concert.start_at || '') as string
+                    const calEnd = (concert.end_at || calStart || '') as string
+                    return (
                   <div class="grid grid-cols-3 gap-2">
                     <a
-                      href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(concert.titel)}&dates=${(concert.start_at || '').replace(/[-:]/g, '').replace('.000', '')}/${(concert.end_at || concert.start_at || '').replace(/[-:]/g, '').replace('.000', '')}&location=${encodeURIComponent(concert.locatie || '')}&details=${encodeURIComponent((concert.beschrijving || '').replace(/<[^>]*>/g, '').substring(0, 500))}`}
+                      href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(concert.titel)}&dates=${calStart.replace(/[-:]/g, '').replace('.000', '')}/${calEnd.replace(/[-:]/g, '').replace('.000', '')}&location=${encodeURIComponent(concert.locatie || '')}&details=${encodeURIComponent((concert.beschrijving || '').replace(/<[^>]*>/g, '').substring(0, 500))}`}
                       target="_blank" rel="noopener"
                       class="text-center px-2 py-2 border border-red-200 text-red-600 rounded-lg text-xs font-medium hover:bg-red-50 transition"
                     >
                       <i class="fab fa-google mr-1"></i>Google
                     </a>
                     <a
-                      href={`https://outlook.live.com/calendar/0/action/compose?rru=addevent&subject=${encodeURIComponent(concert.titel)}&startdt=${concert.start_at || ''}&enddt=${concert.end_at || concert.start_at || ''}&location=${encodeURIComponent(concert.locatie || '')}&body=${encodeURIComponent((concert.beschrijving || '').replace(/<[^>]*>/g, '').substring(0, 500))}`}
+                      href={`https://outlook.live.com/calendar/0/action/compose?rru=addevent&subject=${encodeURIComponent(concert.titel)}&startdt=${calStart}&enddt=${calEnd}&location=${encodeURIComponent(concert.locatie || '')}&body=${encodeURIComponent((concert.beschrijving || '').replace(/<[^>]*>/g, '').substring(0, 500))}`}
                       target="_blank" rel="noopener"
                       class="text-center px-2 py-2 border border-blue-200 text-blue-600 rounded-lg text-xs font-medium hover:bg-blue-50 transition"
                     >
@@ -1927,6 +1959,8 @@ app.get('/concerten/:slug', async (c) => {
                       <i class="fas fa-download mr-1"></i>ICS
                     </a>
                   </div>
+                    )
+                  })()}
                 </div>
               </div>
             </div>
@@ -2049,8 +2083,19 @@ function buildIcs(events: any[], hostUrl: string): string {
 app.get('/api/agenda/ics', async (c) => {
   const eventId = c.req.query('event')
   if (!eventId) return c.text('Missing ?event=ID', 400)
-  const ev = await queryOne<any>(c.env.DB, `SELECT * FROM events WHERE id = ?`, [eventId])
+  // Bug #217 — bij concerten prefereren we concert_start_at boven events.start_at
+  const ev = await queryOne<any>(c.env.DB,
+    `SELECT e.*, c.concert_start_at
+     FROM events e
+     LEFT JOIN concerts c ON c.event_id = e.id
+     WHERE e.id = ?`,
+    [eventId]
+  )
   if (!ev) return c.text('Event niet gevonden', 404)
+  // Overschrijf start_at met concert_start_at zodat de kalender-uur correct is
+  if (ev.concert_start_at) {
+    ev.start_at = ev.concert_start_at
+  }
   const host = new URL(c.req.url).origin
   const body = buildIcs([ev], host)
   return new Response(body, {
@@ -2061,10 +2106,15 @@ app.get('/api/agenda/ics', async (c) => {
   })
 })
 
-// Alle events
+// Alle events — Bug #217: concerten krijgen concert_start_at als start_at
 app.get('/api/agenda/ics/all', async (c) => {
   const events = await queryAll<any>(c.env.DB,
-    `SELECT id, slug, titel, start_at, end_at, locatie, beschrijving FROM events ORDER BY start_at`
+    `SELECT e.id, e.slug, e.titel,
+            COALESCE(c.concert_start_at, e.start_at) AS start_at,
+            e.end_at, e.locatie, e.beschrijving
+     FROM events e
+     LEFT JOIN concerts c ON c.event_id = e.id
+     ORDER BY start_at`
   )
   const host = new URL(c.req.url).origin
   const body = buildIcs(events || [], host)

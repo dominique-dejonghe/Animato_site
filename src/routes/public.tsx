@@ -33,9 +33,12 @@ app.get('/', async (c) => {
   )
 
   // Fetch aankomende concerten
+  // Bug #217 — TIJD-CONSISTENTIE: haal ook c.concert_start_at + c.doors_open_at
+  // op zodat we hetzelfde uur tonen als op /agenda en /concerten/:id.
   const concerten = await queryAll(
     c.env.DB,
     `SELECT e.id, e.titel, e.slug, e.start_at, e.locatie, e.image_url, c.poster_url,
+            c.concert_start_at, c.doors_open_at,
             COALESCE(c.poster_url, e.image_url) as display_image
      FROM events e
      LEFT JOIN concerts c ON c.event_id = e.id
@@ -89,7 +92,8 @@ app.get('/', async (c) => {
     "event": concerten.map((concert: any) => ({
       "@type": "MusicEvent",
       "name": concert.titel,
-      "startDate": new Date(concert.start_at).toISOString(),
+      // Bug #217 — Google/Bing rich results tonen concert_start_at (officiële aanvang)
+      "startDate": new Date(concert.concert_start_at || concert.start_at).toISOString(),
       "location": {
         "@type": "Place",
         "name": concert.locatie,

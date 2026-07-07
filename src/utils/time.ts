@@ -268,3 +268,74 @@ export function formatBrusselsRelative(input: DateInput): string {
   // Voor verdere historiek: gewoon datum tonen
   return formatBrusselsDate(d)
 }
+
+// ============================================================================
+// CONCERT-TIJDEN — één bron van waarheid
+// ============================================================================
+//
+// PROBLEEM: er zijn drie tijd-kolommen die door elkaar liepen:
+//   - events.start_at            (agenda-uur, historisch soms = deuren-uur)
+//   - concerts.concert_start_at  (officieel aanvangsuur van de muziek)
+//   - concerts.doors_open_at     (wanneer deuren open)
+//
+// Inconsistentie: aankondigingen (agenda-lijst) toonden events.start_at, wat
+// vaak overeenkwam met de deuren-tijd. Detail-pagina + tickets toonden wél
+// concert_start_at. Resultaat: publiek zag "19:30" op agenda, maar concert
+// begint pas om 20:00.
+//
+// Deze helper geeft ÉÉN eenduidig antwoord terug voor elke concert-view.
+//
+// AFSPRAAK:
+//   - concertStart = concert_start_at (fallback: events.start_at)
+//     → dit is ALTIJD de tijd die publiek moet zien als "aanvang / start"
+//   - doorsOpen   = doors_open_at (indien gezet én < concertStart)
+//     → wordt getoond als extra info, nooit als hoofd-tijd
+//   - showDoors   = boolean: zijn deuren echt vóór concert? → laat aparte
+//     "Deuren open om X uur" regel zien; anders enkel concertStart tonen
+// ============================================================================
+
+export interface ConcertTimeRow {
+  start_at?: string | null              // events.start_at (agenda-uur)
+  concert_start_at?: string | null      // concerts.concert_start_at
+  doors_open_at?: string | null         // concerts.doors_open_at
+}
+
+export interface ConcertTimes {
+  concertStartRaw: string | null        // ISO-string voor date-parsing
+  concertStartDate: Date | null         // Brussels-correct Date object
+  doorsOpenRaw: string | null           // ISO-string of null
+  doorsOpenDate: Date | null            // Brussels-correct Date of null
+  showDoors: boolean                    // toon aparte "deuren open" regel?
+  concertTimeLabel: string              // bv. "20:00" — voor snelle inline weergave
+  doorsTimeLabel: string | null         // bv. "19:30" — of null als niet getoond moet worden
+}
+
+/**
+ * Centrale helper: geeft alle tijden terug voor een concert-row.
+ * ALTIJD gebruiken i.p.v. rechtstreeks start_at te formateren, om
+ * inconsistentie tussen agenda / detail / tickets / e-mail te voorkomen.
+ */
+export function resolveConcertTimes(row: ConcertTimeRow): ConcertTimes {
+  const concertStartRaw = (row.concert_start_at ?? null) || (row.start_at ?? null)
+  const doorsOpenRaw = row.doors_open_at ?? null
+
+  const concertStartDate = parseBrusselsDate(concertStartRaw)
+  const doorsOpenDate = parseBrusselsDate(doorsOpenRaw)
+
+  // showDoors alleen wanneer deuren EXPLICIET vroeger zijn dan concert-start.
+  // Als iemand per ongeluk beide op hetzelfde tijdstip zette → niet dubbel tonen.
+  const showDoors = !!(doorsOpenDate && concertStartDate && doorsOpenDate.getTime() < concertStartDate.getTime())
+
+  const concertTimeLabel = concertStartDate ? formatBrusselsTime(concertStartDate) : '—'
+  const doorsTimeLabel = (showDoors && doorsOpenDate) ? formatBrusselsTime(doorsOpenDate) : null
+
+  return {
+    concertStartRaw,
+    concertStartDate,
+    doorsOpenRaw,
+    doorsOpenDate,
+    showDoors,
+    concertTimeLabel,
+    doorsTimeLabel
+  }
+}

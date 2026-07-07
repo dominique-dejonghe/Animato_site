@@ -85,6 +85,7 @@ export async function pickSpotlight(
        FROM users u
        JOIN profiles p ON p.user_id = u.id
       WHERE u.status = 'actief'
+        AND u.role != 'kaartkoper'
         AND u.id != ?
         AND p.geboortedatum IS NOT NULL
         AND strftime('%m-%d', p.geboortedatum) = ?
@@ -120,6 +121,7 @@ export async function pickSpotlight(
        FROM users u
        JOIN profiles p ON p.user_id = u.id
       WHERE u.status = 'actief'
+        AND u.role != 'kaartkoper'
         AND u.id != ?
         AND p.lid_sinds IS NOT NULL
         AND p.lid_sinds >= date('now', '-30 days')
@@ -158,6 +160,7 @@ export async function pickSpotlight(
        FROM users u
        JOIN profiles p ON p.user_id = u.id
       WHERE u.status = 'actief'
+        AND u.role != 'kaartkoper'
         AND u.id != ?
         AND p.voornaam IS NOT NULL
       ORDER BY u.id ASC`

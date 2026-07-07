@@ -126,12 +126,24 @@ export const Layout: FC<LayoutProps> = ({
 
         {/* Animato branding colors */}
         <meta name="theme-color" content="#00A9CE" />
-        
-        {/* Tailwind CSS (with typography plugin for .prose rich-text styling) */}
-        <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+
+        {/* ⚡ PERFORMANCE (Dominique 2026-07-07):
+            - preconnect naar CDN's zodat DNS+TLS al bezig is tijdens HTML parse.
+            - tailwind.config STAAT BEWUST VÓÓR het CDN-script: bij defer laadt
+              cdn.tailwindcss.com pas na HTML-parse, en tegen die tijd is
+              window.tailwind.config al gezet → geen FOUC met verkeerde kleuren.
+            - Font Awesome + Google Fonts al beperkt via preconnect. */}
+        <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin />
+        <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+        <link rel="dns-prefetch" href="https://cdn.tailwindcss.com" />
+        <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
+
+        {/* Tailwind config MOET vóór het CDN-script staan om FOUC te vermijden.
+            De cdn.tailwindcss.com bundle leest window.tailwind.config bij load. */}
         <script dangerouslySetInnerHTML={{
           __html: `
-            tailwind.config = {
+            window.tailwind = window.tailwind || {};
+            window.tailwind.config = {
               theme: {
                 extend: {
                   colors: {
@@ -144,10 +156,15 @@ export const Layout: FC<LayoutProps> = ({
             }
           `
         }} />
-        
-        {/* Font Awesome Icons */}
-        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet" />
-        
+        {/* Tailwind CSS (with typography plugin) — DEFER: laadt async, blokkeert
+            HTML-parse niet. Zichtbare inhoud (nav, hero) verschijnt sneller. */}
+        <script src="https://cdn.tailwindcss.com?plugins=typography" defer></script>
+
+        {/* Font Awesome Icons — non-blocking via preload+onload truc.
+            De <noscript>-fallback zorgt dat het bij uitgeschakelde JS toch werkt. */}
+        <link rel="preload" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+        <noscript><link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet" /></noscript>
+
         {/* Google Fonts - Playfair Display & Inter */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -191,9 +208,12 @@ export const Layout: FC<LayoutProps> = ({
           }
         ` }} />
         
-        {/* Shepherd.js - Walkthrough Tours */}
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11/dist/css/shepherd.css" />
-        <script src="https://cdn.jsdelivr.net/npm/shepherd.js@11/dist/js/shepherd.min.js"></script>
+        {/* Shepherd.js - Walkthrough Tours
+            ⚡ PERFORMANCE: alleen gebruikt voor onboarding-tours (zelden actief).
+            Laden via defer + preload voor css → geen render-blocking. */}
+        <link rel="preload" href="https://cdn.jsdelivr.net/npm/shepherd.js@11/dist/css/shepherd.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+        <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shepherd.js@11/dist/css/shepherd.css" /></noscript>
+        <script src="https://cdn.jsdelivr.net/npm/shepherd.js@11/dist/js/shepherd.min.js" defer></script>
         
         {/* Favicon - placeholder */}
         <link rel="icon" type="image/png" href="/static/images/animato-note.png" />

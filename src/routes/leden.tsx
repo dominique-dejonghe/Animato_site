@@ -118,51 +118,7 @@ app.get('/leden', async (c) => {
   }
   const bwRange = getBirthdayWeekRange()
 
-  // Members with birthdays this week (MM-DD comparison on geboortedatum)
-  const birthdayMembers = await queryAll<any>(
-    c.env.DB,
-    `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.geboortedatum
-     FROM users u
-     JOIN profiles p ON p.user_id = u.id
-     WHERE u.status = 'actief'
-       AND u.role != 'kaartkoper'
-       AND p.geboortedatum IS NOT NULL
-       AND strftime('%m-%d', p.geboortedatum) BETWEEN ? AND ?
-     ORDER BY strftime('%m-%d', p.geboortedatum) ASC`,
-    [bwRange.start, bwRange.end]
-  )
-
-  // Get upcoming events for this user's stemgroep
-  const upcomingEvents = await queryAll(
-    c.env.DB,
-    `SELECT id, type, titel, start_at, locatie, doelgroep
-     FROM events
-     WHERE datetime(start_at) >= datetime('now')
-       AND (doelgroep = 'all' OR doelgroep LIKE ?)
-     ORDER BY start_at ASC
-     LIMIT 5`,
-    [`%${user.stemgroep || ''}%`]
-  )
-
-  // Toekomstige ticket-bestellingen voor dit lid (strikte email-match)
-  // → Wordt enkel als kaartje getoond als er minstens één toekomstige bestelling is.
-  const upcomingTickets = await queryAll<any>(
-    c.env.DB,
-    `SELECT t.order_ref, e.titel AS concert_titel, e.start_at, e.locatie,
-            SUM(t.aantal) AS aantal_kaarten
-     FROM tickets t
-     JOIN concerts c ON c.id = t.concert_id
-     JOIN events e ON e.id = c.event_id
-     WHERE LOWER(t.koper_email) = LOWER(?)
-       AND t.status = 'paid'
-       AND datetime(e.start_at) >= datetime('now')
-     GROUP BY t.order_ref
-     ORDER BY datetime(e.start_at) ASC
-     LIMIT 3`,
-    [user.email]
-  )
-
-  // Get latest nieuws for members
+  // Stemgroep-mapping (moet vóór de Promise.all — nieuws-query gebruikt nieuwsVis)
   // Bug #202 — DB slaat stemgroep als 'S','A','T','B' op,
   // posts.zichtbaarheid gebruikt 'sopraan'/'alt'/'tenor'/'bas'.
   // Map expliciet zodat een Bas-lid ook posts met zichtbaarheid='bas' ziet.
@@ -177,7 +133,6 @@ app.get('/leden', async (c) => {
   const isStaffDash = user.role === 'admin' || user.role === 'bestuur' || (user as any).is_bestuurslid === 1
 
   // Voor nieuws: publiek + leden + eigen stemgroep + (indien staff) bestuur + kaartkopers-posts
-  // Kaartkoper-posts zijn zichtbaar voor staff (om je eigen aankondigingen te zien)
   const nieuwsVis: string[] = ['publiek', 'leden']
   if (userStemLabelDash) nieuwsVis.push(userStemLabelDash)
   if (isStaffDash) {
@@ -186,44 +141,97 @@ app.get('/leden', async (c) => {
   }
   const nieuwsVisPh = nieuwsVis.map(() => '?').join(',')
 
-  const nieuws = await queryAll(
-    c.env.DB,
-    `SELECT id, titel, slug, published_at
-     FROM posts
-     WHERE type = 'nieuws' 
-       AND is_published = 1
-       AND zichtbaarheid IN (${nieuwsVisPh})
-     ORDER BY published_at DESC
-     LIMIT 3`,
-    nieuwsVis
-  )
+  // ⚡ PERFORMANCE (Dominique, 2026-07-07): 6 onafhankelijke queries batch-en
+  // in één Promise.all. Voordien seriële round-trips naar D1 (16 queries op
+  // deze route) → dashboard voelde traag aan (300-800ms alleen DB). Nu is dit
+  // deel één ronde ipv zes.
+  // Volgorde in destructuring MOET matchen met volgorde in Promise.all.
+  const [
+    birthdayMembers,
+    upcomingEvents,
+    upcomingTickets,
+    nieuws,
+    materials,
+    enabledModulesRaw,
+  ] = await Promise.all([
+    // Members with birthdays this week (MM-DD comparison on geboortedatum)
+    queryAll<any>(
+      c.env.DB,
+      `SELECT u.id, p.voornaam, p.achternaam, p.foto_url, u.stemgroep, p.geboortedatum
+       FROM users u
+       JOIN profiles p ON p.user_id = u.id
+       WHERE u.status = 'actief'
+         AND u.role != 'kaartkoper'
+         AND p.geboortedatum IS NOT NULL
+         AND strftime('%m-%d', p.geboortedatum) BETWEEN ? AND ?
+       ORDER BY strftime('%m-%d', p.geboortedatum) ASC`,
+      [bwRange.start, bwRange.end]
+    ),
+    // Get upcoming events for this user's stemgroep
+    queryAll<any>(
+      c.env.DB,
+      `SELECT id, type, titel, start_at, locatie, doelgroep
+       FROM events
+       WHERE datetime(start_at) >= datetime('now')
+         AND (doelgroep = 'all' OR doelgroep LIKE ?)
+       ORDER BY start_at ASC
+       LIMIT 5`,
+      [`%${user.stemgroep || ''}%`]
+    ),
+    // Toekomstige ticket-bestellingen voor dit lid (strikte email-match)
+    queryAll<any>(
+      c.env.DB,
+      `SELECT t.order_ref, e.titel AS concert_titel, e.start_at, e.locatie,
+              SUM(t.aantal) AS aantal_kaarten
+       FROM tickets t
+       JOIN concerts c ON c.id = t.concert_id
+       JOIN events e ON e.id = c.event_id
+       WHERE LOWER(t.koper_email) = LOWER(?)
+         AND t.status = 'paid'
+         AND datetime(e.start_at) >= datetime('now')
+       GROUP BY t.order_ref
+       ORDER BY datetime(e.start_at) ASC
+       LIMIT 3`,
+      [user.email]
+    ),
+    // Latest nieuws voor dit lid (zichtbaarheid-gefilterd)
+    queryAll<any>(
+      c.env.DB,
+      `SELECT id, titel, slug, published_at
+       FROM posts
+       WHERE type = 'nieuws'
+         AND is_published = 1
+         AND zichtbaarheid IN (${nieuwsVisPh})
+       ORDER BY published_at DESC
+       LIMIT 3`,
+      nieuwsVis
+    ),
+    // Latest materials for user's stemgroep
+    queryAll<any>(
+      c.env.DB,
+      `SELECT m.id, m.titel, m.type, m.created_at,
+              pi.titel as stuk_titel,
+              w.titel as werk_titel, w.componist
+       FROM materials m
+       JOIN pieces pi ON pi.id = m.piece_id
+       JOIN works w ON w.id = pi.work_id
+       WHERE m.is_actief = 1
+         AND (m.stem = ? OR m.stem = 'SATB' OR m.stem = 'algemeen'
+              OR (m.stem = 'SA' AND ? IN ('S','A'))
+              OR (m.stem = 'TB' AND ? IN ('T','B')))
+         AND (m.zichtbaar_voor = 'alle_leden' OR
+              (m.zichtbaar_voor = 'stem_specifiek' OR m.zichtbaar_voor = 'eigen_stem'))
+       ORDER BY m.created_at DESC
+       LIMIT 5`,
+      [user.stemgroep || 'SATB', user.stemgroep || '', user.stemgroep || '']
+    ),
+    // Enabled modules for conditional rendering
+    queryAll<any>(c.env.DB,
+      `SELECT module_key, is_enabled FROM module_settings`, []),
+  ])
 
   // MESSAGEBOARD VERWIJDERD (2026-06-13): boardVis/boardPosts query weggehaald.
-  // Berichtenmodule is afgeschaft - redundant met /leden/nieuws. Zie comment lager.
-
-  // Get latest materials for user's stemgroep
-  const materials = await queryAll(
-    c.env.DB,
-    `SELECT m.id, m.titel, m.type, m.created_at,
-            pi.titel as stuk_titel,
-            w.titel as werk_titel, w.componist
-     FROM materials m
-     JOIN pieces pi ON pi.id = m.piece_id
-     JOIN works w ON w.id = pi.work_id
-     WHERE m.is_actief = 1
-       AND (m.stem = ? OR m.stem = 'SATB' OR m.stem = 'algemeen'
-            OR (m.stem = 'SA' AND ? IN ('S','A'))
-            OR (m.stem = 'TB' AND ? IN ('T','B')))
-       AND (m.zichtbaar_voor = 'alle_leden' OR 
-            (m.zichtbaar_voor = 'stem_specifiek' OR m.zichtbaar_voor = 'eigen_stem'))
-     ORDER BY m.created_at DESC
-     LIMIT 5`,
-    [user.stemgroep || 'SATB', user.stemgroep || '', user.stemgroep || '']
-  )
-
-  // Fetch enabled modules for conditional rendering
-  const enabledModulesRaw = await queryAll<any>(c.env.DB,
-    `SELECT module_key, is_enabled FROM module_settings`, [])
+  // Berichtenmodule is afgeschaft - redundant met /leden/nieuws.
   const enabledModules = new Set(
     enabledModulesRaw.filter((m: any) => m.is_enabled === 1).map((m: any) => m.module_key)
   )
@@ -248,17 +256,22 @@ app.get('/leden', async (c) => {
     newCounts.nieuws = nNieuws
   } catch (_) { /* tabel ontbreekt? laat default 0 */ }
 
-  // Calculate total donations for user
-  const totalDonations = await queryOne<any>(c.env.DB, `
-    SELECT SUM(amount) as total FROM donations WHERE user_id = ? AND status = 'paid'
-  `, [user.id]);
+  // ⚡ PERFORMANCE: totalDonations + profileData + spotlight in één ronde
+  const [totalDonations, profileData, spotlight] = await Promise.all([
+    // Total donations for user
+    queryOne<any>(c.env.DB, `
+      SELECT SUM(amount) as total FROM donations WHERE user_id = ? AND status = 'paid'
+    `, [user.id]),
+    // Profile completeness (#57)
+    queryOne<any>(c.env.DB, `
+      SELECT voornaam, achternaam, telefoon, straat, huisnummer, postcode, gemeente,
+             geboortedatum, foto_url, bio, muzikale_ervaring
+      FROM profiles WHERE user_id = ?
+    `, [user.id]),
+    // 🌟 Koorlid in de kijker — één spotlight per request, dismissible
+    pickSpotlight(c.env.DB, user.id).catch(() => null),
+  ])
 
-  // Profile completeness (#57)
-  const profileData = await queryOne<any>(c.env.DB, `
-    SELECT voornaam, achternaam, telefoon, straat, huisnummer, postcode, gemeente, 
-           geboortedatum, foto_url, bio, muzikale_ervaring
-    FROM profiles WHERE user_id = ?
-  `, [user.id])
   const profileFields = profileData ? [
     profileData.voornaam, profileData.achternaam, profileData.telefoon,
     profileData.straat, profileData.postcode, profileData.gemeente,
@@ -269,9 +282,6 @@ app.get('/leden', async (c) => {
 
   // Check if admin is impersonating this user
   const impersonating = !!(c.get('impersonating' as any))
-
-  // 🌟 Koorlid in de kijker — één spotlight per request, dismissible
-  const spotlight = await pickSpotlight(c.env.DB, user.id).catch(() => null)
 
   // 👋 Welkom-terug-detectie: was deze gebruiker > 30 dagen weg sinds vorige login?
   // We gebruiken previous_login_at (gezet bij elke login) en de

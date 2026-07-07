@@ -176,10 +176,14 @@ app.get('/leden', async (c) => {
   const userStemLabelDash = stemMapDash[userStemKeyDash]
   const isStaffDash = user.role === 'admin' || user.role === 'bestuur' || (user as any).is_bestuurslid === 1
 
-  // Voor nieuws: publiek + leden + eigen stemgroep + (indien staff) bestuur
+  // Voor nieuws: publiek + leden + eigen stemgroep + (indien staff) bestuur + kaartkopers-posts
+  // Kaartkoper-posts zijn zichtbaar voor staff (om je eigen aankondigingen te zien)
   const nieuwsVis: string[] = ['publiek', 'leden']
   if (userStemLabelDash) nieuwsVis.push(userStemLabelDash)
-  if (isStaffDash) nieuwsVis.push('bestuur')
+  if (isStaffDash) {
+    nieuwsVis.push('bestuur')
+    nieuwsVis.push('kaartkopers')
+  }
   const nieuwsVisPh = nieuwsVis.map(() => '?').join(',')
 
   const nieuws = await queryAll(
@@ -341,6 +345,45 @@ app.get('/leden', async (c) => {
     dismissType?: 'news' | 'notification';
     dismissId?: number;
   }> = []
+
+  // 0) 🗳️ POLL-UITNODIGINGEN (priority 0 — hoogste, altijd bovenaan)
+  // Bug #23 — open polls waarop het lid nog niet heeft gestemd
+  try {
+    const openPolls = await queryAll<any>(c.env.DB,
+      `SELECT p.id, p.titel, p.beschrijving, p.eind_datum,
+              (SELECT COUNT(*) FROM poll_votes WHERE poll_id = p.id AND user_id = ?) as user_voted
+       FROM polls p
+       WHERE p.status = 'open'
+         AND (p.doelgroep = 'all'
+              OR p.doelgroep = ?
+              OR p.doelgroep LIKE '%' || ? || '%')
+         AND (p.eind_datum IS NULL OR datetime(p.eind_datum) >= datetime('now'))
+       ORDER BY
+         CASE WHEN p.eind_datum IS NULL THEN 1 ELSE 0 END,
+         datetime(p.eind_datum) ASC
+       LIMIT 3`,
+      [user.id, user.stemgroep, user.stemgroep])
+    for (const poll of openPolls.filter((p: any) => !p.user_voted)) {
+      let deadlineText = ''
+      if (poll.eind_datum) {
+        try {
+          const ed = new Date(poll.eind_datum.replace(' ', 'T') + (poll.eind_datum.includes('Z') || poll.eind_datum.includes('+') ? '' : 'Z'))
+          const dagenTot = Math.ceil((ed.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+          if (dagenTot <= 0) deadlineText = ' — sluit vandaag!'
+          else if (dagenTot === 1) deadlineText = ' — nog 1 dag'
+          else if (dagenTot <= 7) deadlineText = ` — nog ${dagenTot} dagen`
+        } catch (e) { /* ignore */ }
+      }
+      dashboardActions.push({
+        icon: 'fas fa-poll', iconBg: 'bg-green-100', iconColor: 'text-green-600',
+        titel: `Poll: ${poll.titel}${deadlineText}`,
+        body: poll.beschrijving || 'Jouw stem telt — laat weten wat je vindt.',
+        link: `/leden/polls/${poll.id}`,
+        cta: 'Stem nu',
+        priority: 0  // hoogste prio — polls staan bovenaan
+      })
+    }
+  } catch (e) { /* polls-tabel niet aanwezig? ignore */ }
 
   // 1) Openstaand lidgeld
   // Bug #207 — dirigent en pianist hoeven geen lidgeld te betalen → overslaan
@@ -2013,7 +2056,10 @@ app.get('/leden/profiel', async (c) => {
     const isStaffONews = user.role === 'admin' || (user as any).is_bestuurslid === 1
     const visONews: string[] = ['publiek', 'leden']
     if (stemLabelONews) visONews.push(stemLabelONews)
-    if (isStaffONews) visONews.push('bestuur')
+    if (isStaffONews) {
+      visONews.push('bestuur')
+      visONews.push('kaartkopers')
+    }
     const visPhONews = visONews.map(() => '?').join(',')
     const newsParams: any[] = sinceDate
       ? [user.id, ...visONews, sinceDate]
@@ -2062,6 +2108,49 @@ app.get('/leden/profiel', async (c) => {
     canDismiss: boolean;  // sommige acties zijn niet weg te klikken (lidgeld!)
   }
   const profielOpenActies: ProfielActie[] = []
+
+  // 0) 🗳️ POLL-UITNODIGINGEN — Bovenaan (Bug #23):
+  // Open polls die relevant zijn voor deze gebruiker en waarop hij/zij nog niet heeft gestemd.
+  // Sortering: dichtste eind_datum eerst; polls zonder eind_datum achteraan.
+  try {
+    const openPolls = await queryAll<any>(
+      c.env.DB,
+      `SELECT p.id, p.titel, p.beschrijving, p.eind_datum,
+              (SELECT COUNT(*) FROM poll_votes WHERE poll_id = p.id AND user_id = ?) as user_voted
+       FROM polls p
+       WHERE p.status = 'open'
+         AND (p.doelgroep = 'all'
+              OR p.doelgroep = ?
+              OR p.doelgroep LIKE '%' || ? || '%')
+         AND (p.eind_datum IS NULL OR datetime(p.eind_datum) >= datetime('now'))
+       ORDER BY
+         CASE WHEN p.eind_datum IS NULL THEN 1 ELSE 0 END,
+         datetime(p.eind_datum) ASC`,
+      [user.id, user.stemgroep, user.stemgroep]
+    )
+    for (const poll of openPolls.filter((p: any) => !p.user_voted)) {
+      // Deadline-suffix voor duidelijkheid ("stem voor donderdag!")
+      let deadlineText = ''
+      if (poll.eind_datum) {
+        try {
+          const ed = new Date(poll.eind_datum.replace(' ', 'T') + (poll.eind_datum.includes('Z') || poll.eind_datum.includes('+') ? '' : 'Z'))
+          const now = new Date()
+          const dagenTot = Math.ceil((ed.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
+          if (dagenTot <= 0) deadlineText = ' — sluit vandaag!'
+          else if (dagenTot === 1) deadlineText = ' — nog 1 dag'
+          else if (dagenTot <= 7) deadlineText = ` — nog ${dagenTot} dagen`
+        } catch (e) { /* ignore parse errors */ }
+      }
+      profielOpenActies.push({
+        icon: 'fas fa-poll', iconBg: 'bg-green-100', iconColor: 'text-green-600',
+        titel: `Poll: ${poll.titel}${deadlineText}`,
+        body: poll.beschrijving || 'Jouw stem telt — laat weten wat je vindt.',
+        link: `/leden/polls/${poll.id}`,
+        cta: 'Stem nu',
+        canDismiss: false  // polls dismisseren niet — user moet stemmen of poll moet aflopen
+      })
+    }
+  } catch (e) { /* polls-tabel niet aanwezig? ignore */ }
 
   // 1) Openstaand lidgeld — NIET dismissible (moet effectief afgehandeld)
   // Bug #207 — dirigent en pianist hoeven geen lidgeld te betalen → sla over
@@ -6145,9 +6234,13 @@ app.get('/leden/verjaardagen', async (c) => {
   if ((user as any).role !== 'admin') return c.redirect('/leden')
 
   // Fetch all members with birthdays, sorted by month/day
+  // toon_geboortedatum: als 0/NULL dan tonen we de datum wel (admin-only lijst),
+  // maar de LEEFTIJD tonen we niet — dat gebeurt bewust omdat leden expliciet
+  // aangaven dat hun geboortejaar privé is.
   const members = await queryAll<any>(
     c.env.DB,
-    `SELECT u.id, p.voornaam, p.achternaam, p.geboortedatum, u.stemgroep, u.role, p.foto_url
+    `SELECT u.id, p.voornaam, p.achternaam, p.geboortedatum, u.stemgroep, u.role, p.foto_url,
+            COALESCE(p.toon_geboortedatum, 0) as toon_geboortedatum
      FROM users u
      JOIN profiles p ON p.user_id = u.id
      WHERE u.status = 'actief'
@@ -6256,6 +6349,10 @@ app.get('/leden/verjaardagen', async (c) => {
                     // Als de maand voorbij is (wrapped → volgend jaar), tel extra jaar.
                     const refYear = isWrapped ? today.getFullYear() + 1 : today.getFullYear()
                     const age = refYear - bd.getFullYear()
+                    // Bug #22 — respecteer privacy-toggle 'toon_geboortedatum':
+                    // als het lid heeft aangeduid dat de geboortedatum privé is,
+                    // toon dan geen leeftijd (die verklapt het geboortejaar).
+                    const magLeeftijdTonen = Number(m.toon_geboortedatum) === 1
                     // Weekdag in het referentiejaar (huidig of volgend), niet in het geboortejaar
                     const bdInRefYear = new Date(refYear, bd.getMonth(), bd.getDate())
                     const weekdayStr = bdInRefYear.toLocaleDateString('nl-BE', { weekday: 'long' })
@@ -6271,8 +6368,18 @@ app.get('/leden/verjaardagen', async (c) => {
                           </div>
                           <div class="text-sm text-gray-500 flex items-center gap-3 flex-wrap">
                             <span><i class="fas fa-calendar mr-1"></i>{bdInRefYear.toLocaleDateString('nl-BE', {weekday:'long', day:'numeric', month:'long'})}</span>
-                            <span class="text-gray-400">•</span>
-                            <span>{age} jaar</span>
+                            {magLeeftijdTonen && (
+                              <>
+                                <span class="text-gray-400">•</span>
+                                <span>{age} jaar</span>
+                              </>
+                            )}
+                            {!magLeeftijdTonen && (
+                              <>
+                                <span class="text-gray-400">•</span>
+                                <span class="italic text-gray-400" title="Lid heeft geboortejaar op privé gezet">leeftijd verborgen</span>
+                              </>
+                            )}
                           </div>
                         </div>
                         <div>

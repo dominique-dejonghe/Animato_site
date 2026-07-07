@@ -1568,6 +1568,7 @@ app.get('/admin/aanmeldingen/:id/omzetten', async (c) => {
                       <select name="role" class="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-purple-500 focus:border-transparent">
                         <option value="lid" selected>Lid</option>
                         <option value="proeflid">Proeflid</option>
+                        <option value="kaartkoper">🎫 Kaartkoper (geen ledenrechten)</option>
                       </select>
                     </div>
                     <div>
@@ -1755,16 +1756,17 @@ app.get('/admin/leden', async (c) => {
   )
 
   // Get counts for filters (only active members by default)
+  // Belangrijk: kaartkopers zijn GEEN koorleden — ze worden systematisch uitgesloten uit alle ledentellingen.
   const counts = {
-    all: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
+    all: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND role != 'kaartkoper'`),
     admin: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'admin' AND status = 'actief'`),
     moderator: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'moderator' AND status = 'actief'`),
     stemleider: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'stemleider' AND status = 'actief'`),
     lid: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'lid' AND status = 'actief'`),
     pianist: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'pianist' AND status = 'actief'`),
     dirigent: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'dirigent' AND status = 'actief'`),
-    actief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief'`),
-    inactief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'inactief' AND (is_test_account IS NULL OR is_test_account = 0)`),
+    actief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND role != 'kaartkoper'`),
+    inactief: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE status = 'inactief' AND role != 'kaartkoper' AND (is_test_account IS NULL OR is_test_account = 0)`),
     online: await queryOne<any>(c.env.DB, `SELECT COUNT(DISTINCT user_id) as count FROM user_sessions WHERE is_active = 1`),
     bestuur: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE is_bestuurslid = 1 AND status = 'actief'`),
     kaartkoper: await queryOne<any>(c.env.DB, `SELECT COUNT(*) as count FROM users WHERE role = 'kaartkoper' AND status = 'actief'`),
@@ -1821,7 +1823,7 @@ app.get('/admin/leden', async (c) => {
           
           {/* Stats Bar */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-9 gap-4">
+            <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-4">
               <a href="/admin/leden?status=actief" class="text-center hover:bg-gray-50 rounded-lg py-1 transition cursor-pointer" title="Toon alle actieve leden">
                 <p class="text-2xl font-bold text-gray-900">{counts.all?.count || 0}</p>
                 <p class="text-sm text-gray-600">Actieve leden</p>
@@ -1851,10 +1853,7 @@ app.get('/admin/leden', async (c) => {
                 <p class="text-2xl font-bold text-red-600">{counts.admin?.count || 0}</p>
                 <p class="text-sm text-gray-600">Admins</p>
               </a>
-              <a href="/admin/leden?status=actief" class="text-center hover:bg-green-50 rounded-lg py-1 transition cursor-pointer" title="Toon alle actieve leden">
-                <p class="text-2xl font-bold text-green-600">{counts.actief?.count || 0}</p>
-                <p class="text-sm text-gray-600">Actief</p>
-              </a>
+              {/* Bug #21: dubbele "Actief"-badge verwijderd — "Actieve leden" op line 1826 is de enige teller die telt. */}
               <a href="/admin/leden?status=inactief" class="text-center hover:bg-gray-100 rounded-lg py-1 transition cursor-pointer" title="Toon inactieve leden (gestopt maar bewaard voor historie)">
                 <p class="text-2xl font-bold text-gray-500 flex items-center justify-center">
                   <i class="fas fa-user-slash text-sm mr-1"></i>
@@ -2733,6 +2732,7 @@ app.get('/admin/leden/nieuw', async (c) => {
                       <option value="admin">Admin</option>
                       <option value="dirigent">Dirigent</option>
                       <option value="pianist">Pianist</option>
+                      <option value="kaartkoper">🎫 Kaartkoper (geen ledenrechten)</option>
                     </select>
                   </div>
 
@@ -5121,6 +5121,7 @@ app.get('/admin/content/:id', async (c) => {
                   >
                     <option value="publiek" selected={post?.zichtbaarheid === 'publiek' || !post}>Publiek — iedereen (ook niet-leden)</option>
                     <option value="leden" selected={post?.zichtbaarheid === 'leden'}>Alleen leden (ingelogd)</option>
+                    <option value="kaartkopers" selected={post?.zichtbaarheid === 'kaartkopers'}>🎫 Alleen kaartkopers (concert-info, ticket-nieuws)</option>
                     <option value="sopraan" selected={post?.zichtbaarheid === 'sopraan'}>Alleen sopranen</option>
                     <option value="alt" selected={post?.zichtbaarheid === 'alt'}>Alleen alten</option>
                     <option value="tenor" selected={post?.zichtbaarheid === 'tenor'}>Alleen tenoren</option>

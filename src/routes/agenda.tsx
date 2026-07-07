@@ -117,7 +117,8 @@ app.get('/agenda', async (c) => {
       // Get birthdays for this month
       const monthStr = String(month + 1).padStart(2, '0')
       birthdayQuery = `
-        SELECT p.voornaam, p.achternaam, p.foto_url, p.geboortedatum, u.id as user_id, u.stemgroep
+        SELECT p.voornaam, p.achternaam, p.foto_url, p.geboortedatum, u.id as user_id, u.stemgroep,
+               COALESCE(p.toon_geboortedatum, 0) as toon_geboortedatum
         FROM profiles p
         JOIN users u ON u.id = p.user_id
         WHERE u.status = 'actief'
@@ -142,7 +143,8 @@ app.get('/agenda', async (c) => {
       }
 
       birthdayQuery = `
-        SELECT p.voornaam, p.achternaam, p.foto_url, p.geboortedatum, u.id as user_id, u.stemgroep
+        SELECT p.voornaam, p.achternaam, p.foto_url, p.geboortedatum, u.id as user_id, u.stemgroep,
+               COALESCE(p.toon_geboortedatum, 0) as toon_geboortedatum
         FROM profiles p
         JOIN users u ON u.id = p.user_id
         WHERE u.status = 'actief'
@@ -450,7 +452,12 @@ app.get('/agenda', async (c) => {
                               </div>
                               <div class="flex flex-wrap gap-3">
                                 {members.map((m: any) => {
-                                  const age = m.geboortedatum
+                                  // Bug #22 — respecteer privacy-toggle 'toon_geboortedatum':
+                                  // als het lid heeft aangeduid dat de geboortedatum privé is,
+                                  // dan mag ook de LEEFTIJD niet zichtbaar zijn (want die verklapt
+                                  // het geboortejaar via omkeersommetje).
+                                  const magLeeftijdTonen = Number(m.toon_geboortedatum) === 1
+                                  const age = (magLeeftijdTonen && m.geboortedatum)
                                     ? ((parseBrusselsDate(date)?.getFullYear() ?? 0) - (parseBrusselsDate(m.geboortedatum + 'T00:00:00')?.getFullYear() ?? 0))
                                     : null
                                   return (

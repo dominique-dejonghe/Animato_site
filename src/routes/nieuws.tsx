@@ -50,12 +50,21 @@ app.get('/nieuws', async (c) => {
   }
   const visibilityValues: string[] = ['publiek']
   if (user) {
-    visibilityValues.push('leden')
-    const stemKey = (user.stemgroep || '').toLowerCase()
-    const stemLabel = stemMap[stemKey]
-    if (stemLabel) visibilityValues.push(stemLabel)
-    if (user.role === 'admin' || user.role === 'bestuur') {
-      visibilityValues.push('bestuur')
+    // Kaartkopers krijgen NIET 'leden'-berichten te zien, maar wél de speciale 'kaartkopers'-berichten
+    if (user.role === 'kaartkoper') {
+      visibilityValues.push('kaartkopers')
+    } else {
+      visibilityValues.push('leden')
+      // Kaartkopers-berichten mogen echte leden óók zien (admin/bestuur i.h.b. — anders zien ze eigen aankondigingen niet)
+      if (user.role === 'admin' || user.role === 'bestuur' || user.is_bestuurslid === 1) {
+        visibilityValues.push('kaartkopers')
+      }
+      const stemKey = (user.stemgroep || '').toLowerCase()
+      const stemLabel = stemMap[stemKey]
+      if (stemLabel) visibilityValues.push(stemLabel)
+      if (user.role === 'admin' || user.role === 'bestuur') {
+        visibilityValues.push('bestuur')
+      }
     }
   }
   const visibilityPlaceholders = visibilityValues.map(() => '?').join(',')
@@ -207,6 +216,11 @@ app.get('/nieuws', async (c) => {
                           {artikel.zichtbaarheid === 'bestuur' && (
                             <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-purple-100 text-purple-800 shadow-sm">
                               <i class="fas fa-shield-alt mr-1"></i> Bestuur
+                            </span>
+                          )}
+                          {artikel.zichtbaarheid === 'kaartkopers' && (
+                            <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 shadow-sm">
+                              <i class="fas fa-ticket-alt mr-1"></i> Kaartkopers
                             </span>
                           )}
                           {['sopraan','alt','tenor','bas'].includes(artikel.zichtbaarheid) && (

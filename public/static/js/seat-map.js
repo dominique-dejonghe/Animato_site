@@ -415,21 +415,291 @@
     });
   }
 
-  function toggleSeat(seat, el) {
-    const idx = window.selectedSeats.findIndex((s) => s.id === seat.id);
-    if (idx > -1) {
-      window.selectedSeats.splice(idx, 1);
-      el.style.backgroundColor = seat.type === 'wheelchair' ? '#10B981' : '#3B82F6';
-      el.style.zIndex = '0';
-      el.classList.remove('ring-2', 'ring-offset-1', 'ring-animato-accent');
+  // ──────────────────────────────────────────────────────────────
+  // Bug #25 — Seats per rij organiseren voor gap-validatie én voor
+  // "buurstoel zoeken" (rolstoel + begeleider). We groeperen op y-coord
+  // en sorteren binnen elke rij op x-coord — dat is de fysieke volgorde
+  // waarin ze naast elkaar staan.
+  // ──────────────────────────────────────────────────────────────
+  const rowGroups = {};
+  seats.forEach((s) => {
+    const rk = s.y;
+    if (!rowGroups[rk]) rowGroups[rk] = [];
+    rowGroups[rk].push(s);
+  });
+  Object.keys(rowGroups).forEach((rk) => rowGroups[rk].sort((a, b) => a.x - b.x));
+
+  function getRowSeats(seat) {
+    return rowGroups[seat.y] || [];
+  }
+
+  function isSeatAvailable(seat) {
+    return seat && seat.effective_status !== 'occupied' && seat.effective_status !== 'blocked';
+  }
+
+  function isSelected(seatId) {
+    return window.selectedSeats.some((s) => s.id === seatId);
+  }
+
+  /**
+   * Zoek de eerste naastliggende beschikbare stoel in dezelfde rij,
+   * voorkeur rechts (companion-plaats bij rolstoel).
+   * Retourneert de stoel-object of null.
+   */
+  function findAdjacentAvailable(seat, preferRight) {
+    const row = getRowSeats(seat);
+    const idx = row.findIndex((s) => s.id === seat.id);
+    if (idx < 0) return null;
+    const rightSeat = row[idx + 1];
+    const leftSeat = row[idx - 1];
+    if (preferRight) {
+      if (rightSeat && isSeatAvailable(rightSeat) && !isSelected(rightSeat.id)) return rightSeat;
+      if (leftSeat && isSeatAvailable(leftSeat) && !isSelected(leftSeat.id)) return leftSeat;
     } else {
-      window.selectedSeats.push(seat);
-      el.style.backgroundColor = '#F59E0B';
-      el.style.zIndex = '10';
-      el.classList.add('ring-2', 'ring-offset-1', 'ring-animato-accent');
+      if (leftSeat && isSeatAvailable(leftSeat) && !isSelected(leftSeat.id)) return leftSeat;
+      if (rightSeat && isSeatAvailable(rightSeat) && !isSelected(rightSeat.id)) return rightSeat;
+    }
+    return null;
+  }
+
+  /**
+   * Bug #25 — Detecteer 'orphan' (losse stoel) tussen bezette/geselecteerde stoelen.
+   * Als een lege stoel enkel omringd wordt door bezet/geselecteerd, kan hij niet
+   * meer verkocht worden. Deze validatie kijkt of ná de huidige selectie zo'n gap
+   * ontstaat. Return true = OK (geen probleem), false = zou een orphan maken.
+   *
+   * Regel: voor elke rij checken we of er ergens één beschikbare stoel is
+   * die tussen occupied/selected zit. Randstoelen tellen niet als gap
+   * (want daar zit maar één buur).
+   */
+  function wouldCreateGap(candidateSeats) {
+    // Bouw de "na deze actie"-state per rij op
+    const selectedIds = new Set(candidateSeats.map((s) => s.id));
+    for (const rk of Object.keys(rowGroups)) {
+      const row = rowGroups[rk];
+      for (let i = 1; i < row.length - 1; i++) {
+        const s = row[i];
+        // Alleen kijken naar échte beschikbare zetels die na deze actie
+        // NOG steeds vrij zouden zijn (dus niet in de selectie).
+        if (!isSeatAvailable(s)) continue;
+        if (selectedIds.has(s.id)) continue;
+        const left = row[i - 1];
+        const right = row[i + 1];
+        // Een buur telt als "blokkerend" als hij bezet is OF als hij in de nieuwe selectie zit
+        const leftBlocked = !isSeatAvailable(left) || selectedIds.has(left.id);
+        const rightBlocked = !isSeatAvailable(right) || selectedIds.has(right.id);
+        if (leftBlocked && rightBlocked) {
+          return { orphan: s, row: row };
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Kleine, non-blocking modal-achtige confirmation. Gebruikt native <dialog>
+   * met fallback naar confirm() voor oudere browsers.
+   * cb(true) = ja, cb(false) = nee
+   */
+  function askConfirm(title, message, yesLabel, noLabel, cb) {
+    // Native <dialog> support?
+    if (typeof HTMLDialogElement !== 'undefined') {
+      const dlg = document.createElement('dialog');
+      dlg.style.cssText = 'padding:0;border:none;border-radius:16px;max-width:400px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);';
+      dlg.innerHTML =
+        '<div style="padding:24px;font-family:system-ui,-apple-system,sans-serif;">' +
+          '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">' +
+            '<i class="fas fa-wheelchair" style="color:#10B981;font-size:24px;"></i>' +
+            '<h3 style="margin:0;font-size:18px;font-weight:700;color:#111827;">' + title + '</h3>' +
+          '</div>' +
+          '<p style="margin:0 0 20px 0;color:#4B5563;line-height:1.5;font-size:14px;">' + message + '</p>' +
+          '<div style="display:flex;gap:8px;justify-content:flex-end;">' +
+            '<button type="button" data-action="no" style="padding:10px 18px;background:white;border:1px solid #D1D5DB;border-radius:8px;font-weight:500;cursor:pointer;">' + noLabel + '</button>' +
+            '<button type="button" data-action="yes" style="padding:10px 18px;background:#10B981;color:white;border:none;border-radius:8px;font-weight:600;cursor:pointer;">' + yesLabel + '</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(dlg);
+      const done = (yes) => {
+        try { dlg.close(); } catch (_) {}
+        dlg.remove();
+        cb(yes);
+      };
+      dlg.querySelector('[data-action="yes"]').addEventListener('click', () => done(true));
+      dlg.querySelector('[data-action="no"]').addEventListener('click', () => done(false));
+      dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(false); });
+      try { dlg.showModal(); } catch (_) { cb(window.confirm(title + '\n\n' + message)); }
+    } else {
+      cb(window.confirm(title + '\n\n' + message));
+    }
+  }
+
+  function showToast(message, isError) {
+    const toast = document.createElement('div');
+    toast.style.cssText =
+      'position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:9999;' +
+      'padding:12px 20px;border-radius:8px;font-family:system-ui,-apple-system,sans-serif;' +
+      'font-size:14px;font-weight:500;box-shadow:0 8px 30px rgba(0,0,0,0.2);max-width:90%;' +
+      'background:' + (isError ? '#FEE2E2' : '#DBEAFE') + ';' +
+      'color:' + (isError ? '#991B1B' : '#1E40AF') + ';' +
+      'border:1px solid ' + (isError ? '#FCA5A5' : '#93C5FD') + ';';
+    toast.textContent = message;
+    document.body.appendChild(toast);
+    setTimeout(() => {
+      toast.style.transition = 'opacity 300ms';
+      toast.style.opacity = '0';
+      setTimeout(() => toast.remove(), 300);
+    }, 3500);
+  }
+
+  function selectSeatCore(seat, el) {
+    window.selectedSeats.push(seat);
+    el.style.backgroundColor = '#F59E0B';
+    el.style.zIndex = '10';
+    el.classList.add('ring-2', 'ring-offset-1', 'ring-animato-accent');
+  }
+
+  function deselectSeatCore(seat, el) {
+    const idx = window.selectedSeats.findIndex((s) => s.id === seat.id);
+    if (idx > -1) window.selectedSeats.splice(idx, 1);
+    el.style.backgroundColor = seat.type === 'wheelchair' ? '#10B981' : '#3B82F6';
+    el.style.zIndex = '0';
+    el.classList.remove('ring-2', 'ring-offset-1', 'ring-animato-accent');
+  }
+
+  function toggleSeat(seat, el) {
+    const alreadySelected = window.selectedSeats.some((s) => s.id === seat.id);
+
+    // === DESELECTIE ===
+    if (alreadySelected) {
+      deselectSeatCore(seat, el);
+      // Bij deselecteren van een rolstoel-stoel: probeer ook de gekoppelde
+      // companion-stoel(en) los te maken (herkenbaar via __wheelchairOf marker)
+      if (seat.type === 'wheelchair') {
+        const companions = window.selectedSeats.filter((s) => s.__wheelchairOf === seat.id);
+        companions.forEach((c) => {
+          const cEl = seatElements.get(c.id);
+          if (cEl) deselectSeatCore(c, cEl);
+        });
+      }
+      updateTotal();
+      renderChips();
+      return;
+    }
+
+    // === SELECTIE ===
+
+    // Bug #26 — Rolstoel = 2 of 3 stoelen (Variant B: expliciete keuze)
+    // Rolstoel neemt de plaats van 2 stoelen in (rolstoel + vervoermiddel-blok).
+    // Optioneel: begeleider (+1 stoel) — vragen via bevestigingsdialoog.
+    if (seat.type === 'wheelchair') {
+      // Zoek een naastliggende stoel voor de rolstoel-blokkering
+      const blockSeat = findAdjacentAvailable(seat, true);
+      if (!blockSeat) {
+        showToast('Deze rolstoelplaats heeft geen vrije buurstoel voor de rolstoel zelf. Kies een andere plaats of contacteer ons.', true);
+        return;
+      }
+
+      askConfirm(
+        'Rolstoelplaats reserveren',
+        'Een rolstoelplaats neemt 2 stoelen in (de rolstoel + het vervoermiddel). ' +
+        'Neem je ook een begeleider mee? Dan reserveren we een 3de stoel ernaast.',
+        'Ja, met begeleider (3 stoelen)',
+        'Nee, alleen (2 stoelen)',
+        (metBegeleider) => {
+          // Gap-check
+          const candidate = [...window.selectedSeats, seat, blockSeat];
+          let companionSeat = null;
+          if (metBegeleider) {
+            companionSeat = findAdjacentAvailable(blockSeat, true);
+            if (!companionSeat) {
+              // Fallback: probeer links van rolstoel
+              const row = getRowSeats(seat);
+              const idx = row.findIndex((s) => s.id === seat.id);
+              const otherSide = row[idx - 1];
+              if (otherSide && isSeatAvailable(otherSide) && !isSelected(otherSide.id)) {
+                companionSeat = otherSide;
+              }
+            }
+            if (!companionSeat) {
+              showToast('Geen vrije stoel gevonden voor de begeleider. Enkel 2 stoelen worden gereserveerd.', false);
+            } else {
+              candidate.push(companionSeat);
+            }
+          }
+          const gap = wouldCreateGap(candidate);
+          if (gap) {
+            askConfirm(
+              'Losse stoel na deze keuze',
+              'Deze reservatie zou stoel ' + seatLabel(gap.orphan) + ' als losse zetel tussen bezette stoelen laten staan. ' +
+              'Die is dan lastig verkoopbaar. Wil je toch doorgaan?',
+              'Ja, toch reserveren',
+              'Kies andere plaats',
+              (forceOk) => {
+                if (!forceOk) return;
+                doSelectWheelchair(seat, el, blockSeat, companionSeat);
+              }
+            );
+          } else {
+            doSelectWheelchair(seat, el, blockSeat, companionSeat);
+          }
+        }
+      );
+      return;
+    }
+
+    // Gewone stoel — gap-check
+    const candidate = [...window.selectedSeats, seat];
+    const gap = wouldCreateGap(candidate);
+    if (gap) {
+      askConfirm(
+        'Losse stoel tussen bezette stoelen',
+        'Als je deze stoel kiest, blijft stoel ' + seatLabel(gap.orphan) + ' alleen achter tussen bezette stoelen. ' +
+        'Die is dan moeilijk te verkopen. We adviseren een andere plek — maar je mag doorgaan als je wilt.',
+        'Ja, toch reserveren',
+        'Kies andere plaats',
+        (forceOk) => {
+          if (!forceOk) return;
+          selectSeatCore(seat, el);
+          updateTotal();
+          renderChips();
+        }
+      );
+      return;
+    }
+
+    selectSeatCore(seat, el);
+    updateTotal();
+    renderChips();
+  }
+
+  function doSelectWheelchair(seat, el, blockSeat, companionSeat) {
+    // Marker toevoegen zodat we ze bij deselect terug kunnen vinden
+    const blockCopy = Object.assign({}, blockSeat, { __wheelchairOf: seat.id });
+    selectSeatCore(seat, el);
+    const bEl = seatElements.get(blockSeat.id);
+    if (bEl) {
+      // Push blockCopy handmatig zodat de marker overleeft
+      window.selectedSeats.push(blockCopy);
+      bEl.style.backgroundColor = '#F59E0B';
+      bEl.style.zIndex = '10';
+      bEl.classList.add('ring-2', 'ring-offset-1', 'ring-animato-accent');
+    }
+    if (companionSeat) {
+      const cCopy = Object.assign({}, companionSeat, { __wheelchairOf: seat.id });
+      const cEl = seatElements.get(companionSeat.id);
+      if (cEl) {
+        window.selectedSeats.push(cCopy);
+        cEl.style.backgroundColor = '#F59E0B';
+        cEl.style.zIndex = '10';
+        cEl.classList.add('ring-2', 'ring-offset-1', 'ring-animato-accent');
+      }
     }
     updateTotal();
     renderChips();
+    showToast(companionSeat
+      ? '3 stoelen gereserveerd (rolstoel + vervoermiddel + begeleider)'
+      : '2 stoelen gereserveerd (rolstoel + vervoermiddel)',
+      false);
   }
 
   // ================================================================

@@ -97,8 +97,26 @@ export async function requireAuth(c: Context<{ Bindings: Bindings }>, next: Next
     const path = c.req.path
     const url = new URL(c.req.url)
     const fullPath = url.pathname + url.search
-    const wantsHtml = (c.req.header('Accept') || '').includes('text/html') &&
-                      !path.startsWith('/api/')
+    const method = c.req.method.toUpperCase()
+    const acceptHeader = c.req.header('Accept') || ''
+    const userAgent = c.req.header('User-Agent') || ''
+    // Bug #24 — WhatsApp poll-links openen soms in de WA in-app browser, die minder
+    // brave Accept-headers stuurt (vaak "*/*" of leeg). Vroeger vielen die door de
+    // Accept-check heen en kregen ze een JSON 401 "Niet ingelogd" te zien.
+    // Nu: elke GET-request op een niet-API-path krijgt de vriendelijke HTML-landing,
+    // ook zonder text/html Accept-header. Dat dekt WhatsApp, Facebook Messenger,
+    // Instagram in-app en LinkedIn browsers correct af.
+    const isApiCall = path.startsWith('/api/')
+    const wantsHtml = !isApiCall && method === 'GET' &&
+                      (acceptHeader.includes('text/html') ||
+                       acceptHeader.includes('*/*') ||
+                       acceptHeader === '')
+
+    // Detecteer in-app browsers voor een extra tip
+    const isInAppBrowser =
+      /wv\)|Instagram|FBAN|FBAV|FB_IAB|Line\/|MicroMessenger|Twitter|LinkedInApp/i.test(userAgent) ||
+      // WhatsApp mobile heeft geen expliciete UA-token, maar wel typische Android WebView-signatuur
+      (/Android.*Version\/[\d.]+/i.test(userAgent) && !/Chrome/i.test(userAgent))
 
     if (wantsHtml) {
       // Wis stale cookies preventief → schone re-login zonder cookie-spook
@@ -112,6 +130,27 @@ export async function requireAuth(c: Context<{ Bindings: Bindings }>, next: Next
         ? 'Je sessie is verlopen of niet meer geldig. Log opnieuw in om verder te gaan.'
         : 'Je moet ingelogd zijn om deze pagina te bekijken. Na het inloggen brengen we je meteen terug.'
       const icon = hadToken ? 'fa-clock' : 'fa-sign-in-alt'
+      const loginUrl = `/login?redirect=${encodeURIComponent(fullPath)}`
+      // Volledige externe URL voor "open in browser"-suggestie
+      const fullExternalUrl = `${url.origin}${fullPath}`
+
+      // Bug #24 — in-app browser waarschuwing: hier komen cookies niet uit
+      // een eerder inlog-sessie in Chrome, dus een user die net in Chrome
+      // inlogde en dan terug op de WhatsApp-link klikt, komt hier opnieuw uit.
+      const inAppBanner = isInAppBrowser ? `
+        <div class="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-left">
+          <div class="flex items-start gap-2">
+            <i class="fas fa-exclamation-triangle text-amber-500 mt-0.5"></i>
+            <div class="flex-1">
+              <p class="text-sm font-semibold text-amber-900 mb-1">Je opent deze link binnen een app (WhatsApp/Facebook/...)</p>
+              <p class="text-xs text-amber-800 mb-2">In deze mini-browser wordt je login niet onthouden. Open de link in <strong>Chrome</strong> of <strong>Safari</strong> voor de beste ervaring.</p>
+              <button type="button" onclick="navigator.clipboard.writeText('${fullExternalUrl}').then(()=>{this.innerText='✓ Link gekopieerd — plak in Chrome'});"
+                      class="text-xs px-3 py-1.5 bg-white border border-amber-300 rounded font-medium text-amber-900 hover:bg-amber-100">
+                <i class="fas fa-copy mr-1"></i>Kopieer link
+              </button>
+            </div>
+          </div>
+        </div>` : ''
 
       return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${title}</title>
         <script src="https://cdn.tailwindcss.com"></script>
@@ -122,11 +161,12 @@ export async function requireAuth(c: Context<{ Bindings: Bindings }>, next: Next
             <i class="fas ${icon} text-animato-primary text-5xl mb-4" style="color:#00A9CE"></i>
             <h1 class="text-2xl font-bold text-gray-800 mb-2">${title}</h1>
             <p class="text-gray-600 mb-6">${message}</p>
-            <a href="/login?redirect=${encodeURIComponent(fullPath)}" class="inline-block px-6 py-3 text-white rounded-lg font-medium hover:opacity-90 transition" style="background-color:#00A9CE">
+            ${inAppBanner}
+            <a href="${loginUrl}" class="inline-block w-full px-6 py-3 text-white rounded-lg font-medium hover:opacity-90 transition" style="background-color:#00A9CE">
               <i class="fas fa-sign-in-alt mr-2"></i>Inloggen
             </a>
           </div>
-        </body></html>`, 401)
+        </body></html>`, 200)
     }
     if (!authToken && !impersonateToken) {
       return c.json({ error: 'Niet ingelogd' }, 401)

@@ -54,7 +54,7 @@ export async function requireTicketScanner(
                     && !path.startsWith('/api/')
   if (wantsHtml) {
     return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><title>Geen toegang</title>
-      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="/static/css/tailwind.css" rel="stylesheet" />
       <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
       </head>
       <body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">

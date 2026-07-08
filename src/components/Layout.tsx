@@ -127,43 +127,26 @@ export const Layout: FC<LayoutProps> = ({
         {/* Animato branding colors */}
         <meta name="theme-color" content="#00A9CE" />
 
-        {/* ⚡ PERFORMANCE (Dominique 2026-07-07):
-            - preconnect naar CDN's zodat DNS+TLS al bezig is tijdens HTML parse.
-            - tailwind.config STAAT BEWUST VÓÓR het CDN-script: bij defer laadt
-              cdn.tailwindcss.com pas na HTML-parse, en tegen die tijd is
-              window.tailwind.config al gezet → geen FOUC met verkeerde kleuren.
-            - Font Awesome + Google Fonts al beperkt via preconnect. */}
-        <link rel="preconnect" href="https://cdn.tailwindcss.com" crossorigin />
+        {/* ⚡ PERFORMANCE — 2026-07-08:
+            Vroeger laadden we Tailwind via cdn.tailwindcss.com (JIT compiler
+            in de browser). Nadeel: traag first-paint EN als je 'defer' zet
+            breekt de layout (admin-sidebar met bg-animato-secondary werd wit
+            op wit). Zie #TAILWIND-BREAK.
+
+            Nu: pre-compiled bundle via `tailwindcss` CLI in de build-pipeline.
+            - Één statisch bestand: /static/css/tailwind.css (~50kB gzipped)
+            - Browser-cachet dit tussen paginas
+            - Geen browser-CPU voor compileren
+            - Geen FOUC — CSS is er vóór eerste paint
+            - Custom colors (animato-primary etc.) staan in tailwind.config.js */}
         <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
-        <link rel="dns-prefetch" href="https://cdn.tailwindcss.com" />
         <link rel="dns-prefetch" href="https://cdn.jsdelivr.net" />
 
-        {/* Tailwind config MOET vóór het CDN-script staan om FOUC te vermijden.
-            De cdn.tailwindcss.com bundle leest window.tailwind.config bij load. */}
-        <script dangerouslySetInnerHTML={{
-          __html: `
-            window.tailwind = window.tailwind || {};
-            window.tailwind.config = {
-              theme: {
-                extend: {
-                  colors: {
-                    'animato-primary': '#00A9CE',
-                    'animato-secondary': '#1B4D5C',
-                    'animato-accent': '#F59E0B',
-                  }
-                }
-              }
-            }
-          `
-        }} />
-        {/* Tailwind CSS (with typography plugin) — DEFER: laadt async, blokkeert
-            HTML-parse niet. Zichtbare inhoud (nav, hero) verschijnt sneller. */}
-        <script src="https://cdn.tailwindcss.com?plugins=typography" defer></script>
+        {/* Tailwind CSS — pre-compiled, geen runtime CDN meer nodig. */}
+        <link href="/static/css/tailwind.css" rel="stylesheet" />
 
-        {/* Font Awesome Icons — non-blocking via preload+onload truc.
-            De <noscript>-fallback zorgt dat het bij uitgeschakelde JS toch werkt. */}
-        <link rel="preload" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
-        <noscript><link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet" /></noscript>
+        {/* Font Awesome Icons — synchroon om icoon-flash te voorkomen. */}
+        <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet" />
 
         {/* Google Fonts - Playfair Display & Inter */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />

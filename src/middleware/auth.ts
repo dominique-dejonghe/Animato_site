@@ -153,7 +153,7 @@ export async function requireAuth(c: Context<{ Bindings: Bindings }>, next: Next
         </div>` : ''
 
       return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>${title}</title>
-        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="/static/css/tailwind.css" rel="stylesheet" />
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
         </head>
         <body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
@@ -243,7 +243,7 @@ export function requireRole(...roles: UserRole[]) {
         setCookie(c, 'auth_token', '', { maxAge: 0, path: '/', httpOnly: true, secure: true, sameSite: 'Lax' })
         setCookie(c, 'admin_impersonate_token', '', { maxAge: 0, path: '/', httpOnly: true, secure: true, sameSite: 'Lax' })
         return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Sessie verouderd</title>
-          <script src="https://cdn.tailwindcss.com"></script>
+          <link href="/static/css/tailwind.css" rel="stylesheet" />
           <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
           </head>
           <body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
@@ -434,7 +434,7 @@ export async function requireBestuurslid(c: Context<{ Bindings: Bindings }>, nex
                     !path.startsWith('/api/')
   if (wantsHtml) {
     return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><title>Geen toegang</title>
-      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="/static/css/tailwind.css" rel="stylesheet" />
       <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
       </head>
       <body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">
@@ -494,7 +494,7 @@ export async function requireLid(c: Context<{ Bindings: Bindings }>, next: Next)
                       !path.startsWith('/api/')
     if (wantsHtml) {
       return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Geen toegang</title>
-        <script src="https://cdn.tailwindcss.com"></script>
+        <link href="/static/css/tailwind.css" rel="stylesheet" />
         <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
         </head>
         <body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">

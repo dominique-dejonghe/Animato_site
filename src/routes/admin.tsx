@@ -967,7 +967,7 @@ app.get('/admin', async (c) => {
     const stack = err?.stack || err?.message || String(err)
     const userInfo = `id=${user?.id} email=${user?.email} role=${user?.role} is_bestuurslid=${user?.is_bestuurslid}`
     return c.html(`<!DOCTYPE html><html lang="nl"><head><meta charset="UTF-8"><title>Admin error</title>
-      <script src="https://cdn.tailwindcss.com"></script>
+      <link href="/static/css/tailwind.css" rel="stylesheet" />
       <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
       </head>
       <body class="min-h-screen bg-gray-50 p-6">

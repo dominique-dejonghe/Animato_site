@@ -1,0 +1,11 @@
+/**
+ * Tailwind entry point.
+ * Wordt via `tailwindcss -i src/tailwind-input.css -o public/static/css/tailwind.css`
+ * gecompileerd naar één statisch CSS-bestand dat via <link> ingelezen wordt.
+ *
+ * Voeg hier GEEN globale project-styles toe — die staan in
+ * public/static/css/styles.css (los ingeladen zodat Tailwind ze niet purget).
+ */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

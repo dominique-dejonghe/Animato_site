@@ -69,7 +69,7 @@ app.get('/account/setup', async (c) => {
   return c.html(`<!DOCTYPE html>
 <html lang="nl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Account activeren — Animato</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<link href="/static/css/tailwind.css" rel="stylesheet" />
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
 </head>
 <body class="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-cyan-50 p-4">
@@ -185,7 +185,7 @@ app.post('/account/setup', async (c) => {
   return c.html(`<!DOCTYPE html>
 <html lang="nl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Account geactiveerd — Animato</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<link href="/static/css/tailwind.css" rel="stylesheet" />
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
 <meta http-equiv="refresh" content="3;url=/mijn-tickets">
 </head>
@@ -343,7 +343,7 @@ function renderSetupError(title: string, message: string, retryUrl?: string): st
   return `<!DOCTYPE html>
 <html lang="nl"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>${escapeHtml(title)} — Animato</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<link href="/static/css/tailwind.css" rel="stylesheet" />
 <link href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css" rel="stylesheet">
 </head>
 <body class="min-h-screen flex items-center justify-center bg-gray-50 p-4">

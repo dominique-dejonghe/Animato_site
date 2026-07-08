@@ -7,6 +7,7 @@ import { MemberPicker, MemberPickerScript } from '../components/MemberPicker'
 import { TaskCommentsCollapsible, TaskCommentsScript } from '../components/TaskComments'
 import { requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
+import { createNotification } from '../utils/notifications'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -2215,6 +2216,25 @@ app.post('/api/admin/projects/tasks/create', async (c) => {
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).bind(project_id, titel, beschrijving || null, deadline || null, verantwoordelijke_id || null, prioriteit, nextOrder).run()
 
+  // 📬 Notificatie versturen aan de verantwoordelijke (Dominique, 2026-07-07)
+  if (verantwoordelijke_id && Number(verantwoordelijke_id) > 0) {
+    try {
+      const project = await queryOne<any>(c.env.DB,
+        `SELECT titel FROM concert_projects WHERE id = ? LIMIT 1`, [project_id])
+      const dlText = deadline ? ` — deadline ${deadline}` : ''
+      await createNotification(
+        c.env.DB,
+        Number(verantwoordelijke_id),
+        'taak',
+        `Nieuwe taak toegewezen${dlText}`,
+        `"${titel}" uit project "${project?.titel || 'onbekend'}"`,
+        '/leden/taken'
+      )
+    } catch (e) {
+      console.error('[projects/tasks/create] notificatie mislukt:', e)
+    }
+  }
+
   return c.redirect(`/admin/projects/${project_id}?tab=tasks`)
 })
 
@@ -2341,12 +2361,37 @@ app.post('/api/admin/projects/tasks/:id/update', async (c) => {
   const id = c.req.param('id')
   const body = await c.req.parseBody()
   const { project_id, titel, deadline, verantwoordelijke_id, prioriteit, beschrijving } = body
-  
+
+  // Vorige verantwoordelijke bijhouden voor notificatie-diff
+  const prevRow = await queryOne<any>(c.env.DB,
+    `SELECT verantwoordelijke_id FROM concert_project_tasks WHERE id = ? LIMIT 1`, [id])
+  const prevRespId = prevRow?.verantwoordelijke_id ? Number(prevRow.verantwoordelijke_id) : null
+  const newRespId = verantwoordelijke_id ? Number(verantwoordelijke_id) : null
+
   await c.env.DB.prepare(
-    `UPDATE concert_project_tasks 
+    `UPDATE concert_project_tasks
      SET titel = ?, deadline = ?, verantwoordelijke_id = ?, prioriteit = ?, beschrijving = ?
      WHERE id = ?`
-  ).bind(titel, deadline || null, verantwoordelijke_id || null, prioriteit, beschrijving, id).run()
+  ).bind(titel, deadline || null, newRespId, prioriteit, beschrijving, id).run()
+
+  // 📬 Notificatie enkel bij ECHTE toewijzing aan andere gebruiker
+  if (newRespId && newRespId !== prevRespId) {
+    try {
+      const project = await queryOne<any>(c.env.DB,
+        `SELECT titel FROM concert_projects WHERE id = ? LIMIT 1`, [project_id])
+      const dlText = deadline ? ` — deadline ${deadline}` : ''
+      await createNotification(
+        c.env.DB,
+        newRespId,
+        'taak',
+        `Taak toegewezen aan jou${dlText}`,
+        `"${titel}" uit project "${project?.titel || 'onbekend'}"`,
+        '/leden/taken'
+      )
+    } catch (e) {
+      console.error('[projects/tasks/update] notificatie mislukt:', e)
+    }
+  }
 
   return c.redirect(`/admin/projects/${project_id}?tab=tasks`)
 })

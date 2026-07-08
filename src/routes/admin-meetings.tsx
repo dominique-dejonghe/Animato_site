@@ -7,6 +7,7 @@ import { TaskCommentsCollapsible, TaskCommentsScript } from '../components/TaskC
 import { requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
 import { formatBrusselsTime } from '../utils/time'
+import { createNotification } from '../utils/notifications'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1527,6 +1528,27 @@ app.post('/api/admin/meetings/actions/create', async (c) => {
      VALUES (?, ?, ?, ?, ?, ?)`
   ).bind(meeting_id, titel, beschrijving || '', verantwoordelijke_id || null, deadline || null, prio).run()
 
+  // 📬 Notificatie versturen aan de verantwoordelijke (Dominique, 2026-07-07)
+  // Zodat de persoon direct in de "Wat staat er open?"-stack op /leden ziet
+  // dat er een taak op zijn/haar naam staat, met link naar /leden/taken.
+  if (verantwoordelijke_id && Number(verantwoordelijke_id) > 0) {
+    try {
+      const meeting = await queryOne<any>(c.env.DB,
+        `SELECT titel FROM meetings WHERE id = ? LIMIT 1`, [meeting_id])
+      const dlText = deadline ? ` — deadline ${deadline}` : ''
+      await createNotification(
+        c.env.DB,
+        Number(verantwoordelijke_id),
+        'taak',
+        `Nieuwe taak toegewezen${dlText}`,
+        `"${titel}" uit vergadering "${meeting?.titel || 'onbekend'}"`,
+        '/leden/taken'
+      )
+    } catch (e) {
+      console.error('[meetings/actions/create] notificatie mislukt:', e)
+    }
+  }
+
   return c.redirect(`/admin/meetings/${meeting_id}?tab=actions`)
 })
 
@@ -1554,6 +1576,12 @@ app.post('/api/admin/meetings/actions/:id/update', async (c) => {
   const { meeting_id, titel, beschrijving, verantwoordelijke_id, deadline, prioriteit } = body
   const prio = prioriteit ? Math.min(3, Math.max(1, Number(prioriteit))) : 2
 
+  // Bewaar de vorige verantwoordelijke om alleen te notificeren bij wijziging
+  const prevRow = await queryOne<any>(c.env.DB,
+    `SELECT verantwoordelijke_id FROM meeting_action_items WHERE id = ? LIMIT 1`, [id])
+  const prevRespId = prevRow?.verantwoordelijke_id ? Number(prevRow.verantwoordelijke_id) : null
+  const newRespId = verantwoordelijke_id ? Number(verantwoordelijke_id) : null
+
   await c.env.DB.prepare(
     `UPDATE meeting_action_items
      SET titel = ?, beschrijving = ?, verantwoordelijke_id = ?, deadline = ?, prioriteit = ?
@@ -1561,11 +1589,31 @@ app.post('/api/admin/meetings/actions/:id/update', async (c) => {
   ).bind(
     titel,
     beschrijving || '',
-    verantwoordelijke_id ? Number(verantwoordelijke_id) : null,
+    newRespId,
     deadline || null,
     prio,
     id
   ).run()
+
+  // 📬 Notificatie enkel bij ECHTE wijziging naar een andere gebruiker.
+  // Vermijdt spam bij simpele edit (deadline of titel aanpassen).
+  if (newRespId && newRespId !== prevRespId) {
+    try {
+      const meeting = await queryOne<any>(c.env.DB,
+        `SELECT titel FROM meetings WHERE id = ? LIMIT 1`, [meeting_id])
+      const dlText = deadline ? ` — deadline ${deadline}` : ''
+      await createNotification(
+        c.env.DB,
+        newRespId,
+        'taak',
+        `Taak toegewezen aan jou${dlText}`,
+        `"${titel}" uit vergadering "${meeting?.titel || 'onbekend'}"`,
+        '/leden/taken'
+      )
+    } catch (e) {
+      console.error('[meetings/actions/update] notificatie mislukt:', e)
+    }
+  }
 
   return c.redirect(`/admin/meetings/${meeting_id}?tab=actions`)
 })

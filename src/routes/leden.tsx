@@ -256,8 +256,8 @@ app.get('/leden', async (c) => {
     newCounts.nieuws = nNieuws
   } catch (_) { /* tabel ontbreekt? laat default 0 */ }
 
-  // ⚡ PERFORMANCE: totalDonations + profileData + spotlight in één ronde
-  const [totalDonations, profileData, spotlight] = await Promise.all([
+  // ⚡ PERFORMANCE: totalDonations + profileData + spotlight + taken in één ronde
+  const [totalDonations, profileData, spotlight, meetingTasks, projectTasks] = await Promise.all([
     // Total donations for user
     queryOne<any>(c.env.DB, `
       SELECT SUM(amount) as total FROM donations WHERE user_id = ? AND status = 'paid'
@@ -270,7 +270,78 @@ app.get('/leden', async (c) => {
     `, [user.id]),
     // 🌟 Koorlid in de kijker — één spotlight per request, dismissible
     pickSpotlight(c.env.DB, user.id).catch(() => null),
+    // 🗂️ Openstaande vergader-actiepunten toegewezen aan dit lid
+    // (bron voor "Mijn taken"-tegel én voor dashboardActions urgentie-stack)
+    queryAll<any>(
+      c.env.DB,
+      `SELECT
+         'meeting' AS bron,
+         mai.id AS id,
+         mai.titel AS titel,
+         mai.beschrijving AS beschrijving,
+         mai.deadline AS deadline,
+         mai.status AS status,
+         mai.prioriteit AS prioriteit_raw,
+         mai.created_at AS created_at,
+         m.id AS bron_id,
+         m.titel AS bron_titel,
+         m.datum AS bron_datum
+       FROM meeting_action_items mai
+       JOIN meetings m ON m.id = mai.meeting_id
+       WHERE mai.verantwoordelijke_id = ?
+         AND mai.status NOT IN ('done', 'cancelled')
+       ORDER BY
+         CASE WHEN mai.deadline IS NULL THEN 1 ELSE 0 END,
+         mai.deadline ASC`,
+      [user.id]
+    ).catch(() => []),
+    // 🎵 Openstaande projecttaken toegewezen aan dit lid
+    queryAll<any>(
+      c.env.DB,
+      `SELECT
+         'project' AS bron,
+         cpt.id AS id,
+         cpt.titel AS titel,
+         cpt.beschrijving AS beschrijving,
+         cpt.deadline AS deadline,
+         cpt.status AS status,
+         cpt.prioriteit AS prioriteit_raw,
+         cpt.created_at AS created_at,
+         cp.id AS bron_id,
+         cp.titel AS bron_titel,
+         cp.concert_datum AS bron_datum
+       FROM concert_project_tasks cpt
+       JOIN concert_projects cp ON cp.id = cpt.project_id
+       WHERE cpt.verantwoordelijke_id = ?
+         AND cpt.status NOT IN ('done')
+       ORDER BY
+         CASE WHEN cpt.deadline IS NULL THEN 1 ELSE 0 END,
+         cpt.deadline ASC`,
+      [user.id]
+    ).catch(() => []),
   ])
+
+  // Combineer + normaliseer taken uit beide bronnen.
+  // meeting_action_items.prioriteit is INT (1-4), concert_project_tasks.prioriteit is TEXT.
+  // We mappen naar één stringveld voor UI-consistentie.
+  const meetingPrioMap: Record<number, string> = { 1: 'laag', 2: 'medium', 3: 'hoog', 4: 'urgent' }
+  const myTasks: any[] = [
+    ...(meetingTasks || []).map((t: any) => ({
+      ...t,
+      prioriteit: meetingPrioMap[Number(t.prioriteit_raw)] || 'medium',
+    })),
+    ...(projectTasks || []).map((t: any) => ({
+      ...t,
+      prioriteit: t.prioriteit_raw || 'medium',
+    })),
+  ]
+  // Algemene sortering: deadline ASC, NULLs achteraan
+  myTasks.sort((a, b) => {
+    if (!a.deadline && !b.deadline) return 0
+    if (!a.deadline) return 1
+    if (!b.deadline) return -1
+    return String(a.deadline).localeCompare(String(b.deadline))
+  })
 
   const profileFields = profileData ? [
     profileData.voornaam, profileData.achternaam, profileData.telefoon,
@@ -526,6 +597,62 @@ app.get('/leden', async (c) => {
     })
   }
 
+  // 🗂️ TAKEN → DASHBOARD-ACTIES (Dominique 2026-07-07)
+  // ─────────────────────────────────────────────────────────────────────
+  // Niet alleen tonen in de "Mijn taken"-tegel maar óók bovenaan in de
+  // "Wat staat er open?"-stack, zodat een urgente/verlopen taak niet gemist
+  // wordt. Prioriteit hangt af van deadline + prioriteit-label:
+  //   - Verlopen deadline (in het verleden)      → priority 0.5 (bovenaan, na polls)
+  //   - Deadline vandaag                          → priority 1.5
+  //   - 'urgent' label of deadline morgen         → priority 2.5
+  //   - Deadline binnen 7 dagen                   → priority 3.5
+  //   - Geen deadline of >7d weg → NIET in stack (staat in "Mijn taken"-tegel lager)
+  // Max 3 taken in de stack — anders wordt het geen "actie-overzicht"
+  // meer maar een dumping ground.
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const in7daysISO = (() => { const d = new Date(); d.setDate(d.getDate() + 7); return d.toISOString().slice(0, 10) })()
+  const tomorrowISO = (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10) })()
+
+  const urgentTasks = myTasks
+    .filter((t: any) => {
+      // Zonder deadline én niet-urgent-gelabeld → niet in stack
+      if (!t.deadline) return t.prioriteit === 'urgent'
+      // In het verleden, vandaag of binnen 7 dagen
+      return t.deadline <= in7daysISO
+    })
+    .slice(0, 3)
+
+  for (const t of urgentTasks) {
+    const isMeeting = t.bron === 'meeting'
+    const dl = t.deadline as string | null
+    let priority = 3.5
+    let deadlineText = ''
+    if (dl && dl < todayISO) {
+      priority = 0.5
+      deadlineText = ' — deadline verstreken!'
+    } else if (dl === todayISO) {
+      priority = 1.5
+      deadlineText = ' — deadline vandaag'
+    } else if (dl === tomorrowISO || t.prioriteit === 'urgent') {
+      priority = 2.5
+      deadlineText = dl ? ' — deadline morgen' : ' — urgent'
+    } else if (dl) {
+      priority = 3.5
+      const daysLeft = Math.ceil((new Date(dl).getTime() - new Date(todayISO).getTime()) / 86400000)
+      deadlineText = ` — nog ${daysLeft} dagen`
+    }
+    dashboardActions.push({
+      icon: isMeeting ? 'fas fa-users' : 'fas fa-music',
+      iconBg: 'bg-purple-100',
+      iconColor: 'text-purple-700',
+      titel: `Taak: ${t.titel}${deadlineText}`,
+      body: t.bron_titel ? `Uit ${isMeeting ? 'vergadering' : 'project'} "${t.bron_titel}"` : undefined,
+      link: '/leden/taken',
+      cta: 'Bekijk',
+      priority,
+    })
+  }
+
   // Sort by priority + dedup on titel
   dashboardActions.sort((a, b) => a.priority - b.priority)
   const seenTitles = new Set<string>()
@@ -535,68 +662,7 @@ app.get('/leden', async (c) => {
     return true
   }).slice(0, 6)
 
-  // 🗂️ Mijn taken — uit vergaderingen + concertprojecten
-  // Toon enkel taken die nog NIET afgewerkt zijn (open / in_progress / blocked / todo)
-  let myTasks: any[] = []
-  try {
-    const meetingTasks = await queryAll<any>(
-      c.env.DB,
-      `SELECT
-         'meeting' AS bron,
-         mai.id AS id,
-         mai.titel AS titel,
-         mai.beschrijving AS beschrijving,
-         mai.deadline AS deadline,
-         mai.status AS status,
-         mai.created_at AS created_at,
-         m.id AS bron_id,
-         m.titel AS bron_titel,
-         m.datum AS bron_datum
-       FROM meeting_action_items mai
-       JOIN meetings m ON m.id = mai.meeting_id
-       WHERE mai.verantwoordelijke_id = ?
-         AND mai.status NOT IN ('done', 'cancelled')
-       ORDER BY
-         CASE WHEN mai.deadline IS NULL THEN 1 ELSE 0 END,
-         mai.deadline ASC`,
-      [user.id]
-    )
-    const projectTasks = await queryAll<any>(
-      c.env.DB,
-      `SELECT
-         'project' AS bron,
-         cpt.id AS id,
-         cpt.titel AS titel,
-         cpt.beschrijving AS beschrijving,
-         cpt.deadline AS deadline,
-         cpt.status AS status,
-         cpt.prioriteit AS prioriteit,
-         cpt.created_at AS created_at,
-         cp.id AS bron_id,
-         cp.titel AS bron_titel,
-         cp.concert_datum AS bron_datum
-       FROM concert_project_tasks cpt
-       JOIN concert_projects cp ON cp.id = cpt.project_id
-       WHERE cpt.verantwoordelijke_id = ?
-         AND cpt.status NOT IN ('done')
-       ORDER BY
-         CASE WHEN cpt.deadline IS NULL THEN 1 ELSE 0 END,
-         cpt.deadline ASC`,
-      [user.id]
-    )
-    myTasks = [...(meetingTasks || []), ...(projectTasks || [])]
-    // Algemene sortering: deadline ASC, NULLs achteraan
-    myTasks.sort((a, b) => {
-      if (!a.deadline && !b.deadline) return 0
-      if (!a.deadline) return 1
-      if (!b.deadline) return -1
-      return String(a.deadline).localeCompare(String(b.deadline))
-    })
-  } catch (e) {
-    console.error('[mijn-taken] query mislukt:', e)
-  }
-
-  // Helper: deadline visueel
+  // Helper: deadline visueel (voor de "Mijn taken"-tegel lager op de pagina)
   const today = new Date().toISOString().slice(0, 10)
   function deadlineLabel(d: string | null) {
     if (!d) return { label: 'Geen deadline', cls: 'text-gray-500 bg-gray-100' }
@@ -1023,6 +1089,12 @@ app.get('/leden', async (c) => {
                       : t.status === 'todo' || t.status === 'open'
                         ? { label: 'Open', cls: 'bg-gray-100 text-gray-700' }
                         : { label: t.status, cls: 'bg-gray-100 text-gray-700' }
+                  // Prio-badge: enkel tonen als 'hoog' of 'urgent' — rest is standaard.
+                  const prioBadge = t.prioriteit === 'urgent'
+                    ? { label: 'Urgent', cls: 'bg-red-100 text-red-800 border border-red-300' }
+                    : t.prioriteit === 'hoog'
+                      ? { label: 'Hoog', cls: 'bg-orange-100 text-orange-800 border border-orange-300' }
+                      : null
                   return (
                     <li class="px-5 py-3 hover:bg-gray-50 transition">
                       <div class="flex items-start gap-3">
@@ -1033,6 +1105,11 @@ app.get('/leden', async (c) => {
                           <div class="flex items-start justify-between gap-2 flex-wrap">
                             <p class="text-sm font-semibold text-gray-800">{t.titel}</p>
                             <div class="flex items-center gap-1.5 flex-wrap">
+                              {prioBadge && (
+                                <span class={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${prioBadge.cls}`}>
+                                  {prioBadge.label}
+                                </span>
+                              )}
                               <span class={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${sourceColor}`}>
                                 <i class={`fas ${sourceIcon}`}></i> {sourceLabel}
                               </span>
@@ -1405,54 +1482,69 @@ app.get('/leden/taken', async (c) => {
   const filter = c.req.query('filter') || 'open'  // open | done | all
   const bronFilter = c.req.query('bron') || 'all'  // all | meeting | project
 
+  // ⚡ PERFORMANCE: beide task-queries parallel (2 → 1 round-trip)
   let allTasks: any[] = []
   try {
-    const meetingTasks = await queryAll<any>(
-      c.env.DB,
-      `SELECT
-         'meeting' AS bron,
-         mai.id AS id,
-         mai.titel AS titel,
-         mai.beschrijving AS beschrijving,
-         mai.deadline AS deadline,
-         mai.status AS status,
-         mai.completed_at AS completed_at,
-         mai.created_at AS created_at,
-         m.id AS bron_id,
-         m.titel AS bron_titel,
-         m.datum AS bron_datum
-       FROM meeting_action_items mai
-       JOIN meetings m ON m.id = mai.meeting_id
-       WHERE mai.verantwoordelijke_id = ?
-       ORDER BY
-         CASE WHEN mai.deadline IS NULL THEN 1 ELSE 0 END,
-         mai.deadline ASC`,
-      [user.id]
-    )
-    const projectTasks = await queryAll<any>(
-      c.env.DB,
-      `SELECT
-         'project' AS bron,
-         cpt.id AS id,
-         cpt.titel AS titel,
-         cpt.beschrijving AS beschrijving,
-         cpt.deadline AS deadline,
-         cpt.status AS status,
-         cpt.prioriteit AS prioriteit,
-         cpt.completed_at AS completed_at,
-         cpt.created_at AS created_at,
-         cp.id AS bron_id,
-         cp.titel AS bron_titel,
-         cp.concert_datum AS bron_datum
-       FROM concert_project_tasks cpt
-       JOIN concert_projects cp ON cp.id = cpt.project_id
-       WHERE cpt.verantwoordelijke_id = ?
-       ORDER BY
-         CASE WHEN cpt.deadline IS NULL THEN 1 ELSE 0 END,
-         cpt.deadline ASC`,
-      [user.id]
-    )
-    allTasks = [...(meetingTasks || []), ...(projectTasks || [])]
+    const [meetingTasks, projectTasks] = await Promise.all([
+      queryAll<any>(
+        c.env.DB,
+        `SELECT
+           'meeting' AS bron,
+           mai.id AS id,
+           mai.titel AS titel,
+           mai.beschrijving AS beschrijving,
+           mai.deadline AS deadline,
+           mai.status AS status,
+           mai.prioriteit AS prioriteit_raw,
+           mai.completed_at AS completed_at,
+           mai.created_at AS created_at,
+           m.id AS bron_id,
+           m.titel AS bron_titel,
+           m.datum AS bron_datum
+         FROM meeting_action_items mai
+         JOIN meetings m ON m.id = mai.meeting_id
+         WHERE mai.verantwoordelijke_id = ?
+         ORDER BY
+           CASE WHEN mai.deadline IS NULL THEN 1 ELSE 0 END,
+           mai.deadline ASC`,
+        [user.id]
+      ),
+      queryAll<any>(
+        c.env.DB,
+        `SELECT
+           'project' AS bron,
+           cpt.id AS id,
+           cpt.titel AS titel,
+           cpt.beschrijving AS beschrijving,
+           cpt.deadline AS deadline,
+           cpt.status AS status,
+           cpt.prioriteit AS prioriteit_raw,
+           cpt.completed_at AS completed_at,
+           cpt.created_at AS created_at,
+           cp.id AS bron_id,
+           cp.titel AS bron_titel,
+           cp.concert_datum AS bron_datum
+         FROM concert_project_tasks cpt
+         JOIN concert_projects cp ON cp.id = cpt.project_id
+         WHERE cpt.verantwoordelijke_id = ?
+         ORDER BY
+           CASE WHEN cpt.deadline IS NULL THEN 1 ELSE 0 END,
+           cpt.deadline ASC`,
+        [user.id]
+      ),
+    ])
+    // Prioriteit normaliseren (meeting=INT, project=TEXT) → één stringveld
+    const meetingPrioMap: Record<number, string> = { 1: 'laag', 2: 'medium', 3: 'hoog', 4: 'urgent' }
+    allTasks = [
+      ...(meetingTasks || []).map((t: any) => ({
+        ...t,
+        prioriteit: meetingPrioMap[Number(t.prioriteit_raw)] || 'medium',
+      })),
+      ...(projectTasks || []).map((t: any) => ({
+        ...t,
+        prioriteit: t.prioriteit_raw || 'medium',
+      })),
+    ]
   } catch (e) {
     console.error('[leden/taken] query mislukt:', e)
   }

@@ -13,6 +13,7 @@ export type NotificationType =
   | 'systeem'
   | 'lidgeld'
   | 'profiel'
+  | 'taak'
 
 /**
  * Maak één notificatie aan voor één gebruiker.
@@ -170,7 +171,7 @@ export async function getUserNotificationPrefs(
   userId: number
 ): Promise<Record<NotificationType, boolean>> {
   const allTypes: NotificationType[] = [
-    'nieuws','materiaal','repetitie','concert','board','systeem','lidgeld','profiel'
+    'nieuws','materiaal','repetitie','concert','board','systeem','lidgeld','profiel','taak'
   ]
   const defaults = allTypes.reduce((acc, t) => {
     acc[t] = true
@@ -432,7 +433,8 @@ export function getNotificationStyle(type: NotificationType): { icon: string; bg
     board:     { icon: 'fas fa-users-cog',      bg: 'bg-amber-100',   color: 'text-amber-700' },
     systeem:   { icon: 'fas fa-cog',            bg: 'bg-gray-100',    color: 'text-gray-600' },
     lidgeld:   { icon: 'fas fa-euro-sign',      bg: 'bg-orange-100',  color: 'text-orange-600' },
-    profiel:   { icon: 'fas fa-user-edit',      bg: 'bg-indigo-100',  color: 'text-indigo-600' }
+    profiel:   { icon: 'fas fa-user-edit',      bg: 'bg-indigo-100',  color: 'text-indigo-600' },
+    taak:      { icon: 'fas fa-clipboard-check', bg: 'bg-purple-100', color: 'text-purple-700' }
   }
   return styles[type] || styles.systeem
 }

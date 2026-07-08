@@ -294,8 +294,13 @@ app.get('/leden', async (c) => {
          CASE WHEN mai.deadline IS NULL THEN 1 ELSE 0 END,
          mai.deadline ASC`,
       [user.id]
-    ).catch(() => []),
+    ).catch((err: any) => {
+      console.error('[leden dashboard] meetingTasks query mislukt:', err?.message || err)
+      return []
+    }),
     // 🎵 Openstaande projecttaken toegewezen aan dit lid
+    // Bug #DEBUG: concert_projects heeft GEEN datum-kolom, event-datum zit in events.start_at
+    // LEFT JOIN want project.event_id kan NULL zijn
     queryAll<any>(
       c.env.DB,
       `SELECT
@@ -309,16 +314,20 @@ app.get('/leden', async (c) => {
          cpt.created_at AS created_at,
          cp.id AS bron_id,
          cp.titel AS bron_titel,
-         cp.concert_datum AS bron_datum
+         e.start_at AS bron_datum
        FROM concert_project_tasks cpt
        JOIN concert_projects cp ON cp.id = cpt.project_id
+       LEFT JOIN events e ON e.id = cp.event_id
        WHERE cpt.verantwoordelijke_id = ?
          AND cpt.status NOT IN ('done')
        ORDER BY
          CASE WHEN cpt.deadline IS NULL THEN 1 ELSE 0 END,
          cpt.deadline ASC`,
       [user.id]
-    ).catch(() => []),
+    ).catch((err: any) => {
+      console.error('[leden dashboard] projectTasks query mislukt:', err?.message || err)
+      return []
+    }),
   ])
 
   // Combineer + normaliseer taken uit beide bronnen.
@@ -1523,9 +1532,10 @@ app.get('/leden/taken', async (c) => {
            cpt.created_at AS created_at,
            cp.id AS bron_id,
            cp.titel AS bron_titel,
-           cp.concert_datum AS bron_datum
+           e.start_at AS bron_datum
          FROM concert_project_tasks cpt
          JOIN concert_projects cp ON cp.id = cpt.project_id
+         LEFT JOIN events e ON e.id = cp.event_id
          WHERE cpt.verantwoordelijke_id = ?
          ORDER BY
            CASE WHEN cpt.deadline IS NULL THEN 1 ELSE 0 END,

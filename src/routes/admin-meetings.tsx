@@ -6,8 +6,8 @@ import { MemberPicker, MemberPickerScript } from '../components/MemberPicker'
 import { TaskCommentsCollapsible, TaskCommentsScript } from '../components/TaskComments'
 import { requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
-import { formatBrusselsTime } from '../utils/time'
-import { createNotification, notifyUser } from '../utils/notifications'
+import { formatBrusselsTime, formatBrusselsDate } from '../utils/time'
+import { createNotification, notifyUser, notifyUsers } from '../utils/notifications'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1686,13 +1686,71 @@ app.post('/api/admin/meetings/minutes/save', async (c) => {
   const { meeting_id, content, is_published } = body
   const goedgekeurd = is_published ? 1 : 0
 
-  // Check if exists
-  const exists = await queryOne<any>(c.env.DB, `SELECT id FROM meeting_minutes WHERE meeting_id = ?`, [meeting_id])
-  
+  // Check if exists — én onthoud de vorige goedgekeurd-state zodat we
+  // kunnen detecteren of dit een state-transitie is (concept → definitief).
+  const exists = await queryOne<any>(c.env.DB,
+    `SELECT id, goedgekeurd FROM meeting_minutes WHERE meeting_id = ?`,
+    [meeting_id])
+  const wasPublished = !!(exists && exists.goedgekeurd === 1)
+
   if (exists) {
      await c.env.DB.prepare(`UPDATE meeting_minutes SET notulen = ?, goedgekeurd = ? WHERE meeting_id = ?`).bind(content, goedgekeurd, meeting_id).run()
   } else {
      await c.env.DB.prepare(`INSERT INTO meeting_minutes (meeting_id, notulen, goedgekeurd) VALUES (?, ?, ?)`).bind(meeting_id, content, goedgekeurd).run()
+  }
+
+  // A4: notulen zijn nét gepubliceerd (concept → definitief). Stuur email
+  // naar alle actieve bestuur/admin-leden, behalve wie 'board' heeft opt-out.
+  //
+  // Trigger-conditie: goedgekeurd is NU 1 én was DAVOOR niet 1 (of rij bestond
+  // nog niet). Zo voorkomen we spam bij elke tussentijdse save van reeds
+  // definitieve notulen.
+  if (goedgekeurd === 1 && !wasPublished) {
+    try {
+      const meeting = await queryOne<any>(c.env.DB, `
+        SELECT id, titel, type, datum, start_tijd, locatie
+        FROM meetings WHERE id = ? LIMIT 1
+      `, [meeting_id])
+
+      if (meeting) {
+        // Alle actieve bestuur/admin users ophalen
+        const boardUsers = await queryAll<{ id: number }>(c.env.DB, `
+          SELECT u.id FROM users u
+          WHERE u.status = 'actief'
+            AND u.role IN ('bestuur','admin')
+            AND COALESCE(u.is_test_account, 0) = 0
+        `)
+        const userIds = boardUsers.map(u => u.id)
+
+        if (userIds.length > 0) {
+          // Meeting-info voor email-body
+          // meeting.datum is een 'YYYY-MM-DD' string (naive) — parse als Brussels-lokaal
+          const meetingDate = meeting.datum
+            ? formatBrusselsDate(meeting.datum + 'T00:00:00', {
+                weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
+              })
+            : ''
+          const titel = meeting.titel || `Vergadering van ${meetingDate}`
+          const bodyText = [
+            `De notulen van "${titel}" zijn zonet als definitief gemarkeerd.`,
+            meetingDate ? `Vergadering: ${meetingDate}${meeting.start_tijd ? ' om ' + meeting.start_tijd : ''}${meeting.locatie ? ' — ' + meeting.locatie : ''}` : '',
+            '',
+            'Klik hieronder om de volledige notulen én de actiepunten te bekijken.',
+          ].filter(Boolean).join('\n')
+
+          await notifyUsers(
+            c.env.DB, c.env.RESEND_API_KEY,
+            userIds, 'board',
+            `📋 Notulen gepubliceerd: ${titel}`,
+            bodyText,
+            `/leden/vergaderingen#meeting-${meeting_id}`
+          )
+        }
+      }
+    } catch (e) {
+      // Best-effort — mag save niet stukmaken
+      console.error('[a4] notulen-gepubliceerd notify failed:', e)
+    }
   }
 
   return c.redirect(`/admin/meetings/${meeting_id}?tab=minutes`)

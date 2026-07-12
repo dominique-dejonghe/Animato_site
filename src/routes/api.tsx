@@ -4,6 +4,7 @@
 import { Hono } from 'hono'
 import type { Bindings } from '../types'
 import { queryOne, queryAll, execute, isValidEmail, isValidPhone, formatDateForDB, safeJsonStringify } from '../utils/db'
+import { sendEmail, adminAlertEmail, EMAIL_REPLY_TO } from '../utils/email'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -204,8 +205,33 @@ app.post('/api/word-lid', async (c) => {
       ]
     )
 
-    // TODO: Send email to admin (when Resend is configured)
-    // TODO: Send confirmation email to applicant
+    // Admin-alert email — webmaster wordt op de hoogte gebracht
+    // Best-effort: als de mail faalt, blijft de aanvraag wél in de DB staan.
+    try {
+      const details = [
+        { label: 'Naam',             value: `${voornaam} ${achternaam}` },
+        { label: 'E-mail',           value: email },
+        { label: 'Telefoon',         value: telefoon || '—' },
+        { label: 'Stemgroep',        value: stemgroep || '—' },
+        { label: 'Muzikale ervaring', value: muzikale_ervaring || '—' },
+        { label: 'Motivatie',        value: motivatie || '—' },
+        { label: 'Consent gegeven',  value: consent ? 'Ja' : 'Nee' },
+      ]
+      await sendEmail({
+        to: EMAIL_REPLY_TO,
+        replyTo: email,
+        subject: `[Animato] Nieuwe aanmelding: ${voornaam} ${achternaam}`,
+        html: adminAlertEmail({
+          titel: `Nieuwe aanmelding van ${voornaam} ${achternaam}`,
+          intro: `Er is een nieuwe registratie-aanvraag binnengekomen via het "Word lid"-formulier op animato.be. Bekijk en volg op via het admin-paneel.`,
+          details,
+          actionLink: '/admin/aanvragen',
+          actionLabel: 'Bekijk aanvragen',
+        }),
+      }, c.env.RESEND_API_KEY)
+    } catch (mailErr) {
+      console.error('word_lid admin email failed (non-fatal):', mailErr)
+    }
 
     return c.redirect('/word-lid?success=true')
   } catch (error) {
@@ -273,7 +299,7 @@ app.post('/api/contact', async (c) => {
 
     try {
       await sendEmail({
-        to: 'gemengdkooranimato@gmail.com',
+        to: EMAIL_REPLY_TO,
         replyTo: email,
         subject: `[Animato Contact] ${onderwerp}`,
         html: emailHtml

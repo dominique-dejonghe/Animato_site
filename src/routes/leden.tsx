@@ -2002,7 +2002,7 @@ app.get('/leden/profiel', async (c) => {
              LIMIT 1`,
             [user.id])
           if (!existing) {
-            const { createNotification } = await import('../utils/notifications')
+            const { notifyUser } = await import('../utils/notifications')
             const m = await queryOne<any>(c.env.DB,
               `SELECT um.amount, my.season
                FROM user_memberships um
@@ -2011,8 +2011,9 @@ app.get('/leden/profiel', async (c) => {
               [pendingMembership.id])
             if (m) {
               const bedrag = m.amount ? `€ ${Number(m.amount).toFixed(2)}` : ''
-              await createNotification(
+              await notifyUser(
                 c.env.DB,
+                c.env.RESEND_API_KEY,
                 user.id,
                 'lidgeld',
                 `Lidgeld ${m.season} ontvangen — bedankt! 🎵`,
@@ -3937,54 +3938,107 @@ app.get('/leden/profiel', async (c) => {
               wel zichtbaar in het Archief als je later van gedacht verandert.
             </p>
 
-            <form id="notif-prefs-form" class="space-y-3">
+            <form id="notif-prefs-form" class="space-y-2">
+              {/* Column headers */}
+              <div class="hidden sm:flex items-center gap-2 px-3 pb-1 border-b border-gray-200 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                <div class="flex-1">Type melding</div>
+                <div class="w-16 text-center" title="Zichtbaar in je meldingen-lijst binnen de site">
+                  <i class="fas fa-bell mr-1"></i>Site
+                </div>
+                <div class="w-16 text-center" title="Ontvang ook een email — kan je vrij aan/uit zetten">
+                  <i class="fas fa-envelope mr-1"></i>Email
+                </div>
+              </div>
+
               {(() => {
-                const labels: Array<{ key: NotificationType; label: string; desc: string; icon: string; canDisable: boolean }> = [
-                  { key: 'nieuws',    label: 'Nieuwsberichten',        desc: 'Wanneer er een nieuw nieuwsbericht gepubliceerd wordt.', icon: 'fas fa-newspaper',     canDisable: true },
-                  { key: 'concert',   label: 'Nieuwe concerten',       desc: 'Wanneer een concert wordt toegevoegd aan de agenda.',    icon: 'fas fa-music',         canDisable: true },
-                  { key: 'repetitie', label: 'Nieuwe repetities',      desc: 'Wanneer een repetitie wordt toegevoegd aan de agenda.',  icon: 'fas fa-calendar-alt',  canDisable: true },
-                  { key: 'materiaal', label: 'Nieuw materiaal',        desc: 'Nieuwe partituren of oefentracks (filter op stemgroep).', icon: 'fas fa-file-audio',    canDisable: true },
-                  // 'board' (Reacties op je posts) verwijderd 2026-06-13: berichtenmodule afgeschaft
-                  { key: 'systeem',   label: 'Systeem-meldingen',      desc: 'Overige aankondigingen vanuit het bestuur.',              icon: 'fas fa-bullhorn',      canDisable: true },
-                  { key: 'lidgeld',   label: 'Lidgeld-herinneringen',  desc: 'Verplicht — kan niet uitgezet worden.',                   icon: 'fas fa-euro-sign',     canDisable: false },
-                  { key: 'profiel',   label: 'Profiel-meldingen',      desc: 'Verplicht — kan niet uitgezet worden.',                   icon: 'fas fa-user-edit',     canDisable: false },
+                // Volgorde + rol-filter: 'board' alleen tonen aan bestuur/admin.
+                // Verplichte types (lidgeld/profiel): in-app kan niet uit, email wel.
+                const REQUIRED_INAPP = new Set(['lidgeld', 'profiel'])
+                const BOARD_ONLY = new Set(['board'])
+                const isBestuurOrAdmin = user.role === 'admin' || user.role === 'bestuur'
+                const labels: Array<{ key: NotificationType; label: string; desc: string; icon: string }> = [
+                  { key: 'nieuws',     label: 'Nieuwsberichten',   desc: 'Nieuw bericht voor jouw stemgroep of alle leden.',        icon: 'fas fa-newspaper' },
+                  { key: 'concert',    label: 'Concerten',         desc: 'Nieuw concert of concertwijzigingen.',                    icon: 'fas fa-microphone' },
+                  { key: 'repetitie',  label: 'Repetities',        desc: 'Nieuwe repetitie in de agenda of wijzigingen.',            icon: 'fas fa-music' },
+                  { key: 'agenda',     label: 'Andere agenda-items', desc: 'Overige activiteiten (uitstap, workshop, …).',           icon: 'fas fa-calendar-alt' },
+                  { key: 'materiaal',  label: 'Oefenmateriaal',    desc: 'Nieuwe partituren of oefen-mp3 voor jouw stemgroep.',      icon: 'fas fa-file-audio' },
+                  { key: 'taak',       label: 'Taken toegewezen',  desc: 'Als er een taak/actiepunt aan jou wordt toegewezen.',      icon: 'fas fa-clipboard-check' },
+                  { key: 'deadline',   label: 'Deadline nadert',   desc: '3 dagen voor de deadline van een toegewezen taak.',        icon: 'fas fa-hourglass-half' },
+                  { key: 'lidgeld',    label: 'Lidgeld',           desc: 'Openstaand lidgeld, betaalverzoeken en bevestigingen.',    icon: 'fas fa-euro-sign' },
+                  { key: 'gift',       label: 'Bedankje bij gift', desc: 'Bevestiging als je een gift/donatie doet.',                icon: 'fas fa-gift' },
+                  { key: 'verjaardag', label: 'Verjaardagen',      desc: 'Wekelijkse samenvatting van verjaardagen in het koor.',    icon: 'fas fa-birthday-cake' },
+                  { key: 'board',      label: 'Bestuurlijk',       desc: 'Notulen, actiepunten, board-berichten (bestuur only).',    icon: 'fas fa-users-cog' },
+                  { key: 'systeem',    label: 'Systeem-meldingen', desc: 'Overige aankondigingen vanuit het bestuur.',               icon: 'fas fa-bullhorn' },
+                  { key: 'profiel',    label: 'Profiel-herinnering', desc: 'Herinnering om je profiel aan te vullen.',               icon: 'fas fa-user-edit' },
                 ]
-                return labels.map(item => {
-                  const isOn = notifPrefs[item.key]
-                  return (
-                    <label class={`flex items-start gap-3 p-3 rounded-lg border ${item.canDisable ? 'border-gray-200 hover:bg-gray-50 cursor-pointer' : 'border-gray-100 bg-gray-50 opacity-70'} transition`}>
-                      <input
-                        type="checkbox"
-                        name={`pref_${item.key}`}
-                        data-pref-key={item.key}
-                        checked={isOn}
-                        disabled={!item.canDisable}
-                        class="mt-1 h-4 w-4 rounded text-animato-primary focus:ring-animato-primary"
-                      />
-                      <div class="flex-1 min-w-0">
-                        <div class="text-sm font-medium text-gray-800 flex items-center gap-2">
-                          <i class={`${item.icon} text-animato-primary/70`}></i>
-                          {item.label}
-                          {!item.canDisable && (
-                            <span class="text-[10px] font-bold uppercase bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded">Verplicht</span>
-                          )}
+                return labels
+                  .filter(item => !BOARD_ONLY.has(item.key) || isBestuurOrAdmin)
+                  .map(item => {
+                    const p = notifPrefs[item.key] || { inApp: true, email: true }
+                    const inAppLocked = REQUIRED_INAPP.has(item.key)
+                    return (
+                      <div class="flex items-start gap-2 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 transition">
+                        <div class="flex-1 min-w-0">
+                          <div class="text-sm font-medium text-gray-800 flex items-center gap-2">
+                            <i class={`${item.icon} text-animato-primary/70`}></i>
+                            {item.label}
+                            {inAppLocked && (
+                              <span class="text-[10px] font-bold uppercase bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded" title="Site-melding kan niet uit — belangrijk voor je account">
+                                Site verplicht
+                              </span>
+                            )}
+                          </div>
+                          <p class="text-xs text-gray-500 mt-0.5">{item.desc}</p>
                         </div>
-                        <p class="text-xs text-gray-500 mt-0.5">{item.desc}</p>
+                        {/* In-app toggle */}
+                        <label class={`w-16 flex items-center justify-center pt-1 ${inAppLocked ? 'opacity-60' : 'cursor-pointer'}`}
+                               title={inAppLocked ? 'Site-melding kan niet uit voor dit type' : 'Toon in je meldingen-lijst'}>
+                          <input
+                            type="checkbox"
+                            data-pref-key={item.key}
+                            data-pref-channel="inApp"
+                            checked={p.inApp}
+                            disabled={inAppLocked}
+                            class="h-4 w-4 rounded text-animato-primary focus:ring-animato-primary"
+                          />
+                        </label>
+                        {/* Email toggle */}
+                        <label class="w-16 flex items-center justify-center pt-1 cursor-pointer"
+                               title="Ontvang een email bij deze melding">
+                          <input
+                            type="checkbox"
+                            data-pref-key={item.key}
+                            data-pref-channel="email"
+                            checked={p.email}
+                            class="h-4 w-4 rounded text-animato-primary focus:ring-animato-primary"
+                          />
+                        </label>
                       </div>
-                    </label>
-                  )
-                })
+                    )
+                  })
               })()}
 
-              <div class="flex justify-end items-center gap-3 pt-2">
-                <span id="notif-prefs-status" class="text-xs text-gray-500"></span>
-                <button
-                  type="submit"
-                  class="px-5 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm font-medium"
-                >
-                  <i class="fas fa-save mr-1"></i>
-                  Voorkeuren opslaan
-                </button>
+              <div class="flex justify-between items-center gap-3 pt-3 border-t border-gray-100 mt-3">
+                <div class="flex gap-2 text-xs">
+                  <button type="button" id="notif-prefs-all-email-off"
+                          class="px-3 py-1.5 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50">
+                    <i class="fas fa-envelope-open-text mr-1"></i>Alle emails uit
+                  </button>
+                  <button type="button" id="notif-prefs-all-email-on"
+                          class="px-3 py-1.5 rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50">
+                    <i class="fas fa-envelope mr-1"></i>Alle emails aan
+                  </button>
+                </div>
+                <div class="flex items-center gap-3">
+                  <span id="notif-prefs-status" class="text-xs text-gray-500"></span>
+                  <button
+                    type="submit"
+                    class="px-5 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm font-medium"
+                  >
+                    <i class="fas fa-save mr-1"></i>
+                    Voorkeuren opslaan
+                  </button>
+                </div>
               </div>
             </form>
 
@@ -3993,12 +4047,28 @@ app.get('/leden/profiel', async (c) => {
                 var form = document.getElementById('notif-prefs-form');
                 var status = document.getElementById('notif-prefs-status');
                 if (!form) return;
+
+                // Quick-toggle knoppen voor alle emails
+                function setAllEmails(on) {
+                  form.querySelectorAll('input[data-pref-channel="email"]').forEach(function(cb) {
+                    if (!cb.disabled) cb.checked = on;
+                  });
+                }
+                var btnOff = document.getElementById('notif-prefs-all-email-off');
+                var btnOn  = document.getElementById('notif-prefs-all-email-on');
+                if (btnOff) btnOff.addEventListener('click', function(){ setAllEmails(false); });
+                if (btnOn)  btnOn.addEventListener('click',  function(){ setAllEmails(true); });
+
                 form.addEventListener('submit', function(e) {
                   e.preventDefault();
+                  // Build { type: { inApp, email } } object
                   var prefs = {};
                   form.querySelectorAll('input[data-pref-key]').forEach(function(cb) {
-                    if (cb.disabled) return;
-                    prefs[cb.getAttribute('data-pref-key')] = !!cb.checked;
+                    var key = cb.getAttribute('data-pref-key');
+                    var channel = cb.getAttribute('data-pref-channel');
+                    if (!prefs[key]) prefs[key] = { inApp: true, email: true };
+                    // Disabled inApp = altijd true (verplicht); anders volg checkbox
+                    prefs[key][channel] = cb.disabled ? true : !!cb.checked;
                   });
                   status.textContent = 'Opslaan...';
                   status.classList.remove('text-red-600','text-green-600');
@@ -6161,13 +6231,32 @@ app.post('/api/leden/notification-prefs', async (c) => {
   } catch {
     return c.json({ error: 'invalid_json' }, 400)
   }
-  // Whitelist: enkel keys die in NotificationType passen accepteren.
-  // 'lidgeld' en 'profiel' zijn 'verplichte' types die niet uitgezet
-  // kunnen worden — we negeren stilletjes pogingen om die op false te zetten.
-  const allowedTypes: NotificationType[] = ['nieuws','materiaal','repetitie','concert','systeem']
-  const sanitized: Partial<Record<NotificationType, boolean>> = {}
+  // Whitelist: types die een lid kan toggelen. 'lidgeld' en 'profiel' zijn
+  // in-app verplicht (inApp forceren we op true), maar email is opt-outable.
+  // Board/admin-only types ('ledenaanvraag','contact','feedback') worden
+  // hier niet geaccepteerd — die worden apart per user opgeslagen via een
+  // admin-instellingenpagina (nog te bouwen).
+  const allowedTypes: NotificationType[] = [
+    'nieuws','materiaal','repetitie','concert','agenda',
+    'taak','deadline','lidgeld','gift','board','systeem','profiel','verjaardag',
+  ]
+  const REQUIRED_INAPP = new Set<NotificationType>(['lidgeld','profiel'])
+  const sanitized: Partial<Record<NotificationType, { inApp: boolean; email: boolean }>> = {}
   for (const t of allowedTypes) {
-    if (t in body) sanitized[t] = !!body[t]
+    if (t in body && body[t] && typeof body[t] === 'object') {
+      const raw = body[t] as any
+      sanitized[t] = {
+        // In-app forceren we op true voor verplichte types
+        inApp: REQUIRED_INAPP.has(t) ? true : !!raw.inApp,
+        email: !!raw.email,
+      }
+    } else if (t in body && typeof body[t] === 'boolean') {
+      // Backwards-compat: oude client die alleen boolean stuurt = alleen inApp
+      sanitized[t] = {
+        inApp: REQUIRED_INAPP.has(t) ? true : !!body[t],
+        email: true,
+      }
+    }
   }
   try {
     await setUserNotificationPrefs(c.env.DB, user.id, sanitized)

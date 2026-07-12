@@ -68,6 +68,7 @@ import checkinRoutes from './routes/checkin'
 import r2Routes from './routes/r2'
 import adminR2MigrateRoutes from './routes/admin-r2-migrate'
 import badgesRoutes from './routes/badges'
+import cronRoutes from './routes/cron'
 
 // =====================================================
 // APP INITIALIZATION
@@ -384,6 +385,7 @@ app.route('/', ledenTicketsRoutes)
 
 // Badges-routes: ook vóór de catch-all ledenRoutes om botsing met /leden/* te vermijden
 app.route('/', badgesRoutes)
+app.route('/', cronRoutes)
 
 // Leden portal routes
 app.route('/', ledenRoutes)

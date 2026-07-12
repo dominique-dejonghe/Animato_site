@@ -9,7 +9,7 @@ import { createMolliePayment, getMollieMode } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { getSiteUrl } from '../utils/site-url'
 import { sendEmail } from '../utils/email'
-import { createNotification, createNotificationForUsers } from '../utils/notifications'
+import { createNotification, createNotificationForUsers, notifyUser, notifyUsers } from '../utils/notifications'
 import { formatBrusselsDate, formatBrusselsTime, brusselsToday } from '../utils/time'
 
 const app = new Hono()
@@ -1957,8 +1957,9 @@ app.post('/api/admin/lidgelden/create', async (c) => {
        SET is_gelezen = 1, gelezen_at = CURRENT_TIMESTAMP
        WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
       [Number(body.user_id)])
-    await createNotification(
+    await notifyUser(
       db,
+      c.env.RESEND_API_KEY,
       Number(body.user_id),
       'lidgeld',
       `Lidgeld ${year.season} (€${amount}) staat open`,
@@ -2023,8 +2024,9 @@ app.post('/api/admin/lidgelden/generate-bulk', async (c) => {
              AND is_gelezen = 0`,
           userIds)
       }
-      await createNotificationForUsers(
+      await notifyUsers(
         db,
+        c.env.RESEND_API_KEY,
         userIds,
         'lidgeld',
         `Lidgeld ${year.season} (€${amount}) staat open`,
@@ -2126,8 +2128,8 @@ app.post('/api/admin/lidgelden/sync-mollie-bulk', async (c) => {
            WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
           [m.user_id])
         const bedrag = m.amount ? `€ ${Number(m.amount).toFixed(2)}` : ''
-        await createNotification(
-          db, m.user_id, 'lidgeld',
+        await notifyUser(
+          db, c.env.RESEND_API_KEY, m.user_id, 'lidgeld',
           `Lidgeld ${m.season} ontvangen — bedankt! 🎵`,
           bedrag ? `We hebben ${bedrag} ontvangen. Je lidmaatschap is actief.` : 'Je lidmaatschap is actief.',
           '/leden/profiel#lidgeld'
@@ -2219,8 +2221,8 @@ app.post('/api/admin/lidgelden/sync-mollie', async (c) => {
          WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
         [m.user_id])
       const bedrag = m.amount ? `€ ${Number(m.amount).toFixed(2)}` : ''
-      await createNotification(
-        db, m.user_id, 'lidgeld',
+      await notifyUser(
+        db, c.env.RESEND_API_KEY, m.user_id, 'lidgeld',
         `Lidgeld ${m.season} ontvangen — bedankt! 🎵`,
         bedrag ? `We hebben ${bedrag} ontvangen. Je lidmaatschap is actief.` : 'Je lidmaatschap is actief.',
         '/leden/profiel#lidgeld'
@@ -2261,8 +2263,9 @@ app.post('/api/admin/lidgelden/status', async (c) => {
            WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
           [m.user_id])
         const bedrag = m.amount ? `€ ${Number(m.amount).toFixed(2)}` : ''
-        await createNotification(
+        await notifyUser(
           db,
+          c.env.RESEND_API_KEY,
           m.user_id,
           'lidgeld',
           `Lidgeld ${m.season} geregistreerd — bedankt! 🎵`,
@@ -2677,7 +2680,7 @@ app.post('/api/admin/lidgelden/bulk-remind', async (c) => {
            SET is_gelezen = 1, gelezen_at = CURRENT_TIMESTAMP
            WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
           [m.user_id])
-        await createNotification(db, m.user_id, 'lidgeld',
+        await notifyUser(db, c.env.RESEND_API_KEY, m.user_id, 'lidgeld',
           filter === 'overdue' ? '⏰ Herinnering lidgeld open' : 'Lidgeld betaalverzoek verstuurd',
           `Bekijk je mailbox voor de betaallink — bedrag €${(m.amount||0).toFixed(2)}`,
           '/leden/profiel#lidgeld'
@@ -2963,14 +2966,14 @@ app.post('/api/admin/donations/sync-mollie-bulk', async (c) => {
         if (d.user_id) {
           const bedrag = d.amount ? `€ ${Number(d.amount).toFixed(2)}` : ''
           try {
-            await createNotification(
-              db, d.user_id, 'gift',
+            await notifyUser(
+              db, c.env.RESEND_API_KEY, d.user_id, 'gift',
               `Bedankt voor je gift! 💝`,
               bedrag ? `We hebben ${bedrag} ontvangen — heel hartelijk bedankt voor je steun!` : 'Bedankt voor je steun!',
               '/leden/donaties'
             )
           } catch (e) {
-            console.error('donations sync: createNotification faalde:', e)
+            console.error('donations sync: notifyUser faalde:', e)
           }
         }
       }

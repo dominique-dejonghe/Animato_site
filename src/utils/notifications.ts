@@ -3,6 +3,18 @@
 // Doel (#116): leden krijgen een lijst van zaken die hun aandacht vragen
 // (lidgeld openstaand, nieuw nieuwsbericht, …). De UI toont 'ongelezen'
 // items met een badge in de header en een lijst op /leden/profiel.
+//
+// EMAIL-INTEGRATIE (2026-07-08):
+//   Elke notif-type heeft nu ook een EMAIL-variant. Standaard sturen we
+//   én in-app én email; leden kunnen per type kiezen (opt-out) via
+//   /leden/profiel#notificaties. Zie migratie 0107_email_notifications.sql
+//   voor de `email_enabled` kolom.
+//
+//   Om emails te sturen bij createNotification, gebruik notifyUser() (nieuw)
+//   i.p.v. createNotification() rechtstreeks — die eerste kijkt naar de
+//   email-preferences en roept sendEmail() aan als het aan staat.
+
+import { sendEmail, notificationEmail } from './email'
 
 export type NotificationType =
   | 'nieuws'
@@ -14,6 +26,13 @@ export type NotificationType =
   | 'lidgeld'
   | 'profiel'
   | 'taak'
+  | 'gift'           // Bedank-mail schenker
+  | 'ledenaanvraag'  // Nieuwe registratie-aanvraag naar admin
+  | 'contact'        // Contactformulier-bericht naar webmaster
+  | 'feedback'       // Beta-feedback / bug-melding naar admins
+  | 'deadline'       // Taak-deadline nadert
+  | 'agenda'         // Nieuw agenda-item / concert
+  | 'verjaardag'     // Verjaardag koorlid
 
 /**
  * Maak één notificatie aan voor één gebruiker.
@@ -68,6 +87,185 @@ export async function createNotificationForUsers(
 }
 
 /**
+ * ⭐ NIEUW (email-integratie): Notify één user via in-app + email.
+ *
+ * Deze functie is de aanbevolen vervanger voor `createNotification` als
+ * je óók een email wilt sturen. Ze:
+ *   1. Zet altijd een in-app notificatie (tenzij enabled=0)
+ *   2. Stuurt een email indien:
+ *        - email_enabled != 0 in prefs
+ *        - user actief is (status='actief', geen bezoeker/testaccount)
+ *        - RESEND_API_KEY beschikbaar
+ *
+ * De email is niet-blokkerend: faalt Resend, dan blijft de in-app
+ * notificatie wél staan en logt de functie de fout.
+ *
+ * @param opts.emailSubject  Optioneel — als leeg gebruiken we `titel`
+ * @param opts.emailBodyHtml Optioneel — als leeg bouwt notificationEmail() een default
+ */
+export interface NotifyUserOptions {
+  emailSubject?: string
+  emailBodyHtml?: string
+  /** Als true: sla email over (bv. wanneer de trigger óók een aparte email stuurt) */
+  skipEmail?: boolean
+  /** Als true: sla in-app over (zelden gebruikt — voor admin-only mails) */
+  skipInApp?: boolean
+}
+
+export async function notifyUser(
+  db: D1Database,
+  resendApiKey: string | undefined,
+  userId: number,
+  type: NotificationType,
+  titel: string,
+  body?: string,
+  link?: string,
+  opts: NotifyUserOptions = {}
+): Promise<{ inApp: boolean; email: boolean }> {
+  const result = { inApp: false, email: false }
+
+  // 1. Prefs + user info in één ronde
+  let prefs: { enabled: number; email_enabled: number } | null = null
+  let userInfo: { email: string; voornaam: string | null; status: string; role: string; is_test_account: number } | null = null
+  try {
+    const [prefsRow, userRow] = await Promise.all([
+      db.prepare(
+        `SELECT enabled, email_enabled FROM user_notification_prefs
+         WHERE user_id = ? AND notif_type = ? LIMIT 1`
+      ).bind(userId, type).first<{ enabled: number; email_enabled: number }>(),
+      db.prepare(
+        `SELECT u.email, p.voornaam, u.status, u.role,
+                COALESCE(u.is_test_account, 0) AS is_test_account
+         FROM users u LEFT JOIN profiles p ON p.user_id = u.id
+         WHERE u.id = ? LIMIT 1`
+      ).bind(userId).first<{ email: string; voornaam: string | null; status: string; role: string; is_test_account: number }>()
+    ])
+    prefs = prefsRow || null
+    userInfo = userRow || null
+  } catch (e) {
+    console.error('[notifyUser] prefs/user lookup failed:', e)
+  }
+
+  // 2. In-app: default aan, tenzij expliciet opt-out
+  const inAppEnabled = !prefs || prefs.enabled === 1
+  if (!opts.skipInApp && inAppEnabled) {
+    await createNotification(db, userId, type, titel, body, link)
+    result.inApp = true
+  }
+
+  // 3. Email: default aan, tenzij expliciet opt-out
+  const emailEnabled = !prefs || prefs.email_enabled === 1
+  const canReceiveEmail = userInfo
+    && userInfo.email
+    && userInfo.status === 'actief'
+    && userInfo.role !== 'bezoeker'
+    && userInfo.is_test_account === 0
+  if (!opts.skipEmail && emailEnabled && canReceiveEmail && resendApiKey) {
+    try {
+      const emailHtml = opts.emailBodyHtml || notificationEmail({
+        voornaam: userInfo.voornaam,
+        titel,
+        body: body || '',
+        link,
+        type,
+      })
+      const ok = await sendEmail({
+        to: userInfo.email,
+        subject: opts.emailSubject || titel,
+        html: emailHtml,
+      }, resendApiKey)
+      result.email = ok
+    } catch (e) {
+      console.error('[notifyUser] sendEmail failed:', e)
+    }
+  }
+
+  return result
+}
+
+/**
+ * ⭐ NIEUW: Notify meerdere users via in-app (batch) + email (parallel).
+ *
+ * Voor grote fan-outs (nieuwspublicatie, materiaal-upload) — schaalt beter
+ * dan notifyUser() in een loop. In-app gebruikt db.batch(), email gebruikt
+ * Promise.allSettled met bounded concurrency (max 5 parallel).
+ */
+export async function notifyUsers(
+  db: D1Database,
+  resendApiKey: string | undefined,
+  userIds: number[],
+  type: NotificationType,
+  titel: string,
+  body?: string,
+  link?: string,
+  opts: NotifyUserOptions = {}
+): Promise<{ inApp: number; email: number }> {
+  const result = { inApp: 0, email: 0 }
+  if (userIds.length === 0) return result
+
+  // 1. Haal prefs + user info voor ALLE users in één query
+  const placeholders = userIds.map(() => '?').join(',')
+  let rows: Array<{ user_id: number; email: string; voornaam: string | null; enabled: number; email_enabled: number; status: string; role: string; is_test_account: number }> = []
+  try {
+    const q = await db.prepare(
+      `SELECT u.id AS user_id, u.email, p.voornaam, u.status, u.role,
+              COALESCE(u.is_test_account, 0) AS is_test_account,
+              COALESCE(np.enabled, 1) AS enabled,
+              COALESCE(np.email_enabled, 1) AS email_enabled
+       FROM users u
+       LEFT JOIN profiles p ON p.user_id = u.id
+       LEFT JOIN user_notification_prefs np
+         ON np.user_id = u.id AND np.notif_type = ?
+       WHERE u.id IN (${placeholders})`
+    ).bind(type, ...userIds).all<any>()
+    rows = (q.results || []) as any[]
+  } catch (e) {
+    console.error('[notifyUsers] lookup failed:', e)
+    return result
+  }
+
+  const inAppTargets = rows.filter(r => r.enabled === 1)
+  const emailTargets = rows.filter(r =>
+    r.email_enabled === 1
+    && r.email
+    && r.status === 'actief'
+    && r.role !== 'bezoeker'
+    && r.is_test_account === 0
+  )
+
+  // 2. In-app in één batch
+  if (!opts.skipInApp && inAppTargets.length > 0) {
+    result.inApp = await createNotificationForUsers(
+      db, inAppTargets.map(r => r.user_id), type, titel, body, link
+    )
+  }
+
+  // 3. Email met bounded concurrency (max 5 parallel)
+  if (!opts.skipEmail && emailTargets.length > 0 && resendApiKey) {
+    const CONCURRENCY = 5
+    for (let i = 0; i < emailTargets.length; i += CONCURRENCY) {
+      const batch = emailTargets.slice(i, i + CONCURRENCY)
+      const results = await Promise.allSettled(batch.map(async (r) => {
+        const emailHtml = opts.emailBodyHtml || notificationEmail({
+          voornaam: r.voornaam,
+          titel, body: body || '', link, type,
+        })
+        return sendEmail({
+          to: r.email,
+          subject: opts.emailSubject || titel,
+          html: emailHtml,
+        }, resendApiKey)
+      }))
+      for (const rr of results) {
+        if (rr.status === 'fulfilled' && rr.value) result.email++
+      }
+    }
+  }
+
+  return result
+}
+
+/**
  * Notify ALL active members (excluding visitors and test accounts).
  * Filtert leden uit die expliciet opt-out hebben gezet voor dit type.
  * Gebruikt voor system-wide events zoals nieuwspublicaties.
@@ -77,7 +275,8 @@ export async function notifyAllActiveMembers(
   type: NotificationType,
   titel: string,
   body?: string,
-  link?: string
+  link?: string,
+  resendApiKey?: string
 ): Promise<number> {
   // LEFT JOIN op user_notification_prefs: enkel users zónder opt-out (enabled=0)
   // voor dit type krijgen de notificatie. Geen rij = default aan.
@@ -92,6 +291,12 @@ export async function notifyAllActiveMembers(
   ).bind(type).all<{ id: number }>()
 
   const userIds = (result.results || []).map(r => r.id)
+  if (resendApiKey) {
+    // Nieuwe route: in-app + email in één helper (respecteert email_enabled)
+    const r = await notifyUsers(db, resendApiKey, userIds, type, titel, body, link)
+    return r.inApp
+  }
+  // Backwards-compat: alleen in-app
   return createNotificationForUsers(db, userIds, type, titel, body, link)
 }
 
@@ -109,11 +314,12 @@ export async function notifyActiveMembersByStemgroep(
   type: NotificationType,
   titel: string,
   body?: string,
-  link?: string
+  link?: string,
+  resendApiKey?: string
 ): Promise<number> {
   // Lege array of expliciet alle = fallback naar alle leden
   if (!stems || stems.length === 0) {
-    return notifyAllActiveMembers(db, type, titel, body, link)
+    return notifyAllActiveMembers(db, type, titel, body, link, resendApiKey)
   }
   // Bouw placeholders dynamisch: stems kan 1..4 elementen hebben
   const placeholders = stems.map(() => '?').join(',')
@@ -129,6 +335,10 @@ export async function notifyActiveMembersByStemgroep(
   ).bind(type, ...stems.map(s => s.toUpperCase())).all<{ id: number }>()
 
   const userIds = (result.results || []).map(r => r.id)
+  if (resendApiKey) {
+    const r = await notifyUsers(db, resendApiKey, userIds, type, titel, body, link)
+    return r.inApp
+  }
   return createNotificationForUsers(db, userIds, type, titel, body, link)
 }
 
@@ -162,58 +372,72 @@ export async function notifyUserIfEnabled(
   }
 }
 
+/** Type per notif_type: { inApp: bool, email: bool } */
+export interface NotifPref { inApp: boolean; email: boolean }
+
+/** Alle types die een lid kan aan/uit zetten. Volgorde bepaalt UI-volgorde. */
+export const USER_TOGGLEABLE_TYPES: NotificationType[] = [
+  'nieuws', 'materiaal', 'repetitie', 'concert', 'agenda',
+  'taak', 'deadline', 'lidgeld', 'gift', 'board', 'systeem', 'profiel',
+  'verjaardag',
+]
+
 /**
- * Lees prefs van één user. Retourneert een map { type: enabled? } voor alle
- * notificatie-types — types die niet in de DB staan krijgen default true.
+ * Lees prefs van één user. Retourneert een map met per type een {inApp, email}
+ * boolean. Types die niet in de DB staan krijgen default {true, true}.
  */
 export async function getUserNotificationPrefs(
   db: D1Database,
   userId: number
-): Promise<Record<NotificationType, boolean>> {
-  const allTypes: NotificationType[] = [
-    'nieuws','materiaal','repetitie','concert','board','systeem','lidgeld','profiel','taak'
-  ]
-  const defaults = allTypes.reduce((acc, t) => {
-    acc[t] = true
-    return acc
-  }, {} as Record<NotificationType, boolean>)
+): Promise<Record<NotificationType, NotifPref>> {
+  const defaults: Record<string, NotifPref> = {}
+  for (const t of USER_TOGGLEABLE_TYPES) {
+    defaults[t] = { inApp: true, email: true }
+  }
   try {
     const result = await db.prepare(
-      `SELECT notif_type, enabled FROM user_notification_prefs WHERE user_id = ?`
-    ).bind(userId).all<{ notif_type: string; enabled: number }>()
+      `SELECT notif_type, enabled, email_enabled FROM user_notification_prefs WHERE user_id = ?`
+    ).bind(userId).all<{ notif_type: string; enabled: number; email_enabled: number }>()
     for (const r of (result.results || [])) {
       if (r.notif_type in defaults) {
-        defaults[r.notif_type as NotificationType] = r.enabled === 1
+        defaults[r.notif_type] = {
+          inApp: r.enabled === 1,
+          email: r.email_enabled === 1,
+        }
       }
     }
   } catch (e) { /* ignore */ }
-  return defaults
+  return defaults as Record<NotificationType, NotifPref>
 }
 
 /**
- * Update de preferences in bulk. Items met enabled=true verwijderen we uit
- * de tabel (geen rij = default aan); items met enabled=false zetten we
- * expliciet op enabled=0. Atomic via db.batch().
+ * Update de preferences in bulk. Voor elk type: als beide op default staan
+ * (inApp=true én email=true) verwijderen we de rij; anders upsert met de
+ * actuele waarden. Atomic via db.batch().
  */
 export async function setUserNotificationPrefs(
   db: D1Database,
   userId: number,
-  prefs: Partial<Record<NotificationType, boolean>>
+  prefs: Partial<Record<NotificationType, NotifPref>>
 ): Promise<void> {
   const stmts: D1PreparedStatement[] = []
-  for (const [type, enabled] of Object.entries(prefs)) {
-    if (enabled) {
-      // Default = aan: rij weg
+  for (const [type, pref] of Object.entries(prefs)) {
+    if (!pref) continue
+    if (pref.inApp && pref.email) {
+      // Beide default = aan: rij weg (bespaart storage én kleine race met defaults)
       stmts.push(db.prepare(
         `DELETE FROM user_notification_prefs WHERE user_id = ? AND notif_type = ?`
       ).bind(userId, type))
     } else {
-      // Opt-out: upsert
+      // Iets is uit: upsert de exacte waarden
       stmts.push(db.prepare(
-        `INSERT INTO user_notification_prefs (user_id, notif_type, enabled, updated_at)
-         VALUES (?, ?, 0, CURRENT_TIMESTAMP)
-         ON CONFLICT(user_id, notif_type) DO UPDATE SET enabled=0, updated_at=CURRENT_TIMESTAMP`
-      ).bind(userId, type))
+        `INSERT INTO user_notification_prefs (user_id, notif_type, enabled, email_enabled, updated_at)
+         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+         ON CONFLICT(user_id, notif_type) DO UPDATE
+           SET enabled = excluded.enabled,
+               email_enabled = excluded.email_enabled,
+               updated_at = CURRENT_TIMESTAMP`
+      ).bind(userId, type, pref.inApp ? 1 : 0, pref.email ? 1 : 0))
     }
   }
   if (stmts.length > 0) {
@@ -426,15 +650,47 @@ export async function markAllAsRead(db: D1Database, userId: number): Promise<num
  */
 export function getNotificationStyle(type: NotificationType): { icon: string; bg: string; color: string } {
   const styles: Record<NotificationType, { icon: string; bg: string; color: string }> = {
-    nieuws:    { icon: 'fas fa-newspaper',     bg: 'bg-blue-100',    color: 'text-blue-600' },
-    materiaal: { icon: 'fas fa-folder',         bg: 'bg-purple-100',  color: 'text-purple-600' },
-    repetitie: { icon: 'fas fa-music',          bg: 'bg-green-100',   color: 'text-green-600' },
-    concert:   { icon: 'fas fa-microphone',     bg: 'bg-pink-100',    color: 'text-pink-600' },
-    board:     { icon: 'fas fa-users-cog',      bg: 'bg-amber-100',   color: 'text-amber-700' },
-    systeem:   { icon: 'fas fa-cog',            bg: 'bg-gray-100',    color: 'text-gray-600' },
-    lidgeld:   { icon: 'fas fa-euro-sign',      bg: 'bg-orange-100',  color: 'text-orange-600' },
-    profiel:   { icon: 'fas fa-user-edit',      bg: 'bg-indigo-100',  color: 'text-indigo-600' },
-    taak:      { icon: 'fas fa-clipboard-check', bg: 'bg-purple-100', color: 'text-purple-700' }
+    nieuws:        { icon: 'fas fa-newspaper',       bg: 'bg-blue-100',    color: 'text-blue-600' },
+    materiaal:     { icon: 'fas fa-folder',          bg: 'bg-purple-100',  color: 'text-purple-600' },
+    repetitie:     { icon: 'fas fa-music',           bg: 'bg-green-100',   color: 'text-green-600' },
+    concert:       { icon: 'fas fa-microphone',      bg: 'bg-pink-100',    color: 'text-pink-600' },
+    board:         { icon: 'fas fa-users-cog',       bg: 'bg-amber-100',   color: 'text-amber-700' },
+    systeem:       { icon: 'fas fa-cog',             bg: 'bg-gray-100',    color: 'text-gray-600' },
+    lidgeld:       { icon: 'fas fa-euro-sign',       bg: 'bg-orange-100',  color: 'text-orange-600' },
+    profiel:       { icon: 'fas fa-user-edit',       bg: 'bg-indigo-100',  color: 'text-indigo-600' },
+    taak:          { icon: 'fas fa-clipboard-check', bg: 'bg-purple-100',  color: 'text-purple-700' },
+    gift:          { icon: 'fas fa-gift',            bg: 'bg-rose-100',    color: 'text-rose-600' },
+    ledenaanvraag: { icon: 'fas fa-user-plus',       bg: 'bg-teal-100',    color: 'text-teal-700' },
+    contact:       { icon: 'fas fa-envelope',        bg: 'bg-sky-100',     color: 'text-sky-700' },
+    feedback:      { icon: 'fas fa-bug',             bg: 'bg-red-100',     color: 'text-red-700' },
+    deadline:      { icon: 'fas fa-hourglass-half',  bg: 'bg-yellow-100',  color: 'text-yellow-700' },
+    agenda:        { icon: 'fas fa-calendar-alt',    bg: 'bg-cyan-100',    color: 'text-cyan-700' },
+    verjaardag:    { icon: 'fas fa-birthday-cake',   bg: 'bg-pink-100',    color: 'text-pink-500' },
   }
   return styles[type] || styles.systeem
+}
+
+/**
+ * Human-readable label per type — voor de UI van /leden/profiel#notificaties.
+ */
+export function getNotificationLabel(type: NotificationType): { label: string; beschrijving: string } {
+  const labels: Record<NotificationType, { label: string; beschrijving: string }> = {
+    nieuws:        { label: 'Nieuwsberichten',     beschrijving: 'Als er een nieuw bericht wordt gepubliceerd voor jouw stemgroep of alle leden' },
+    materiaal:     { label: 'Oefenmateriaal',      beschrijving: 'Nieuw partituur of oefen-mp3 voor jouw stemgroep' },
+    repetitie:     { label: 'Repetities',          beschrijving: 'Nieuwe repetitie in de agenda of wijzigingen' },
+    concert:       { label: 'Concerten',           beschrijving: 'Nieuwe concert-details, tickets, of concertwijzigingen' },
+    agenda:        { label: 'Agenda-items',        beschrijving: 'Andere activiteiten en events' },
+    taak:          { label: 'Taken toegewezen',    beschrijving: 'Als er een taak of actiepunt aan jou wordt toegewezen' },
+    deadline:      { label: 'Deadline-herinnering', beschrijving: '3 dagen voor de deadline van een toegewezen taak' },
+    lidgeld:       { label: 'Lidgeld',             beschrijving: 'Openstaand lidgeld, betaalverzoeken en bevestigingen' },
+    gift:          { label: 'Bedankje bij gift',   beschrijving: 'Bevestiging als je een gift/donatie doet' },
+    board:         { label: 'Bestuurlijk',         beschrijving: 'Alleen voor bestuursleden — notulen, agenda, actiepunten' },
+    systeem:       { label: 'Systeem',             beschrijving: 'Belangrijke systeemmeldingen (blijven altijd staan, kritiek)' },
+    profiel:       { label: 'Profiel',             beschrijving: 'Herinnering om je profiel aan te vullen' },
+    verjaardag:    { label: 'Verjaardagen',        beschrijving: 'Wekelijkse samenvatting van verjaardagen in het koor' },
+    ledenaanvraag: { label: 'Ledenaanvragen',      beschrijving: 'Admin-only — nieuwe registratie-aanvraag' },
+    contact:       { label: 'Contactformulier',    beschrijving: 'Admin-only — nieuw bericht via contactformulier' },
+    feedback:      { label: 'Beta feedback',       beschrijving: 'Admin-only — nieuwe bug-melding of feedback' },
+  }
+  return labels[type] || { label: type, beschrijving: '' }
 }

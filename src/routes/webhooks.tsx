@@ -4,7 +4,7 @@ import { getMolliePayment } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
 import { sendEmail, ticketEmail } from '../utils/email'
 import { generateTicketPdf, generateSeatTicketPdfs, uint8ArrayToBase64 } from '../utils/ticket-pdf'
-import { createNotification } from '../utils/notifications'
+import { createNotification, notifyUser } from '../utils/notifications'
 import { getSiteUrl } from '../utils/site-url'
 import { formatBrusselsDate, formatBrusselsTime } from '../utils/time'
 import type { Bindings } from '../types'
@@ -19,7 +19,8 @@ const app = new Hono<{ Bindings: Bindings }>()
  */
 async function finalizeLidgeldNotifications(
   db: D1Database,
-  membershipId: number | string
+  membershipId: number | string,
+  resendApiKey?: string
 ): Promise<void> {
   try {
     const m = await queryOne<any>(db,
@@ -35,10 +36,11 @@ async function finalizeLidgeldNotifications(
        SET is_gelezen = 1, gelezen_at = CURRENT_TIMESTAMP
        WHERE user_id = ? AND type = 'lidgeld' AND is_gelezen = 0`,
       [m.user_id])
-    // Voeg positieve bevestiging toe
+    // Voeg positieve bevestiging toe + email (respecteert opt-out)
     const bedrag = m.amount ? `€ ${Number(m.amount).toFixed(2)}` : ''
-    await createNotification(
+    await notifyUser(
       db,
+      resendApiKey,
       m.user_id,
       'lidgeld',
       `Lidgeld ${m.season} ontvangen — bedankt! 🎵`,
@@ -190,7 +192,7 @@ app.post('/api/webhooks/mollie', async (c) => {
 
       // BUG-FIX: bij paid alle openstaande lidgeld-notifs sluiten + bevestiging
       if (newStatus === 'paid') {
-        await finalizeLidgeldNotifications(c.env.DB, membershipId)
+        await finalizeLidgeldNotifications(c.env.DB, membershipId, c.env.RESEND_API_KEY)
       }
 
       await logWebhookCall(c.env.DB, {
@@ -227,7 +229,7 @@ app.post('/api/webhooks/mollie', async (c) => {
       // Send combined email if paid
       if (newStatus === 'paid') {
          // BUG-FIX: bij paid alle openstaande lidgeld-notifs sluiten + bevestiging
-         await finalizeLidgeldNotifications(c.env.DB, membershipId)
+         await finalizeLidgeldNotifications(c.env.DB, membershipId, c.env.RESEND_API_KEY)
          const user = molliePayment.metadata.user_id ? await queryOne(c.env.DB, "SELECT email, voornaam FROM users JOIN profiles ON users.id=profiles.user_id WHERE users.id=?", [molliePayment.metadata.user_id]) : null;
          if (user) {
             await sendEmail({
@@ -471,6 +473,9 @@ app.post('/api/webhooks/mollie', async (c) => {
               `SELECT id FROM users WHERE LOWER(email) = LOWER(?) AND status = 'actief' LIMIT 1`,
               [ticket.koper_email])
             if (userRow) {
+              // In-app notificatie — email is NIET nodig want de tickets zelf worden
+              // al via ticketEmail() naar de koper gestuurd (zie sendEmail hierboven).
+              // Dubbele email zou spam-signal zijn.
               await createNotification(
                 c.env.DB,
                 userRow.id,

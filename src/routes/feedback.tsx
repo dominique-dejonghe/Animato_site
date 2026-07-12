@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import { getCookie } from 'hono/cookie'
 import { verifyToken, isAdmin } from '../utils/auth'
 import { execute, queryOne, queryAll } from '../utils/db'
+import { sendEmail, adminAlertEmail, EMAIL_REPLY_TO } from '../utils/email'
 import type { Bindings } from '../types'
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -174,11 +175,45 @@ app.post('/api/feedback', async (c) => {
 
     // assigned_to = melder zelf — zo blijft het ticket bij de eigenaar staan
     // tot een admin het overneemt of resolved.
-    await execute(
+    const inserted = await execute(
       c.env.DB,
       `INSERT INTO feedback (user_id, assigned_to, type, message, url, screenshot, browser_info, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'open')`,
       [user.id, user.id, type, message, url, screenshot, browserInfo]
     )
+
+    // Admin-alert email — webmaster ziet nieuwe feedback meteen binnen
+    // Best-effort: fout in mail mag POST /api/feedback niet stukmaken
+    try {
+      const userInfo = await queryOne<any>(c.env.DB,
+        `SELECT u.email, p.voornaam, p.achternaam FROM users u
+         LEFT JOIN profiles p ON p.user_id = u.id
+         WHERE u.id = ? LIMIT 1`, [user.id])
+      const naam = userInfo
+        ? `${userInfo.voornaam || ''} ${userInfo.achternaam || ''}`.trim() || userInfo.email
+        : `User #${user.id}`
+      const feedbackId = (inserted as any)?.meta?.last_row_id
+      await sendEmail({
+        to: EMAIL_REPLY_TO,
+        replyTo: userInfo?.email || undefined,
+        subject: `[Animato ${type === 'bug' ? 'Bug' : 'Feedback'}] ${message.slice(0, 60)}${message.length > 60 ? '…' : ''}`,
+        html: adminAlertEmail({
+          titel: `Nieuwe ${type === 'bug' ? 'bug-melding' : 'feedback'} van ${naam}`,
+          intro: `Er is een nieuwe ${type === 'bug' ? 'bug' : 'feature request'} binnengekomen via het feedback-widget.`,
+          details: [
+            { label: 'Type',       value: type },
+            { label: 'Melder',     value: naam },
+            { label: 'E-mail',     value: userInfo?.email || '—' },
+            { label: 'Pagina',     value: url || '—' },
+            { label: 'Bericht',    value: message },
+            { label: 'Browser',    value: browserInfo || '—' },
+          ],
+          actionLink: feedbackId ? `/admin/feedback?id=${feedbackId}` : '/admin/feedback',
+          actionLabel: 'Bekijk in admin',
+        }),
+      }, c.env.RESEND_API_KEY)
+    } catch (mailErr) {
+      console.error('feedback admin email failed (non-fatal):', mailErr)
+    }
 
     return c.json({ success: true })
   } catch (e: any) {

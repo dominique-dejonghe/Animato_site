@@ -7,7 +7,7 @@ import { MemberPicker, MemberPickerScript } from '../components/MemberPicker'
 import { TaskCommentsCollapsible, TaskCommentsScript } from '../components/TaskComments'
 import { requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
-import { createNotification } from '../utils/notifications'
+import { createNotification, notifyUser } from '../utils/notifications'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -2216,14 +2216,15 @@ app.post('/api/admin/projects/tasks/create', async (c) => {
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).bind(project_id, titel, beschrijving || null, deadline || null, verantwoordelijke_id || null, prioriteit, nextOrder).run()
 
-  // 📬 Notificatie versturen aan de verantwoordelijke (Dominique, 2026-07-07)
+  // 📬 Notificatie + email versturen aan de verantwoordelijke (2026-07-08)
   if (verantwoordelijke_id && Number(verantwoordelijke_id) > 0) {
     try {
       const project = await queryOne<any>(c.env.DB,
         `SELECT titel FROM concert_projects WHERE id = ? LIMIT 1`, [project_id])
       const dlText = deadline ? ` — deadline ${deadline}` : ''
-      await createNotification(
+      await notifyUser(
         c.env.DB,
+        c.env.RESEND_API_KEY,
         Number(verantwoordelijke_id),
         'taak',
         `Nieuwe taak toegewezen${dlText}`,
@@ -2374,14 +2375,15 @@ app.post('/api/admin/projects/tasks/:id/update', async (c) => {
      WHERE id = ?`
   ).bind(titel, deadline || null, newRespId, prioriteit, beschrijving, id).run()
 
-  // 📬 Notificatie enkel bij ECHTE toewijzing aan andere gebruiker
+  // 📬 Notificatie + email enkel bij ECHTE toewijzing aan andere gebruiker
   if (newRespId && newRespId !== prevRespId) {
     try {
       const project = await queryOne<any>(c.env.DB,
         `SELECT titel FROM concert_projects WHERE id = ? LIMIT 1`, [project_id])
       const dlText = deadline ? ` — deadline ${deadline}` : ''
-      await createNotification(
+      await notifyUser(
         c.env.DB,
+        c.env.RESEND_API_KEY,
         newRespId,
         'taak',
         `Taak toegewezen aan jou${dlText}`,

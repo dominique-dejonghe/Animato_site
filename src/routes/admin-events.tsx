@@ -1594,7 +1594,8 @@ app.post('/admin/events/save', async (c) => {
           notifType,
           `${titelPrefix}: ${titel}`,
           niceDate + (finalLocatie ? ' — ' + finalLocatie : ''),
-          link
+          link,
+          c.env.RESEND_API_KEY
         )
       } catch (e) {
         console.error('[notif] event-create notify failed:', e)

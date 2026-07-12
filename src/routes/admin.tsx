@@ -5819,7 +5819,8 @@ app.post('/api/admin/content/save', async (c) => {
             'nieuws',
             `Nieuw bericht: ${titel}`,
             (excerpt && String(excerpt).slice(0, 140)) || undefined,
-            `/nieuws/${finalSlug}`
+            `/nieuws/${finalSlug}`,
+            c.env.RESEND_API_KEY
           )
         } catch (e) { console.error('notify on post_create failed:', e) }
       }

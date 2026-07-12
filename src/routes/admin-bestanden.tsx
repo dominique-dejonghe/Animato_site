@@ -1096,7 +1096,8 @@ app.post('/api/admin/bestanden/create', async (c) => {
         'materiaal',
         `Nieuw ${typeLabel}${stemLabel}: ${body.material_titel}`,
         `Toegevoegd bij ${workLabel}`,
-        '/leden/materiaal'
+        '/leden/materiaal',
+        c.env.RESEND_API_KEY
       )
     } catch (e) {
       console.error('[notif] material-create notify failed:', e)

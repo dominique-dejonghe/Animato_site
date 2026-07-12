@@ -13,6 +13,7 @@ export type Bindings = {
   JWT_SECRET: string
   SESSION_SECRET: string
   RESEND_API_KEY: string
+  CRON_SECRET?: string
   OPENAI_API_KEY: string
   OPENAI_BASE_URL: string
   STRIPE_SECRET_KEY: string

@@ -3,6 +3,15 @@
 
 import type { D1Database } from '@cloudflare/workers-types'
 
+// ==========================================================================
+// GLOBALE AFZENDER-CONFIGURATIE
+// ==========================================================================
+// Bepaald door Dominique (2026-07-08): één afzender, één reply-to.
+// Wil je later per event-type een andere afzender? Overschrijf dan
+// options.from bij de individuele sendEmail-call.
+export const EMAIL_FROM = 'Gemengd Koor Animato <webmaster@gemengdkooranimato.be>'
+export const EMAIL_REPLY_TO = 'webmaster@gemengdkooranimato.be'
+
 interface EmailAttachment {
   filename: string
   /** Base64-encoded content (Resend-compat) */
@@ -29,9 +38,9 @@ export async function sendEmail(options: EmailOptions, resendApiKey: string | un
 
   try {
     const payload: any = {
-      from: options.from || 'Gemengd Koor Animato <noreply@animato.be>',
+      from: options.from || EMAIL_FROM,
       to: [options.to],
-      reply_to: options.replyTo || undefined,
+      reply_to: options.replyTo || EMAIL_REPLY_TO,
       subject: options.subject,
       html: options.html
     }
@@ -392,4 +401,177 @@ export function paymentReminderEmail(data: {
 </body>
 </html>
   `
+}
+
+// ==========================================================================
+// GENERIEKE NOTIFICATIE-EMAIL (2026-07-08)
+// ==========================================================================
+// Één template die de meeste notif-types dekt. Individuele functies (zoals
+// orderConfirmationEmail hierboven) kunnen dit overrulen als ze bijzondere
+// info moeten laten zien (tabellen, bijlagen, etc.).
+//
+// De styling matcht globaal de Animato huisstijl (animato-primary #00A9CE
+// als hoofdkleur, met per-type accent-kleur).
+
+const TYPE_ACCENT: Record<string, { color: string; emoji: string; label: string }> = {
+  nieuws:        { color: '#2563EB', emoji: '📰', label: 'Nieuwsbericht' },
+  materiaal:     { color: '#7C3AED', emoji: '🎵', label: 'Oefenmateriaal' },
+  repetitie:     { color: '#16A34A', emoji: '🎼', label: 'Repetitie' },
+  concert:       { color: '#DB2777', emoji: '🎤', label: 'Concert' },
+  agenda:        { color: '#0891B2', emoji: '📅', label: 'Agenda' },
+  taak:          { color: '#7C3AED', emoji: '📋', label: 'Taak' },
+  deadline:      { color: '#CA8A04', emoji: '⏰', label: 'Deadline' },
+  lidgeld:       { color: '#EA580C', emoji: '💰', label: 'Lidgeld' },
+  gift:          { color: '#E11D48', emoji: '💝', label: 'Gift' },
+  board:         { color: '#B45309', emoji: '👥', label: 'Bestuur' },
+  systeem:       { color: '#4B5563', emoji: '⚙️', label: 'Systeem' },
+  profiel:       { color: '#4F46E5', emoji: '👤', label: 'Profiel' },
+  verjaardag:    { color: '#EC4899', emoji: '🎂', label: 'Verjaardag' },
+  ledenaanvraag: { color: '#0D9488', emoji: '👋', label: 'Nieuwe aanvraag' },
+  contact:       { color: '#0284C7', emoji: '✉️', label: 'Contactformulier' },
+  feedback:      { color: '#DC2626', emoji: '🐛', label: 'Beta feedback' },
+}
+
+/**
+ * Bouw een simpele, mobiel-vriendelijke HTML-email voor een notificatie.
+ *
+ * @param data.link — optioneel. Als het een pad is (/leden/…) prependen we
+ *                    https://animato.be zodat de link ook in mail-clients klopt.
+ */
+export function notificationEmail(data: {
+  voornaam: string | null
+  titel: string
+  body: string
+  link?: string
+  type: string
+}): string {
+  const accent = TYPE_ACCENT[data.type] || TYPE_ACCENT.systeem
+  const greet = data.voornaam ? `Beste ${escapeHtml(data.voornaam)}` : 'Beste'
+
+  // Link naar absolute URL forceren
+  let absoluteLink: string | null = null
+  if (data.link) {
+    absoluteLink = data.link.startsWith('http')
+      ? data.link
+      : `https://animato.be${data.link.startsWith('/') ? '' : '/'}${data.link}`
+  }
+
+  // Body ondersteunt eenvoudige newlines
+  const bodyHtml = escapeHtml(data.body).replace(/\n/g, '<br>')
+
+  return `<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(data.titel)}</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#1f2937;">
+  <div style="max-width:600px;margin:0 auto;padding:20px;">
+    <!-- Header -->
+    <div style="background:linear-gradient(135deg,#00A9CE 0%,${accent.color} 100%);color:#ffffff;padding:24px 28px;border-radius:12px 12px 0 0;">
+      <div style="font-size:12px;letter-spacing:1px;opacity:0.85;text-transform:uppercase;margin-bottom:6px;">
+        ${accent.emoji} ${accent.label}
+      </div>
+      <h1 style="margin:0;font-size:22px;font-weight:700;line-height:1.3;">
+        ${escapeHtml(data.titel)}
+      </h1>
+    </div>
+
+    <!-- Content -->
+    <div style="background:#ffffff;padding:28px;border-radius:0 0 12px 12px;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+      <p style="margin:0 0 16px 0;font-size:16px;">${greet},</p>
+
+      ${data.body ? `<div style="margin:0 0 24px 0;font-size:15px;line-height:1.6;color:#374151;">${bodyHtml}</div>` : ''}
+
+      ${absoluteLink ? `
+      <div style="text-align:center;margin:28px 0 16px 0;">
+        <a href="${escapeHtml(absoluteLink)}" style="display:inline-block;background:${accent.color};color:#ffffff;padding:12px 28px;text-decoration:none;border-radius:8px;font-weight:600;font-size:15px;">
+          Bekijk in Animato →
+        </a>
+      </div>
+      <p style="font-size:12px;color:#9ca3af;text-align:center;margin:12px 0 0 0;">
+        Werkt de knop niet? Kopieer deze link:<br>
+        <a href="${escapeHtml(absoluteLink)}" style="color:${accent.color};word-break:break-all;">${escapeHtml(absoluteLink)}</a>
+      </p>
+      ` : ''}
+    </div>
+
+    <!-- Footer -->
+    <div style="text-align:center;padding:20px 12px;color:#6b7280;font-size:12px;line-height:1.5;">
+      Deze e-mail komt van <strong>Gemengd Koor Animato</strong>.<br>
+      Wil je dit soort mails niet meer ontvangen? Pas je voorkeuren aan via
+      <a href="https://animato.be/leden/profiel#notificaties" style="color:#00A9CE;">je profielinstellingen</a>.<br>
+      <span style="color:#9ca3af;">webmaster@gemengdkooranimato.be</span>
+    </div>
+  </div>
+</body>
+</html>`
+}
+
+/**
+ * Speciale template voor admin-only notificaties (registratie-aanvraag,
+ * contact, feedback). Iets soberder, en toont de rauwe payload voor
+ * snelle triage.
+ */
+export function adminAlertEmail(data: {
+  titel: string
+  intro: string
+  details: Array<{ label: string; value: string }>
+  actionLink?: string
+  actionLabel?: string
+}): string {
+  const detailsHtml = data.details.map(d => `
+    <tr>
+      <td style="padding:8px 12px;background:#f9fafb;font-weight:600;color:#4b5563;border-bottom:1px solid #e5e7eb;width:30%;vertical-align:top;">${escapeHtml(d.label)}</td>
+      <td style="padding:8px 12px;background:#ffffff;color:#1f2937;border-bottom:1px solid #e5e7eb;">${escapeHtml(d.value).replace(/\n/g, '<br>')}</td>
+    </tr>
+  `).join('')
+
+  return `<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${escapeHtml(data.titel)}</title>
+</head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#1f2937;">
+  <div style="max-width:640px;margin:0 auto;padding:20px;">
+    <div style="background:#1B4D5C;color:#ffffff;padding:20px 24px;border-radius:12px 12px 0 0;">
+      <div style="font-size:11px;letter-spacing:1px;opacity:0.75;text-transform:uppercase;margin-bottom:4px;">🛡️ Admin melding</div>
+      <h1 style="margin:0;font-size:20px;font-weight:700;">${escapeHtml(data.titel)}</h1>
+    </div>
+    <div style="background:#ffffff;padding:24px;border-radius:0 0 12px 12px;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
+      <p style="margin:0 0 20px 0;font-size:15px;color:#374151;line-height:1.5;">${escapeHtml(data.intro)}</p>
+      <table style="width:100%;border-collapse:collapse;border-radius:8px;overflow:hidden;border:1px solid #e5e7eb;">
+        ${detailsHtml}
+      </table>
+      ${data.actionLink ? `
+      <div style="text-align:center;margin:24px 0 8px 0;">
+        <a href="${escapeHtml(data.actionLink.startsWith('http') ? data.actionLink : 'https://animato.be' + data.actionLink)}"
+           style="display:inline-block;background:#00A9CE;color:#ffffff;padding:11px 24px;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
+          ${escapeHtml(data.actionLabel || 'Bekijk in admin')} →
+        </a>
+      </div>` : ''}
+    </div>
+    <div style="text-align:center;padding:16px 12px;color:#9ca3af;font-size:11px;">
+      Automatische melding van animato.be — niet beantwoorden.
+    </div>
+  </div>
+</body>
+</html>`
+}
+
+/**
+ * XSS-safe HTML escape voor waarden die in email-templates komen.
+ * Nodig want data komt uit gebruikers-input (namen, berichten, etc.).
+ */
+function escapeHtml(s: string): string {
+  if (s == null) return ''
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }

@@ -7,7 +7,7 @@ import { TaskCommentsCollapsible, TaskCommentsScript } from '../components/TaskC
 import { requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
 import { formatBrusselsTime } from '../utils/time'
-import { createNotification } from '../utils/notifications'
+import { createNotification, notifyUser } from '../utils/notifications'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1536,8 +1536,9 @@ app.post('/api/admin/meetings/actions/create', async (c) => {
       const meeting = await queryOne<any>(c.env.DB,
         `SELECT titel FROM meetings WHERE id = ? LIMIT 1`, [meeting_id])
       const dlText = deadline ? ` — deadline ${deadline}` : ''
-      await createNotification(
+      await notifyUser(
         c.env.DB,
+        c.env.RESEND_API_KEY,
         Number(verantwoordelijke_id),
         'taak',
         `Nieuwe taak toegewezen${dlText}`,
@@ -1602,8 +1603,9 @@ app.post('/api/admin/meetings/actions/:id/update', async (c) => {
       const meeting = await queryOne<any>(c.env.DB,
         `SELECT titel FROM meetings WHERE id = ? LIMIT 1`, [meeting_id])
       const dlText = deadline ? ` — deadline ${deadline}` : ''
-      await createNotification(
+      await notifyUser(
         c.env.DB,
+        c.env.RESEND_API_KEY,
         newRespId,
         'taak',
         `Taak toegewezen aan jou${dlText}`,

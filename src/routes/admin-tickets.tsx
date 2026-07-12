@@ -438,6 +438,24 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
   const user = c.get('user') as SessionUser
   const concertId = parseInt(c.req.param('concertId'))
 
+  // Sort-parameters (server-side sortering, herkomstig uit ?sort=&dir=)
+  // Toegestane kolommen: whitelist tegen SQL-injectie.
+  // 'datum' sorteert op betaald_at met fallback naar created_at zodat pending
+  // bestellingen niet onderaan de put belanden.
+  const sortParam = String(c.req.query('sort') || 'datum').toLowerCase()
+  const dirParam  = String(c.req.query('dir')  || 'desc').toLowerCase() === 'asc' ? 'ASC' : 'DESC'
+  const SORT_MAP: Record<string, string> = {
+    'datum':    `COALESCE(betaald_at, created_at)`,
+    'created':  `created_at`,
+    'koper':    `LOWER(koper_naam)`,
+    'aantal':   `aantal`,
+    'prijs':    `prijs_totaal`,
+    'status':   `status`,
+    'ref':      `order_ref`,
+    'categorie':`categorie`,
+  }
+  const orderBySql = SORT_MAP[sortParam] || SORT_MAP['datum']
+
   // Get concert info — live verkocht-berekening i.p.v. stale counter
   const concert = await queryOne<any>(c.env.DB, `
     SELECT c.*, e.titel, e.start_at, e.locatie,
@@ -452,13 +470,92 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
     return c.text('Concert niet gevonden', 404)
   }
 
-  // Get all tickets/orders
+  // Get all tickets/orders — dynamisch gesorteerd
   const tickets = await queryAll<any>(c.env.DB, `
     SELECT *
     FROM tickets
     WHERE concert_id = ?
-    ORDER BY created_at DESC
+    ORDER BY ${orderBySql} ${dirParam}, id ${dirParam}
   `, [concertId])
+
+  // ==========================================
+  // Aggregatie voor de grafiek: aantal betaalde kaarten per dag
+  // ==========================================
+  // We groeperen op DATE(betaald_at) — alleen effectief betaalde tickets
+  // tellen mee (status='paid'). Pending/cancelled/refunded blijven eruit
+  // omdat die de "verkocht"-curve zouden vertekenen.
+  //
+  // De grafiek toont een venster op basis van ?chart_days= (default 30).
+  // Options: 7, 30, 90, all. Voor "all" gaan we terug tot de eerste verkoop.
+  const chartDaysParam = String(c.req.query('chart_days') || '30').toLowerCase()
+  const chartDays = chartDaysParam === 'all' ? null
+                  : chartDaysParam === '7'   ? 7
+                  : chartDaysParam === '90'  ? 90
+                  : 30
+  const salesRows = await queryAll<{ dag: string; aantal_tickets: number; aantal_orders: number; omzet: number }>(c.env.DB, `
+    SELECT DATE(COALESCE(betaald_at, created_at)) AS dag,
+           SUM(aantal)       AS aantal_tickets,
+           COUNT(*)          AS aantal_orders,
+           SUM(prijs_totaal) AS omzet
+    FROM tickets
+    WHERE concert_id = ?
+      AND status = 'paid'
+      ${chartDays ? `AND DATE(COALESCE(betaald_at, created_at)) >= DATE('now', ?)` : ''}
+    GROUP BY dag
+    ORDER BY dag ASC
+  `, chartDays ? [concertId, `-${chartDays} days`] : [concertId])
+
+  // Fill-in ontbrekende dagen zodat de bar chart geen gaten heeft
+  // (anders kruipt de X-as scheef en zie je "gaten in de tijd" niet)
+  let chartLabels: string[] = []
+  let chartTickets: number[] = []
+  let chartOrders: number[] = []
+  let chartOmzet: number[] = []
+  if (salesRows.length > 0) {
+    const salesByDay = new Map<string, { tickets: number; orders: number; omzet: number }>()
+    for (const r of salesRows) {
+      salesByDay.set(r.dag, {
+        tickets: Number(r.aantal_tickets) || 0,
+        orders: Number(r.aantal_orders) || 0,
+        omzet: Number(r.omzet) || 0,
+      })
+    }
+    // Bepaal start- en einddag
+    const firstSaleDate = salesRows[0].dag
+    const startDate = chartDays
+      ? new Date(Date.now() - chartDays * 24 * 60 * 60 * 1000)
+      : new Date(firstSaleDate + 'T00:00:00Z')
+    const endDate = new Date() // vandaag
+    const cursor = new Date(Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate()))
+    const end = new Date(Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate()))
+    // Cap op maximaal 365 dagen om edge-cases (verkoop 2 jaar geleden) te vermijden
+    let safety = 0
+    while (cursor <= end && safety < 366) {
+      const key = cursor.toISOString().slice(0, 10) // YYYY-MM-DD
+      chartLabels.push(key)
+      const s = salesByDay.get(key)
+      chartTickets.push(s?.tickets || 0)
+      chartOrders.push(s?.orders || 0)
+      chartOmzet.push(s?.omzet || 0)
+      cursor.setUTCDate(cursor.getUTCDate() + 1)
+      safety++
+    }
+  }
+  const chartTotals = {
+    tickets: chartTickets.reduce((a, b) => a + b, 0),
+    orders:  chartOrders.reduce((a, b) => a + b, 0),
+    omzet:   chartOmzet.reduce((a, b) => a + b, 0),
+    piekDag: (() => {
+      if (chartTickets.length === 0) return null
+      let maxIdx = 0
+      for (let i = 1; i < chartTickets.length; i++) {
+        if (chartTickets[i] > chartTickets[maxIdx]) maxIdx = i
+      }
+      return chartTickets[maxIdx] > 0
+        ? { dag: chartLabels[maxIdx], aantal: chartTickets[maxIdx] }
+        : null
+    })(),
+  }
 
   // Bereken bezetting-percentage voor de progress bar
   const capaciteit = Number(concert.capaciteit) || 0
@@ -580,6 +677,185 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
           </div>
         </div>
 
+        {/* Sales-per-dag chart */}
+        {chartLabels.length > 0 && (
+          <div class="bg-white rounded-lg shadow-md p-5 mb-6">
+            <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+              <div>
+                <h3 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <i class="fas fa-chart-column text-animato-primary"></i>
+                  Kaarten verkocht per dag
+                </h3>
+                <p class="text-xs text-gray-500 mt-0.5">
+                  Alleen betaalde bestellingen. Gebaseerd op betaal-datum (val-back op besteldatum).
+                </p>
+              </div>
+              {/* Period selector */}
+              <div class="flex items-center gap-1 text-xs bg-gray-100 rounded-lg p-1">
+                {[
+                  { key: '7',   label: '7 dagen' },
+                  { key: '30',  label: '30 dagen' },
+                  { key: '90',  label: '90 dagen' },
+                  { key: 'all', label: 'Alle' },
+                ].map(opt => {
+                  const active = chartDaysParam === opt.key || (opt.key === '30' && chartDaysParam !== '7' && chartDaysParam !== '90' && chartDaysParam !== 'all')
+                  const qs = new URLSearchParams()
+                  qs.set('chart_days', opt.key)
+                  if (sortParam !== 'datum') qs.set('sort', sortParam)
+                  if (dirParam !== 'DESC') qs.set('dir', 'asc')
+                  return (
+                    <a href={`?${qs.toString()}#chart`}
+                       class={`px-3 py-1.5 rounded-md font-medium transition ${active ? 'bg-white text-animato-primary shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}>
+                      {opt.label}
+                    </a>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Chart totals — inline KPI's boven de grafiek */}
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+              <div class="bg-gray-50 rounded-lg px-3 py-2">
+                <div class="text-[11px] uppercase text-gray-500 font-medium tracking-wide">Kaarten in periode</div>
+                <div class="text-xl font-bold text-gray-900">{chartTotals.tickets}</div>
+              </div>
+              <div class="bg-gray-50 rounded-lg px-3 py-2">
+                <div class="text-[11px] uppercase text-gray-500 font-medium tracking-wide">Bestellingen</div>
+                <div class="text-xl font-bold text-gray-900">{chartTotals.orders}</div>
+              </div>
+              <div class="bg-gray-50 rounded-lg px-3 py-2">
+                <div class="text-[11px] uppercase text-gray-500 font-medium tracking-wide">Omzet</div>
+                <div class="text-xl font-bold text-gray-900">€{chartTotals.omzet.toFixed(2)}</div>
+              </div>
+              <div class="bg-gray-50 rounded-lg px-3 py-2">
+                <div class="text-[11px] uppercase text-gray-500 font-medium tracking-wide">Beste dag</div>
+                <div class="text-sm font-semibold text-gray-900">
+                  {chartTotals.piekDag
+                    ? <span>{new Date(chartTotals.piekDag.dag).toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' })} <span class="text-animato-primary">({chartTotals.piekDag.aantal})</span></span>
+                    : <span class="text-gray-400">—</span>}
+                </div>
+              </div>
+            </div>
+
+            <div id="chart" class="relative" style="height: 300px;">
+              <canvas id="salesChart"></canvas>
+            </div>
+            <div class="mt-3 text-[11px] text-gray-500 flex flex-wrap items-center gap-3">
+              <span class="inline-flex items-center gap-1"><span class="w-3 h-3 rounded bg-animato-primary inline-block"></span> Kaarten</span>
+              <span class="inline-flex items-center gap-1"><span class="w-3 h-3 rounded border-2 border-animato-secondary inline-block"></span> Cumulatief</span>
+              <span class="ml-auto italic">Tip: hover over een balk voor exacte cijfers.</span>
+            </div>
+
+            <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+            <script dangerouslySetInnerHTML={{ __html: `
+              (function() {
+                var labels    = ${JSON.stringify(chartLabels)};
+                var tickets   = ${JSON.stringify(chartTickets)};
+                var orders    = ${JSON.stringify(chartOrders)};
+                var omzet     = ${JSON.stringify(chartOmzet)};
+                // Cumulatieve tickets voor de line-overlay
+                var cumulTickets = [];
+                var running = 0;
+                for (var i = 0; i < tickets.length; i++) { running += tickets[i]; cumulTickets.push(running); }
+
+                function fmtDay(iso) {
+                  var d = new Date(iso + 'T00:00:00');
+                  return d.toLocaleDateString('nl-BE', { day: 'numeric', month: 'short' });
+                }
+                var displayLabels = labels.map(fmtDay);
+
+                // Als er heel veel dagen zijn, dun de X-as-labels uit zodat ze niet overlappen
+                var maxTicks = 15;
+                var tickCallback = function(value, index) {
+                  var step = Math.max(1, Math.ceil(displayLabels.length / maxTicks));
+                  return (index % step === 0) ? displayLabels[index] : '';
+                };
+
+                var ctx = document.getElementById('salesChart');
+                if (!ctx || !window.Chart) return;
+                new window.Chart(ctx, {
+                  type: 'bar',
+                  data: {
+                    labels: displayLabels,
+                    datasets: [
+                      {
+                        type: 'bar',
+                        label: 'Kaarten',
+                        data: tickets,
+                        backgroundColor: '#00A9CE',
+                        borderRadius: 4,
+                        maxBarThickness: 32,
+                        order: 2,
+                      },
+                      {
+                        type: 'line',
+                        label: 'Cumulatief',
+                        data: cumulTickets,
+                        borderColor: '#1B4D5C',
+                        backgroundColor: 'rgba(27,77,92,0.08)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        pointHoverRadius: 4,
+                        fill: false,
+                        yAxisID: 'y1',
+                        tension: 0.25,
+                        order: 1,
+                      }
+                    ]
+                  },
+                  options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                      legend: { display: false },
+                      tooltip: {
+                        callbacks: {
+                          title: function(items) {
+                            if (!items || !items[0]) return '';
+                            var iso = labels[items[0].dataIndex];
+                            var d = new Date(iso + 'T00:00:00');
+                            return d.toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+                          },
+                          label: function(item) {
+                            var i = item.dataIndex;
+                            if (item.dataset.type === 'line') {
+                              return 'Cumulatief: ' + cumulTickets[i] + ' kaarten';
+                            }
+                            var lines = ['Kaarten: ' + tickets[i]];
+                            if (orders[i]) lines.push('Bestellingen: ' + orders[i]);
+                            if (omzet[i])  lines.push('Omzet: €' + omzet[i].toFixed(2));
+                            return lines;
+                          }
+                        }
+                      }
+                    },
+                    scales: {
+                      y: {
+                        beginAtZero: true,
+                        title: { display: true, text: 'Kaarten per dag' },
+                        ticks: { precision: 0 },
+                        grid: { color: 'rgba(0,0,0,0.06)' }
+                      },
+                      y1: {
+                        beginAtZero: true,
+                        position: 'right',
+                        title: { display: true, text: 'Cumulatief' },
+                        ticks: { precision: 0 },
+                        grid: { display: false }
+                      },
+                      x: {
+                        ticks: { autoSkip: false, callback: tickCallback, maxRotation: 0 },
+                        grid: { display: false }
+                      }
+                    }
+                  }
+                });
+              })();
+            ` }} />
+          </div>
+        )}
+
         {/* Tickets Table */}
         {tickets.length === 0 ? (
           <div class="bg-white rounded-lg shadow-md p-12 text-center">
@@ -591,16 +867,48 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
           </div>
         ) : (
           <div class="bg-white rounded-lg shadow-md overflow-hidden">
+            {/* Sort helper: klik op een kolomkop om te sorteren; toggle asc/desc */}
+            {(() => {
+              // Server-side rendered sort headers. We geven ze aan als een sub-component-achtige
+              // helper om ellenlange JSX te vermijden.
+              return null
+            })()}
+            <div class="overflow-x-auto">
             <table class="w-full">
               <thead class="bg-gray-50">
                 <tr>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Order Ref</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Koper</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Categorie</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Aantal</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Prijs</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Datum</th>
+                  {(() => {
+                    const cols: Array<{ key: string; label: string; align?: 'left'|'right' }> = [
+                      { key: 'ref',       label: 'Order Ref' },
+                      { key: 'koper',     label: 'Koper' },
+                      { key: 'categorie', label: 'Categorie' },
+                      { key: 'aantal',    label: 'Aantal' },
+                      { key: 'prijs',     label: 'Prijs' },
+                      { key: 'status',    label: 'Status' },
+                      { key: 'datum',     label: 'Datum' },
+                    ]
+                    return cols.map(col => {
+                      const isActive = sortParam === col.key
+                      const nextDir = isActive && dirParam === 'DESC' ? 'asc' : 'desc'
+                      const qs = new URLSearchParams()
+                      qs.set('sort', col.key)
+                      qs.set('dir', nextDir)
+                      if (chartDaysParam !== '30') qs.set('chart_days', chartDaysParam)
+                      const icon = !isActive ? 'fa-sort text-gray-300'
+                                 : dirParam === 'DESC' ? 'fa-sort-down text-animato-primary'
+                                 : 'fa-sort-up text-animato-primary'
+                      return (
+                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                          <a href={`?${qs.toString()}`}
+                             class="inline-flex items-center gap-1.5 hover:text-animato-primary transition"
+                             title={`Sorteer op ${col.label}`}>
+                            <span>{col.label}</span>
+                            <i class={`fas ${icon} text-[10px]`}></i>
+                          </a>
+                        </th>
+                      )
+                    })
+                  })()}
                   <th class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Acties</th>
                 </tr>
               </thead>
@@ -648,8 +956,37 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
                           {ticket.status.toUpperCase()}
                         </span>
                       </td>
-                      <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {new Date(ticket.created_at).toLocaleDateString('nl-NL')}
+                      <td class="px-6 py-4 whitespace-nowrap text-sm">
+                        {(() => {
+                          // "Verkocht op" = betaald_at als beschikbaar, anders created_at
+                          const isoDate = ticket.betaald_at || ticket.created_at
+                          const d = new Date(isoDate)
+                          const now = new Date()
+                          const diffMs = now.getTime() - d.getTime()
+                          const diffMin = Math.floor(diffMs / 60000)
+                          const diffH   = Math.floor(diffMs / 3600000)
+                          const diffDay = Math.floor(diffMs / 86400000)
+                          let relatief = ''
+                          if (diffMin < 1)       relatief = 'zonet'
+                          else if (diffMin < 60) relatief = `${diffMin} min geleden`
+                          else if (diffH < 24)   relatief = `${diffH} uur geleden`
+                          else if (diffDay < 7)  relatief = `${diffDay} dag${diffDay === 1 ? '' : 'en'} geleden`
+                          else if (diffDay < 30) relatief = `${Math.floor(diffDay/7)} week${Math.floor(diffDay/7) === 1 ? '' : 'en'} geleden`
+                          const fullLabel = d.toLocaleString('nl-BE', {
+                            day: '2-digit', month: 'short', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit'
+                          })
+                          const showBetaaldLabel = !!ticket.betaald_at && ticket.status === 'paid'
+                          return (
+                            <div title={ticket.betaald_at ? `Betaald: ${new Date(ticket.betaald_at).toLocaleString('nl-BE')}\nBesteld: ${new Date(ticket.created_at).toLocaleString('nl-BE')}` : `Besteld: ${new Date(ticket.created_at).toLocaleString('nl-BE')}`}>
+                              <div class="text-gray-900 font-medium">{fullLabel}</div>
+                              <div class="text-xs text-gray-500">
+                                {showBetaaldLabel && <i class="fas fa-check-circle text-green-500 mr-1" title="Betaal-tijdstip"></i>}
+                                {relatief || 'lang geleden'}
+                              </div>
+                            </div>
+                          )
+                        })()}
                       </td>
                       <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <button
@@ -707,6 +1044,7 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
                 })}
               </tbody>
             </table>
+            </div>
           </div>
         )}
 

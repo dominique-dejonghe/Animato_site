@@ -289,6 +289,7 @@ app.get('/leden/polls/:id', async (c) => {
                 <i class="fas fa-check-circle text-green-500 mr-3"></i>
                 <div class="text-sm text-green-800">
                   {success === 'voted' && 'Je stem is succesvol opgeslagen!'}
+                  {success === 'unvoted' && 'Je stem is ingetrokken — je kan opnieuw kiezen zolang de poll open is.'}
                 </div>
               </div>
             </div>
@@ -299,10 +300,12 @@ app.get('/leden/polls/:id', async (c) => {
               <div class="flex items-center">
                 <i class="fas fa-exclamation-circle text-red-500 mr-3"></i>
                 <div class="text-sm text-red-800">
-                  {error === 'already_voted' && 'Je hebt al gestemd op deze poll'}
-                  {error === 'poll_closed' && 'Deze poll is gesloten'}
+                  {error === 'already_voted' && 'Je hebt al gestemd op deze poll — trek eerst je huidige stem in als je wil wijzigen.'}
+                  {error === 'poll_closed' && 'Deze poll is gesloten — stemmen kunnen niet meer gewijzigd worden.'}
                   {error === 'invalid_selection' && 'Ongeldige keuze'}
                   {error === 'too_many_votes' && 'Je hebt te veel opties geselecteerd'}
+                  {error === 'unvote_failed' && 'Kon je stem niet intrekken — probeer het opnieuw.'}
+                  {error === 'nothing_to_unvote' && 'Je hebt nog geen stem uitgebracht op deze poll.'}
                 </div>
               </div>
             </div>
@@ -473,6 +476,32 @@ app.get('/leden/polls/:id', async (c) => {
                       </div>
                     )
                   })}
+
+                  {/* Stem intrekken/wijzigen — alleen als de poll nog open is.
+                      Werkt ook voor anonieme polls: we koppelen user_id intern
+                      voor deduplicatie, maar tonen enkel aggregaten aan admins,
+                      dus je eigen stem intrekken lekt geen identiteit. */}
+                  {hasVoted && poll.status === 'open' && (
+                    <form
+                      action={`/api/polls/${pollId}/unvote`}
+                      method="POST"
+                      class="mt-6 pt-4 border-t border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                      onsubmit="return confirm('Weet je zeker dat je je stem wil intrekken? Je kan daarna opnieuw kiezen zolang de poll open is.');"
+                    >
+                      <p class="text-sm text-gray-600 flex items-start">
+                        <i class="fas fa-info-circle text-gray-400 mr-2 mt-0.5"></i>
+                        <span>Verkeerd gestemd? Je kan je stem intrekken en opnieuw kiezen zolang de poll open blijft.</span>
+                      </p>
+                      <button
+                        type="submit"
+                        class="inline-flex items-center justify-center gap-2 px-4 py-2 border-2 border-red-300 text-red-700 bg-white hover:bg-red-50 hover:border-red-500 rounded-lg font-medium text-sm transition whitespace-nowrap"
+                        title="Verwijder je huidige stem — je kan dan opnieuw kiezen"
+                      >
+                        <i class="fas fa-undo"></i>
+                        Stem intrekken / wijzigen
+                      </button>
+                    </form>
+                  )}
                 </div>
               )}
             </div>
@@ -543,6 +572,56 @@ app.post('/api/polls/:id/vote', async (c) => {
   } catch (error: any) {
     console.error('Vote submission error:', error)
     return c.redirect(`/leden/polls/${pollId}?error=vote_failed`)
+  }
+})
+
+// =====================================================
+// API: WITHDRAW VOTE (intrekken / wijzigen)
+// =====================================================
+//
+// Verwijdert álle poll_votes van de huidige user voor deze poll, zodat de
+// user opnieuw kan stemmen. Werkt enkel wanneer:
+//   - de poll bestaat en status = 'open' (dichtgeklapte poll → niet meer wijzigen)
+//   - de user daadwerkelijk gestemd heeft
+//
+// Ook anonieme polls: user_id staat wel in poll_votes voor deduplicatie, maar
+// wordt nooit aan admins getoond (die zien enkel aggregaten per stemgroep).
+// Een user zijn eigen stem laten intrekken lekt dus geen identiteit.
+app.post('/api/polls/:id/unvote', async (c) => {
+  const user = c.get('user') as SessionUser
+  const pollId = c.req.param('id')
+
+  try {
+    const poll = await queryOne<any>(
+      c.env.DB,
+      `SELECT id, status FROM polls WHERE id = ?`,
+      [pollId]
+    )
+
+    if (!poll) {
+      return c.redirect(`/leden/polls?error=not_found`)
+    }
+
+    if (poll.status !== 'open') {
+      return c.redirect(`/leden/polls/${pollId}?error=poll_closed`)
+    }
+
+    // Alleen de eigen stemmen wissen — nooit iemand anders' aanraken.
+    const result = await c.env.DB
+      .prepare(`DELETE FROM poll_votes WHERE poll_id = ? AND user_id = ?`)
+      .bind(pollId, user.id)
+      .run()
+
+    // meta.changes = 0 → user had geen stem, geen fout maar wel signaal
+    const changes = (result as any)?.meta?.changes ?? (result as any)?.changes ?? 0
+    if (!changes) {
+      return c.redirect(`/leden/polls/${pollId}?error=nothing_to_unvote`)
+    }
+
+    return c.redirect(`/leden/polls/${pollId}?success=unvoted`)
+  } catch (error: any) {
+    console.error('Vote withdrawal error:', error)
+    return c.redirect(`/leden/polls/${pollId}?error=unvote_failed`)
   }
 })
 

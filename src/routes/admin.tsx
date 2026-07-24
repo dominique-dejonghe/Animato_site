@@ -95,8 +95,16 @@ app.get('/admin', async (c) => {
     total_inactieve_leden: await safeCount(`SELECT COUNT(*) as count FROM users WHERE status = 'inactief' AND role != 'kaartkoper' AND (is_test_account IS NULL OR is_test_account = 0)`),
     // Kaartkopers — mensen die enkel tickets kochten, GEEN ledenfunctionaliteit.
     total_kaartkopers: await safeCount(`SELECT COUNT(*) as count FROM users WHERE role = 'kaartkoper'`),
-    // Kaartkopers die hun account nog niet geactiveerd hebben (magic-link niet gevolgd).
-    total_kaartkopers_pending: await safeCount(`SELECT COUNT(*) as count FROM users WHERE role = 'kaartkoper' AND (account_setup_completed IS NULL OR account_setup_completed = 0)`),
+    // Kaartkopers die nog niet als lid zijn opgenomen. Definitie: iemand telt
+    // pas als "geactiveerd" wanneer zijn role NIET langer 'kaartkoper' is
+    // (i.e. omgezet naar 'lid', 'admin', 'dirigent', ...). account_setup_completed
+    // (magic-link) was hier eerst het criterium, maar dat is misleidend — iemand
+    // die één keer heeft ingelogd om zijn ticket op te halen is nog niet "lid"
+    // van het koor. De vorige aanpak toonde daarom '19 nog niet geactiveerd' terwijl
+    // álle 20 nog gewoon kaartkoper waren.
+    // Praktisch: dit getal is altijd gelijk aan total_kaartkopers zolang niemand
+    // is omgezet naar lid. Dat is by design — het is een reminder voor de admin.
+    total_kaartkopers_pending: await safeCount(`SELECT COUNT(*) as count FROM users WHERE role = 'kaartkoper'`),
     // Komende concerten met verkochte tickets — relevant voor QR-scanner tegel
     // 365 dagen window: concerten worden vaak maanden vooruit gepland
     upcoming_concerts_with_tickets: await safeCount(
@@ -525,15 +533,10 @@ app.get('/admin', async (c) => {
               </div>
               <div>
                 <p class="text-3xl font-bold text-gray-900 leading-none">{stats.total_kaartkopers?.count || 0}</p>
-                {(stats.total_kaartkopers_pending?.count || 0) > 0 ? (
-                  <p class="text-xs text-amber-600 mt-1" title="Magic-link nog niet gevolgd — wachten op activatie">
+                {(stats.total_kaartkopers?.count || 0) > 0 ? (
+                  <p class="text-xs text-amber-600 mt-1" title="Zolang iemand rol 'kaartkoper' heeft, is die niet omgezet naar lid. Wijzig de rol in de ledenlijst om iemand op te nemen in het koor.">
                     <i class="fas fa-hourglass-half mr-1"></i>
-                    {stats.total_kaartkopers_pending?.count || 0} nog niet geactiveerd
-                  </p>
-                ) : (stats.total_kaartkopers?.count || 0) > 0 ? (
-                  <p class="text-xs text-gray-500 mt-1">
-                    <i class="fas fa-check-circle mr-1 text-green-500"></i>
-                    Allen geactiveerd
+                    {stats.total_kaartkopers_pending?.count || 0} nog niet omgezet naar lid
                   </p>
                 ) : (
                   <p class="text-xs text-gray-400 mt-1">Nog geen kaartkopers</p>
@@ -2439,16 +2442,22 @@ app.get('/admin/leden/export.csv', async (c) => {
     return c.json({ error: 'Alleen voor admins' }, 403)
   }
 
+  // Belangrijk: is_bestuurslid staat op users, niet op profiles (D1 gaf "no such
+  // column: p.is_bestuurslid" bij de vorige versie van deze query — de exportknop
+  // gaf dus altijd 500). Ook role != 'kaartkoper' — kaartkopers zitten niet in
+  // de ledenlijst-export.
   const rows = await queryAll<any>(
     c.env.DB,
     `SELECT u.id, u.email, u.role, u.stemgroep, u.status, u.created_at,
+            u.is_bestuurslid,
             p.voornaam, p.achternaam, p.telefoon, p.geboortedatum,
             p.straat, p.huisnummer, p.bus, p.postcode, p.gemeente,
             p.lid_sinds, p.bio, p.muzikale_ervaring,
-            p.is_bestuurslid, p.bestuurs_functie
+            p.bestuurs_functie
      FROM users u
      LEFT JOIN profiles p ON p.user_id = u.id
-     WHERE u.role != 'bezoeker'
+     WHERE u.role NOT IN ('bezoeker', 'kaartkoper')
+       AND (u.is_test_account IS NULL OR u.is_test_account = 0)
      ORDER BY p.achternaam ASC, p.voornaam ASC`
   )
 

@@ -820,16 +820,38 @@ app.get('/word-lid', async (c) => {
 // =====================================================
 
 app.get('/contact', async (c) => {
-  const user = c.get('user')
+  const user = c.get('user') as any
   const success = c.req.query('success')
   const error = c.req.query('error')
+  const isAdmin = user?.role === 'admin' || user?.is_bestuurslid === 1
+
+  // De contact-pagina heeft een vaste structuur (formulier + kaart) die niet
+  // via de editor mag verdwijnen. Maar de tekst van de contactgegevens
+  // (adres, e-mail, telefoon, socials) willen admins zelf kunnen bijwerken —
+  // dat gebruiken we een editable_pages record voor met slug='contact'.
+  // Als er nog geen record is → hardcoded fallback (huidige gegevens).
+  let pageOverride: { titel: string | null; intro: string | null; body: string | null } | null = null
+  try {
+    pageOverride = await queryOne<any>(
+      c.env.DB,
+      `SELECT titel, intro, body FROM editable_pages WHERE slug = 'contact'`
+    )
+  } catch (e) {
+    // editable_pages moet bestaan sinds migratie 0068, maar defensief
+    console.warn('contact editable_pages lookup failed:', e)
+  }
+  const url = new URL(c.req.url)
+  const siteHosts = [url.hostname, 'animato-live.pages.dev', 'animato.be']
+  const pageTitel = (pageOverride?.titel || 'Contact').trim()
+  const pageIntro = pageOverride?.intro?.trim() || ''
+  const pageBody = pageOverride?.body?.trim() || ''
 
   return c.html(
-    <Layout title="Contact" user={user} currentPath="/contact">
+    <Layout title={pageTitel} user={user} currentPath="/contact">
       <div class="py-16">
         <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           {/* Terug-knop: bovenaan rechts, gebruikt history.back() met fallback naar homepage */}
-          <div class="mb-4">
+          <div class="mb-4 flex items-center justify-between gap-3">
             <button
               type="button"
               onclick="if (document.referrer && new URL(document.referrer).origin === window.location.origin) { history.back(); } else { window.location.href = '/'; }"
@@ -839,10 +861,40 @@ app.get('/contact', async (c) => {
               <i class="fas fa-arrow-left mr-2 group-hover:-translate-x-0.5 transition-transform"></i>
               Terug
             </button>
+            {isAdmin && (
+              pageOverride ? (
+                <a
+                  href="/admin/paginas/contact"
+                  class="inline-flex items-center gap-2 px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm shadow-sm"
+                  title="Pagina bewerken in beheerders-modus"
+                >
+                  <i class="fas fa-edit"></i> Pagina bewerken
+                </a>
+              ) : (
+                <form action="/api/admin/paginas/create" method="POST" class="inline">
+                  <input type="hidden" name="slug" value="contact" />
+                  <input type="hidden" name="titel" value="Contact" />
+                  <input type="hidden" name="show_in_nav" value="0" />
+                  <input type="hidden" name="nav_order" value="100" />
+                  <button
+                    type="submit"
+                    class="inline-flex items-center gap-2 px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm shadow-sm"
+                    title="Maak een bewerkbare versie van deze pagina zodat je de tekst kan aanpassen"
+                  >
+                    <i class="fas fa-magic"></i> Pagina bewerkbaar maken
+                  </button>
+                </form>
+              )
+            )}
           </div>
-          <h1 class="text-5xl font-bold text-animato-secondary mb-8" style="font-family: 'Playfair Display', serif;">
-            Contact
+          <h1 class="text-5xl font-bold text-animato-secondary mb-4" style="font-family: 'Playfair Display', serif;">
+            {pageTitel}
           </h1>
+          {pageIntro && (
+            <p class="text-xl text-gray-600 mb-8 leading-relaxed italic border-l-4 border-animato-primary pl-4">
+              {pageIntro}
+            </p>
+          )}
 
           {/* Success/Error Messages */}
           {success && (
@@ -872,7 +924,18 @@ app.get('/contact', async (c) => {
           )}
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-12">
-            {/* Contact Info */}
+            {/* Contact Info — admin-editable via editable_pages record met slug='contact'.
+                Als er een body is: renderen als HTML (Quill-output).
+                Anders: fallback naar de vaste inhoud hieronder. */}
+            {pageBody ? (
+              <div>
+                <h2 class="text-2xl font-bold text-gray-900 mb-6">Contactgegevens</h2>
+                <div
+                  class="prose max-w-none prose-headings:text-animato-secondary prose-a:text-animato-primary prose-a:font-medium hover:prose-a:underline"
+                  dangerouslySetInnerHTML={{ __html: processBodyLinks(pageBody, siteHosts) }}
+                />
+              </div>
+            ) : (
             <div>
               <h2 class="text-2xl font-bold text-gray-900 mb-6">Contactgegevens</h2>
               
@@ -942,6 +1005,7 @@ app.get('/contact', async (c) => {
                 </div>
               </div>
             </div>
+            )}
 
             {/* Contact Form */}
             <div>

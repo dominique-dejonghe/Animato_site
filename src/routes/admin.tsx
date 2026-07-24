@@ -170,6 +170,12 @@ app.get('/admin', async (c) => {
 
   // Get stemgroep breakdown — defensief, met aparte tellingen voor actief en inactief
   // zodat we het verloop per stemgroep zien (bv. 'Sopraan: 12 actief, 3 inactief').
+  //
+  // Belangrijk: NIET filteren op role='lid'. Bij Animato zijn er meerdere
+  // bestuurs-/admin-accounts die óók in een stemgroep zingen (bv. bassen die
+  // ook admin zijn). De vorige filter miste die → dashboard toonde 4 bassen
+  // terwijl er 7 stemmen zijn. We tellen iedereen met een echte stemgroep,
+  // maar sluiten kaartkopers en testaccounts uit (die zingen niet mee).
   let stemgroepStats: any[] = []
   try {
     stemgroepStats = await queryAll(
@@ -178,11 +184,18 @@ app.get('/admin', async (c) => {
               SUM(CASE WHEN status = 'actief'   THEN 1 ELSE 0 END) as count,
               SUM(CASE WHEN status = 'inactief' THEN 1 ELSE 0 END) as inactief_count
        FROM users
-       WHERE role = 'lid'
+       WHERE stemgroep IS NOT NULL AND stemgroep != ''
+         AND role != 'kaartkoper'
          AND status IN ('actief', 'inactief')
          AND (is_test_account IS NULL OR is_test_account = 0)
        GROUP BY stemgroep
-       HAVING count > 0 OR inactief_count > 0`
+       HAVING count > 0 OR inactief_count > 0
+       ORDER BY CASE UPPER(stemgroep)
+                  WHEN 'S' THEN 1 WHEN 'SOPRAAN' THEN 1
+                  WHEN 'A' THEN 2 WHEN 'ALT' THEN 2
+                  WHEN 'T' THEN 3 WHEN 'TENOR' THEN 3
+                  WHEN 'B' THEN 4 WHEN 'BAS' THEN 4
+                  ELSE 99 END`
     ) || []
   } catch (e) {
     console.error('admin stemgroepStats query failed:', e)
@@ -849,11 +862,14 @@ app.get('/admin', async (c) => {
                   const total = stemgroepStats.reduce((sum: number, s: any) => sum + s.count, 0)
                   const percentage = total > 0 ? Math.round((stat.count / total) * 100) : 0
                   
+                  // DB gebruikt korte codes (S/A/T/B) én lange namen door elkaar
+                  // afhankelijk van de bron van de gebruiker. Beide mappen we
+                  // naar dezelfde nette Nederlandse labels.
                   const labels: Record<string, string> = {
-                    'sopraan': 'Sopraan',
-                    'alt': 'Alt',
-                    'tenor': 'Tenor',
-                    'bas': 'Bas'
+                    'S': 'Sopraan', 'sopraan': 'Sopraan', 'Sopraan': 'Sopraan',
+                    'A': 'Alt',     'alt': 'Alt',         'Alt': 'Alt',
+                    'T': 'Tenor',   'tenor': 'Tenor',     'Tenor': 'Tenor',
+                    'B': 'Bas',     'bas': 'Bas',         'Bas': 'Bas',
                   }
                   
                   const inactCount = Number(stat.inactief_count) || 0

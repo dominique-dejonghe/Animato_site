@@ -5,7 +5,7 @@ import { Hono } from 'hono'
 import { setCookie, deleteCookie } from 'hono/cookie'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
-import { hashPassword, verifyPassword, generateToken, generateRandomToken } from '../utils/auth'
+import { hashPassword, verifyPassword, generateToken, generateRandomToken, hashSessionToken } from '../utils/auth'
 import { queryOne, execute, isValidEmail, formatDateForDB } from '../utils/db'
 import { sendEmail } from '../utils/email'
 
@@ -462,11 +462,14 @@ app.post('/api/auth/login', async (c) => {
     // aanraken (al goed) maar voegt niks toe — dus weggehaald.
 
     // Create user session record
+    // NB: bewaar SHA-256 hash van token, niet de eerste 32 chars (die zijn voor
+    // elke JWT identiek — zie hashSessionToken() voor uitleg).
+    const loginTokenHash = await hashSessionToken(token)
     await execute(
       c.env.DB,
       `INSERT INTO user_sessions (user_id, session_token, login_at, ip_address, user_agent, login_method, is_active) 
        VALUES (?, ?, ?, ?, ?, ?, 1)`,
-      [user.id, token.substring(0, 32), formatDateForDB(), ipAddress, userAgent, 'password']
+      [user.id, loginTokenHash, formatDateForDB(), ipAddress, userAgent, 'password']
     )
 
     // Audit log
@@ -637,7 +640,7 @@ app.get('/api/auth/logout', async (c) => {
     const token = c.req.header('Cookie')?.split('auth_token=')[1]?.split(';')[0]
     
     if (token) {
-      const tokenPrefix = token.substring(0, 32)
+      const tokenHash = await hashSessionToken(token)
       
       // Close active session - calculate duration
       await execute(
@@ -648,7 +651,7 @@ app.get('/api/auth/logout', async (c) => {
              is_active = 0,
              updated_at = ?
          WHERE session_token = ? AND is_active = 1`,
-        [formatDateForDB(), formatDateForDB(), formatDateForDB(), tokenPrefix]
+        [formatDateForDB(), formatDateForDB(), formatDateForDB(), tokenHash]
       )
     }
   } catch (error) {

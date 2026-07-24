@@ -278,3 +278,25 @@ export function generateRandomToken(length: number = 32): string {
   crypto.getRandomValues(array)
   return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('')
 }
+
+// =====================================================
+// SESSION TOKEN HASHING
+// =====================================================
+
+/**
+ * Hash een JWT-token tot een unieke, gefixeerde string voor opslag in
+ * user_sessions.session_token. Historisch bewaarden we `token.substring(0, 32)`
+ * — maar élke JWT begint met exact dezelfde 32 karakters (base64-encoded header
+ * `{"alg":"HS256","typ":"JWT"}` = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpX`), waardoor
+ * álle actieve sessies dezelfde "token"-waarde hadden. Een heartbeat-UPDATE
+ * met `WHERE session_token = ?` raakte dan iedereen tegelijk, en /admin/audit
+ * toonde "1s geleden" bij álle rijen (bug #inactief-sinds).
+ *
+ * SHA-256 hex hash: 64 chars, deterministisch per token, nooit collisie in
+ * praktijk. Beschikbaar in Cloudflare Workers via Web Crypto API.
+ */
+export async function hashSessionToken(token: string): Promise<string> {
+  const data = new TextEncoder().encode(token)
+  const digest = await crypto.subtle.digest('SHA-256', data)
+  return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('')
+}

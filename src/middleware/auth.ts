@@ -4,7 +4,7 @@
 import { Context, Next } from 'hono'
 import { getCookie } from 'hono/cookie'
 import type { Bindings, SessionUser, UserRole, Stemgroep } from '../types'
-import { verifyToken, hasRole, canAccessStem, canModerate, isAdmin } from '../utils/auth'
+import { verifyToken, hasRole, canAccessStem, canModerate, isAdmin, hashSessionToken } from '../utils/auth'
 
 // =====================================================
 // HELPERS
@@ -179,13 +179,16 @@ export async function requireAuth(c: Context<{ Bindings: Bindings }>, next: Next
 
   // Heartbeat: raak user_sessions.updated_at aan zodat we
   // inactiviteit kunnen meten op /admin/audit. Niet-blokkerend.
+  // NB: gebruik SHA-256 hash van token, niet substring(0,32) — elke JWT
+  // begint namelijk met dezelfde 32 chars (base64 header), waardoor de
+  // vorige implementatie ALLE actieve sessies tegelijk updatete.
   try {
-    const tokenPrefix = (token || '').substring(0, 32)
-    if (tokenPrefix) {
+    if (token) {
+      const tokenHash = await hashSessionToken(token)
       await c.env.DB.prepare(
         `UPDATE user_sessions SET updated_at = CURRENT_TIMESTAMP
          WHERE session_token = ? AND is_active = 1`
-      ).bind(tokenPrefix).run()
+      ).bind(tokenHash).run()
     }
   } catch (_) { /* stil falen — niet kritiek */ }
 
@@ -531,13 +534,13 @@ export async function optionalAuth(c: Context<{ Bindings: Bindings }>, next: Nex
 
     if (user) {
       await attachPhotoAndSetUser(c, user)
-      // Heartbeat: zie requireAuth
+      // Heartbeat: zie requireAuth (SHA-256 hash i.p.v. substring)
       try {
-        const tokenPrefix = token.substring(0, 32)
+        const tokenHash = await hashSessionToken(token)
         await c.env.DB.prepare(
           `UPDATE user_sessions SET updated_at = CURRENT_TIMESTAMP
            WHERE session_token = ? AND is_active = 1`
-        ).bind(tokenPrefix).run()
+        ).bind(tokenHash).run()
       } catch (_) { /* stil falen */ }
     }
   }

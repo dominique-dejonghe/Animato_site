@@ -129,8 +129,14 @@ app.get('/admin/tickets', async (c) => {
           </div>
         </div>
 
-        {/* Stats Cards */}
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        {/*
+          Stats Cards — met extra tile "Vrije Kaarten".
+          De teller telt ENKEL concerten met capaciteit > 0 die NIET afgelopen
+          en NIET uitverkocht zijn (dus effectief nog verkoopbaar).
+          Voor 'Verkocht' en 'Beschikbaar' gebruiken we dezelfde subset zodat
+          de sublabel ("uit N concerten") logisch klopt.
+        */}
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-6 mb-8">
           <div class="bg-white rounded-lg shadow-md p-6">
             <div class="flex items-center justify-between">
               <div>
@@ -156,6 +162,26 @@ app.get('/admin/tickets', async (c) => {
               </div>
               <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
                 <i class="fas fa-ticket-alt text-green-600 text-xl"></i>
+              </div>
+            </div>
+          </div>
+
+          {/* Vrije kaarten — alleen relevante concerten (niet afgelopen, niet uitverkocht, capaciteit > 0) */}
+          <div class="bg-white rounded-lg shadow-md p-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm text-gray-600 mb-1">Vrije Kaarten</p>
+                <p class="text-3xl font-bold text-gray-900">
+                  {concerts
+                    .filter((c: any) => Number(c.capaciteit || 0) > 0 && !c._isPast && !c.uitverkocht)
+                    .reduce((sum: number, c: any) => sum + Math.max(0, Number(c.capaciteit || 0) - Number(c.verkocht || 0)), 0)}
+                </p>
+                <p class="text-xs text-gray-500 mt-1">
+                  nog te koop bij {concerts.filter((c: any) => Number(c.capaciteit || 0) > 0 && !c._isPast && !c.uitverkocht).length} concert(en)
+                </p>
+              </div>
+              <div class="w-12 h-12 bg-teal-100 rounded-lg flex items-center justify-center">
+                <i class="fas fa-chair text-teal-600 text-xl"></i>
               </div>
             </div>
           </div>
@@ -328,12 +354,17 @@ app.get('/admin/tickets', async (c) => {
                         </div>
                       </div>
 
-                      {/* Capacity Bar */}
+                      {/* Capacity Bar — toont ook resterende vrije plaatsen */}
                       {concert.capaciteit > 0 && (
                         <div class="mb-4">
                           <div class="flex items-center justify-between text-sm mb-1">
                             <span class="font-medium text-gray-700">
                               Bezetting: {concert.verkocht} / {concert.capaciteit}
+                              {!concert._isPast && !concert.uitverkocht && (
+                                <span class="ml-2 text-teal-700">
+                                  — {Math.max(0, Number(concert.capaciteit) - Number(concert.verkocht || 0))} nog beschikbaar
+                                </span>
+                              )}
                             </span>
                             <span class="text-gray-600">{capacityPercent}%</span>
                           </div>

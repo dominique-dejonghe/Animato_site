@@ -72,29 +72,42 @@ app.get('/admin/lidgelden', async (c) => {
     ORDER BY p.achternaam
   `, [activeSeason.id]) : []
 
-  // Bug #200.2 — Tel "betalende leden" (= actief, geen bezoeker/dirigent/pianist, geen testaccount)
-  // versus "totaal actieve leden" — beide voor de uitleg-header bovenaan.
+  // Bug #200.2 — Tel "betalende leden" (= actief, geen bezoeker/dirigent/pianist/kaartkoper,
+  // geen testaccount) versus "totaal actieve leden" (zelfde exclusies, want kaartkopers
+  // zijn geen "leden" in de zin van deze pagina — analoog aan /admin/leden).
+  //
+  // Historisch stond hier '79 leden' terwijl er maar 63 echte leden zijn: kaartkopers
+  // (role='kaartkoper') werden ten onrechte meegerekend. Ook de 'Genereer (19)'-knop
+  // sleepte 19 kaartkopers mee in het lidgeld-generatieproces, wat totale onzin is.
   const memberCounts = await queryOne<any>(db, `
     SELECT
-      SUM(CASE WHEN status = 'actief' THEN 1 ELSE 0 END) AS totaal_actief,
       SUM(CASE WHEN status = 'actief'
-                AND role NOT IN ('bezoeker','dirigent','pianist')
+                AND role NOT IN ('bezoeker','dirigent','pianist','kaartkoper')
+                AND (is_test_account IS NULL OR is_test_account = 0)
+              THEN 1 ELSE 0 END) AS totaal_actief,
+      SUM(CASE WHEN status = 'actief'
+                AND role NOT IN ('bezoeker','dirigent','pianist','kaartkoper')
                 AND (is_test_account IS NULL OR is_test_account = 0)
               THEN 1 ELSE 0 END) AS betalende_leden,
       SUM(CASE WHEN status = 'actief' AND role = 'dirigent' THEN 1 ELSE 0 END) AS dirigenten,
-      SUM(CASE WHEN status = 'actief' AND role = 'pianist' THEN 1 ELSE 0 END) AS pianisten
+      SUM(CASE WHEN status = 'actief' AND role = 'pianist' THEN 1 ELSE 0 END) AS pianisten,
+      SUM(CASE WHEN status = 'inactief'
+                AND role NOT IN ('bezoeker','dirigent','pianist','kaartkoper')
+                AND (is_test_account IS NULL OR is_test_account = 0)
+              THEN 1 ELSE 0 END) AS totaal_inactief
     FROM users
-  `) || { totaal_actief: 0, betalende_leden: 0, dirigenten: 0, pianisten: 0 }
+  `) || { totaal_actief: 0, betalende_leden: 0, dirigenten: 0, pianisten: 0, totaal_inactief: 0 }
 
-  // Get active users WITHOUT membership for this season (to add them manually or bulk)
+  // Get active users WITHOUT membership for this season (to add them manually or bulk).
   // Bug #200.1 — dirigent + pianist hoeven geen lidgeld te betalen, sluit uit.
-  // Ook test-accounts uitsluiten zodat overzichten en totalen kloppen.
+  // Uitgebreide fix: OOK kaartkopers uitsluiten (die zijn geen koorlid) en test-accounts.
+  // De "Genereer (X)" knop is uitsluitend voor échte actieve koorleden zonder lidmaatschap.
   const usersWithoutMembership: any[] = activeSeason ? await queryAll(db, `
     SELECT u.id, u.email, u.stemgroep, p.voornaam, p.achternaam
     FROM users u
     LEFT JOIN profiles p ON u.id = p.user_id
     WHERE u.status = 'actief'
-    AND u.role NOT IN ('bezoeker', 'dirigent', 'pianist')
+    AND u.role NOT IN ('bezoeker', 'dirigent', 'pianist', 'kaartkoper')
     AND (u.is_test_account IS NULL OR u.is_test_account = 0)
     AND u.id NOT IN (
       SELECT um.user_id

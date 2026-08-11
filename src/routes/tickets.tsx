@@ -29,8 +29,11 @@ app.get('/concerten/:eventId/tickets', async (c) => {
   // BUG-FIX (#bezetting): c.verkocht overrulen met live SUM uit betaalde tickets
   // zodat sold-out check & 'beschikbaar' altijd correct zijn (de stored counter
   // klopte niet meer met de werkelijkheid).
+  // Bug: "Terug naar concert details" verwees vroeger naar /concerten/${eventId}
+  // (numeriek), maar de detail-route is /concerten/:slug — dus 404. We halen nu
+  // ook e.slug op zodat de terug-link naar de juiste URL wijst.
   const concert = await queryOne(c.env.DB, `
-    SELECT c.*, e.titel, e.beschrijving, e.start_at, e.locatie,
+    SELECT c.*, e.titel, e.beschrijving, e.start_at, e.locatie, e.slug as event_slug,
            sp.name as seating_plan_name, sp.width as sp_width, sp.height as sp_height,
            (SELECT COALESCE(SUM(t.aantal), 0) FROM tickets t
             WHERE t.concert_id = c.id AND t.status = 'paid') AS verkocht
@@ -113,7 +116,7 @@ app.get('/concerten/:eventId/tickets', async (c) => {
         <div class={concert.seating_plan_id ? "max-w-7xl mx-auto px-4" : "max-w-6xl mx-auto px-4"}>
           {/* Header */}
           <div class="mb-6">
-            <a href={`/concerten/${eventId}`} class="text-animato-primary hover:underline inline-flex items-center mb-3">
+            <a href={concert.event_slug ? `/concerten/${concert.event_slug}` : '/concerten'} class="text-animato-primary hover:underline inline-flex items-center mb-3">
               <i class="fas fa-arrow-left mr-2"></i>
               Terug naar concert details
             </a>

@@ -61,6 +61,14 @@ app.get('/login', async (c) => {
                       </p>
                     </>
                   )}
+                  {error === 'deleted' && (
+                    <>
+                      <strong>Dit account is verwijderd.</strong>
+                      <p class="mt-1 text-xs text-red-700">
+                        Denk je dat dit een vergissing is? Stuur een mailtje naar <a href="mailto:info@animato.be" class="underline">info@animato.be</a>.
+                      </p>
+                    </>
+                  )}
                   {error === 'server' && 'Er ging iets mis aan onze kant. Probeer het later opnieuw.'}
                 </div>
               </div>
@@ -222,7 +230,16 @@ app.get('/wachtwoord-vergeten', (c) => {
                 <div class="text-sm text-red-800">
                   {error === 'not_found' && 'Dit e-mailadres is niet gekend in ons systeem. Controleer of je het juiste adres hebt ingevoerd, of neem contact op met de beheerder.'}
                   {error === 'invalid_email' && 'Vul een geldig e-mailadres in.'}
-                  {error === 'send_failed' && 'Er is een technisch probleem opgetreden bij het versturen van de email. Probeer het later opnieuw of neem contact op met de beheerder.'}
+                  {error === 'send_failed' && (
+                    <>
+                      <strong>De reset-mail kon niet verstuurd worden.</strong>
+                      <p class="mt-1 text-xs text-red-700">
+                        Dit is een technisch probleem aan onze kant (mail-provider). Probeer het later opnieuw,
+                        of stuur een mailtje naar <a href="mailto:info@animato.be" class="underline font-semibold">info@animato.be</a> —
+                        een beheerder kan dan een persoonlijke reset-link voor je genereren.
+                      </p>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -410,9 +427,13 @@ app.post('/api/auth/login', async (c) => {
       return c.redirect('/login?error=invalid')
     }
 
-    // Check if user is active
-    if (user.status === 'inactief') {
-      return c.redirect('/login?error=inactive')
+    // Verwijderde accounts kunnen niet inloggen (soft-delete). Inactieve
+    // leden mogen wél inloggen: ze moeten hun eigen historiek (aangekochte
+    // tickets, lidgelden, notificaties) kunnen blijven raadplegen. Rechten
+    // op leden-specifieke acties (aanwezigheid, polls voor actieve leden…)
+    // hangen af van role/permissies, niet van status.
+    if (user.status === 'verwijderd') {
+      return c.redirect('/login?error=deleted')
     }
 
     // Update last_login_at timestamp (#128) — fire-and-forget, mag niet blokkeren

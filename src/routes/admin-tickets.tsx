@@ -3846,10 +3846,18 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
               <div class="flex justify-between items-center mb-3 flex-wrap gap-2">
                 <h2 class="font-semibold text-gray-900"><i class="fas fa-map mr-2 text-gray-500"></i>Klik op een stoel voor details</h2>
                 <div class="flex gap-3 text-xs items-center flex-wrap">
-                  <span class="flex items-center"><span class="inline-block w-3 h-3 bg-blue-500 rounded-sm mr-1"></span>Beschikbaar</span>
-                  <span class="flex items-center"><span class="inline-block w-3 h-3 bg-orange-500 rounded-sm mr-1"></span>Locked</span>
-                  <span class="flex items-center"><span class="inline-block w-3 h-3 bg-red-600 rounded-sm mr-1"></span>Verkocht</span>
-                  <span class="flex items-center"><span class="inline-block w-3 h-3 bg-gray-400 rounded-sm mr-1"></span>Geblokkeerd</span>
+                  <span class="flex items-center" title="Deze stoel is beschikbaar voor verkoop.">
+                    <span class="inline-block w-3 h-3 bg-blue-500 rounded-sm mr-1"></span>Beschikbaar
+                  </span>
+                  <span class="flex items-center" title="Een klant heeft deze stoel tijdelijk in zijn bestelling zitten (nog niet betaald). Vervalt automatisch als de bestelling niet wordt afgerond.">
+                    <span class="inline-block w-3 h-3 bg-orange-500 rounded-sm mr-1"></span>Gereserveerd
+                  </span>
+                  <span class="flex items-center" title="Deze stoel is verkocht en betaald.">
+                    <span class="inline-block w-3 h-3 bg-red-600 rounded-sm mr-1"></span>Verkocht
+                  </span>
+                  <span class="flex items-center" title="Admin heeft deze stoel permanent uitgezet (bv. defect, kolom in de weg, gereserveerd voor gasten). Klik op de stoel om te (de)blokkeren.">
+                    <span class="inline-block w-3 h-3 bg-gray-400 rounded-sm mr-1"></span>Geblokkeerd
+                  </span>
                   <button
                     id="bulkModeBtn"
                     type="button"
@@ -4131,7 +4139,7 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
 
         function showDetail(s) {
           const status = s.booking_status === 'sold' ? 'Verkocht'
-                       : s.booking_status === 'locked' ? 'Gereserveerd (locked)'
+                       : s.booking_status === 'locked' ? 'Gereserveerd (klant bezig met bestellen)'
                        : s.base_status === 'blocked' ? 'Geblokkeerd door admin'
                        : 'Beschikbaar';
           let html = '<div class="border-b pb-3 mb-3"><div class="text-xs text-gray-500 uppercase">Stoel</div><div class="text-2xl font-bold">' + (s.row_label || '?') + '-' + s.seat_number + '</div><div class="text-sm text-gray-600 mt-1">Type: ' + (s.type || 'standard') + '</div></div>';
@@ -4163,6 +4171,15 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
           }
           if (s.booking_status === 'locked' || s.booking_status === 'sold') {
             html += '<button onclick="releaseSeat(' + s.id + ')" class="w-full bg-gray-200 text-gray-800 text-sm px-3 py-2 rounded hover:bg-gray-300"><i class="fas fa-unlock mr-1"></i>Vrijgeven</button>';
+          }
+          // Blokkeer / Deblokkeer knop — alleen voor stoelen die NIET in een lopende
+          // bestelling zitten (booking_status leeg). Anders eerst vrijgeven.
+          if (!s.booking_status) {
+            if (s.base_status === 'blocked') {
+              html += '<button onclick="toggleBlockSeat(' + s.id + ', false)" class="w-full bg-emerald-600 text-white text-sm px-3 py-2 rounded hover:bg-emerald-700" title="Zet deze stoel terug op beschikbaar voor verkoop."><i class="fas fa-check-circle mr-1"></i>Deblokkeer stoel</button>';
+            } else {
+              html += '<button onclick="toggleBlockSeat(' + s.id + ', true)" class="w-full bg-gray-600 text-white text-sm px-3 py-2 rounded hover:bg-gray-700" title="Zet deze stoel permanent uit (bv. defect, kolom in de weg, of gereserveerd voor gasten)."><i class="fas fa-ban mr-1"></i>Blokkeer stoel</button>';
+            }
           }
           if (s.ticket_id) {
             html += '<a href="/admin/tickets/concert/' + concertId + '/orders" class="block w-full text-center bg-blue-50 text-blue-700 text-sm px-3 py-2 rounded hover:bg-blue-100"><i class="fas fa-receipt mr-1"></i>Bekijk bestelling</a>';
@@ -4258,6 +4275,26 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
           try {
             const res = await fetch('/api/admin/tickets/concert/' + concertId + '/seats/' + seatId + '/release', {
               method: 'POST'
+            });
+            if (!res.ok) throw new Error(await res.text());
+            location.reload();
+          } catch (e) {
+            alert('Fout: ' + e.message);
+          }
+        };
+
+        // Blokkeer / deblokkeer een stoel (base_status='blocked' <-> 'available').
+        // Werkt op de seats-tabel, niet op ticket_seats. Structureel dus, niet per concert.
+        window.toggleBlockSeat = async function(seatId, block) {
+          const msg = block
+            ? 'Deze stoel permanent blokkeren voor verkoop? Kan later teruggedraaid worden.'
+            : 'Deze stoel weer beschikbaar maken voor verkoop?';
+          if (!confirm(msg)) return;
+          try {
+            const res = await fetch('/api/admin/seats/' + seatId + '/block', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ block: !!block })
             });
             if (!res.ok) throw new Error(await res.text());
             location.reload();
@@ -4701,6 +4738,51 @@ app.post('/api/admin/tickets/concert/:concertId/seats/:seatId/release', async (c
     console.error('release-seat faalde:', e)
     return c.json({ error: e.message || 'Onbekende fout' }, 500)
   }
+})
+
+// ==========================================
+// STOEL (DE)BLOKKEREN — structureel, niet per concert
+// ==========================================
+// Werkt op seats.status (base_status). 'blocked' betekent: nooit verkoopbaar
+// tot admin het weer aanzet. Verschil met ticket_seats.status='locked':
+// dat is een tijdelijke lock tijdens een lopende bestelling.
+//
+// Refuse als er nog een actieve booking (locked/sold) op de stoel staat —
+// die moet eerst vrijgegeven worden om ambiguïteit te vermijden.
+app.post('/api/admin/seats/:seatId/block', async (c) => {
+  const user = c.get('user') as SessionUser
+  const seatId = parseInt(c.req.param('seatId'))
+  if (!seatId) return c.json({ error: 'Ongeldig ID' }, 400)
+
+  const body = await c.req.json().catch(() => ({}))
+  const block = !!body.block
+
+  // Bestaat de stoel?
+  const seat = await queryOne<any>(c.env.DB,
+    `SELECT id, plan_id, row_label, seat_number, status FROM seats WHERE id = ?`,
+    [seatId])
+  if (!seat) return c.json({ error: 'Stoel niet gevonden' }, 404)
+
+  // Als er een actieve booking op staat, weiger: eerst vrijgeven.
+  if (block) {
+    const active = await queryOne<any>(c.env.DB,
+      `SELECT COUNT(*) as n FROM ticket_seats WHERE seat_id = ? AND status IN ('locked','sold')`,
+      [seatId])
+    if ((active?.n ?? 0) > 0) {
+      return c.json({ error: 'Stoel heeft nog een actieve reservatie/verkoop. Geef eerst vrij.' }, 409)
+    }
+  }
+
+  const newStatus = block ? 'blocked' : 'available'
+  await execute(c.env.DB, `UPDATE seats SET status = ? WHERE id = ?`, [newStatus, seatId])
+
+  await execute(c.env.DB,
+    `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta) VALUES (?, ?, 'seats', ?, ?)`,
+    [user.id, block ? 'seat_block' : 'seat_unblock', seatId,
+     JSON.stringify({ plan_id: seat.plan_id, seat: `${seat.row_label}-${seat.seat_number}`, from: seat.status, to: newStatus })]
+  )
+
+  return c.json({ ok: true, status: newStatus })
 })
 
 export default app

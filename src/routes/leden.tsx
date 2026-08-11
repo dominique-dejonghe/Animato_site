@@ -5327,7 +5327,10 @@ app.get('/leden/smoelenboek', async (c) => {
      JOIN profiles p ON u.id = p.user_id
      LEFT JOIN member_favorites f ON f.favorite_member_id = u.id AND f.user_id = ?
      LEFT JOIN qr_checkins qc ON qc.user_id = u.id
-     WHERE u.status = 'actief' AND p.smoelenboek_zichtbaar = 1 AND u.is_test_account = 0`
+     WHERE u.status = 'actief'
+       AND p.smoelenboek_zichtbaar = 1
+       AND u.is_test_account = 0
+       AND u.role NOT IN ('kaartkoper','bezoeker')`
   
   // params: eerste ? voor "eigen profiel ziet z'n eigen status",
   // tweede ? voor de member_favorites JOIN.

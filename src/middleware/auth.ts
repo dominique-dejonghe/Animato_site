@@ -352,6 +352,15 @@ export async function requireBestuurslid(c: Context<{ Bindings: Bindings }>, nex
     return
   }
 
+  // Dirigent krijgt ook bestuurlijke toegang — de dirigent is qua
+  // beslissingsbevoegdheid gelijkgesteld aan een bestuurslid (mag o.a.
+  // nieuwsberichten plaatsen, agenda beheren, communicatie sturen).
+  // Beslist door Dominique 2026-08-11.
+  if (user.role === 'dirigent') {
+    await next()
+    return
+  }
+
   // Check is_bestuurslid flag
   if (user.is_bestuurslid) {
     await next()
@@ -373,8 +382,9 @@ export async function requireBestuurslid(c: Context<{ Bindings: Bindings }>, nex
     // Truthy check ipv strikte === 1 vermijdt subtiele bugs.
     const dbIsBestuurslid = !!(dbRow && (dbRow.is_bestuurslid as any))
     const dbIsAdmin = dbRow?.role === 'admin' || dbRow?.role === 'moderator'
+    const dbIsDirigent = dbRow?.role === 'dirigent'
 
-    if (dbRow && (dbIsBestuurslid || dbIsAdmin)) {
+    if (dbRow && (dbIsBestuurslid || dbIsAdmin || dbIsDirigent)) {
       console.log('[requireBestuurslid] stale-token fix: user', user.id, 'JWT zei is_bestuurslid=', user.is_bestuurslid, ', DB zegt:', { role: dbRow.role, is_bestuurslid: dbRow.is_bestuurslid })
       // Update de Context-user zodat downstream code de juiste waarden ziet
       const refreshedUser: SessionUser = {

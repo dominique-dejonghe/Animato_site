@@ -62,14 +62,23 @@ export async function sendEmail(options: EmailOptions, resendApiKey: string | un
     })
 
     if (!response.ok) {
-      const error = await response.text()
-      console.error('[email] Resend API error', response.status, error.substring(0, 300))
+      const errorBody = await response.text()
+      // Log met alle context zodat we in de Cloudflare-logs snel zien
+      // waarom Resend weigert (bv. domein niet geverifieerd, ongeldige API key,
+      // rate limit, ontvanger in sandbox-mode…).
+      console.error('[email] Resend API error',
+        'status=', response.status,
+        'from=', payload.from,
+        'to=', options.to,
+        'subject=', options.subject.substring(0, 80),
+        'body=', errorBody.substring(0, 500)
+      )
       return false
     }
 
     return true
   } catch (error: any) {
-    console.error('[email] network/exception:', error?.message || error)
+    console.error('[email] network/exception sending to', options.to, ':', error?.message || error)
     return false
   }
 }

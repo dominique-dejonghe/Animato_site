@@ -210,16 +210,19 @@ app.get('/admin', async (c) => {
   }
 
   // Lijst van leden voor de "Bekijk als lid" dropdown (#115) — defensief
-  // — testaccount eerst, dan alfabetisch, met test-leden bovenaan
+  // — testaccount eerst, dan alfabetisch, met test-leden bovenaan.
+  // Zowel actieve als inactieve leden worden getoond, want een admin moet
+  // ook een inactief lid kunnen "worden" (bv. om te controleren wat die
+  // persoon in z'n eigen historiek ziet). Enkel verwijderde accounts uitsluiten.
   let impersonateMembers: any[] = []
   try {
     impersonateMembers = await queryAll<any>(
       c.env.DB,
-      `SELECT u.id, u.email, u.is_test_account, u.stemgroep,
+      `SELECT u.id, u.email, u.is_test_account, u.stemgroep, u.status,
               COALESCE(p.voornaam, '') as voornaam, COALESCE(p.achternaam, '') as achternaam
        FROM users u
        LEFT JOIN profiles p ON p.user_id = u.id
-       WHERE u.status = 'actief' AND u.role NOT IN ('admin','kaartkoper')
+       WHERE u.status IN ('actief','inactief') AND u.role NOT IN ('admin','kaartkoper')
        ORDER BY u.is_test_account DESC, p.achternaam ASC, p.voornaam ASC`
     ) || []
   } catch (e) {
@@ -255,7 +258,8 @@ app.get('/admin', async (c) => {
                   naam: ((m.voornaam || '') + ' ' + (m.achternaam || '')).trim() || m.email,
                   email: m.email || '',
                   stemgroep: m.stemgroep || '',
-                  test: !!m.is_test_account
+                  test: !!m.is_test_account,
+                  status: m.status || 'actief'
                 })))}>
                   <div class="flex items-stretch border border-orange-300 bg-orange-50 rounded-l-lg overflow-hidden">
                     <i class="fas fa-search self-center text-orange-400 pl-3 pr-1 text-sm"></i>
@@ -285,6 +289,7 @@ app.get('/admin', async (c) => {
                       <button type="button" data-filter="T" class="impersonate-chip px-2 py-1 rounded-full bg-white text-gray-700 border border-gray-200 hover:border-orange-300">Tenor</button>
                       <button type="button" data-filter="B" class="impersonate-chip px-2 py-1 rounded-full bg-white text-gray-700 border border-gray-200 hover:border-orange-300">Bas</button>
                       <button type="button" data-filter="test" class="impersonate-chip px-2 py-1 rounded-full bg-white text-gray-700 border border-gray-200 hover:border-orange-300">Test</button>
+                      <button type="button" data-filter="inactief" class="impersonate-chip px-2 py-1 rounded-full bg-white text-gray-500 border border-gray-200 hover:border-orange-300" title="Toon enkel inactieve leden">Inactief</button>
                     </div>
                     {/* Results */}
                     <ul id="impersonateResults" class="max-h-72 overflow-y-auto py-1"></ul>
@@ -323,6 +328,7 @@ app.get('/admin', async (c) => {
                     function filterStemgroep(m){
                       if (currentFilter === 'all') return true;
                       if (currentFilter === 'test') return m.test;
+                      if (currentFilter === 'inactief') return m.status === 'inactief';
                       return m.stemgroep === currentFilter;
                     }
 
@@ -350,11 +356,13 @@ app.get('/admin', async (c) => {
                         li.setAttribute('data-idx', i);
                         var stemBadge = m.stemgroep ? '<span class="text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded">' + m.stemgroep + '</span>' : '';
                         var testBadge = m.test ? '<span class="text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded">test</span>' : '';
+                        var inactiefBadge = m.status === 'inactief' ? '<span class="text-[10px] px-1.5 py-0.5 bg-gray-200 text-gray-600 rounded" title="Inactief lid">inactief</span>' : '';
+                        var nameClass = m.status === 'inactief' ? 'truncate text-gray-500' : 'truncate';
                         li.innerHTML = '<div class="flex items-center gap-2 min-w-0">' +
                           '<i class="fas fa-user text-gray-300 text-xs"></i>' +
-                          '<span class="truncate">' + (m.naam || m.email) + '</span>' +
+                          '<span class="' + nameClass + '">' + (m.naam || m.email) + '</span>' +
                           '</div>' +
-                          '<div class="flex items-center gap-1 flex-shrink-0">' + testBadge + stemBadge + '</div>';
+                          '<div class="flex items-center gap-1 flex-shrink-0">' + inactiefBadge + testBadge + stemBadge + '</div>';
                         li.addEventListener('click', function(){ choose(m); });
                         results.appendChild(li);
                       });

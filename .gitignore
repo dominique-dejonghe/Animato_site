@@ -39,9 +39,15 @@ pids/
 
 # Backup files
 *.backup
+*.backup*
 *.bak
+*.legacy
+*_tail
 *.tar.gz
 *.zip
+
+# Accidental local dumps / cookie jars
+cookies.txt
 
 # OS
 .DS_Store

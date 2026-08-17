@@ -9,8 +9,8 @@ import type { D1Database } from '@cloudflare/workers-types'
 // Bepaald door Dominique (2026-07-08): één afzender, één reply-to.
 // Wil je later per event-type een andere afzender? Overschrijf dan
 // options.from bij de individuele sendEmail-call.
-export const EMAIL_FROM = 'Gemengd Koor Animato <webmaster@gemengdkooranimato.be>'
-export const EMAIL_REPLY_TO = 'webmaster@gemengdkooranimato.be'
+export const EMAIL_FROM = 'Gemengd Koor Animato <info@gemengdkooranimato.be>'
+export const EMAIL_REPLY_TO = 'info@gemengdkooranimato.be'
 
 interface EmailAttachment {
   filename: string
@@ -511,7 +511,7 @@ export function notificationEmail(data: {
       Deze e-mail komt van <strong>Gemengd Koor Animato</strong>.<br>
       Wil je dit soort mails niet meer ontvangen? Pas je voorkeuren aan via
       <a href="https://animato.be/leden/profiel#notificaties" style="color:#00A9CE;">je profielinstellingen</a>.<br>
-      <span style="color:#9ca3af;">webmaster@gemengdkooranimato.be</span>
+      <span style="color:#9ca3af;">info@gemengdkooranimato.be</span>
     </div>
   </div>
 </body>

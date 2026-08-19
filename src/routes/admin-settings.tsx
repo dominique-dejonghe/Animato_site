@@ -186,7 +186,7 @@ app.get('/admin/settings', async (c) => {
 
                   <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Contact Email (Notificaties)</label>
-                    <input type="email" name="contact_email" value={settingsMap.contact_email} placeholder="info@animato.be" class="w-full border rounded px-3 py-2" />
+                    <input type="email" name="contact_email" value={settingsMap.contact_email} placeholder="info@gemengdkooranimato.be" class="w-full border rounded px-3 py-2" />
                   </div>
 
                   <div>

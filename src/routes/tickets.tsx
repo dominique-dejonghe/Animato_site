@@ -560,8 +560,8 @@ app.get('/concerten/:eventId/tickets', async (c) => {
                         <p class="font-semibold text-gray-900 mb-1">Plaats voor mindervaliden nodig?</p>
                         <p>
                           Mail vóór je bestelling naar{' '}
-                          <a href="mailto:gemengdkooranimato@gmail.com?subject=Aanvraag mindervaliden-plaats" class="text-blue-700 hover:underline font-medium">
-                            gemengdkooranimato@gmail.com
+                          <a href="mailto:info@gemengdkooranimato.be?subject=Aanvraag mindervaliden-plaats" class="text-blue-700 hover:underline font-medium">
+                            info@gemengdkooranimato.be
                           </a>{' '}
                           zodat we de juiste plaats voor je kunnen voorzien.
                         </p>

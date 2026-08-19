@@ -559,7 +559,7 @@ export const Layout: FC<LayoutProps> = ({
               <div>
                 <h3 class="text-lg font-semibold mb-4">Contact</h3>
                 <ul class="space-y-2 text-sm text-gray-300">
-                  <li><i class="fas fa-envelope mr-2"></i><a href="mailto:gemengdkooranimato@gmail.com" class="hover:text-white transition">gemengdkooranimato@gmail.com</a></li>
+                  <li><i class="fas fa-envelope mr-2"></i><a href="mailto:info@gemengdkooranimato.be" class="hover:text-white transition">info@gemengdkooranimato.be</a></li>
                   <li><i class="fas fa-map-marker-alt mr-2"></i>Zaal De Sopper, Oppuursdorp 15<br/><span class="ml-5">2890 Oppuurs</span></li>
                 </ul>
               </div>

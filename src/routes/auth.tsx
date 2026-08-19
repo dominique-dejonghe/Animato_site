@@ -47,7 +47,7 @@ app.get('/login', async (c) => {
                       <p class="mt-1 text-xs text-red-700">
                         Nooit eerder een wachtwoord gekozen? Een admin heeft je account misschien aangemaakt
                         zonder reset-link. Klik op <a href="/auth/forgot-password" class="underline font-semibold">Wachtwoord vergeten?</a> om er één in te stellen,
-                        of neem contact op via <a href="mailto:info@animato.be" class="underline font-semibold">info@animato.be</a>.
+                        of neem contact op via <a href="mailto:info@gemengdkooranimato.be" class="underline font-semibold">info@gemengdkooranimato.be</a>.
                       </p>
                     </>
                   )}
@@ -57,7 +57,7 @@ app.get('/login', async (c) => {
                     <>
                       <strong>Je account is nog niet actief.</strong>
                       <p class="mt-1 text-xs text-red-700">
-                        Stuur een mailtje naar <a href="mailto:info@animato.be" class="underline">info@animato.be</a> zodat we je account activeren.
+                        Stuur een mailtje naar <a href="mailto:info@gemengdkooranimato.be" class="underline">info@gemengdkooranimato.be</a> zodat we je account activeren.
                       </p>
                     </>
                   )}
@@ -65,7 +65,7 @@ app.get('/login', async (c) => {
                     <>
                       <strong>Dit account is verwijderd.</strong>
                       <p class="mt-1 text-xs text-red-700">
-                        Denk je dat dit een vergissing is? Stuur een mailtje naar <a href="mailto:info@animato.be" class="underline">info@animato.be</a>.
+                        Denk je dat dit een vergissing is? Stuur een mailtje naar <a href="mailto:info@gemengdkooranimato.be" class="underline">info@gemengdkooranimato.be</a>.
                       </p>
                     </>
                   )}
@@ -235,7 +235,7 @@ app.get('/wachtwoord-vergeten', (c) => {
                       <strong>De reset-mail kon niet verstuurd worden.</strong>
                       <p class="mt-1 text-xs text-red-700">
                         Dit is een technisch probleem aan onze kant (mail-provider). Probeer het later opnieuw,
-                        of stuur een mailtje naar <a href="mailto:info@animato.be" class="underline font-semibold">info@animato.be</a> —
+                        of stuur een mailtje naar <a href="mailto:info@gemengdkooranimato.be" class="underline font-semibold">info@gemengdkooranimato.be</a> —
                         een beheerder kan dan een persoonlijke reset-link voor je genereren.
                       </p>
                     </>
@@ -871,7 +871,7 @@ app.post('/api/auth/forgot-password', async (c) => {
     <p style="margin-top: 24px;">Met vriendelijke groet,<br><strong>Gemengd Koor Animato</strong></p>
   </div>
   <div style="text-align:center; padding:16px; color:#999; font-size:12px;">
-    Gemengd Koor Animato | gemengdkooranimato@gmail.com
+    Gemengd Koor Animato | info@gemengdkooranimato.be
   </div>
 </body>
 </html>

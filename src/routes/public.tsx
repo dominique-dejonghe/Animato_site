@@ -799,9 +799,9 @@ app.get('/word-lid', async (c) => {
               Of neem direct contact met ons op:
             </p>
             <div class="flex flex-col sm:flex-row justify-center gap-4">
-              <a href="mailto:gemengdkooranimato@gmail.com" class="inline-flex items-center text-animato-primary hover:text-animato-secondary font-semibold">
+              <a href="mailto:info@gemengdkooranimato.be" class="inline-flex items-center text-animato-primary hover:text-animato-secondary font-semibold">
                 <i class="fas fa-envelope mr-2"></i>
-                gemengdkooranimato@gmail.com
+                info@gemengdkooranimato.be
               </a>
               <a href="https://wa.me/?text=Hallo%2C%20ik%20heb%20interesse%20in%20Gemengd%20Koor%20Animato!" target="_blank" rel="noopener" class="inline-flex items-center text-green-600 hover:text-green-700 font-semibold">
                 <i class="fab fa-whatsapp mr-2 text-xl"></i>
@@ -949,8 +949,8 @@ app.get('/contact', async (c) => {
                   </div>
                   <div class="ml-4">
                     <h3 class="font-semibold text-gray-900">Email</h3>
-                    <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">
-                      gemengdkooranimato@gmail.com
+                    <a href="mailto:info@gemengdkooranimato.be" class="text-animato-primary hover:underline">
+                      info@gemengdkooranimato.be
                     </a>
                   </div>
                 </div>
@@ -1605,7 +1605,7 @@ app.get('/privacyverklaring', async (c) => {
               <h2 class="text-2xl font-bold text-animato-secondary mb-3">1. Wie</h2>
               <p>Gemengd Koor Animato, feitelijke vereniging<br/>
                 p.a. Kattestraat 92, 2890 Puurs-Sint-Amands<br/>
-                E-mail: <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">gemengdkooranimato@gmail.com</a>
+                E-mail: <a href="mailto:info@gemengdkooranimato.be" class="text-animato-primary hover:underline">info@gemengdkooranimato.be</a>
               </p>
             </section>
 
@@ -1648,7 +1648,7 @@ app.get('/privacyverklaring', async (c) => {
 
             <section>
               <h2 class="text-2xl font-bold text-animato-secondary mb-3">6. Uw rechten en eventuele klachten</h2>
-              <p>U heeft het recht op inzage van uw persoonsgegevens, correctie van foutieve gegevens en intrekking van uw toestemming op elk moment. Contacteer: <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">gemengdkooranimato@gmail.com</a>.</p>
+              <p>U heeft het recht op inzage van uw persoonsgegevens, correctie van foutieve gegevens en intrekking van uw toestemming op elk moment. Contacteer: <a href="mailto:info@gemengdkooranimato.be" class="text-animato-primary hover:underline">info@gemengdkooranimato.be</a>.</p>
             </section>
 
             <section>
@@ -1763,7 +1763,7 @@ app.get('/cookies', async (c) => {
               <p>Heeft u vragen over ons cookiebeleid? Neem gerust contact op:</p>
               <p class="mt-2">
                 <strong>Gemengd Koor Animato</strong><br/>
-                E-mail: <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">gemengdkooranimato@gmail.com</a>
+                E-mail: <a href="mailto:info@gemengdkooranimato.be" class="text-animato-primary hover:underline">info@gemengdkooranimato.be</a>
               </p>
             </section>
 

@@ -594,7 +594,7 @@ app.get('/admin/ai-nieuws', async (c) => {
               label: 'Vrije vorm',
               fields: [
                 { name: 'onderwerp', label: 'Wat is het onderwerp?', placeholder: 'bv. We zoeken nieuwe leden', required: true },
-                { name: 'feiten', label: 'Steekwoorden / feiten', type: 'textarea', rows: 6, placeholder: 'Lijst alles op wat in het bericht moet komen:\\n- Open repetitie elke maandag 20u\\n- Iedereen welkom, geen voorkennis nodig\\n- Contact via info@animato.be', required: true },
+                { name: 'feiten', label: 'Steekwoorden / feiten', type: 'textarea', rows: 6, placeholder: 'Lijst alles op wat in het bericht moet komen:\\n- Open repetitie elke maandag 20u\\n- Iedereen welkom, geen voorkennis nodig\\n- Contact via info@gemengdkooranimato.be', required: true },
                 { name: 'toon', label: 'Toon', type: 'select', options: ['informatief', 'enthousiast', 'formeel', 'persoonlijk'] },
                 { name: 'doelgroep', label: 'Doelgroep', placeholder: 'bv. potentiële nieuwe leden, ouders, publiek' }
               ]

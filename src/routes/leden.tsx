@@ -6959,7 +6959,7 @@ app.get('/leden/reglementen', async (c) => {
           <div class="mt-12 pt-6 border-t border-gray-200 text-sm text-gray-500">
             <p>
               <i class="fas fa-info-circle mr-1 text-animato-primary"></i>
-              Heb je vragen over een reglement? Neem contact op via <a href="mailto:gemengdkooranimato@gmail.com" class="text-animato-primary hover:underline">gemengdkooranimato@gmail.com</a>.
+              Heb je vragen over een reglement? Neem contact op via <a href="mailto:info@gemengdkooranimato.be" class="text-animato-primary hover:underline">info@gemengdkooranimato.be</a>.
             </p>
           </div>
         </div>

@@ -182,7 +182,7 @@ export function orderConfirmationEmail(data: {
       </ul>
     </div>
     
-    <p>Bij vragen kun je contact opnemen via <a href="mailto:info@animato.be">info@animato.be</a></p>
+    <p>Bij vragen kun je contact opnemen via <a href="mailto:info@gemengdkooranimato.be">info@gemengdkooranimato.be</a></p>
     
     <p style="margin-top: 30px;">
       Met vriendelijke groet,<br>

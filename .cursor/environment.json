@@ -1,0 +1,5 @@
+{
+  "name": "Animato koorwebsite",
+  "install": "npm ci\nnpm run build\nbash scripts/setup-dev-db.sh",
+  "start": "npm run dev:sandbox"
+}

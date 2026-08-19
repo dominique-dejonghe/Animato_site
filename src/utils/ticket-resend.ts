@@ -17,6 +17,7 @@ import type { Context } from 'hono'
 import { queryAll, queryOne } from './db'
 import { generateSeatTicketPdfs, generateTicketPdf, uint8ArrayToBase64 } from './ticket-pdf'
 import { getSiteUrl } from './site-url'
+import { parseBrusselsDate, formatBrusselsTime, formatBrusselsDate } from './time'
 
 // --- constants (system_settings keys) --------------------------------------
 export const RESEND_TEMPLATE_SUBJECT_KEY = 'ticket_resend_template_subject'
@@ -120,13 +121,13 @@ export async function loadTicketOrderContext(c: Context, ticketId: number): Prom
     seatRows = r?.results || []
   } catch {}
 
-  // Datum / tijd (nl-NL-notatie)
-  const eventDate = new Date(ticket.start_at)
-  const concertDatum = eventDate.toLocaleDateString('nl-NL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
-  const aanvangDate = ticket.concert_start_at ? new Date(ticket.concert_start_at) : eventDate
-  const concertTijd = aanvangDate.toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+  // Datum / tijd — altijd in Brussels-tijdzone (Cloudflare Workers = UTC runtime).
+  const concertDatum = formatBrusselsDate(ticket.start_at,
+    { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  const aanvangSource = ticket.concert_start_at || ticket.start_at
+  const concertTijd = formatBrusselsTime(aanvangSource)
   const concertDoorsOpen = ticket.doors_open_at
-    ? new Date(ticket.doors_open_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })
+    ? formatBrusselsTime(ticket.doors_open_at)
     : null
 
   const totaalBedrag = rows.reduce((s: number, t: any) => s + (Number(t.prijs_totaal) || 0), 0)

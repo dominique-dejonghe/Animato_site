@@ -1232,7 +1232,7 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
 // ==========================================
 // MARK TICKET AS PAID API
 // ==========================================
-app.post('/api/admin/tickets/:id/mark-paid', async (c) => {
+app.post('/api/admin/tickets/:id{[0-9]+}/mark-paid', async (c) => {
   const user = c.get('user') as SessionUser
   const ticketId = parseInt(c.req.param('id'))
   
@@ -1261,7 +1261,7 @@ app.post('/api/admin/tickets/:id/mark-paid', async (c) => {
 // (alle ticket-rijen met hetzelfde order_ref) en mailt naar de koper.
 // Werkt enkel voor betaalde orders — anders heeft het geen zin.
 // ==========================================
-app.post('/api/admin/tickets/:id/resend', async (c) => {
+app.post('/api/admin/tickets/:id{[0-9]+}/resend', async (c) => {
   const user = c.get('user') as SessionUser
   const ticketId = parseInt(c.req.param('id'))
 
@@ -2061,7 +2061,7 @@ app.get('/admin/tickets/resend', async (c) => {
 // ==========================================
 // DELETE TICKET API
 // ==========================================
-app.post('/api/admin/tickets/:id/delete', async (c) => {
+app.post('/api/admin/tickets/:id{[0-9]+}/delete', async (c) => {
   const user = c.get('user') as SessionUser
   const ticketId = parseInt(c.req.param('id'))
   const concertId = c.req.query('concert_id')

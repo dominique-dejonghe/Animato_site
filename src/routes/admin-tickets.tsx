@@ -10,6 +10,11 @@ import { sendEmail, ticketEmail } from '../utils/email'
 import { generateTicketPdf, generateSeatTicketPdf, generateSeatTicketPdfs, uint8ArrayToBase64 } from '../utils/ticket-pdf'
 import { zipTicketPdfs } from '../utils/ticket-zip'
 import { getSiteUrl } from '../utils/site-url'
+import {
+  loadResendTemplate, saveResendTemplate,
+  loadTicketOrderContext, renderEmail,
+  buildTicketAttachments, loadTicketLogoBytes,
+} from '../utils/ticket-resend'
 import { uploadDataUrlToR2, isDataUrl } from '../utils/r2-storage'
 import { parseBrusselsDate, formatBrusselsDate, formatBrusselsDateTime } from '../utils/time'
 
@@ -119,6 +124,14 @@ app.get('/admin/tickets', async (c) => {
             </p>
           </div>
           <div class="flex flex-wrap gap-2">
+            <a
+              href="/admin/tickets/resend"
+              class="bg-white border-2 border-animato-primary text-animato-primary px-4 py-3 rounded-lg hover:bg-purple-50 transition inline-flex items-center"
+              title="Herstuur ticket-mails naar geselecteerde kopers"
+            >
+              <i class="fas fa-paper-plane mr-2"></i>
+              Mail-batch
+            </a>
             <a
               href="/admin/events/nieuw?type=concert"
               class="bg-animato-primary text-white px-6 py-3 rounded-lg hover:bg-opacity-90 transition inline-flex items-center"
@@ -1429,6 +1442,620 @@ app.post('/api/admin/tickets/:id/resend', async (c) => {
     console.error('[resend] EXCEPTION:', error?.message || error, error?.stack)
     return c.json({ success: false, error: error?.message || String(error) }, 500)
   }
+})
+
+// ==========================================
+// BULK TICKET RESEND — nieuwe flow (2026-08)
+// - /admin/tickets/resend           → UI met concert-filter, tabel, selectie
+// - /api/admin/tickets/resend/template (GET/POST) → laad/opslaan default template
+// - /api/admin/tickets/resend/preview → server-side gerenderde preview
+// - /api/admin/tickets/resend/bulk    → verstuurt naar N geselecteerde orders
+// ==========================================
+
+// -- GET: laad huidige template ---------------------------------------------
+app.get('/api/admin/tickets/resend/template', async (c) => {
+  try {
+    const tpl = await loadResendTemplate(c.env.DB)
+    return c.json({ success: true, ...tpl })
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || 'Kon template niet laden' }, 500)
+  }
+})
+
+// -- POST: sla nieuwe default template op -----------------------------------
+app.post('/api/admin/tickets/resend/template', async (c) => {
+  try {
+    const body = await c.req.json<{ subject?: string; html?: string }>()
+    const subject = (body.subject || '').trim()
+    const html = (body.html || '').trim()
+    if (!subject || !html) {
+      return c.json({ success: false, error: 'subject en html zijn verplicht' }, 400)
+    }
+    await saveResendTemplate(c.env.DB, subject, html)
+    return c.json({ success: true })
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || 'Kon template niet opslaan' }, 500)
+  }
+})
+
+// -- POST: preview render voor één ticket-id -------------------------------
+app.post('/api/admin/tickets/resend/preview', async (c) => {
+  try {
+    const body = await c.req.json<{ ticket_id: number; subject: string; html: string }>()
+    const ctx = await loadTicketOrderContext(c, Number(body.ticket_id))
+    if (!ctx) return c.json({ success: false, error: 'Ticket niet gevonden' }, 404)
+    const rendered = renderEmail(body.subject || '', body.html || '', ctx)
+    return c.json({
+      success: true,
+      subject: rendered.subject,
+      html: rendered.html,
+      // Ontvangst-info zodat de UI kan tonen "wordt verstuurd naar X (Y)"
+      koper_naam: ctx.koper_naam,
+      koper_email: ctx.koper_email,
+      order_ref: ctx.order_ref,
+    })
+  } catch (err: any) {
+    return c.json({ success: false, error: err?.message || 'Preview mislukt' }, 500)
+  }
+})
+
+// -- POST: bulk resend ------------------------------------------------------
+// body: { ticket_ids: number[], subject: string, html: string, include_pdf: boolean }
+// return: { success, sent, failed: [{ticket_id, order_ref, email, error}], errors: [] }
+app.post('/api/admin/tickets/resend/bulk', async (c) => {
+  const user = c.get('user') as SessionUser
+  try {
+    const body = await c.req.json<{
+      ticket_ids: number[]
+      subject: string
+      html: string
+      include_pdf: boolean
+    }>()
+    const ids = Array.isArray(body.ticket_ids) ? body.ticket_ids.map(Number).filter(n => n > 0) : []
+    if (ids.length === 0) return c.json({ success: false, error: 'Geen ticket-ids opgegeven' }, 400)
+    if (!body.subject || !body.html) return c.json({ success: false, error: 'subject en html zijn verplicht' }, 400)
+    if (ids.length > 500) return c.json({ success: false, error: 'Max 500 mails per bulk-actie' }, 400)
+
+    // Logo één keer laden (best-effort)
+    const logoBytes = body.include_pdf ? await loadTicketLogoBytes(c.env.DB) : null
+
+    const sent: Array<{ ticket_id: number; order_ref: string; email: string }> = []
+    const failed: Array<{ ticket_id: number; order_ref?: string; email?: string; error: string }> = []
+
+    for (const ticketId of ids) {
+      try {
+        const ctx = await loadTicketOrderContext(c, ticketId)
+        if (!ctx) {
+          failed.push({ ticket_id: ticketId, error: 'Ticket niet gevonden' })
+          continue
+        }
+        if (!ctx.koper_email) {
+          failed.push({ ticket_id: ticketId, order_ref: ctx.order_ref, error: 'Geen email-adres bij deze order' })
+          continue
+        }
+
+        const rendered = renderEmail(body.subject, body.html, ctx)
+        let attachments: any[] = []
+        if (body.include_pdf) {
+          try {
+            attachments = await buildTicketAttachments(ctx, logoBytes)
+          } catch (pdfErr: any) {
+            // Best-effort: mail vertrekt zonder attachment als PDF crasht.
+            // Alternatief zou zijn hier failen — maar dat matcht niet het gedrag
+            // van de webhook-flow, en 1 slecht seat mag niet 199 andere blokkeren.
+            console.error('[resend-bulk] PDF gen mislukt voor', ctx.order_ref, pdfErr?.message)
+          }
+        }
+
+        const ok = await sendEmail({
+          to: ctx.koper_email,
+          subject: rendered.subject,
+          html: rendered.html,
+          attachments,
+        }, c.env.RESEND_API_KEY)
+
+        if (ok) {
+          sent.push({ ticket_id: ticketId, order_ref: ctx.order_ref, email: ctx.koper_email })
+          // Audit-log per verstuurde mail
+          try {
+            await execute(c.env.DB, `
+              INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
+              VALUES (?, 'ticket_email_resent', 'tickets', ?, ?)
+            `, [user.id, ticketId, JSON.stringify({
+              order_ref: ctx.order_ref,
+              to: ctx.koper_email,
+              subject: rendered.subject,
+              by_bulk: true,
+              with_pdf: body.include_pdf && attachments.length > 0,
+            })])
+          } catch {}
+        } else {
+          failed.push({ ticket_id: ticketId, order_ref: ctx.order_ref, email: ctx.koper_email, error: 'Resend API weigerde de mail' })
+        }
+      } catch (err: any) {
+        failed.push({ ticket_id: ticketId, error: err?.message || String(err) })
+      }
+    }
+
+    return c.json({
+      success: true,
+      sent_count: sent.length,
+      failed_count: failed.length,
+      sent,
+      failed,
+    })
+  } catch (err: any) {
+    console.error('[resend-bulk] EXCEPTION:', err?.message, err?.stack)
+    return c.json({ success: false, error: err?.message || String(err) }, 500)
+  }
+})
+
+// -- GET: UI-pagina met concert-filter, tabel + selectie --------------------
+app.get('/admin/tickets/resend', async (c) => {
+  const user = c.get('user') as SessionUser
+
+  // Query-parameters
+  const concertIdParam = c.req.query('concert_id')
+  const statusFilter = (c.req.query('status') || 'paid').toLowerCase()  // default: alleen betaalde
+
+  // Concert-lijst voor dropdown (alle concerts met betaalde tickets)
+  const concerts = await queryAll<any>(c.env.DB, `
+    SELECT c.id, e.titel, e.start_at,
+           (SELECT COUNT(*) FROM tickets t WHERE t.concert_id = c.id AND t.status = 'paid') AS paid_count
+    FROM concerts c
+    JOIN events e ON e.id = c.event_id
+    WHERE (SELECT COUNT(*) FROM tickets t WHERE t.concert_id = c.id) > 0
+    ORDER BY e.start_at DESC
+  `)
+
+  // Tickets ophalen (1 rij per order = 1 mail-ontvanger; DISTINCT op order_ref)
+  // We geven de "eerste" ticket-id van elke order — de resend-flow werkt namelijk
+  // per order_ref (loadTicketOrderContext haalt alle rijen).
+  let tickets: any[] = []
+  if (concertIdParam) {
+    const cid = parseInt(concertIdParam)
+    tickets = await queryAll<any>(c.env.DB, `
+      SELECT MIN(t.id) AS ticket_id,
+             t.order_ref,
+             t.koper_naam,
+             t.koper_email,
+             t.status,
+             t.betaald_at,
+             t.created_at,
+             SUM(t.aantal) AS aantal_totaal,
+             GROUP_CONCAT(t.aantal || '× ' || t.categorie, ', ') AS ticket_lines,
+             SUM(t.prijs_totaal) AS totaal_bedrag,
+             (SELECT MAX(a.created_at) FROM audit_logs a
+              WHERE a.actie = 'ticket_email_resent' AND a.entity_id = MIN(t.id)) AS last_resent_at
+      FROM tickets t
+      WHERE t.concert_id = ?
+        ${statusFilter === 'all' ? '' : `AND t.status = '${statusFilter.replace(/'/g, '')}'`}
+      GROUP BY t.order_ref
+      ORDER BY t.betaald_at DESC, t.created_at DESC
+    `, [cid])
+  }
+
+  const selectedConcert = concertIdParam
+    ? concerts.find((c: any) => c.id === parseInt(concertIdParam))
+    : null
+
+  return c.html(
+    <Layout title="Tickets opnieuw versturen" user={user}>
+      <div class="max-w-7xl mx-auto p-4 md:p-6">
+        <div class="mb-6 flex items-center justify-between">
+          <div>
+            <h1 class="text-2xl md:text-3xl font-bold text-gray-900">
+              <i class="fas fa-paper-plane text-purple-600 mr-2"></i>
+              Tickets opnieuw versturen
+            </h1>
+            <p class="text-sm text-gray-600 mt-1">
+              Selecteer een concert, kies kopers, en pas de mail aan vóór je verstuurt.
+            </p>
+          </div>
+          <a href="/admin/tickets" class="text-sm text-gray-600 hover:text-gray-900">
+            <i class="fas fa-arrow-left mr-1"></i> Terug naar tickets
+          </a>
+        </div>
+
+        {/* Filter-balk */}
+        <div class="bg-white rounded-lg shadow-sm border p-4 mb-6">
+          <form method="get" action="/admin/tickets/resend" class="flex flex-wrap items-end gap-4">
+            <div class="flex-1 min-w-[240px]">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Concert</label>
+              <select name="concert_id" class="w-full border rounded px-3 py-2" onchange="this.form.submit()">
+                <option value="">— Kies een concert —</option>
+                {concerts.map((c: any) => (
+                  <option value={c.id} selected={concertIdParam === String(c.id)}>
+                    {c.titel} — {new Date(c.start_at).toLocaleDateString('nl-BE', { day: 'numeric', month: 'long', year: 'numeric' })} ({c.paid_count} betaald)
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div class="min-w-[160px]">
+              <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <select name="status" class="w-full border rounded px-3 py-2" onchange="this.form.submit()">
+                <option value="paid" selected={statusFilter === 'paid'}>Alleen betaald</option>
+                <option value="pending" selected={statusFilter === 'pending'}>Pending</option>
+                <option value="all" selected={statusFilter === 'all'}>Alle statussen</option>
+              </select>
+            </div>
+            <button type="button" onclick="openTemplateEditor()" class="bg-white border border-purple-600 text-purple-600 hover:bg-purple-50 rounded px-4 py-2 text-sm font-medium">
+              <i class="fas fa-file-alt mr-1"></i> Template bewerken
+            </button>
+          </form>
+        </div>
+
+        {!concertIdParam && (
+          <div class="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
+            <i class="fas fa-hand-pointer text-blue-500 text-3xl mb-2"></i>
+            <p class="text-gray-700">Kies eerst een concert uit de dropdown hierboven.</p>
+          </div>
+        )}
+
+        {concertIdParam && tickets.length === 0 && (
+          <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+            <i class="fas fa-inbox text-yellow-500 text-3xl mb-2"></i>
+            <p class="text-gray-700">Geen tickets gevonden voor dit concert met status "{statusFilter}".</p>
+          </div>
+        )}
+
+        {concertIdParam && tickets.length > 0 && (
+          <div class="bg-white rounded-lg shadow-sm border overflow-hidden">
+            <div class="p-4 border-b flex flex-wrap items-center justify-between gap-2">
+              <div class="text-sm text-gray-700">
+                <strong>{tickets.length}</strong> orders voor <em>{selectedConcert?.titel}</em>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="selection-count" class="text-sm text-gray-600">0 geselecteerd</span>
+                <button type="button" onclick="selectAll()" class="text-sm text-blue-600 hover:underline">Alle</button>
+                <span class="text-gray-300">|</span>
+                <button type="button" onclick="selectNone()" class="text-sm text-blue-600 hover:underline">Geen</button>
+                <button type="button" id="btn-open-modal" onclick="openSendModal()" disabled class="ml-4 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded px-4 py-2 text-sm font-medium">
+                  <i class="fas fa-paper-plane mr-1"></i>
+                  Herstuur geselecteerde
+                </button>
+              </div>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead class="bg-gray-50 text-left">
+                  <tr>
+                    <th class="px-3 py-2 w-10"><input type="checkbox" onchange="toggleAll(this)" /></th>
+                    <th class="px-3 py-2">Order</th>
+                    <th class="px-3 py-2">Koper</th>
+                    <th class="px-3 py-2">Email</th>
+                    <th class="px-3 py-2">Tickets</th>
+                    <th class="px-3 py-2 text-right">Bedrag</th>
+                    <th class="px-3 py-2">Betaald op</th>
+                    <th class="px-3 py-2">Laatst verstuurd</th>
+                  </tr>
+                </thead>
+                <tbody id="tbody">
+                  {tickets.map((t: any) => (
+                    <tr class="border-t hover:bg-purple-50/30">
+                      <td class="px-3 py-2">
+                        <input type="checkbox" class="row-check" value={t.ticket_id} data-order-ref={t.order_ref} onchange="updateSelectionCount()" />
+                      </td>
+                      <td class="px-3 py-2 font-mono text-xs">{t.order_ref}</td>
+                      <td class="px-3 py-2">{t.koper_naam || '—'}</td>
+                      <td class="px-3 py-2 text-gray-600">{t.koper_email || '—'}</td>
+                      <td class="px-3 py-2 text-gray-700 text-xs">{t.ticket_lines || `${t.aantal_totaal}× ticket`}</td>
+                      <td class="px-3 py-2 text-right">€{Number(t.totaal_bedrag || 0).toFixed(2)}</td>
+                      <td class="px-3 py-2 text-gray-600 text-xs">
+                        {t.betaald_at ? new Date(t.betaald_at).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                      </td>
+                      <td class="px-3 py-2 text-gray-600 text-xs">
+                        {t.last_resent_at
+                          ? <span class="text-green-700"><i class="fas fa-check-circle mr-1"></i>{new Date(t.last_resent_at).toLocaleString('nl-BE', { dateStyle: 'short', timeStyle: 'short' })}</span>
+                          : <span class="text-gray-400">nooit</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ============ VERSTUUR-MODAL ============ */}
+      <div id="send-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+          <div class="p-4 border-b flex items-center justify-between">
+            <h2 class="text-lg font-semibold">
+              <i class="fas fa-paper-plane text-purple-600 mr-2"></i>
+              Herstuur mails — <span id="modal-count">0</span> ontvangers
+            </h2>
+            <button onclick="closeSendModal()" class="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+          </div>
+
+          {/* Tabs */}
+          <div class="border-b flex">
+            <button type="button" onclick="switchTab('tab-template')" data-tab="tab-template" class="tab-btn px-4 py-3 text-sm font-medium border-b-2 border-purple-600 text-purple-600">
+              1. Template
+            </button>
+            <button type="button" onclick="switchTab('tab-preview')" data-tab="tab-preview" class="tab-btn px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">
+              2. Preview
+            </button>
+            <button type="button" onclick="switchTab('tab-recipients')" data-tab="tab-recipients" class="tab-btn px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">
+              3. Ontvangers &amp; verstuur
+            </button>
+          </div>
+
+          <div class="flex-1 overflow-y-auto p-4">
+            {/* Tab 1: Template */}
+            <div id="tab-template" class="tab-content">
+              <div class="bg-blue-50 border border-blue-200 rounded p-3 mb-3 text-xs text-gray-700">
+                <p class="font-semibold mb-1">Beschikbare placeholders (worden per ontvanger vervangen):</p>
+                <code class="text-[11px] block">
+                  &#123;&#123;koper_naam&#125;&#125; &nbsp; &#123;&#123;concert_titel&#125;&#125; &nbsp; &#123;&#123;concert_datum&#125;&#125; &nbsp; &#123;&#123;concert_tijd&#125;&#125; &nbsp; &#123;&#123;concert_locatie&#125;&#125;<br />
+                  &#123;&#123;order_ref&#125;&#125; &nbsp; &#123;&#123;tickets_summary&#125;&#125; &nbsp; &#123;&#123;totaal_bedrag&#125;&#125; &nbsp; &#123;&#123;member_portal_url&#125;&#125;
+                </code>
+              </div>
+              <label class="block text-sm font-medium text-gray-700 mb-1">Onderwerp</label>
+              <input type="text" id="tpl-subject" class="w-full border rounded px-3 py-2 mb-3 font-mono text-sm" />
+              <label class="block text-sm font-medium text-gray-700 mb-1">HTML body</label>
+              <textarea id="tpl-html" rows={16} class="w-full border rounded px-3 py-2 font-mono text-xs"></textarea>
+              <div class="mt-2 flex items-center gap-3">
+                <button type="button" onclick="saveTemplateAsDefault()" class="text-sm text-purple-600 hover:underline">
+                  <i class="fas fa-save mr-1"></i> Sla op als nieuwe default
+                </button>
+                <button type="button" onclick="resetTemplateToSaved()" class="text-sm text-gray-500 hover:underline">
+                  <i class="fas fa-undo mr-1"></i> Reset naar opgeslagen
+                </button>
+              </div>
+            </div>
+
+            {/* Tab 2: Preview */}
+            <div id="tab-preview" class="tab-content hidden">
+              <div class="mb-3 text-sm text-gray-600">
+                Voorbeeld met eerste geselecteerde order: <strong id="preview-recipient"></strong>
+              </div>
+              <div class="border rounded overflow-hidden">
+                <div class="bg-gray-100 px-3 py-2 border-b text-xs">
+                  <div><strong>Van:</strong> Gemengd Koor Animato &lt;info@gemengdkooranimato.be&gt;</div>
+                  <div><strong>Aan:</strong> <span id="preview-to"></span></div>
+                  <div><strong>Onderwerp:</strong> <span id="preview-subject"></span></div>
+                </div>
+                <iframe id="preview-iframe" class="w-full" style="height: 500px; border: 0;" sandbox="allow-same-origin"></iframe>
+              </div>
+            </div>
+
+            {/* Tab 3: Recipients & send */}
+            <div id="tab-recipients" class="tab-content hidden">
+              <div class="mb-3 flex items-center gap-3">
+                <label class="flex items-center gap-2 text-sm">
+                  <input type="checkbox" id="chk-include-pdf" checked />
+                  <span>Met verse PDF-bijlagen (per ontvanger, iets trager)</span>
+                </label>
+              </div>
+              <div class="border rounded max-h-64 overflow-y-auto mb-3">
+                <table class="w-full text-xs">
+                  <thead class="bg-gray-50 sticky top-0"><tr>
+                    <th class="text-left px-3 py-2">Order</th>
+                    <th class="text-left px-3 py-2">Naam</th>
+                    <th class="text-left px-3 py-2">Email</th>
+                  </tr></thead>
+                  <tbody id="recipients-list"></tbody>
+                </table>
+              </div>
+              <div id="rate-limit-warning" class="hidden bg-yellow-50 border border-yellow-300 rounded p-3 mb-3 text-sm text-yellow-800">
+                <i class="fas fa-exclamation-triangle mr-1"></i>
+                Je gaat meer dan 90 mails versturen in één actie. Resend's free-tier heeft een limiet van 100/uur. Zeker weten?
+              </div>
+              <div id="send-result" class="hidden mb-3"></div>
+              <button type="button" id="btn-send" onclick="sendBulk()" class="w-full bg-purple-600 hover:bg-purple-700 text-white rounded px-4 py-3 text-sm font-medium">
+                <i class="fas fa-paper-plane mr-2"></i>
+                Verstuur nu naar <span id="send-btn-count">0</span> ontvangers
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        let savedTemplate = { subject: '', html: '' }
+        let selectedTicketIds = []
+        let selectedRows = []  // [{ticket_id, order_ref, koper_naam, koper_email}]
+
+        function updateSelectionCount() {
+          const checks = document.querySelectorAll('.row-check:checked')
+          const n = checks.length
+          document.getElementById('selection-count').textContent = n + ' geselecteerd'
+          document.getElementById('btn-open-modal').disabled = n === 0
+        }
+        function toggleAll(cb) {
+          document.querySelectorAll('.row-check').forEach(c => c.checked = cb.checked)
+          updateSelectionCount()
+        }
+        function selectAll() {
+          document.querySelectorAll('.row-check').forEach(c => c.checked = true)
+          updateSelectionCount()
+        }
+        function selectNone() {
+          document.querySelectorAll('.row-check').forEach(c => c.checked = false)
+          updateSelectionCount()
+        }
+
+        async function loadTemplate() {
+          const r = await fetch('/api/admin/tickets/resend/template')
+          const j = await r.json()
+          if (j.success) {
+            savedTemplate = { subject: j.subject, html: j.html }
+            document.getElementById('tpl-subject').value = j.subject
+            document.getElementById('tpl-html').value = j.html
+          }
+        }
+
+        async function openSendModal() {
+          // Verzamel selectie
+          selectedTicketIds = []
+          selectedRows = []
+          document.querySelectorAll('.row-check:checked').forEach(cb => {
+            const row = cb.closest('tr')
+            const cells = row.querySelectorAll('td')
+            selectedTicketIds.push(parseInt(cb.value))
+            selectedRows.push({
+              ticket_id: parseInt(cb.value),
+              order_ref: cb.getAttribute('data-order-ref'),
+              koper_naam: cells[2].textContent.trim(),
+              koper_email: cells[3].textContent.trim(),
+            })
+          })
+          if (selectedTicketIds.length === 0) return
+
+          document.getElementById('modal-count').textContent = selectedTicketIds.length
+          document.getElementById('send-btn-count').textContent = selectedTicketIds.length
+          document.getElementById('rate-limit-warning').style.display = selectedTicketIds.length > 90 ? 'block' : 'none'
+          document.getElementById('send-result').classList.add('hidden')
+          document.getElementById('btn-send').disabled = false
+
+          // Recipients tab
+          const tbody = document.getElementById('recipients-list')
+          tbody.innerHTML = selectedRows.map(r => \`
+            <tr class="border-t">
+              <td class="px-3 py-1 font-mono text-[11px]">\${r.order_ref}</td>
+              <td class="px-3 py-1">\${r.koper_naam || ''}</td>
+              <td class="px-3 py-1 text-gray-600">\${r.koper_email || ''}</td>
+            </tr>\`).join('')
+
+          await loadTemplate()
+          switchTab('tab-template')
+          document.getElementById('send-modal').classList.remove('hidden')
+        }
+        function closeSendModal() {
+          document.getElementById('send-modal').classList.add('hidden')
+        }
+
+        async function openTemplateEditor() {
+          selectedTicketIds = []
+          selectedRows = []
+          document.getElementById('modal-count').textContent = '0'
+          document.getElementById('send-btn-count').textContent = '0'
+          document.getElementById('recipients-list').innerHTML = '<tr><td colspan="3" class="px-3 py-2 text-gray-500 text-center">Geen ontvangers geselecteerd — je kan hier alleen de default-template bewerken.</td></tr>'
+          document.getElementById('btn-send').disabled = true
+          await loadTemplate()
+          switchTab('tab-template')
+          document.getElementById('send-modal').classList.remove('hidden')
+        }
+
+        function switchTab(id) {
+          document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'))
+          document.getElementById(id).classList.remove('hidden')
+          document.querySelectorAll('.tab-btn').forEach(btn => {
+            if (btn.getAttribute('data-tab') === id) {
+              btn.classList.add('border-purple-600', 'text-purple-600')
+              btn.classList.remove('border-transparent', 'text-gray-500')
+            } else {
+              btn.classList.remove('border-purple-600', 'text-purple-600')
+              btn.classList.add('border-transparent', 'text-gray-500')
+            }
+          })
+          if (id === 'tab-preview') refreshPreview()
+        }
+
+        async function refreshPreview() {
+          if (selectedTicketIds.length === 0) {
+            document.getElementById('preview-recipient').textContent = '(geen ontvanger — selecteer eerst orders)'
+            document.getElementById('preview-to').textContent = ''
+            document.getElementById('preview-subject').textContent = ''
+            document.getElementById('preview-iframe').srcdoc = '<p style="padding:16px;color:#666;font-family:sans-serif;">Selecteer eerst een order in de lijst.</p>'
+            return
+          }
+          const firstId = selectedTicketIds[0]
+          const subject = document.getElementById('tpl-subject').value
+          const html = document.getElementById('tpl-html').value
+          const r = await fetch('/api/admin/tickets/resend/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ticket_id: firstId, subject, html })
+          })
+          const j = await r.json()
+          if (j.success) {
+            document.getElementById('preview-recipient').textContent = j.koper_naam + ' — ' + j.order_ref
+            document.getElementById('preview-to').textContent = j.koper_email
+            document.getElementById('preview-subject').textContent = j.subject
+            document.getElementById('preview-iframe').srcdoc = j.html
+          } else {
+            document.getElementById('preview-iframe').srcdoc = '<p style="color:red;padding:16px;">Preview mislukt: ' + (j.error || 'onbekend') + '</p>'
+          }
+        }
+
+        async function saveTemplateAsDefault() {
+          const subject = document.getElementById('tpl-subject').value
+          const html = document.getElementById('tpl-html').value
+          const r = await fetch('/api/admin/tickets/resend/template', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ subject, html })
+          })
+          const j = await r.json()
+          if (j.success) {
+            savedTemplate = { subject, html }
+            alert('Template opgeslagen als nieuwe default')
+          } else {
+            alert('Opslaan mislukt: ' + (j.error || 'onbekend'))
+          }
+        }
+        function resetTemplateToSaved() {
+          document.getElementById('tpl-subject').value = savedTemplate.subject
+          document.getElementById('tpl-html').value = savedTemplate.html
+        }
+
+        async function sendBulk() {
+          if (selectedTicketIds.length === 0) return
+          if (selectedTicketIds.length > 90) {
+            if (!confirm('Je verstuurt ' + selectedTicketIds.length + ' mails — over Resend\\'s uurlimiet mogelijk. Doorgaan?')) return
+          } else {
+            if (!confirm('Verstuur mails naar ' + selectedTicketIds.length + ' ontvangers?')) return
+          }
+          const btn = document.getElementById('btn-send')
+          btn.disabled = true
+          btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Verzenden...'
+          const subject = document.getElementById('tpl-subject').value
+          const html = document.getElementById('tpl-html').value
+          const include_pdf = document.getElementById('chk-include-pdf').checked
+
+          try {
+            const r = await fetch('/api/admin/tickets/resend/bulk', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ticket_ids: selectedTicketIds, subject, html, include_pdf })
+            })
+            const j = await r.json()
+            const box = document.getElementById('send-result')
+            box.classList.remove('hidden')
+            if (j.success) {
+              let html2 = '<div class="bg-green-50 border border-green-300 rounded p-3 text-sm">'
+              html2 += '<strong>✓ ' + j.sent_count + ' mails verstuurd</strong>'
+              if (j.failed_count > 0) {
+                html2 += '<br><span class="text-red-700">✗ ' + j.failed_count + ' mislukt:</span><ul class="text-xs mt-1 list-disc pl-5">'
+                j.failed.forEach(f => { html2 += '<li>' + (f.order_ref || f.ticket_id) + ' — ' + (f.error || '') + '</li>' })
+                html2 += '</ul>'
+              }
+              html2 += '</div>'
+              box.innerHTML = html2
+              btn.innerHTML = '<i class="fas fa-check mr-2"></i> Klaar — sluit deze modal'
+              btn.onclick = () => { closeSendModal(); location.reload() }
+              btn.disabled = false
+            } else {
+              box.innerHTML = '<div class="bg-red-50 border border-red-300 rounded p-3 text-sm text-red-700">Mislukt: ' + (j.error || 'onbekend') + '</div>'
+              btn.disabled = false
+              btn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i> Opnieuw proberen'
+            }
+          } catch (err) {
+            document.getElementById('send-result').classList.remove('hidden')
+            document.getElementById('send-result').innerHTML = '<div class="bg-red-50 border border-red-300 rounded p-3 text-sm text-red-700">Netwerk-fout: ' + err.message + '</div>'
+            btn.disabled = false
+            btn.innerHTML = '<i class="fas fa-paper-plane mr-2"></i> Opnieuw proberen'
+          }
+        }
+
+        // Initial load
+        loadTemplate()
+      `}} />
+    </Layout>
+  )
 })
 
 // ==========================================

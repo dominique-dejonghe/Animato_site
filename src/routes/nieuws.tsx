@@ -8,6 +8,7 @@ import { optionalAuth } from '../middleware/auth'
 import { queryOne, queryAll, paginate } from '../utils/db'
 import { processBodyLinks } from '../utils/text'
 import { formatBrusselsDateTime, formatBrusselsDate, parseBrusselsDate } from '../utils/time'
+import { siteUrlFromEnv } from '../utils/site-url'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -448,7 +449,7 @@ app.get('/nieuws/:slug', async (c) => {
 
   // === Social share metadata ===
   // OG image: cover_image (absolute URL), of fallback naar logo
-  const baseUrl = 'https://animato-live.pages.dev'
+  const baseUrl = siteUrlFromEnv(c.env.SITE_URL)
   const articleUrl = `${baseUrl}/nieuws/${artikel.slug}`
   // Voor leden-only artikelen: gebruik publieke /preview/:slug route zodat WhatsApp's bot
   // niet via login geredirect wordt en alsnog een rijke preview kan tonen.
@@ -1152,7 +1153,7 @@ const postDetailHandler = async (c: any) => {
   const typeName = typeLabel[post.type] || 'Bericht'
 
   // === OG metadata voor WhatsApp / social previews ===
-  const baseUrl = 'https://animato-live.pages.dev'
+  const baseUrl = siteUrlFromEnv(c.env.SITE_URL)
   const postUrl = `${baseUrl}/posts/${post.slug}`
   // Voor leden-only (zonder public_share): laat OG-tag verwijzen naar /preview/:slug zodat WhatsApp's bot
   // niet via login-redirect een lege/foute preview krijgt.
@@ -1231,7 +1232,7 @@ const postDetailHandler = async (c: any) => {
               <div class="mt-10 pt-6 border-t border-gray-200 flex flex-wrap items-center gap-3">
                 {(() => {
                   // Nette share-tekst, geen emojis — WhatsApp toont rich preview via OG tags
-                  const postUrl = `https://animato-live.pages.dev/posts/${post.slug}`
+                  const postUrl = `${baseUrl}/posts/${post.slug}`
                   const postExcerpt = (post.excerpt || '').trim()
                   const lines = [`*${post.titel}*`]
                   if (postExcerpt) lines.push('', postExcerpt)
@@ -1297,7 +1298,7 @@ app.get('/preview/:slug', async (c) => {
   }
 
   // Niet ingelogde bezoeker (of bot): toon de publieke preview met OG-tags
-  const baseUrl = 'https://animato-live.pages.dev'
+  const baseUrl = siteUrlFromEnv(c.env.SITE_URL)
   const previewUrl = `${baseUrl}/preview/${post.slug}`
   const isHttpUrl3 = (s: string) => /^https?:\/\//i.test(s)
   const ogImage = post.cover_image && isHttpUrl3(post.cover_image)

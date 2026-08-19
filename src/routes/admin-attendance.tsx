@@ -9,6 +9,7 @@ import { AdminSidebar } from '../components/AdminSidebar'
 import { queryAll, queryOne, execute } from '../utils/db'
 import { verifyToken } from '../utils/auth'
 import { requireAuth, requireRole } from '../middleware/auth'
+import { siteUrlFromEnv } from '../utils/site-url'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -218,7 +219,7 @@ app.get('/admin/attendance', async (c) => {
   }))
   topUsers.sort((a: any, b: any) => b.streak.current - a.streak.current || b.streak.total - a.streak.total)
 
-  const siteUrl = c.env.SITE_URL || 'https://animato-live.pages.dev'
+  const siteUrl = siteUrlFromEnv(c.env.SITE_URL)
 
   return c.html(
     <Layout title="Aanwezigheid" user={user}>
@@ -528,7 +529,7 @@ app.get('/admin/attendance/qr/:id', async (c) => {
     event.token = token
   }
 
-  const siteUrl = c.env.SITE_URL || 'https://animato-live.pages.dev'
+  const siteUrl = siteUrlFromEnv(c.env.SITE_URL)
   const checkinUrl = `${siteUrl}/checkin/${event.token}`
   const eventDate = new Date(event.start_at)
   const dateStr = eventDate.toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
@@ -642,7 +643,7 @@ app.get('/admin/attendance/print/:id', async (c) => {
 
   if (!event || !event.token) return c.redirect('/admin/attendance?error=no_qr')
 
-  const siteUrl = c.env.SITE_URL || 'https://animato-live.pages.dev'
+  const siteUrl = siteUrlFromEnv(c.env.SITE_URL)
   const checkinUrl = `${siteUrl}/checkin/${event.token}`
   const eventDate = new Date(event.start_at)
   const dateStr = eventDate.toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })

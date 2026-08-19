@@ -13,6 +13,7 @@ import { generateToken, hashPassword } from '../utils/auth'
 import { notifyAllActiveMembers, cleanupNotificationsForEvent } from '../utils/notifications'
 import { formatBrusselsDate, formatBrusselsTime, formatBrusselsDateTime } from '../utils/time'
 import { uploadDataUrlToR2, isDataUrl, uploadInlineDataUrlsInHtml } from '../utils/r2-storage'
+import { siteUrlFromEnv } from '../utils/site-url'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -4469,7 +4470,7 @@ app.get('/admin/content', async (c) => {
                         <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           {/* Snelle WhatsApp share — enkel voor gepubliceerde posts met slug */}
                           {tab === 'posts' && item.is_published === 1 && item.slug && (() => {
-                            const baseUrl = 'https://animato-live.pages.dev'
+                            const baseUrl = siteUrlFromEnv(c.env.SITE_URL)
                             const detailPath = item.type === 'nieuws' ? `/nieuws/${item.slug}` : `/posts/${item.slug}`
                             const isPubliclyAccessible = item.zichtbaarheid === 'publiek' || item.public_share === 1
                             // Voor leden-only: gebruik /preview/:slug zodat WhatsApp's bot wel OG-tags kan scrapen
@@ -4757,7 +4758,7 @@ app.get('/admin/content/:id', async (c) => {
               gepubliceerd bericht bekijkt of bewerkt — niet enkel direct na save.
               Voorwaarden: gepubliceerde post, post-type (geen events), en een slug. */}
           {post && post.is_published === 1 && contentType === 'posts' && post.slug && (() => {
-            const baseUrl = 'https://animato-live.pages.dev'
+            const baseUrl = siteUrlFromEnv(c.env.SITE_URL)
             const detailPath = post.type === 'nieuws' ? `/nieuws/${post.slug}` : `/posts/${post.slug}`
             const detailUrl = `${baseUrl}${detailPath}`
             const isPublicShare = post.public_share === 1

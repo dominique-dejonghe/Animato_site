@@ -3,6 +3,7 @@ import { getCookie } from 'hono/cookie'
 import { queryAll, queryOne, execute } from '../utils/db'
 import { verifyToken } from '../utils/auth'
 import { sendEmail } from '../utils/email'
+import { siteUrlFromEnv } from '../utils/site-url'
 
 const app = new Hono()
 
@@ -107,10 +108,8 @@ app.post('/api/admin/activities/send-invites', async (c) => {
     ids
   )
 
-  // siteUrl: gebruikt voor e-mail-links naar activiteiten. Niet kritiek-Mollie-flow,
-  // maar consistente helper-aanpak voor één bron van waarheid (zie src/utils/site-url.ts).
-  // Hier zonder context: best-effort uit env, fallback animato-live.pages.dev.
-  const siteUrl = (c.env.SITE_URL && String(c.env.SITE_URL).trim().replace(/\/+$/, '')) || 'https://animato-live.pages.dev'
+  // siteUrl: e-mail-links naar activiteiten — env.SITE_URL met één publieke fallback.
+  const siteUrl = siteUrlFromEnv(c.env.SITE_URL)
   const SAFE_LIMIT = 100
   let count = 0
 

@@ -705,7 +705,7 @@ app.post('/api/tickets/order', async (c) => {
     const event = await queryOne(c.env.DB, `SELECT e.titel, e.start_at, e.locatie FROM events e JOIN concerts c ON c.event_id = e.id WHERE c.id = ?`, [concertId])
 
     // Create Mollie payment
-    // getSiteUrl(): system_settings.site_url → env.SITE_URL → request-origin → fallback animato-live.pages.dev
+    // getSiteUrl(): system_settings.site_url → env.SITE_URL → request-origin → fallback www.gemengdkooranimato.be
     // (Was eerder: hardcoded 'https://animato.be' als fallback → resolveerde niet, dus geen redirect terug en geen webhook)
     const siteUrl = await getSiteUrl(c)
     const mollieKey = await getMollieApiKey(c.env)

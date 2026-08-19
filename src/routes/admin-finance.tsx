@@ -7,7 +7,7 @@ import { verifyToken } from '../utils/auth'
 
 import { createMolliePayment, getMollieMode } from '../utils/mollie'
 import { getMollieApiKey } from '../utils/mollie-config'
-import { getSiteUrl } from '../utils/site-url'
+import { getSiteUrl, siteUrlFromEnv } from '../utils/site-url'
 import { sendEmail } from '../utils/email'
 import { createNotification, createNotificationForUsers, notifyUser, notifyUsers } from '../utils/notifications'
 import { formatBrusselsDate, formatBrusselsTime, brusselsToday } from '../utils/time'
@@ -2768,7 +2768,7 @@ app.get('/admin/mollie-webhook-log', async (c) => {
             </div>
             <div class="bg-white p-4 rounded shadow border-l-4 border-gray-500">
               <p class="text-gray-500 text-sm">Webhook URL</p>
-              <p class="text-xs font-mono break-all text-gray-700">https://animato-live.pages.dev/api/webhooks/mollie</p>
+              <p class="text-xs font-mono break-all text-gray-700">{siteUrlFromEnv(c.env.SITE_URL)}/api/webhooks/mollie</p>
             </div>
           </div>
 

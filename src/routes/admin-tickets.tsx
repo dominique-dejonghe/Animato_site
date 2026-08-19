@@ -646,13 +646,20 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
               </span>
             </div>
           </div>
-          {concert.seating_plan_id && (
-            <a href={`/admin/tickets/concert/${concertId}/zaalplan`}
-               class="inline-flex items-center bg-animato-primary text-white px-4 py-2 rounded-lg hover:bg-opacity-90 shadow-sm"
-               title="Visueel zaalplan met live bezetting per stoel">
-              <i class="fas fa-map mr-2"></i> Zaalplan-view
+          <div class="flex flex-wrap gap-2">
+            <a href={`/admin/tickets/resend?concert_id=${concertId}`}
+               class="inline-flex items-center bg-white border-2 border-animato-primary text-animato-primary px-4 py-2 rounded-lg hover:bg-purple-50 shadow-sm"
+               title="Herstuur ticket-mails naar geselecteerde kopers van dit concert">
+              <i class="fas fa-paper-plane mr-2"></i> Mail-batch
             </a>
-          )}
+            {concert.seating_plan_id && (
+              <a href={`/admin/tickets/concert/${concertId}/zaalplan`}
+                 class="inline-flex items-center bg-animato-primary text-white px-4 py-2 rounded-lg hover:bg-opacity-90 shadow-sm"
+                 title="Visueel zaalplan met live bezetting per stoel">
+                <i class="fas fa-map mr-2"></i> Zaalplan-view
+              </a>
+            )}
+          </div>
         </div>
 
         {/* Bezetting Bar — % van de zaalcapaciteit dat verkocht is */}

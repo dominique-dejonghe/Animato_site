@@ -63,9 +63,21 @@ done
 echo ">> Seeding test accounts"
 WR d1 execute "$DB_NAME" --local --file scripts/dev-seed.sql >/dev/null
 
+echo ">> Importing demo content (settings, news, concerts, rehearsals)"
+concerts="$(WR d1 execute "$DB_NAME" --local --json --command "SELECT count(*) AS c FROM concerts;" \
+           | jq -r '.[0].results[0].c' 2>/dev/null || echo 0)"
+if [ "${concerts:-0}" = "0" ]; then
+  WR d1 execute "$DB_NAME" --local --file scripts/dev-import-demo-data.sql >/dev/null
+  echo "   demo content imported"
+else
+  echo "   demo content already present (concerts=$concerts), skipping"
+fi
+
 users="$(WR d1 execute "$DB_NAME" --local --json --command "SELECT count(*) AS c FROM users;" \
         | jq -r '.[0].results[0].c')"
 tables="$(WR d1 execute "$DB_NAME" --local --json --command "SELECT count(*) AS c FROM sqlite_master WHERE type='table';" \
         | jq -r '.[0].results[0].c')"
-echo ">> Done. tables=$tables users=$users"
+concerts="$(WR d1 execute "$DB_NAME" --local --json --command "SELECT count(*) AS c FROM concerts;" \
+           | jq -r '.[0].results[0].c')"
+echo ">> Done. tables=$tables users=$users concerts=$concerts"
 echo ">> Login with admin@animato.be / admin123"

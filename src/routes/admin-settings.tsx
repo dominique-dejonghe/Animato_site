@@ -174,13 +174,13 @@ app.get('/admin/settings', async (c) => {
                       type="url"
                       name="site_url"
                       value={settingsMap.site_url || ''}
-                      placeholder="https://www.animato.be"
+                      placeholder="https://www.gemengdkooranimato.be"
                       class="w-full border rounded px-3 py-2 font-mono text-sm"
                     />
                     <p class="text-xs text-gray-500 mt-1">
                       Wordt gebruikt voor Mollie redirect-URLs, webhook-URLs en e-mail-links.
                       Laat leeg om automatisch het huidige domein te detecteren.
-                      Voorbeeld: <code class="bg-gray-100 px-1 rounded">https://www.animato.be</code> of <code class="bg-gray-100 px-1 rounded">https://animato-live.pages.dev</code>
+                      Voorbeeld: <code class="bg-gray-100 px-1 rounded">https://www.gemengdkooranimato.be</code>
                     </p>
                   </div>
 

@@ -3,6 +3,7 @@
 
 import type { FC } from 'hono/jsx'
 import { getNavPages } from '../utils/nav-context'
+import { DEFAULT_SITE_URL } from '../utils/site-url'
 
 interface LayoutProps {
   title?: string
@@ -32,7 +33,7 @@ export const Layout: FC<LayoutProps> = ({
 }) => {
   const fullTitle = title === 'Gemengd Koor Animato' ? title : `${title} | Gemengd Koor Animato`
   // Default OG-image = Animato logo (kleine fallback, dan toont WhatsApp tenminste iets visueel)
-  const finalOgImage = ogImage || 'https://animato-live.pages.dev/static/images/animato-logo-full.png'
+  const finalOgImage = ogImage || `${DEFAULT_SITE_URL}/static/images/animato-logo-full.png`
 
   // Avatar voor de header: kleine ronde profielfoto als ingelogde user er een heeft,
   // anders een fallback fa-user-circle icon (zoals voorheen).

@@ -21,5 +21,8 @@
   ],
   "ai": {
     "binding": "AI"
+  },
+  "vars": {
+    "SITE_URL": "https://www.gemengdkooranimato.be"
   }
 }

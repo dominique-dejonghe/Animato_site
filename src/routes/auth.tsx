@@ -8,6 +8,7 @@ import { Layout } from '../components/Layout'
 import { hashPassword, verifyPassword, generateToken, generateRandomToken, hashSessionToken } from '../utils/auth'
 import { queryOne, execute, isValidEmail, formatDateForDB } from '../utils/db'
 import { sendEmail } from '../utils/email'
+import { siteUrlFromEnv } from '../utils/site-url'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -836,7 +837,7 @@ app.post('/api/auth/forgot-password', async (c) => {
     [user.id, token]
   )
 
-  const siteUrl = (c.env.SITE_URL || 'https://animato-live.pages.dev').replace(/\/$/, '')
+  const siteUrl = siteUrlFromEnv(c.env.SITE_URL)
   const resetLink = `${siteUrl}/reset-wachtwoord/${token}`
 
   const emailSent = await sendEmail({
@@ -922,7 +923,7 @@ app.post('/api/admin/users/:id/reset-link', async (c) => {
     )
   } catch (_) {}
 
-  const siteUrl = (c.env.SITE_URL || 'https://animato-live.pages.dev').replace(/\/$/, '')
+  const siteUrl = siteUrlFromEnv(c.env.SITE_URL)
   return c.json({
     success: true,
     email: target.email,

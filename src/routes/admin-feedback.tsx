@@ -5,6 +5,7 @@ import { AdminSidebar } from '../components/AdminSidebar'
 import { queryAll, queryOne, execute } from '../utils/db'
 import { verifyToken } from '../utils/auth'
 import { sendEmail } from '../utils/email'
+import { siteUrlFromEnv } from '../utils/site-url'
 import type { Bindings, SessionUser } from '../types'
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -103,7 +104,7 @@ app.get('/api/admin/feedback/export/json', async (c) => {
       exported_at: new Date().toISOString(),
       filter: { status: statusFilter, type: typeFilter },
       total_items: feedback.length,
-      instructions_for_ai: `Dit is een export van feedback items (bugs en feature requests) voor de Animato Koor website (https://animato-live.pages.dev). 
+      instructions_for_ai: `Dit is een export van feedback items (bugs en feature requests) voor de Animato Koor website (https://www.gemengdkooranimato.be). 
 Elke bug bevat de pagina-URL waar het probleem zich voordoet, een beschrijving, browser-informatie (indien beschikbaar), en de conversatie tussen admin en melder.
 Wanneer je een bug oplost:
 1. Gebruik de 'url' veld om te bepalen welke pagina/route affected is
@@ -1999,7 +2000,7 @@ app.post('/api/admin/feedback/send-retest-digest', async (c) => {
   }
 
   // Bouw één HTML body met de lijst
-  const siteUrl = c.env.SITE_URL || 'https://animato-live.pages.dev'
+  const siteUrl = siteUrlFromEnv(c.env.SITE_URL)
   const itemsHtml = (items as any[]).map(item => {
     const truncated = (item.message || '').substring(0, 200)
     const typeIcon = item.type === 'bug' ? '🐛' : item.type === 'feature' ? '💡' : '📝'

@@ -10,7 +10,7 @@
 //   1. system_settings.site_url        (admin-bewerkbaar via /admin/settings)
 //   2. env.SITE_URL                    (Cloudflare env-var, zet in wrangler.json/secret)
 //   3. Request-origin (https + host)   (auto-detect bij requests)
-//   4. Hardcoded fallback              (animato-live.pages.dev)
+//   4. Hardcoded fallback              (www.gemengdkooranimato.be)
 //
 // Waarom een helper?
 //   Eerder stond overal `c.env.SITE_URL || 'https://animato.be'` hardcoded
@@ -22,8 +22,8 @@
 import { queryOne } from './db'
 import type { Context } from 'hono'
 
-// Veilige fallback: de Cloudflare Pages preview-host die altijd resolvet
-const HARDCODED_FALLBACK = 'https://animato-live.pages.dev'
+// Publieke koor-domein — één fallback voor e-mails en publieke links
+export const DEFAULT_SITE_URL = 'https://www.gemengdkooranimato.be'
 
 /**
  * Normaliseer een URL-string: trim, strip trailing slash.
@@ -36,6 +36,15 @@ function normalize(raw: string | null | undefined): string {
   // Moet beginnen met http(s)://
   if (!/^https?:\/\//i.test(t)) return ''
   return t
+}
+
+/**
+ * Sync helper: c.env.SITE_URL met één fallback (geen DB / request-origin).
+ * Gebruik dit voor e-mail- en share-links die altijd het publieke domein moeten
+ * gebruiken, ook als system_settings.site_url nog een preview-host bevat.
+ */
+export function siteUrlFromEnv(siteUrl: string | undefined | null): string {
+  return normalize(siteUrl) || DEFAULT_SITE_URL
 }
 
 /**
@@ -61,7 +70,7 @@ function originFromContext(c: Context | undefined): string {
  *            Mag undefined zijn als je het buiten een request oproept (dan slaan
  *            we stap 3 over).
  *
- * Voorbeeld: 'https://animato-live.pages.dev' of 'https://www.animato.be'
+ * Voorbeeld: 'https://www.gemengdkooranimato.be'
  */
 export async function getSiteUrl(c: Context | undefined): Promise<string> {
   // 1. system_settings.site_url (admin-bewerkbaar)
@@ -87,5 +96,5 @@ export async function getSiteUrl(c: Context | undefined): Promise<string> {
   if (fromReq) return fromReq
 
   // 4. Hardcoded fallback
-  return HARDCODED_FALLBACK
+  return DEFAULT_SITE_URL
 }

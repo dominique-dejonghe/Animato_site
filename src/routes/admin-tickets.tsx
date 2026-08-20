@@ -130,7 +130,7 @@ app.get('/admin/tickets', async (c) => {
               title="Herstuur ticket-mails naar geselecteerde kopers"
             >
               <i class="fas fa-paper-plane mr-2"></i>
-              Mail-batch
+              Tickets opnieuw versturen
             </a>
             <a
               href="/admin/events/nieuw?type=concert"
@@ -650,7 +650,7 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
             <a href={`/admin/tickets/resend?concert_id=${concertId}`}
                class="inline-flex items-center bg-white border-2 border-animato-primary text-animato-primary px-4 py-2 rounded-lg hover:bg-purple-50 shadow-sm"
                title="Herstuur ticket-mails naar geselecteerde kopers van dit concert">
-              <i class="fas fa-paper-plane mr-2"></i> Mail-batch
+              <i class="fas fa-paper-plane mr-2"></i> Tickets opnieuw versturen
             </a>
             {concert.seating_plan_id && (
               <a href={`/admin/tickets/concert/${concertId}/zaalplan`}

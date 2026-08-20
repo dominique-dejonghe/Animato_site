@@ -196,7 +196,7 @@ app.get('/admin/attendance', async (c) => {
 
   // Get total active members
   const memberCount = await queryOne<any>(c.env.DB,
-    `SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND role != 'bezoeker' AND is_test_account = 0`
+    `SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND role NOT IN ('bezoeker', 'kaartkoper') AND is_test_account = 0`
   )
 
   // Top streaks leaderboard — show ALL active members
@@ -206,7 +206,7 @@ app.get('/admin/attendance', async (c) => {
      FROM users u
      LEFT JOIN profiles p ON p.user_id = u.id
      LEFT JOIN qr_checkins qc ON qc.user_id = u.id
-     WHERE u.status = 'actief' AND u.role NOT IN ('bezoeker', 'dirigent', 'pianist') AND u.is_test_account = 0
+     WHERE u.status = 'actief' AND u.role NOT IN ('bezoeker', 'kaartkoper', 'dirigent', 'pianist') AND u.is_test_account = 0
      GROUP BY u.id
      ORDER BY total_checkins DESC`
   )
@@ -855,7 +855,7 @@ app.get('/admin/attendance/event/:id', async (c) => {
     `SELECT u.id, u.stemgroep, u.email, p.voornaam, p.achternaam
      FROM users u
      LEFT JOIN profiles p ON p.user_id = u.id
-     WHERE u.status = 'actief' AND u.role NOT IN ('bezoeker') AND u.is_test_account = 0
+     WHERE u.status = 'actief' AND u.role NOT IN ('bezoeker', 'kaartkoper') AND u.is_test_account = 0
      ORDER BY p.voornaam ASC`
   )
 
@@ -1294,7 +1294,7 @@ app.get('/admin/attendance/repetities', async (c) => {
       [...params, limit]
     ),
     queryOne<any>(c.env.DB,
-      `SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND role NOT IN ('bezoeker') AND is_test_account = 0`
+      `SELECT COUNT(*) as count FROM users WHERE status = 'actief' AND role NOT IN ('bezoeker', 'kaartkoper') AND is_test_account = 0`
     ),
     queryOne<any>(c.env.DB,
       `SELECT 
@@ -1549,7 +1549,7 @@ app.post('/api/admin/attendance/bulk', async (c) => {
     await execute(c.env.DB, `DELETE FROM qr_checkins WHERE event_id = ?`, [eventId])
   } else if (action === 'all_present') {
     const members = await queryAll<any>(c.env.DB,
-      `SELECT id FROM users WHERE status = 'actief' AND role NOT IN ('bezoeker') AND is_test_account = 0`
+      `SELECT id FROM users WHERE status = 'actief' AND role NOT IN ('bezoeker', 'kaartkoper') AND is_test_account = 0`
     )
     for (const m of members) {
       try {

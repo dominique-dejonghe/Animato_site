@@ -8,11 +8,14 @@ import { verifyToken } from '../utils/auth'
 const app = new Hono()
 
 // Middleware – scoped to /admin/* and /api/admin/* only
+// UPDATE 2026-08-20 (Dominique): bestuursleden krijgen ook toegang, gelijk aan admin.
 const adminAuthMiddleware = async (c: any, next: any) => {
   const token = getCookie(c, 'auth_token')
   if (!token) return c.redirect('/login')
   const user = await verifyToken(token, c.env.JWT_SECRET)
-  if (!user || user.role !== 'admin') return c.redirect('/leden')
+  if (!user) return c.redirect('/login')
+  const isBestuurOrAdmin = user.role === 'admin' || user.role === 'moderator' || user.role === 'dirigent' || user.is_bestuurslid === 1
+  if (!isBestuurOrAdmin) return c.redirect('/leden')
   c.set('user', user)
   await next()
 }

@@ -20,15 +20,16 @@ import { Hono } from 'hono'
 import type { Bindings, SessionUser } from '../types'
 import { Layout } from '../components/Layout'
 import { AdminSidebar } from '../components/AdminSidebar'
-import { requireAdmin } from '../middleware/auth'
+import { requireBestuurslid } from '../middleware/auth'
 import { execute } from '../utils/db'
 import { uploadDataUrlToR2 } from '../utils/r2-storage'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-app.use('/admin/ai-nieuws', requireAdmin)
-app.use('/admin/ai-nieuws/*', requireAdmin)
-app.use('/api/admin/ai-news/*', requireAdmin)
+// Bestuursleden hebben nu ook toegang tot AI-nieuwsgeneratie (volledig gelijk aan admin).
+app.use('/admin/ai-nieuws', requireBestuurslid)
+app.use('/admin/ai-nieuws/*', requireBestuurslid)
+app.use('/api/admin/ai-news/*', requireBestuurslid)
 
 // =====================================================
 // HELPERS

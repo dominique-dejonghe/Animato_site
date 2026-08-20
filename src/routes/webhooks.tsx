@@ -5,6 +5,7 @@ import { getMollieApiKey } from '../utils/mollie-config'
 import { sendEmail, ticketEmail } from '../utils/email'
 import { generateTicketPdf, generateSeatTicketPdfs, uint8ArrayToBase64 } from '../utils/ticket-pdf'
 import { createNotification, notifyUser } from '../utils/notifications'
+import { notifyAdminsOfTicketSale } from '../utils/admin-notifications'
 import { getSiteUrl } from '../utils/site-url'
 import { formatBrusselsDate, formatBrusselsTime } from '../utils/time'
 import type { Bindings } from '../types'
@@ -501,6 +502,26 @@ app.post('/api/webhooks/mollie', async (c) => {
             seat_count: seatRows.length
           })]
         )
+
+        // Admin/bestuur notificatie — best-effort, geen crash bij fout
+        try {
+          const siteUrl = await getSiteUrl(c)
+          await notifyAdminsOfTicketSale(c.env.DB, c.env.RESEND_API_KEY, {
+            orderRef: ticket.order_ref,
+            koperNaam: ticket.koper_naam,
+            koperEmail: ticket.koper_email,
+            concertTitel: ticket.titel,
+            concertDatum,
+            concertLocatie: ticket.locatie || null,
+            seatCount: seatRows.length,
+            ticketLineCount: ticketLines.length,
+            totaalBedrag,
+            paymentMethod: (molliePayment as any)?.method || null,
+            siteUrl
+          })
+        } catch (adminNotifyErr: any) {
+          console.error('[webhooks] admin ticket-sale notif failed (non-fatal):', adminNotifyErr?.message || adminNotifyErr)
+        }
       }
 
       if (newStatus === 'cancelled') {

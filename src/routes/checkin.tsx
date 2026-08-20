@@ -353,7 +353,7 @@ app.get('/leden/streaks', async (c) => {
        FROM users u
        LEFT JOIN profiles p ON p.user_id = u.id
        LEFT JOIN qr_checkins qc ON qc.user_id = u.id
-       WHERE u.status = 'actief' AND u.role NOT IN ('bezoeker')
+       WHERE u.status = 'actief' AND u.role NOT IN ('bezoeker', 'kaartkoper')
        GROUP BY u.id
        ORDER BY total_checkins DESC`
     ),

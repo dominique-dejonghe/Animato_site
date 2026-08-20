@@ -26,10 +26,11 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({
     { id: 'dashboard', label: 'Dashboard', href: '/admin', icon: 'fas fa-tachometer-alt' },
     { id: 'leden', label: 'Leden', href: '/admin/leden', icon: 'fas fa-users', badge: pendingRegistrationsCount > 0 ? pendingRegistrationsCount : undefined, adminOnly: true },
     { id: 'verjaardagen', label: 'Verjaardagslijst', href: '/leden/verjaardagen', icon: 'fas fa-birthday-cake' },
-    { id: 'content', label: 'Nieuws & Berichten', href: '/admin/content', icon: 'fas fa-newspaper', adminOnly: true },
-    { id: 'ai-news', label: 'AI Nieuwsgenerator', href: '/admin/ai-nieuws', icon: 'fas fa-robot', adminOnly: true },
+    // 2026-08-20 (Dominique): bestuursleden hebben ook toegang tot deze 3 secties — content, AI, templates.
+    { id: 'content', label: 'Nieuws & Berichten', href: '/admin/content', icon: 'fas fa-newspaper', boardOnly: true },
+    { id: 'ai-news', label: 'AI Nieuwsgenerator', href: '/admin/ai-nieuws', icon: 'fas fa-robot', boardOnly: true },
     // #151: Bericht-templates terug zichtbaar onder Content-cluster (was eerder verborgen #117)
-    { id: 'communications', label: 'Bericht-templates', href: '/admin/communicatie', icon: 'fas fa-magic', adminOnly: true },
+    { id: 'communications', label: 'Bericht-templates', href: '/admin/communicatie', icon: 'fas fa-magic', boardOnly: true },
     { id: 'pages', label: 'Pagina-beheer', href: '/admin/paginas', icon: 'fas fa-file-alt', adminOnly: true },
     { id: 'quiz', label: 'Wie-is-wie Quiz', href: '/admin/quiz', icon: 'fas fa-question-circle', adminOnly: true },
     { id: 'events', label: 'Agenda & Activiteiten', href: '/admin/events', icon: 'fas fa-calendar-alt', adminOnly: true },

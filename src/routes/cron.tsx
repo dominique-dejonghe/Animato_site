@@ -16,6 +16,8 @@ import { Hono } from 'hono'
 import type { Bindings } from '../types'
 import { queryAll } from '../utils/db'
 import { notifyUsers } from '../utils/notifications'
+import { sendWeeklyReport } from '../utils/admin-notifications'
+import { getSiteUrl } from '../utils/site-url'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -260,6 +262,77 @@ app.get('/api/cron/verjaardagen', async (c) => {
       started_at: startedAt,
       finished_at: new Date().toISOString(),
     })
+  } catch (e: any) {
+    return c.json({ ok: false, error: String(e?.message || e) }, 500)
+  }
+})
+
+// =====================================================
+// WEEKLY ADMIN REPORT — maandag ~07:00 Brussels
+// =====================================================
+// Verstuurt een uitgebreid activiteitsoverzicht van de afgelopen 7 dagen
+// naar alle admins + bestuursleden die het niet hebben uitgeschakeld.
+//
+// Aanbevolen cron-schema (bij cron-job.org of GitHub Actions):
+//   Weekly, Monday at 07:00 Europe/Brussels
+// Dedup-strategie: check op audit_logs met actie='weekly_report_sent'
+// op dezelfde dag — dubbele calls doen niets.
+
+app.get('/api/cron/weekly-report', async (c) => {
+  const db = c.env.DB
+  const startedAt = new Date().toISOString()
+
+  try {
+    // Dedup: als er vandaag al een weekly_report_sent audit-log is, skip
+    const already = await db.prepare(
+      `SELECT id FROM audit_logs
+       WHERE actie = 'weekly_report_sent'
+         AND date(created_at) = date('now')
+       LIMIT 1`
+    ).first()
+    if (already) {
+      return c.json({ ok: true, skipped: 'already-sent-today', started_at: startedAt })
+    }
+
+    const siteUrl = await getSiteUrl(c)
+    const result = await sendWeeklyReport(db, c.env.RESEND_API_KEY, siteUrl)
+
+    // Log naar audit_logs voor dedup + traceerbaarheid
+    await db.prepare(
+      `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta)
+       VALUES (NULL, 'weekly_report_sent', 'system', NULL, ?)`
+    ).bind(JSON.stringify({
+      recipients_sent: result.sent,
+      recipients_skipped: result.skipped,
+      orders_last_week: result.data.ordersLastWeek,
+      revenue_last_week: result.data.revenueLastWeek
+    })).run()
+
+    return c.json({
+      ok: true,
+      recipients_sent: result.sent,
+      recipients_skipped: result.skipped,
+      period_start: result.data.weekStart,
+      period_end: result.data.weekEnd,
+      orders: result.data.ordersLastWeek,
+      revenue: result.data.revenueLastWeek,
+      started_at: startedAt,
+      finished_at: new Date().toISOString(),
+    })
+  } catch (e: any) {
+    return c.json({ ok: false, error: String(e?.message || e) }, 500)
+  }
+})
+
+// Handige preview voor admins zonder mails te sturen — geeft de rapport-data
+// terug als JSON zodat je kan zien wat er in de mail zou komen. Ook nuttig
+// voor debugging van de queries.
+app.get('/api/cron/weekly-report/preview', async (c) => {
+  const db = c.env.DB
+  try {
+    const { buildWeeklyReport } = await import('../utils/admin-notifications')
+    const data = await buildWeeklyReport(db)
+    return c.json({ ok: true, data })
   } catch (e: any) {
     return c.json({ ok: false, error: String(e?.message || e) }, 500)
   }

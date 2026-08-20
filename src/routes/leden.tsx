@@ -2349,12 +2349,20 @@ app.get('/leden/profiel', async (c) => {
 
   // Privacy: tonen we de online-status van deze gebruiker aan anderen?
   // Default = 1 (zichtbaar), maar elke lid kan opt-out.
+  // Meteen ook de admin/bestuur notificatie-opt-outs meepakken.
   const privacyRow = await queryOne<any>(
     c.env.DB,
-    `SELECT COALESCE(show_online_status, 1) AS show_online_status FROM users WHERE id = ?`,
+    `SELECT
+       COALESCE(show_online_status, 1) AS show_online_status,
+       COALESCE(notify_ticket_sales, 1) AS notify_ticket_sales,
+       COALESCE(notify_weekly_report, 1) AS notify_weekly_report
+     FROM users WHERE id = ?`,
     [user.id]
   )
   const showOnlineStatus = privacyRow?.show_online_status === 1 || privacyRow?.show_online_status === true
+  const notifyTicketSales = privacyRow?.notify_ticket_sales === 1 || privacyRow?.notify_ticket_sales === true
+  const notifyWeeklyReport = privacyRow?.notify_weekly_report === 1 || privacyRow?.notify_weekly_report === true
+  const isBestuurOrAdminForNotifs = user.role === 'admin' || (user as any).is_bestuurslid === 1
 
   return c.html(
     <Layout 
@@ -4092,6 +4100,90 @@ app.get('/leden/profiel', async (c) => {
               })();
             ` }} />
           </div>
+
+          {/* Admin/Bestuur notificaties — enkel voor admins en bestuursleden */}
+          {isBestuurOrAdminForNotifs && (
+            <div class="bg-white rounded-lg shadow-md p-6 mb-6" id="admin-notif-prefs">
+              <h3 class="text-xl font-bold text-gray-900 mb-2">
+                <i class="fas fa-shield-halved text-animato-primary mr-2"></i>
+                Admin &amp; bestuur notificaties
+              </h3>
+              <p class="text-sm text-gray-500 mb-4">
+                Als admin of bestuurslid krijg je een aantal extra e-mails.
+                Hieronder kan je die per stuk aan- of uitzetten.
+              </p>
+
+              <form id="admin-notif-prefs-form" class="space-y-3">
+                <label class="flex items-start gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                  <input type="checkbox" name="notify_ticket_sales" data-key="notify_ticket_sales"
+                         class="mt-1 w-5 h-5 accent-animato-primary" checked={notifyTicketSales} />
+                  <div class="flex-1">
+                    <div class="font-semibold text-gray-900">
+                      <i class="fas fa-ticket text-animato-primary mr-1"></i> Kaartverkoop-notificaties
+                    </div>
+                    <div class="text-xs text-gray-500 mt-0.5">
+                      Ontvang een e-mail bij elke geslaagde ticket-aankoop, met koper, concert, aantal stoelen en bedrag.
+                    </div>
+                  </div>
+                </label>
+
+                <label class="flex items-start gap-3 p-3 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                  <input type="checkbox" name="notify_weekly_report" data-key="notify_weekly_report"
+                         class="mt-1 w-5 h-5 accent-animato-primary" checked={notifyWeeklyReport} />
+                  <div class="flex-1">
+                    <div class="font-semibold text-gray-900">
+                      <i class="fas fa-chart-line text-animato-primary mr-1"></i> Wekelijks weekrapport (maandag)
+                    </div>
+                    <div class="text-xs text-gray-500 mt-0.5">
+                      Maandagochtend een activiteitsoverzicht: nieuwe leden, kaartverkoop, agenda deze week, website-activiteit en aandachtspunten.
+                    </div>
+                  </div>
+                </label>
+
+                <div class="flex justify-between items-center gap-3 pt-3 border-t border-gray-100 mt-3">
+                  <span id="admin-notif-prefs-status" class="text-xs text-gray-500"></span>
+                  <button type="submit"
+                          class="px-5 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition text-sm font-medium">
+                    <i class="fas fa-save mr-1"></i>
+                    Opslaan
+                  </button>
+                </div>
+              </form>
+
+              <script dangerouslySetInnerHTML={{ __html: `
+                (function() {
+                  var form = document.getElementById('admin-notif-prefs-form');
+                  var status = document.getElementById('admin-notif-prefs-status');
+                  if (!form) return;
+                  form.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    var body = {
+                      notify_ticket_sales: !!form.querySelector('input[name=notify_ticket_sales]').checked,
+                      notify_weekly_report: !!form.querySelector('input[name=notify_weekly_report]').checked
+                    };
+                    status.textContent = 'Opslaan...';
+                    status.classList.remove('text-red-600','text-green-600');
+                    fetch('/api/leden/admin-notif-prefs', {
+                      method: 'POST',
+                      credentials: 'same-origin',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify(body)
+                    })
+                    .then(function(r) { return r.ok ? r.json() : Promise.reject(r); })
+                    .then(function() {
+                      status.textContent = '✓ Opgeslagen';
+                      status.classList.add('text-green-600');
+                      setTimeout(function() { status.textContent = ''; status.classList.remove('text-green-600'); }, 3000);
+                    })
+                    .catch(function() {
+                      status.textContent = 'Opslaan mislukt — probeer opnieuw';
+                      status.classList.add('text-red-600');
+                    });
+                  });
+                })();
+              ` }} />
+            </div>
+          )}
 
           {/* Privacy & zichtbaarheid */}
           <div class="bg-white rounded-lg shadow-md p-6 mb-6" id="privacy-prefs">
@@ -6264,6 +6356,36 @@ app.post('/api/leden/notification-prefs', async (c) => {
   try {
     await setUserNotificationPrefs(c.env.DB, user.id, sanitized)
     return c.json({ success: true })
+  } catch (e: any) {
+    return c.json({ error: 'save_failed', detail: String(e?.message || e) }, 500)
+  }
+})
+
+// =====================================================
+// ADMIN/BESTUUR notificatie-toggles (kaartverkoop + wekelijks rapport)
+// =====================================================
+// Enkel bruikbaar door admins of bestuursleden — anderen krijgen 403.
+app.post('/api/leden/admin-notif-prefs', async (c) => {
+  const user = c.get('user') as SessionUser
+  const isBestuurOrAdmin = user.role === 'admin' || (user as any).is_bestuurslid === 1
+  if (!isBestuurOrAdmin) {
+    return c.json({ error: 'forbidden' }, 403)
+  }
+  let body: any
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json' }, 400)
+  }
+  const ticketSales = body.notify_ticket_sales === true ? 1 : 0
+  const weeklyReport = body.notify_weekly_report === true ? 1 : 0
+  try {
+    await execute(
+      c.env.DB,
+      `UPDATE users SET notify_ticket_sales = ?, notify_weekly_report = ? WHERE id = ?`,
+      [ticketSales, weeklyReport, user.id]
+    )
+    return c.json({ success: true, notify_ticket_sales: ticketSales, notify_weekly_report: weeklyReport })
   } catch (e: any) {
     return c.json({ error: 'save_failed', detail: String(e?.message || e) }, 500)
   }

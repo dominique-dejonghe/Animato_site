@@ -1084,10 +1084,15 @@ app.get('/admin/meetings/:id', async (c) => {
                          )
                       })}
                    </div>
-                   <div class="mt-3 pt-2 border-t">
+                   <div class="mt-3 pt-2 border-t space-y-2">
                       <button onclick="document.getElementById('add-participant-modal').classList.remove('hidden')" class="text-xs text-animato-primary hover:underline w-full text-center font-medium">
                          <i class="fas fa-user-plus mr-1"></i> Deelnemers uitnodigen
                       </button>
+                      <form action={`/api/admin/meetings/${meetingId}/add-bestuur`} method="POST" class="block" onsubmit="return confirm('Alle actieve bestuursleden toevoegen aan deze vergadering?');">
+                         <button type="submit" class="text-xs text-purple-700 hover:text-purple-900 hover:underline w-full text-center font-medium">
+                            <i class="fas fa-users mr-1"></i> Alle bestuursleden toevoegen
+                         </button>
+                      </form>
                    </div>
                 </div>
 
@@ -1105,19 +1110,93 @@ app.get('/admin/meetings/:id', async (c) => {
                           <form action="/api/admin/meetings/participants/add" method="POST">
                             <input type="hidden" name="meeting_id" value={meetingId} />
                             <div class="mb-4">
-                              <label class="block text-sm font-medium text-gray-700 mb-1">Selecteer Lid</label>
-                              <select name="user_id" required class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary h-40" multiple>
-                                {users.filter((u: any) => !participants.find((p: any) => p.user_id === u.id)).map((u: any) => (
-                                  <option value={u.id}>{u.voornaam} {u.achternaam}</option>
-                                ))}
-                              </select>
-                              <p class="text-xs text-gray-500 mt-2">Houd CTRL ingedrukt om meerdere te selecteren</p>
+                              <label class="block text-sm font-medium text-gray-700 mb-2">Selecteer leden</label>
+
+                              {/* Zoekveld + quick-buttons */}
+                              <div class="flex flex-wrap items-center gap-2 mb-2">
+                                <input
+                                  type="text"
+                                  id="participant-search"
+                                  placeholder="🔎 Zoek..."
+                                  class="flex-1 min-w-[140px] border-gray-300 rounded-lg shadow-sm p-2 border text-sm focus:ring-animato-primary focus:border-animato-primary"
+                                  oninput="filterParticipantList(this.value)"
+                                />
+                                <button type="button" onclick="selectParticipants('bestuur')" class="text-xs px-3 py-2 bg-purple-100 text-purple-800 rounded-lg hover:bg-purple-200 font-medium">
+                                  <i class="fas fa-users mr-1"></i>Alle bestuur
+                                </button>
+                                <button type="button" onclick="selectParticipants('admin')" class="text-xs px-3 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200 font-medium">
+                                  <i class="fas fa-shield-alt mr-1"></i>Alle admins
+                                </button>
+                                <button type="button" onclick="selectParticipants('all')" class="text-xs px-3 py-2 bg-green-100 text-green-800 rounded-lg hover:bg-green-200 font-medium">
+                                  Alles
+                                </button>
+                                <button type="button" onclick="selectParticipants('none')" class="text-xs px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium">
+                                  Geen
+                                </button>
+                              </div>
+
+                              {/* Checkbox-lijst */}
+                              <div id="participant-list" class="max-h-64 overflow-y-auto border border-gray-300 rounded-lg p-2 bg-gray-50 space-y-1">
+                                {users.filter((u: any) => !participants.find((p: any) => p.user_id === u.id)).map((u: any) => {
+                                  const isBestuur = u.is_bestuurslid === 1
+                                  const isAdmin = u.role === 'admin' || u.role === 'moderator'
+                                  const searchName = `${u.voornaam || ''} ${u.achternaam || ''}`.toLowerCase()
+                                  return (
+                                    <label
+                                      class="participant-row flex items-center gap-2 p-2 hover:bg-white rounded cursor-pointer transition"
+                                      data-search={searchName}
+                                      data-bestuur={isBestuur ? '1' : '0'}
+                                      data-admin={isAdmin ? '1' : '0'}
+                                    >
+                                      <input type="checkbox" name="user_id" value={u.id} class="participant-cb rounded border-gray-300 text-animato-primary focus:ring-animato-primary" />
+                                      <span class="flex-1 text-sm">{u.voornaam} {u.achternaam}</span>
+                                      {isBestuur && <span class="text-[10px] px-2 py-0.5 bg-purple-100 text-purple-800 rounded-full font-medium">bestuur</span>}
+                                      {isAdmin && <span class="text-[10px] px-2 py-0.5 bg-blue-100 text-blue-800 rounded-full font-medium">{u.role}</span>}
+                                    </label>
+                                  )
+                                })}
+                              </div>
+                              <p class="text-xs text-gray-500 mt-2">
+                                <span id="participant-count">0</span> geselecteerd
+                              </p>
                             </div>
                             <div class="flex justify-end gap-3 mt-6">
                               <button type="button" onclick="document.getElementById('add-participant-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition">Annuleren</button>
                               <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary font-medium shadow-md transition">Toevoegen</button>
                             </div>
                           </form>
+
+                          <script dangerouslySetInnerHTML={{__html: `
+                            function updateParticipantCount() {
+                              const n = document.querySelectorAll('#participant-list .participant-cb:checked').length;
+                              const el = document.getElementById('participant-count');
+                              if (el) el.textContent = n;
+                            }
+                            function filterParticipantList(q) {
+                              const query = (q || '').toLowerCase().trim();
+                              document.querySelectorAll('#participant-list .participant-row').forEach(row => {
+                                const name = row.getAttribute('data-search') || '';
+                                row.style.display = (!query || name.includes(query)) ? '' : 'none';
+                              });
+                            }
+                            function selectParticipants(mode) {
+                              document.querySelectorAll('#participant-list .participant-row').forEach(row => {
+                                if (row.style.display === 'none') return; // skip filtered-out
+                                const cb = row.querySelector('.participant-cb');
+                                if (!cb) return;
+                                if (mode === 'all') cb.checked = true;
+                                else if (mode === 'none') cb.checked = false;
+                                else if (mode === 'bestuur') cb.checked = cb.checked || row.getAttribute('data-bestuur') === '1';
+                                else if (mode === 'admin') cb.checked = cb.checked || row.getAttribute('data-admin') === '1';
+                              });
+                              updateParticipantCount();
+                            }
+                            document.addEventListener('change', function(e) {
+                              if (e.target && e.target.classList && e.target.classList.contains('participant-cb')) {
+                                updateParticipantCount();
+                              }
+                            });
+                          `}}></script>
                         </div>
                       </div>
                     </div>
@@ -1488,17 +1567,59 @@ app.get('/admin/meetings/:id', async (c) => {
 app.post('/api/admin/meetings/create', async (c) => {
   const body = await c.req.parseBody()
   const { titel, type, start_at, locatie } = body
-  
+
   // Split datetime-local (YYYY-MM-DDTHH:MM) into datum and start_tijd
-  const dateObj = new Date(start_at as string)
   const datum = start_at ? (start_at as string).split('T')[0] : new Date().toISOString().split('T')[0]
   const start_tijd = start_at ? (start_at as string).split('T')[1] : '20:00'
-  
+
   const result = await c.env.DB.prepare(
     `INSERT INTO meetings (titel, type, datum, start_tijd, locatie, status) VALUES (?, ?, ?, ?, ?, 'gepland')`
   ).bind(titel, type, datum, start_tijd, locatie).run()
 
+  const meetingId = result.meta?.last_row_id
+  // Auto-nodig alle actieve bestuursleden uit bij een nieuwe bestuursvergadering
+  if (meetingId && type === 'bestuur') {
+    try {
+      const bestuursleden = await c.env.DB.prepare(
+        `SELECT id FROM users WHERE status = 'actief' AND (is_bestuurslid = 1 OR role IN ('admin','moderator'))`
+      ).all()
+      const ids = (bestuursleden.results || []).map((r: any) => r.id)
+      if (ids.length > 0) {
+        const stmt = c.env.DB.prepare(
+          `INSERT INTO meeting_participants (meeting_id, user_id, status) VALUES (?, ?, 'uitgenodigd')`
+        )
+        await c.env.DB.batch(ids.map((uid: any) => stmt.bind(meetingId, uid)))
+      }
+    } catch (e) {
+      console.error('Failed to auto-invite bestuursleden:', e)
+    }
+    return c.redirect(`/admin/meetings/${meetingId}`)
+  }
+
   return c.redirect('/admin/meetings')
+})
+
+// Quick-action op detail-page: voeg alle bestuursleden ineens toe aan bestaande vergadering
+app.post('/api/admin/meetings/:id/add-bestuur', async (c) => {
+  const meetingId = c.req.param('id')
+  const bestuursleden = await c.env.DB.prepare(
+    `SELECT id FROM users WHERE status = 'actief' AND (is_bestuurslid = 1 OR role IN ('admin','moderator'))`
+  ).all()
+  const allIds = (bestuursleden.results || []).map((r: any) => String(r.id))
+
+  const existing = await c.env.DB.prepare(
+    `SELECT user_id FROM meeting_participants WHERE meeting_id = ?`
+  ).bind(meetingId).all()
+  const already = new Set((existing.results || []).map((r: any) => String(r.user_id)))
+  const toInsert = allIds.filter(id => !already.has(id))
+
+  if (toInsert.length > 0) {
+    const stmt = c.env.DB.prepare(
+      `INSERT INTO meeting_participants (meeting_id, user_id, status) VALUES (?, ?, 'uitgenodigd')`
+    )
+    await c.env.DB.batch(toInsert.map(uid => stmt.bind(meetingId, uid)))
+  }
+  return c.redirect(`/admin/meetings/${meetingId}`)
 })
 
 app.post('/api/admin/meetings/agenda/create', async (c) => {
@@ -1669,15 +1790,33 @@ app.post('/api/admin/meetings/attendance', async (c) => {
 })
 
 app.post('/api/admin/meetings/participants/add', async (c) => {
-  const body = await c.req.parseBody()
-  const { meeting_id, user_id } = body // user_id can be array or string
-  
-  const userIds = Array.isArray(user_id) ? user_id : [user_id]
-  
-  const stmt = c.env.DB.prepare(`INSERT INTO meeting_participants (meeting_id, user_id, status) VALUES (?, ?, 'uitgenodigd')`)
-  const batch = userIds.map(id => stmt.bind(meeting_id, id))
-  
-  await c.env.DB.batch(batch)
+  // {all: true} zorgt dat meerdere velden met dezelfde naam (checkbox-picker!)
+  // als array binnenkomen. Zonder deze flag krijg je alleen de laatste waarde.
+  const body = await c.req.parseBody({ all: true }) as any
+  const meeting_id = Array.isArray(body.meeting_id) ? body.meeting_id[0] : body.meeting_id
+  const rawUserId = body.user_id
+  const userIds = (Array.isArray(rawUserId) ? rawUserId : (rawUserId ? [rawUserId] : []))
+    .map((v: any) => String(v).trim())
+    .filter((v: string) => v.length > 0)
+
+  if (userIds.length === 0) {
+    return c.redirect(`/admin/meetings/${meeting_id}`)
+  }
+
+  // Voorkom dubbele inschrijvingen: filter uit welke al participant zijn
+  const existing = await c.env.DB.prepare(
+    `SELECT user_id FROM meeting_participants WHERE meeting_id = ?`
+  ).bind(meeting_id).all()
+  const already = new Set((existing.results || []).map((r: any) => String(r.user_id)))
+  const toInsert = userIds.filter(id => !already.has(id))
+
+  if (toInsert.length > 0) {
+    const stmt = c.env.DB.prepare(
+      `INSERT INTO meeting_participants (meeting_id, user_id, status) VALUES (?, ?, 'uitgenodigd')`
+    )
+    const batch = toInsert.map(id => stmt.bind(meeting_id, id))
+    await c.env.DB.batch(batch)
+  }
   return c.redirect(`/admin/meetings/${meeting_id}`)
 })
 

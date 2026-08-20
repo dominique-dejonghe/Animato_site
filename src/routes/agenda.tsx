@@ -1185,7 +1185,7 @@ app.get('/concerten/:slug', async (c) => {
 
   const concert = await queryOne<any>(
     c.env.DB,
-    `SELECT e.*, c.id AS concert_id, c.poster_url, c.programma, c.prijsstructuur, c.capaciteit, c.uitverkocht, c.ticketing_enabled, c.tickets_aangekondigd, c.voorverkoop_start_at,
+    `SELECT e.*, c.id AS concert_id, c.poster_url, c.programma, c.prijsstructuur, c.capaciteit, c.uitverkocht, c.waitlist_enabled, c.ticketing_enabled, c.tickets_aangekondigd, c.voorverkoop_start_at,
             c.parking, c.toegankelijkheid, c.duur_info, c.sfeer_dresscode, c.extra_info,
             c.doors_open_at, c.concert_start_at,
             -- BUG-FIX bezetting: live berekenen uit betaalde tickets (was stale counter)
@@ -1801,14 +1801,91 @@ app.get('/concerten/:slug', async (c) => {
                 </h3>
 
                 {concert.uitverkocht == 1 ? (
-                  <div class="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-                    <i class="fas fa-exclamation-circle text-red-500 text-3xl mb-3"></i>
-                    <p class="text-lg font-semibold text-red-800">
-                      Uitverkocht
-                    </p>
-                    <p class="text-sm text-red-600 mt-2">
-                      Dit concert is helaas volledig uitverkocht.
-                    </p>
+                  <div class="space-y-4">
+                    <div class="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
+                      <i class="fas fa-exclamation-circle text-red-500 text-3xl mb-3"></i>
+                      <p class="text-lg font-semibold text-red-800">
+                        Uitverkocht
+                      </p>
+                      <p class="text-sm text-red-600 mt-2">
+                        Dit concert is helaas volledig uitverkocht.
+                      </p>
+                    </div>
+
+                    {(concert as any).waitlist_enabled == 1 && (
+                      <div class="bg-amber-50 border border-amber-300 rounded-lg p-5" id="waitlist-block">
+                        <div class="flex items-start gap-2 mb-3">
+                          <i class="fas fa-hourglass-half text-amber-600 text-lg mt-0.5"></i>
+                          <div>
+                            <p class="font-semibold text-amber-900">Op de wachtlijst</p>
+                            <p class="text-xs text-amber-800 mt-0.5">
+                              Kom je toch graag? Laat je gegevens na en we contacteren
+                              je zodra er plaatsen vrijkomen, of als we een extra
+                              concertdatum plannen.
+                            </p>
+                          </div>
+                        </div>
+
+                        <form id="waitlist-form" class="space-y-2" method="POST" action={`/api/waitlist/${concert.id}`}>
+                          <div>
+                            <label class="block text-xs font-medium text-amber-900 mb-1">Naam *</label>
+                            <input type="text" name="naam" required maxlength={100}
+                                   class="w-full px-3 py-2 border border-amber-300 rounded-md text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 bg-white" />
+                          </div>
+                          <div>
+                            <label class="block text-xs font-medium text-amber-900 mb-1">E-mail *</label>
+                            <input type="email" name="email" required maxlength={200}
+                                   class="w-full px-3 py-2 border border-amber-300 rounded-md text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 bg-white" />
+                          </div>
+                          <div>
+                            <label class="block text-xs font-medium text-amber-900 mb-1">Telefoon (optioneel)</label>
+                            <input type="tel" name="telefoon" maxlength={30}
+                                   class="w-full px-3 py-2 border border-amber-300 rounded-md text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 bg-white" />
+                          </div>
+                          <div>
+                            <label class="block text-xs font-medium text-amber-900 mb-1">Aantal kaarten gewenst</label>
+                            <input type="number" name="aantal_gewenst" min="1" max="20" value="2"
+                                   class="w-full px-3 py-2 border border-amber-300 rounded-md text-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 bg-white" />
+                          </div>
+                          <button type="submit"
+                                  class="w-full py-2.5 bg-amber-600 text-white rounded-md text-sm font-semibold hover:bg-amber-700 transition mt-3">
+                            <i class="fas fa-hourglass-half mr-1"></i>
+                            Zet me op de wachtlijst
+                          </button>
+                          <p id="waitlist-status" class="text-xs text-center mt-2" aria-live="polite"></p>
+                        </form>
+
+                        <script dangerouslySetInnerHTML={{ __html: `
+                          (function() {
+                            var form = document.getElementById('waitlist-form');
+                            var status = document.getElementById('waitlist-status');
+                            if (!form) return;
+                            form.addEventListener('submit', function(e) {
+                              e.preventDefault();
+                              var data = new FormData(form);
+                              status.textContent = 'Even geduld...';
+                              status.className = 'text-xs text-center mt-2 text-amber-700';
+                              fetch(form.action, { method: 'POST', body: data, credentials: 'same-origin' })
+                                .then(function(r) { return r.json().then(function(j){ return { ok: r.ok, j: j }; }); })
+                                .then(function(res) {
+                                  if (res.ok) {
+                                    form.style.display = 'none';
+                                    status.textContent = '\u2713 Bedankt! Je staat op de wachtlijst — we mailen je zodra we nieuws hebben.';
+                                    status.className = 'text-sm text-center mt-2 text-green-700 font-semibold';
+                                  } else {
+                                    status.textContent = (res.j && res.j.error) || 'Er ging iets mis, probeer opnieuw.';
+                                    status.className = 'text-xs text-center mt-2 text-red-700';
+                                  }
+                                })
+                                .catch(function() {
+                                  status.textContent = 'Er ging iets mis, probeer opnieuw.';
+                                  status.className = 'text-xs text-center mt-2 text-red-700';
+                                });
+                            });
+                          })();
+                        ` }} />
+                      </div>
+                    )}
                   </div>
                 ) : voorverkoopNogNietOpen ? (
                   <div class="bg-amber-50 border border-amber-300 rounded-lg p-6 text-center">

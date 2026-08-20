@@ -2290,6 +2290,28 @@ app.get('/admin/tickets/concert/:concertId/settings', async (c) => {
                       </div>
                     </div>
                   </label>
+
+                  <label class="flex items-start gap-3 p-3 border border-amber-200 bg-amber-50 rounded-lg cursor-pointer hover:border-amber-400 transition">
+                    <input
+                      type="checkbox"
+                      name="waitlist_enabled"
+                      id="waitlist_enabled"
+                      checked={(concert as any).waitlist_enabled === 1}
+                      class="mt-0.5 w-5 h-5"
+                    />
+                    <div class="flex-1">
+                      <div class="font-medium text-amber-900">
+                        <i class="fas fa-hourglass-half text-amber-600 mr-1.5"></i>
+                        Wachtlijst inschakelen
+                      </div>
+                      <div class="text-xs text-amber-800 mt-1">
+                        Wanneer het concert uitverkocht is, ziet de bezoeker een klein
+                        inschrijfformulier (naam, email, telefoon) om op de wachtlijst
+                        te komen. Zo weet je hoeveel extra vraag er is voor toekomstige
+                        zaalkeuze of een extra concert-datum.
+                      </div>
+                    </div>
+                  </label>
                 </div>
               </div>
 
@@ -3135,6 +3157,7 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
       UPDATE concerts SET
         ticketing_enabled = ?,
         uitverkocht = ?,
+        waitlist_enabled = ?,
         tickets_aangekondigd = ?,
         voorverkoop_start_at = ?,
         doors_open_at = ?,
@@ -3152,6 +3175,7 @@ app.post('/api/admin/tickets/concert/:concertId/settings', async (c) => {
     `, [
       ticketingEnabled,
       body.uitverkocht ? 1 : 0,
+      body.waitlist_enabled ? 1 : 0,
       body.tickets_aangekondigd ? 1 : 0,
       voorverkoopStart,
       doorsOpenAt,

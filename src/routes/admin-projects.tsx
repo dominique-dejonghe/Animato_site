@@ -8,6 +8,7 @@ import { TaskCommentsCollapsible, TaskCommentsScript } from '../components/TaskC
 import { requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
 import { createNotification, notifyUser } from '../utils/notifications'
+import { syncTaskBudget } from '../utils/task-budget-sync'
 
 const app = new Hono<{ Bindings: Bindings }>()
 
@@ -1189,12 +1190,22 @@ app.get('/admin/projects/:id', async (c) => {
                                     data-task-deadline={task.deadline || ''}
                                     data-task-verantwoordelijke={task.verantwoordelijke_id || ''}
                                     data-task-prioriteit={task.prioriteit || 'medium'}
+                                    data-task-budget-type={task.budget_impact_type || ''}
+                                    data-task-budget-bedrag={task.budget_bedrag != null ? String(task.budget_bedrag) : ''}
+                                    data-task-budget-item={task.budget_item_id || ''}
                                     onclick="openEditTaskModalFromDataset(this)"
                                     class="text-blue-600 hover:text-blue-900 mr-3"
                                     title="Taak bewerken"
                                   >
                                     <i class="fas fa-edit"></i>
                                   </button>
+                                  {task.budget_item_id && (
+                                    <a href={`/admin/projects/${projectId}?tab=budget#budget-${task.budget_item_id}`}
+                                       class="text-amber-600 hover:text-amber-800 mr-2"
+                                       title="Bekijk gekoppelde budgetlijn">
+                                      <i class="fas fa-link"></i>
+                                    </a>
+                                  )}
                                   <button onclick={`openDeleteModal('/api/admin/projects/tasks/${task.id}/delete?project_id=${projectId}')`} class="text-gray-400 hover:text-red-600"><i class="fas fa-trash"></i></button>
                                </td>
                             </tr>
@@ -1242,6 +1253,34 @@ app.get('/admin/projects/:id', async (c) => {
                                  <option value="urgent">Urgent</option>
                                </select>
                              </div>
+
+                             {/* Budget-impact sectie */}
+                             <div class="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                               <label class="block text-sm font-semibold text-amber-900 mb-2">💰 Budget-impact <span class="text-xs font-normal text-amber-700">(optioneel)</span></label>
+                               <div class="grid grid-cols-3 gap-2">
+                                 <select name="budget_impact_type" class="col-span-1 border-amber-300 rounded-lg shadow-sm p-2 border text-sm bg-white">
+                                   <option value="">Geen</option>
+                                   <option value="uitgave">Kost</option>
+                                   <option value="inkomst">Opbrengst</option>
+                                 </select>
+                                 <input type="number" step="0.01" min="0" name="budget_bedrag" placeholder="Bedrag €" class="col-span-1 border-amber-300 rounded-lg shadow-sm p-2 border text-sm bg-white" />
+                                 <select name="budget_categorie" class="col-span-1 border-amber-300 rounded-lg shadow-sm p-2 border text-sm bg-white">
+                                   <option value="operationeel" selected>operationeel</option>
+                                   <option value="catering">catering</option>
+                                   <option value="marketing">marketing</option>
+                                   <option value="zaalverhuur">zaalverhuur</option>
+                                   <option value="techniek">techniek</option>
+                                   <option value="transport">transport</option>
+                                   <option value="sponsors">sponsors</option>
+                                   <option value="tickets">tickets</option>
+                                   <option value="partituren">partituren</option>
+                                   <option value="uniformen">uniformen</option>
+                                   <option value="overige">overige</option>
+                                 </select>
+                               </div>
+                               <p class="text-xs text-amber-700 mt-1">Als je hier iets invult, verschijnt de taak automatisch als lijn in de budgetlijst van dit project.</p>
+                             </div>
+
                              <div class="flex justify-end gap-3 mt-6">
                                <button type="button" onclick="document.getElementById('add-task-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition">Annuleren</button>
                                <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary font-medium shadow-md transition">Opslaan</button>
@@ -1291,6 +1330,34 @@ app.get('/admin/projects/:id', async (c) => {
                                  <option value="urgent">Urgent</option>
                                </select>
                              </div>
+
+                             {/* Budget-impact sectie */}
+                             <div class="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                               <label class="block text-sm font-semibold text-amber-900 mb-2">💰 Budget-impact <span class="text-xs font-normal text-amber-700">(optioneel)</span></label>
+                               <div class="grid grid-cols-3 gap-2">
+                                 <select name="budget_impact_type" id="edit-task-budget-type" class="col-span-1 border-amber-300 rounded-lg shadow-sm p-2 border text-sm bg-white">
+                                   <option value="">Geen</option>
+                                   <option value="uitgave">Kost</option>
+                                   <option value="inkomst">Opbrengst</option>
+                                 </select>
+                                 <input type="number" step="0.01" min="0" name="budget_bedrag" id="edit-task-budget-bedrag" placeholder="Bedrag €" class="col-span-1 border-amber-300 rounded-lg shadow-sm p-2 border text-sm bg-white" />
+                                 <select name="budget_categorie" id="edit-task-budget-cat" class="col-span-1 border-amber-300 rounded-lg shadow-sm p-2 border text-sm bg-white">
+                                   <option value="operationeel">operationeel</option>
+                                   <option value="catering">catering</option>
+                                   <option value="marketing">marketing</option>
+                                   <option value="zaalverhuur">zaalverhuur</option>
+                                   <option value="techniek">techniek</option>
+                                   <option value="transport">transport</option>
+                                   <option value="sponsors">sponsors</option>
+                                   <option value="tickets">tickets</option>
+                                   <option value="partituren">partituren</option>
+                                   <option value="uniformen">uniformen</option>
+                                   <option value="overige">overige</option>
+                                 </select>
+                               </div>
+                               <p class="text-xs text-amber-700 mt-1" id="edit-task-budget-linked">Als je hier iets invult, verschijnt de taak automatisch als lijn in de budgetlijst.</p>
+                             </div>
+
                              <div class="flex justify-end gap-3 mt-6">
                                <button type="button" onclick="document.getElementById('edit-task-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition">Annuleren</button>
                                <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary font-medium shadow-md transition">Opslaan</button>
@@ -2047,6 +2114,21 @@ app.get('/admin/projects/:id', async (c) => {
               const priorSelect = document.getElementById('edit-task-prioriteit');
               if (priorSelect) priorSelect.value = task.prioriteit || 'medium';
 
+              // Budget-impact velden
+              const btype = document.getElementById('edit-task-budget-type');
+              const bbedrag = document.getElementById('edit-task-budget-bedrag');
+              const bcat = document.getElementById('edit-task-budget-cat');
+              const blinked = document.getElementById('edit-task-budget-linked');
+              if (btype) btype.value = task.budget_impact_type || '';
+              if (bbedrag) bbedrag.value = task.budget_bedrag || '';
+              // categorie kan niet uit dataset → laat op default
+              if (bcat && !task.budget_item_id) bcat.value = 'operationeel';
+              if (blinked) {
+                blinked.textContent = task.budget_item_id
+                  ? '🔗 Deze taak is gekoppeld aan budgetlijn #' + task.budget_item_id + ' — wijzigingen updaten die lijn automatisch.'
+                  : 'Als je hier iets invult, verschijnt de taak automatisch als lijn in de budgetlijst.';
+              }
+
               document.getElementById('edit-task-modal').classList.remove('hidden');
             }
 
@@ -2060,7 +2142,10 @@ app.get('/admin/projects/:id', async (c) => {
                 beschrijving: ds.taskBeschrijving,
                 deadline: ds.taskDeadline,
                 verantwoordelijke_id: ds.taskVerantwoordelijke,
-                prioriteit: ds.taskPrioriteit
+                prioriteit: ds.taskPrioriteit,
+                budget_impact_type: ds.taskBudgetType,
+                budget_bedrag: ds.taskBudgetBedrag,
+                budget_item_id: ds.taskBudgetItem
               };
               openEditTaskModal(task);
             }
@@ -2201,7 +2286,8 @@ app.post('/api/admin/projects/documents/:id/update', async (c) => {
 
 app.post('/api/admin/projects/tasks/create', async (c) => {
   const body = await c.req.parseBody()
-  const { project_id, titel, beschrijving, deadline, verantwoordelijke_id, prioriteit } = body
+  const { project_id, titel, beschrijving, deadline, verantwoordelijke_id, prioriteit,
+          budget_impact_type, budget_bedrag, budget_categorie } = body as any
 
   // Bereken volgende sort_order zodat nieuwe taken onderaan terechtkomen
   const maxOrder = await queryOne<any>(
@@ -2211,10 +2297,32 @@ app.post('/api/admin/projects/tasks/create', async (c) => {
   )
   const nextOrder = maxOrder?.next_order ?? 0
 
-  await c.env.DB.prepare(
-    `INSERT INTO concert_project_tasks (project_id, titel, beschrijving, deadline, verantwoordelijke_id, prioriteit, sort_order)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).bind(project_id, titel, beschrijving || null, deadline || null, verantwoordelijke_id || null, prioriteit, nextOrder).run()
+  const impactType = (budget_impact_type === 'inkomst' || budget_impact_type === 'uitgave') ? budget_impact_type : null
+  const bedrag = budget_bedrag && !isNaN(Number(budget_bedrag)) ? Number(budget_bedrag) : null
+
+  const insertRes = await c.env.DB.prepare(
+    `INSERT INTO concert_project_tasks (project_id, titel, beschrijving, deadline, verantwoordelijke_id, prioriteit, sort_order, budget_impact_type, budget_bedrag)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).bind(project_id, titel, beschrijving || null, deadline || null, verantwoordelijke_id || null, prioriteit, nextOrder, impactType, bedrag).run()
+
+  const newTaskId = Number(insertRes.meta?.last_row_id || 0)
+
+  // Sync met budgetlijst als er budget-impact is
+  if (newTaskId > 0) {
+    try {
+      await syncTaskBudget(c.env.DB, {
+        source: 'project_task',
+        taskId: newTaskId,
+        projectId: Number(project_id),
+        impactType,
+        bedrag,
+        categorie: budget_categorie,
+        omschrijving: String(titel || ''),
+      })
+    } catch (e) {
+      console.error('[projects/tasks/create] budget-sync mislukt:', e)
+    }
+  }
 
   // 📬 Notificatie + email versturen aan de verantwoordelijke (2026-07-08)
   if (verantwoordelijke_id && Number(verantwoordelijke_id) > 0) {
@@ -2361,7 +2469,8 @@ app.get('/api/admin/projects/budget/:id/delete', async (c) => {
 app.post('/api/admin/projects/tasks/:id/update', async (c) => {
   const id = c.req.param('id')
   const body = await c.req.parseBody()
-  const { project_id, titel, deadline, verantwoordelijke_id, prioriteit, beschrijving } = body
+  const { project_id, titel, deadline, verantwoordelijke_id, prioriteit, beschrijving,
+          budget_impact_type, budget_bedrag, budget_categorie } = body as any
 
   // Vorige verantwoordelijke bijhouden voor notificatie-diff
   const prevRow = await queryOne<any>(c.env.DB,
@@ -2369,11 +2478,31 @@ app.post('/api/admin/projects/tasks/:id/update', async (c) => {
   const prevRespId = prevRow?.verantwoordelijke_id ? Number(prevRow.verantwoordelijke_id) : null
   const newRespId = verantwoordelijke_id ? Number(verantwoordelijke_id) : null
 
+  const impactType = (budget_impact_type === 'inkomst' || budget_impact_type === 'uitgave') ? budget_impact_type : null
+  const bedrag = budget_bedrag && !isNaN(Number(budget_bedrag)) ? Number(budget_bedrag) : null
+
   await c.env.DB.prepare(
     `UPDATE concert_project_tasks
-     SET titel = ?, deadline = ?, verantwoordelijke_id = ?, prioriteit = ?, beschrijving = ?
+     SET titel = ?, deadline = ?, verantwoordelijke_id = ?, prioriteit = ?, beschrijving = ?,
+         budget_impact_type = ?, budget_bedrag = ?,
+         updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`
-  ).bind(titel, deadline || null, newRespId, prioriteit, beschrijving, id).run()
+  ).bind(titel, deadline || null, newRespId, prioriteit, beschrijving, impactType, bedrag, id).run()
+
+  // Sync met budgetlijst
+  try {
+    await syncTaskBudget(c.env.DB, {
+      source: 'project_task',
+      taskId: Number(id),
+      projectId: Number(project_id),
+      impactType,
+      bedrag,
+      categorie: budget_categorie,
+      omschrijving: String(titel || ''),
+    })
+  } catch (e) {
+    console.error('[projects/tasks/update] budget-sync mislukt:', e)
+  }
 
   // 📬 Notificatie + email enkel bij ECHTE toewijzing aan andere gebruiker
   if (newRespId && newRespId !== prevRespId) {

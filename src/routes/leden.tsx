@@ -1313,7 +1313,7 @@ app.get('/leden', async (c) => {
                   </p>
                   <div class="space-y-2">
                     {upcomingTickets.map((tk: any) => {
-                      const datumStr = formatBrusselsDate(tk.start_at, { day: 'numeric', month: 'short', year: 'numeric' })
+                      const datumStr = formatBrusselsDate(tk.start_at, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
                       const tijdStr = formatBrusselsTime(tk.start_at)
                       return (
                         <a
@@ -2996,7 +2996,7 @@ app.get('/leden/profiel', async (c) => {
                     {myActivities.map((act: any) => (
                       <tr>
                         <td class="py-3 text-sm text-gray-600">
-                          {formatBrusselsDate(act.start_at, { day: 'numeric', month: 'short', year: 'numeric' })}
+                          {formatBrusselsDate(act.start_at, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
                         </td>
                         <td class="py-3">
                           <span class="font-medium text-gray-900">{act.titel}</span>

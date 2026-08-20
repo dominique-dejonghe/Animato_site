@@ -435,8 +435,11 @@ app.get('/agenda', async (c) => {
                           <div class="bg-gradient-to-r from-pink-50 to-amber-50 rounded-lg shadow-md border-l-4 border-pink-400 p-4 mb-3 flex items-center gap-4">
                             {/* Date block */}
                             <div class="flex-shrink-0 text-center bg-pink-100 rounded-lg p-3 w-20">
-                              <div class="text-2xl">🎂</div>
-                              <div class="text-lg font-bold text-pink-600">
+                              <div class="text-xl">🎂</div>
+                              <div class="text-[10px] font-semibold text-pink-600 uppercase tracking-wide leading-none">
+                                {new Date(date).toLocaleDateString('nl-BE', { weekday: 'short' })}
+                              </div>
+                              <div class="text-lg font-bold text-pink-600 leading-tight">
                                 {new Date(date).getDate()}
                               </div>
                               <div class="text-xs text-pink-500 uppercase">

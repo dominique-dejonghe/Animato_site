@@ -4449,7 +4449,7 @@ app.get('/admin/content', async (c) => {
                         ) : (
                           <>
                             <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                              {new Date(item.start_at).toLocaleDateString('nl-NL', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              {new Date(item.start_at).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
                             </td>
                             <td class="px-6 py-4 text-sm text-gray-900">
                               {item.locatie || '-'}

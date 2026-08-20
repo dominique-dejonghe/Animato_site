@@ -149,7 +149,7 @@ app.get('/admin/meetings', async (c) => {
                         <div>
                           <div class="font-medium text-gray-900 group-hover:text-animato-primary">{meeting.titel}</div>
                           <div class="text-sm text-gray-500">
-                            {new Date(meeting.start_at).toLocaleDateString('nl-BE')}
+                            {new Date(meeting.start_at).toLocaleDateString('nl-BE', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
                           </div>
                         </div>
                         <span class="text-gray-400 group-hover:text-animato-primary transition">
@@ -393,7 +393,7 @@ app.get('/admin/meetings/:id', async (c) => {
                     </button>
                  </h1>
                  <p class="text-gray-600 mt-2 flex items-center gap-4">
-                    <span><i class="far fa-calendar-alt mr-2"></i>{new Date(meeting.start_at).toLocaleDateString('nl-BE')}</span>
+                    <span><i class="far fa-calendar-alt mr-2"></i>{new Date(meeting.start_at).toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</span>
                     <span><i class="far fa-clock mr-2"></i>{formatBrusselsTime(meeting.start_at)}</span>
                     <span><i class="fas fa-map-marker-alt mr-2"></i>{meeting.locatie}</span>
                  </p>

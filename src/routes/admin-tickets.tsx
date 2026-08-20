@@ -1673,7 +1673,7 @@ app.get('/admin/tickets/resend', async (c) => {
                 <option value="">— Kies een concert —</option>
                 {concerts.map((c: any) => (
                   <option value={c.id} selected={concertIdParam === String(c.id)}>
-                    {c.titel} — {new Date(c.start_at).toLocaleDateString('nl-BE', { day: 'numeric', month: 'long', year: 'numeric' })} ({c.paid_count} betaald)
+                    {c.titel} — {new Date(c.start_at).toLocaleDateString('nl-BE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })} ({c.paid_count} betaald)
                   </option>
                 ))}
               </select>

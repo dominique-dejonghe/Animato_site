@@ -506,7 +506,10 @@ app.get('/agenda', async (c) => {
                           <div class="flex items-start gap-6">
                             {/* Date block */}
                             <div class="flex-shrink-0 text-center bg-animato-primary bg-opacity-10 rounded-lg p-4 w-24">
-                              <div class="text-3xl font-bold text-animato-primary">
+                              <div class="text-xs font-semibold text-animato-primary uppercase tracking-wide">
+                                {formatBrusselsDate(event.start_at, { weekday: 'short' })}
+                              </div>
+                              <div class="text-3xl font-bold text-animato-primary leading-tight">
                                 {formatBrusselsDate(event.start_at, { day: 'numeric' })}
                               </div>
                               <div class="text-sm text-gray-600 uppercase">

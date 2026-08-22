@@ -659,15 +659,14 @@ app.get('/admin/lidgelden', async (c) => {
                     </div>
 
                     {/* Bulk-sync knop: bevraagt Mollie voor ALLE pending items in dit seizoen.
-                        Lost het 'webhook kwam nooit door'-probleem op in één klik. */}
-                    <form action="/api/admin/lidgelden/sync-mollie-bulk" method="POST" class="mt-2"
-                          onsubmit={`return confirm('Bevraag Mollie voor alle ${pending.length} openstaande lidgelden? Items die intussen bij Mollie betaald zijn worden hier op \\'paid\\' gezet.');`}>
-                      <input type="hidden" name="year_id" value={activeSeason.id} />
-                      <button type="submit" class="text-xs bg-amber-600 hover:bg-amber-700 text-white px-2 py-1 rounded inline-flex items-center gap-1 transition"
-                              title="Loop door alle openstaande lidgelden en check bij Mollie of er intussen betaald is">
-                        <i class="fas fa-sync-alt"></i> Sync alle bij Mollie
-                      </button>
-                    </form>
+                        Lost het 'webhook kwam nooit door'-probleem op in één klik.
+                        NB Dominique 2026-08-22: manuele betalingen kunnen overschreven worden
+                        door Mollie-status. Vandaar de typ-SYNC-bevestiging via openMollieSyncModal(). */}
+                    <button type="button" class="mt-2 text-xs bg-amber-600 hover:bg-amber-700 text-white px-2 py-1 rounded inline-flex items-center gap-1 transition"
+                            onclick={`openMollieSyncModal('lidgelden', ${pending.length}, ${activeSeason.id})`}
+                            title="Loop door alle openstaande lidgelden en check bij Mollie of er intussen betaald is">
+                      <i class="fas fa-sync-alt"></i> Sync alle bij Mollie
+                    </button>
                   </div>
                 ) : (
                   <div class="bg-white p-4 rounded shadow border-l-4 border-green-500">
@@ -969,12 +968,10 @@ app.get('/admin/lidgelden', async (c) => {
                   </h3>
                   <div class="flex gap-2 flex-wrap">
                     {donationsPending.filter((d: any) => d.payment_id && !d.payment_id.startsWith('tr_MOCK_')).length > 0 && (
-                      <form action="/api/admin/donations/sync-mollie-bulk" method="POST" class="inline"
-                        onsubmit="return confirm('Controleer alle openstaande giften bij Mollie en update status?');">
-                        <button type="submit" class="inline-flex items-center h-8 px-3 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition font-medium whitespace-nowrap">
-                          <i class="fas fa-sync mr-1.5"></i> Sync Mollie ({donationsPending.filter((d: any) => d.payment_id && !d.payment_id.startsWith('tr_MOCK_')).length})
-                        </button>
-                      </form>
+                      <button type="button" class="inline-flex items-center h-8 px-3 bg-blue-600 text-white text-xs rounded hover:bg-blue-700 transition font-medium whitespace-nowrap"
+                              onclick={`openMollieSyncModal('donations', ${donationsPending.filter((d: any) => d.payment_id && !d.payment_id.startsWith('tr_MOCK_')).length}, null)`}>
+                        <i class="fas fa-sync mr-1.5"></i> Sync Mollie ({donationsPending.filter((d: any) => d.payment_id && !d.payment_id.startsWith('tr_MOCK_')).length})
+                      </button>
                     )}
                     <a href="/api/admin/donations/export"
                       class="inline-flex items-center h-8 px-3 bg-green-600 text-white text-xs rounded hover:bg-green-700 transition font-medium whitespace-nowrap"
@@ -1884,6 +1881,135 @@ app.get('/admin/lidgelden', async (c) => {
 
           // Initial state
           refresh();
+        })();
+      ` }} />
+
+      {/* ================================================================ */}
+      {/* MOLLIE SYNC — typ-bevestigingsmodal                                */}
+      {/* Vraag Dominique 2026-08-22: bulk-sync overschrijft manueel-        */}
+      {/* betaalde items met de status uit Mollie. Om ongelukjes te          */}
+      {/* voorkomen, moet de admin letterlijk "SYNC" typen.                  */}
+      {/* ================================================================ */}
+      <div id="mollieSyncModal" class="fixed inset-0 z-[10000] hidden bg-black bg-opacity-60 backdrop-blur-sm items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-2xl max-w-lg w-full">
+          <div class="p-5 bg-red-50 border-b-2 border-red-200 rounded-t-lg">
+            <h3 class="text-lg font-bold text-red-900 flex items-center gap-2">
+              <i class="fas fa-exclamation-triangle text-red-600"></i>
+              <span>Waarschuwing — bulk-sync met Mollie</span>
+            </h3>
+          </div>
+          <div class="p-5 space-y-3 text-sm text-gray-700">
+            <p>
+              Je staat op het punt om <strong id="mollieSyncCount">?</strong> openstaande
+              <strong id="mollieSyncEntity">items</strong> te synchroniseren met Mollie.
+            </p>
+            <div class="bg-amber-50 border-l-4 border-amber-400 p-3 rounded">
+              <p class="font-semibold text-amber-900 mb-1">⚠️ Wat deze knop doet:</p>
+              <p class="text-amber-900 text-xs leading-relaxed">
+                Voor elk openstaand item wordt de status <strong>opgehaald bij Mollie</strong> en
+                de database wordt bijgewerkt met wat Mollie zegt (paid / pending / cancelled …).
+              </p>
+            </div>
+            <div class="bg-red-50 border-l-4 border-red-500 p-3 rounded">
+              <p class="font-semibold text-red-900 mb-1">⛔ Risico op data-verlies:</p>
+              <p class="text-red-900 text-xs leading-relaxed">
+                Als je een lidgeld <strong>manueel</strong> op 'betaald' hebt gezet (cash, overschrijving,
+                enz.) — dus <em>niet</em> via een Mollie-betaling — dan zal deze sync die manuele
+                betaalstatus <strong>overschrijven</strong> met de Mollie-status (meestal 'pending' of
+                'expired'), waardoor de werkelijkheid uit de databank verdwijnt.
+              </p>
+            </div>
+            <p class="text-gray-800">
+              Enkel doorgaan als je <strong>zeker</strong> bent dat de Mollie-status de waarheid is.
+              Typ <code class="bg-gray-900 text-white px-2 py-0.5 rounded font-mono">SYNC</code> om te bevestigen:
+            </p>
+            <input type="text" id="mollieSyncConfirmInput"
+                   class="w-full border-2 border-gray-300 rounded px-3 py-2 font-mono text-lg focus:border-red-500 focus:ring-red-500 uppercase"
+                   placeholder="Typ SYNC" autocomplete="off" />
+            <p id="mollieSyncError" class="text-red-600 text-xs hidden">
+              Typ exact <code class="bg-gray-100 px-1 rounded">SYNC</code> (hoofdletters) om te bevestigen.
+            </p>
+          </div>
+          <div class="p-4 bg-gray-50 border-t border-gray-200 rounded-b-lg flex justify-end gap-2">
+            <button type="button" onclick="closeMollieSyncModal()"
+                    class="px-4 py-2 bg-white border border-gray-300 rounded hover:bg-gray-100 text-sm font-medium">
+              Annuleer
+            </button>
+            <button type="button" id="mollieSyncConfirmBtn" onclick="confirmMollieSync()"
+                    class="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 text-sm font-medium disabled:bg-red-300 disabled:cursor-not-allowed"
+                    disabled>
+              <i class="fas fa-sync-alt mr-1"></i> Bevestig sync
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <script dangerouslySetInnerHTML={{ __html: `
+        (function() {
+          var state = { entity: null, count: 0, yearId: null };
+          window.openMollieSyncModal = function(entity, count, yearId) {
+            state.entity = entity;
+            state.count = count;
+            state.yearId = yearId;
+            document.getElementById('mollieSyncCount').textContent = count;
+            document.getElementById('mollieSyncEntity').textContent =
+              entity === 'lidgelden' ? 'lidgelden' : 'giften';
+            var input = document.getElementById('mollieSyncConfirmInput');
+            input.value = '';
+            document.getElementById('mollieSyncConfirmBtn').disabled = true;
+            document.getElementById('mollieSyncError').classList.add('hidden');
+            var modal = document.getElementById('mollieSyncModal');
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            setTimeout(function(){ input.focus(); }, 50);
+          };
+          window.closeMollieSyncModal = function() {
+            var modal = document.getElementById('mollieSyncModal');
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+          };
+          var input = document.getElementById('mollieSyncConfirmInput');
+          input.addEventListener('input', function() {
+            var v = this.value.trim().toUpperCase();
+            document.getElementById('mollieSyncConfirmBtn').disabled = (v !== 'SYNC');
+            if (v.length > 0 && v !== 'SYNC') {
+              document.getElementById('mollieSyncError').classList.remove('hidden');
+            } else {
+              document.getElementById('mollieSyncError').classList.add('hidden');
+            }
+          });
+          input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && this.value.trim().toUpperCase() === 'SYNC') {
+              e.preventDefault();
+              confirmMollieSync();
+            }
+          });
+          window.confirmMollieSync = function() {
+            if (document.getElementById('mollieSyncConfirmInput').value.trim().toUpperCase() !== 'SYNC') return;
+            var form = document.createElement('form');
+            form.method = 'POST';
+            if (state.entity === 'lidgelden') {
+              form.action = '/api/admin/lidgelden/sync-mollie-bulk';
+              if (state.yearId !== null) {
+                var y = document.createElement('input');
+                y.type = 'hidden'; y.name = 'year_id'; y.value = state.yearId;
+                form.appendChild(y);
+              }
+            } else if (state.entity === 'donations') {
+              form.action = '/api/admin/donations/sync-mollie-bulk';
+            } else {
+              return;
+            }
+            document.body.appendChild(form);
+            form.submit();
+          };
+          // ESC om te sluiten
+          document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+              var modal = document.getElementById('mollieSyncModal');
+              if (!modal.classList.contains('hidden')) closeMollieSyncModal();
+            }
+          });
         })();
       ` }} />
 

@@ -4795,6 +4795,131 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
             </div>
           </div>
         </div>
+
+        {/* Bulk-reservatie modal — Dominique 2026-08-22: legt echte koper-identiteit vast
+            met dedupe tegen bestaande leden en eerdere kaartkopers. */}
+        <div
+          id="bulkReserveModal"
+          class="hidden fixed inset-0 bg-black bg-opacity-60 z-[60] items-center justify-center p-4"
+          onclick="if (event.target === this) closeBulkReserveModal()"
+        >
+          <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between sticky top-0 bg-white">
+              <div>
+                <h3 class="text-lg font-bold text-gray-900">
+                  <i class="fas fa-user-plus text-blue-600 mr-2"></i>
+                  Bulk-reservatie
+                </h3>
+                <p class="text-xs text-gray-500 mt-0.5">
+                  <span id="bulkReserveCount">0</span> <span id="bulkReserveCountLabel">stoel</span> reserveren voor 1 koper
+                </p>
+              </div>
+              <button
+                type="button"
+                onclick="closeBulkReserveModal()"
+                class="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+                aria-label="Sluiten"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div class="px-6 py-4 space-y-4">
+              <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-blue-900">
+                <i class="fas fa-info-circle mr-1"></i>
+                <strong>Tip:</strong> Als de koper al lid is of eerder een ticket kocht,
+                worden email en telefoon automatisch overgenomen uit onze database.
+                Je hoeft dan enkel de naam in te vullen.
+              </div>
+
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">
+                  Naam koper <span class="text-red-600">*</span>
+                </label>
+                <input
+                  type="text"
+                  id="bulkReserveNaam"
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  placeholder="Voornaam Achternaam"
+                  autocomplete="off"
+                />
+                <p class="text-xs text-gray-500 mt-1">
+                  Verplicht. Wordt gebruikt om deze koper te matchen met bestaande leden/kaartkopers.
+                </p>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-sm font-semibold text-gray-700 mb-1">
+                    Email <span class="text-gray-400 font-normal">(optioneel)</span>
+                  </label>
+                  <input
+                    type="email"
+                    id="bulkReserveEmail"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="naam@voorbeeld.be"
+                    autocomplete="off"
+                  />
+                </div>
+                <div>
+                  <label class="block text-sm font-semibold text-gray-700 mb-1">
+                    Telefoon <span class="text-gray-400 font-normal">(optioneel)</span>
+                  </label>
+                  <input
+                    type="tel"
+                    id="bulkReserveTelefoon"
+                    class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="+32 …"
+                    autocomplete="off"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-sm font-semibold text-gray-700 mb-1">
+                  Notitie <span class="text-gray-400 font-normal">(optioneel)</span>
+                </label>
+                <textarea
+                  id="bulkReserveNote"
+                  rows={2}
+                  class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  placeholder="bv. papieren reservatie via mail, kaartverkoop na repetitie …"
+                ></textarea>
+              </div>
+
+              <div
+                id="bulkReserveMatchInfo"
+                class="hidden bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-900"
+              >
+                <i class="fas fa-check-circle mr-1"></i>
+                <span id="bulkReserveMatchInfoText"></span>
+              </div>
+
+              <div
+                id="bulkReserveError"
+                class="hidden bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800"
+              ></div>
+            </div>
+
+            <div class="px-6 py-4 border-t border-gray-200 bg-gray-50 rounded-b-xl flex items-center justify-end gap-2 sticky bottom-0">
+              <button
+                type="button"
+                onclick="closeBulkReserveModal()"
+                class="px-4 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-100 text-sm font-medium"
+              >
+                Annuleer
+              </button>
+              <button
+                type="button"
+                id="bulkReserveSubmitBtn"
+                onclick="submitBulkReserve()"
+                class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-sm font-semibold shadow"
+              >
+                <i class="fas fa-check mr-1"></i> Bevestig reservatie
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
 
       <script dangerouslySetInnerHTML={{ __html: `
@@ -5073,30 +5198,95 @@ app.get('/admin/tickets/concert/:concertId/zaalplan', async (c) => {
           render();
         };
 
-        window.bulkReserve = async function() {
+        // Bulk-reserveren via modal (was 2× prompt() — Dominique 2026-08-22: geen echte
+        // koper-gegevens werden geregistreerd, en de admin kon geen email/telefoon meegeven).
+        window.bulkReserve = function() {
           const count = bulkSelection.size;
           if (count === 0) return;
-          const naam = prompt('Naam van de koper (verschijnt op alle ' + count + ' stoelen):');
-          if (!naam || !naam.trim()) return;
-          const note = prompt('Notitie (optioneel, bv. "betaald cash aan Jan"):') || '';
-          if (!confirm('Bevestig: ' + count + ' stoel' + (count === 1 ? '' : 'en') + ' reserveren voor "' + naam.trim() + '"?')) return;
+          document.getElementById('bulkReserveCount').textContent = count;
+          document.getElementById('bulkReserveCountLabel').textContent = count === 1 ? 'stoel' : 'stoelen';
+          document.getElementById('bulkReserveNaam').value = '';
+          document.getElementById('bulkReserveEmail').value = '';
+          document.getElementById('bulkReserveTelefoon').value = '';
+          document.getElementById('bulkReserveNote').value = '';
+          document.getElementById('bulkReserveMatchInfo').classList.add('hidden');
+          document.getElementById('bulkReserveError').classList.add('hidden');
+          const modal = document.getElementById('bulkReserveModal');
+          modal.classList.remove('hidden');
+          modal.classList.add('flex');
+          setTimeout(function(){ document.getElementById('bulkReserveNaam').focus(); }, 50);
+          // Enter = submit (behalve in textarea), Escape = close
+          if (!window.__bulkReserveKeyHandlerAttached) {
+            document.addEventListener('keydown', function(e){
+              const m = document.getElementById('bulkReserveModal');
+              if (!m || m.classList.contains('hidden')) return;
+              if (e.key === 'Escape') { e.preventDefault(); window.closeBulkReserveModal(); }
+              else if (e.key === 'Enter' && e.target && e.target.tagName !== 'TEXTAREA') {
+                e.preventDefault(); window.submitBulkReserve();
+              }
+            });
+            window.__bulkReserveKeyHandlerAttached = true;
+          }
+        };
+        window.closeBulkReserveModal = function() {
+          const modal = document.getElementById('bulkReserveModal');
+          modal.classList.add('hidden');
+          modal.classList.remove('flex');
+        };
+        window.submitBulkReserve = async function() {
+          const naam = document.getElementById('bulkReserveNaam').value.trim();
+          const email = document.getElementById('bulkReserveEmail').value.trim();
+          const telefoon = document.getElementById('bulkReserveTelefoon').value.trim();
+          const note = document.getElementById('bulkReserveNote').value.trim();
+          const errBox = document.getElementById('bulkReserveError');
+          if (!naam) {
+            errBox.textContent = 'Naam is verplicht.';
+            errBox.classList.remove('hidden');
+            return;
+          }
+          if (email && !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email)) {
+            errBox.textContent = 'Ongeldig email-adres.';
+            errBox.classList.remove('hidden');
+            return;
+          }
+          errBox.classList.add('hidden');
+          const btn = document.getElementById('bulkReserveSubmitBtn');
+          btn.disabled = true;
+          btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i> Bezig…';
           const ids = Array.from(bulkSelection);
           try {
             const res = await fetch('/api/admin/tickets/concert/' + concertId + '/manual-reserve-bulk', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ naam: naam.trim(), note: note.trim() || null, seatIds: ids })
+              body: JSON.stringify({
+                naam: naam,
+                email: email || null,
+                telefoon: telefoon || null,
+                note: note || null,
+                seatIds: ids
+              })
             });
             if (!res.ok) {
-              const err = await res.json().catch(() => ({ error: 'Onbekende fout' }));
-              alert('Fout bij reserveren: ' + (err.error || res.statusText));
+              const err = await res.json().catch(function(){ return { error: 'Onbekende fout' }; });
+              errBox.textContent = 'Fout bij reserveren: ' + (err.error || res.statusText);
+              errBox.classList.remove('hidden');
+              btn.disabled = false;
+              btn.innerHTML = '<i class="fas fa-check mr-1"></i> Bevestig reservatie';
               return;
             }
             const data = await res.json();
-            alert('✓ ' + (data.aantal || count) + ' stoel' + (count === 1 ? '' : 'en') + ' gereserveerd voor ' + naam.trim() + ' (orderref: ' + data.order_ref + ')');
+            let msg = '✓ ' + (data.aantal || ids.length) + ' stoel' + (data.aantal === 1 ? '' : 'en') + ' gereserveerd voor ' + naam;
+            if (data.matched_from === 'lid') msg += '\\n\\n(email/telefoon uit lid-database overgenomen: ' + (data.email || '—') + ')';
+            else if (data.matched_from === 'vorige_kaartkoper') msg += '\\n\\n(email/telefoon uit eerdere ticket-bestelling overgenomen: ' + (data.email || '—') + ')';
+            else if (data.email) msg += '\\n\\nEmail: ' + data.email;
+            msg += '\\n\\nOrderref: ' + data.order_ref;
+            alert(msg);
             location.reload();
           } catch (e) {
-            alert('Netwerkfout: ' + (e && e.message ? e.message : e));
+            errBox.textContent = 'Netwerkfout: ' + (e && e.message ? e.message : e);
+            errBox.classList.remove('hidden');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-check mr-1"></i> Bevestig reservatie';
           }
         };
 
@@ -5397,13 +5587,72 @@ app.post('/api/admin/tickets/concert/:concertId/manual-reserve-bulk', async (c) 
   const concertId = parseInt(c.req.param('concertId'))
 
   try {
-    const { naam, note, seatIds } = await c.req.json().catch(() => ({} as any))
-    if (!naam || typeof naam !== 'string') return c.json({ error: 'Naam is verplicht' }, 400)
+    const body = await c.req.json().catch(() => ({} as any))
+    const naam: string = (body.naam || '').toString()
+    const note: string | null = body.note ? String(body.note) : null
+    const inputEmail: string = (body.email || '').toString().trim().toLowerCase()
+    const inputTelefoon: string = (body.telefoon || '').toString().trim()
+    const seatIds = body.seatIds
+
+    if (!naam || !naam.trim()) return c.json({ error: 'Naam is verplicht' }, 400)
+    const naamTrim = naam.trim()
     if (!Array.isArray(seatIds) || seatIds.length === 0) {
       return c.json({ error: 'Geen stoelen geselecteerd' }, 400)
     }
-    const ids = seatIds.map(Number).filter(n => Number.isFinite(n) && n > 0)
+    const ids = seatIds.map(Number).filter((n: any) => Number.isFinite(n) && n > 0)
     if (ids.length === 0) return c.json({ error: 'Ongeldige stoel-IDs' }, 400)
+
+    // ── Dedupe: zoek bestaande identiteit op basis van naam ──
+    // Prioriteit:
+    //  1. Explicit meegegeven email → gebruik zoals-is (admin wist het)
+    //  2. Zonder email: zoek een user via profiles.voornaam+achternaam (case-insensitive)
+    //  3. Zonder email en geen user-match: zoek een eerdere ticket-koper met dezelfde
+    //     naam die WEL een echte email had (koper_email zonder 'admin-…@animato.local')
+    //  4. Anders: laat email leeg — NIET meer die valse admin-{id}@animato.local
+    let resolvedEmail = inputEmail
+    let resolvedTelefoon = inputTelefoon
+    let matchedFromUserId: number | null = null
+    let matchedFromTicketId: number | null = null
+
+    if (!resolvedEmail) {
+      // Split naam in first + last (grofweg — laatste woord = achternaam)
+      const parts = naamTrim.split(/\s+/)
+      if (parts.length >= 2) {
+        const voornaam = parts[0]
+        const achternaam = parts.slice(1).join(' ')
+        const userMatch = await queryOne<any>(c.env.DB, `
+          SELECT u.id, u.email, p.telefoon FROM users u
+          JOIN profiles p ON p.user_id = u.id
+          WHERE LOWER(TRIM(p.voornaam)) = LOWER(?) AND LOWER(TRIM(p.achternaam)) = LOWER(?)
+            AND u.status = 'actief' AND u.email IS NOT NULL AND u.email != ''
+          LIMIT 1
+        `, [voornaam, achternaam])
+        if (userMatch) {
+          resolvedEmail = userMatch.email
+          if (!resolvedTelefoon && userMatch.telefoon) resolvedTelefoon = userMatch.telefoon
+          matchedFromUserId = userMatch.id
+        }
+      }
+
+      // Fallback: eerdere tickets van dezelfde naam met echte email
+      if (!resolvedEmail) {
+        const ticketMatch = await queryOne<any>(c.env.DB, `
+          SELECT id, koper_email, koper_telefoon FROM tickets
+          WHERE LOWER(TRIM(koper_naam)) = LOWER(?)
+            AND koper_email IS NOT NULL
+            AND koper_email != ''
+            AND koper_email NOT LIKE 'admin-%@animato.local'
+            AND koper_email NOT LIKE 'admin-%@%.local'
+          ORDER BY created_at DESC
+          LIMIT 1
+        `, [naamTrim])
+        if (ticketMatch) {
+          resolvedEmail = ticketMatch.koper_email
+          if (!resolvedTelefoon && ticketMatch.koper_telefoon) resolvedTelefoon = ticketMatch.koper_telefoon
+          matchedFromTicketId = ticketMatch.id
+        }
+      }
+    }
 
     // Check of er één al bezet is (atomair: één placeholder per ID)
     const placeholders = ids.map(() => '?').join(',')
@@ -5430,13 +5679,17 @@ app.post('/api/admin/tickets/concert/:concertId/manual-reserve-bulk', async (c) 
     const aantal = ids.length
 
     // 1 ticket aanmaken met aantal=N
+    // Sinds 2026-08-22 (Dominique): koper_email en koper_telefoon worden effectief
+    // gepersisteerd (indien meegegeven of gededupeerd), niet meer de valse
+    // 'admin-{userId}@animato.local' placeholder. Als niets bekend → leeg.
     const ticketRes: any = await execute(c.env.DB, `
       INSERT INTO tickets (
         concert_id, order_ref, koper_email, koper_naam, koper_telefoon,
-        aantal, categorie, prijs_totaal, status, qr_code, betaling_id, betaald_at
-      ) VALUES (?, ?, ?, ?, '', ?, ?, 0, 'paid', ?, NULL, CURRENT_TIMESTAMP)
+        aantal, categorie, prijs_totaal, status, qr_code, betaling_id, betaald_at,
+        betaalmethode
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'paid', ?, NULL, CURRENT_TIMESTAMP, 'admin_bulk')
     `, [
-      concertId, orderRef, `admin-${user.id}@animato.local`, naam,
+      concertId, orderRef, resolvedEmail || '', naamTrim, resolvedTelefoon || '',
       aantal, 'Handmatige bulk-reservatie', qrCode
     ])
     const ticketId = ticketRes?.meta?.last_row_id
@@ -5457,10 +5710,23 @@ app.post('/api/admin/tickets/concert/:concertId/manual-reserve-bulk', async (c) 
     const seatLabels = seats.map((s: any) => `${s.row_label}-${s.seat_number}`).join(',')
     await execute(c.env.DB,
       `INSERT INTO audit_logs (user_id, actie, entity_type, entity_id, meta) VALUES (?, 'manual_bulk_reserve', 'tickets', ?, ?)`,
-      [user.id, ticketId, JSON.stringify({ concert_id: concertId, aantal, seats: seatLabels, naam, note })]
+      [user.id, ticketId, JSON.stringify({
+        concert_id: concertId, aantal, seats: seatLabels, naam: naamTrim, note,
+        email: resolvedEmail || null,
+        telefoon: resolvedTelefoon || null,
+        matched_from_user_id: matchedFromUserId,
+        matched_from_ticket_id: matchedFromTicketId,
+      })]
     )
 
-    return c.json({ ok: true, ticket_id: ticketId, order_ref: orderRef, aantal })
+    return c.json({
+      ok: true,
+      ticket_id: ticketId,
+      order_ref: orderRef,
+      aantal,
+      email: resolvedEmail || null,
+      matched_from: matchedFromUserId ? 'lid' : (matchedFromTicketId ? 'vorige_kaartkoper' : null),
+    })
   } catch (e: any) {
     console.error('manual-reserve-bulk faalde:', e)
     return c.json({ error: e.message || 'Onbekende fout' }, 500)

@@ -8,6 +8,7 @@ import { TaskCommentsCollapsible, TaskCommentsScript } from '../components/TaskC
 import { requireRole, requireBestuurslid } from '../middleware/auth'
 import { queryOne, queryAll } from '../utils/db'
 import { createNotification, notifyUser } from '../utils/notifications'
+import { uploadFileToR2 } from '../utils/r2-storage'
 import { syncTaskBudget } from '../utils/task-budget-sync'
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -1965,7 +1966,9 @@ app.get('/admin/projects/:id', async (c) => {
                    )}
                 </div>
 
-                {/* Add Document Modal */}
+                {/* Add Document Modal — Dominique 2026-08-22: uitgebreid met
+                    file-upload naar R2 (10MB max) + drag-and-drop. De URL-optie
+                    blijft bestaan (voor Google Drive / OneDrive links). */}
                 <div id="add-document-modal" class="fixed inset-0 z-50 hidden overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
                    <div class="flex items-end justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
                      <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity" aria-hidden="true" onclick="document.getElementById('add-document-modal').classList.add('hidden')"></div>
@@ -1976,32 +1979,101 @@ app.get('/admin/projects/:id', async (c) => {
                            <h3 class="text-xl leading-6 font-bold text-gray-900 mb-4" style="font-family: 'Playfair Display', serif;">
                              Document Toevoegen
                            </h3>
-                           <form action="/api/admin/projects/documents/create" method="POST">
-                             <input type="hidden" name="project_id" value={projectId} />
+
+                           {/* Tab-switcher: Upload | URL */}
+                           <div class="border-b border-gray-200 mb-4">
+                             <nav class="-mb-px flex space-x-4" aria-label="Tabs">
+                               <button type="button" id="doc-tab-upload"
+                                 onclick="switchDocTab('upload')"
+                                 class="px-3 py-2 border-b-2 border-animato-primary text-animato-primary font-medium text-sm">
+                                 <i class="fas fa-upload mr-1"></i> Bestand uploaden
+                               </button>
+                               <button type="button" id="doc-tab-url"
+                                 onclick="switchDocTab('url')"
+                                 class="px-3 py-2 border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 font-medium text-sm">
+                                 <i class="fas fa-link mr-1"></i> Externe link
+                               </button>
+                             </nav>
+                           </div>
+
+                           {/* Upload-tab (default) */}
+                           <div id="doc-tab-upload-panel">
                              <div class="mb-3">
                                <label class="block text-sm font-medium text-gray-700 mb-1">Naam Document</label>
-                               <input type="text" name="name" required placeholder="bv. Draaiboek Lenteconcert" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                               <input type="text" id="upload-doc-name" placeholder="bv. Draaiboek Lenteconcert (leeg = bestandsnaam)" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
                              </div>
                              <div class="mb-3">
-                               <label class="block text-sm font-medium text-gray-700 mb-1">URL / Link</label>
-                               <input type="url" name="file_url" required placeholder="https://..." class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                               <label class="block text-sm font-medium text-gray-700 mb-1">Bestand</label>
+                               <div id="doc-dropzone"
+                                 class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center cursor-pointer transition hover:border-animato-primary hover:bg-blue-50"
+                                 onclick="document.getElementById('doc-file-input').click()">
+                                 <i class="fas fa-cloud-upload-alt text-4xl text-gray-400 mb-2"></i>
+                                 <p class="text-sm font-medium text-gray-700" id="doc-dropzone-label">
+                                   Sleep een bestand hierheen, of klik om te kiezen
+                                 </p>
+                                 <p class="text-xs text-gray-500 mt-1">
+                                   PDF, Word, Excel, PowerPoint, afbeeldingen • Max 10 MB
+                                 </p>
+                                 <input type="file" id="doc-file-input" class="hidden"
+                                   accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.png,.jpg,.jpeg,.gif,.webp,.txt,.csv" />
+                               </div>
+                               <div id="doc-file-info" class="hidden mt-2 p-3 bg-blue-50 border border-blue-200 rounded flex items-center justify-between">
+                                 <div class="flex items-center gap-2 text-sm">
+                                   <i class="fas fa-file text-blue-600"></i>
+                                   <span id="doc-file-name" class="font-medium text-gray-900"></span>
+                                   <span id="doc-file-size" class="text-xs text-gray-500"></span>
+                                 </div>
+                                 <button type="button" onclick="clearDocFile()" class="text-red-500 hover:text-red-700" title="Wissen">
+                                   <i class="fas fa-times"></i>
+                                 </button>
+                               </div>
                              </div>
-                             <div class="mb-3">
-                               <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
-                               <select name="file_type" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
-                                 <option value="link">Link</option>
-                                 <option value="pdf">PDF</option>
-                                 <option value="doc">Word / Doc</option>
-                                 <option value="excel">Excel / Sheet</option>
-                                 <option value="image">Afbeelding</option>
-                                 <option value="other">Anders</option>
-                               </select>
+                             <div id="doc-upload-progress" class="hidden mb-3">
+                               <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                                 <div id="doc-upload-bar" class="bg-animato-primary h-full transition-all" style="width: 0%"></div>
+                               </div>
+                               <p id="doc-upload-status" class="text-xs text-gray-600 mt-1">Uploaden…</p>
                              </div>
+                             <div id="doc-upload-error" class="hidden mb-3 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-800"></div>
                              <div class="flex justify-end gap-3 mt-6">
                                <button type="button" onclick="document.getElementById('add-document-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition">Annuleren</button>
-                               <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary font-medium shadow-md transition">Opslaan</button>
+                               <button type="button" id="doc-upload-btn" onclick="submitDocUpload()"
+                                 class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary font-medium shadow-md transition disabled:opacity-50 disabled:cursor-not-allowed"
+                                 disabled>
+                                 <i class="fas fa-upload mr-1"></i> Upload &amp; opslaan
+                               </button>
                              </div>
-                           </form>
+                           </div>
+
+                           {/* URL-tab */}
+                           <div id="doc-tab-url-panel" class="hidden">
+                             <form action="/api/admin/projects/documents/create" method="POST">
+                               <input type="hidden" name="project_id" value={projectId} />
+                               <div class="mb-3">
+                                 <label class="block text-sm font-medium text-gray-700 mb-1">Naam Document</label>
+                                 <input type="text" name="name" required placeholder="bv. Draaiboek Lenteconcert" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                               </div>
+                               <div class="mb-3">
+                                 <label class="block text-sm font-medium text-gray-700 mb-1">URL / Link</label>
+                                 <input type="url" name="file_url" required placeholder="https://drive.google.com/… of https://onedrive.live.com/…" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary" />
+                               </div>
+                               <div class="mb-3">
+                                 <label class="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                                 <select name="file_type" class="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-animato-primary focus:border-animato-primary">
+                                   <option value="link">Link</option>
+                                   <option value="pdf">PDF</option>
+                                   <option value="doc">Word / Doc</option>
+                                   <option value="excel">Excel / Sheet</option>
+                                   <option value="image">Afbeelding</option>
+                                   <option value="other">Anders</option>
+                                 </select>
+                               </div>
+                               <div class="flex justify-end gap-3 mt-6">
+                                 <button type="button" onclick="document.getElementById('add-document-modal').classList.add('hidden')" class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium transition">Annuleren</button>
+                                 <button type="submit" class="px-4 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary font-medium shadow-md transition">Opslaan</button>
+                               </div>
+                             </form>
+                           </div>
                          </div>
                        </div>
                      </div>
@@ -2218,6 +2290,191 @@ app.get('/admin/projects/:id', async (c) => {
               }
               closeDeleteModal();
             });
+
+            // ============================================================
+            // Document upload + drag-and-drop — Dominique 2026-08-22
+            // ============================================================
+            const DOC_MAX_SIZE = 10 * 1024 * 1024; // 10 MB
+            const DOC_ALLOWED_EXTS = ['pdf','doc','docx','xls','xlsx','ppt','pptx','png','jpg','jpeg','gif','webp','txt','csv'];
+            let selectedDocFile = null;
+
+            function switchDocTab(which) {
+              const uploadTab = document.getElementById('doc-tab-upload');
+              const urlTab = document.getElementById('doc-tab-url');
+              const uploadPanel = document.getElementById('doc-tab-upload-panel');
+              const urlPanel = document.getElementById('doc-tab-url-panel');
+              if (which === 'upload') {
+                uploadTab.classList.add('border-animato-primary','text-animato-primary');
+                uploadTab.classList.remove('border-transparent','text-gray-500');
+                urlTab.classList.remove('border-animato-primary','text-animato-primary');
+                urlTab.classList.add('border-transparent','text-gray-500');
+                uploadPanel.classList.remove('hidden');
+                urlPanel.classList.add('hidden');
+              } else {
+                urlTab.classList.add('border-animato-primary','text-animato-primary');
+                urlTab.classList.remove('border-transparent','text-gray-500');
+                uploadTab.classList.remove('border-animato-primary','text-animato-primary');
+                uploadTab.classList.add('border-transparent','text-gray-500');
+                urlPanel.classList.remove('hidden');
+                uploadPanel.classList.add('hidden');
+              }
+            }
+            window.switchDocTab = switchDocTab;
+
+            function formatBytes(n) {
+              if (n < 1024) return n + ' B';
+              if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+              return (n/(1024*1024)).toFixed(2) + ' MB';
+            }
+
+            function validateDocFile(file) {
+              if (!file) return 'Geen bestand gekozen.';
+              if (file.size > DOC_MAX_SIZE) return 'Bestand is te groot (max 10 MB). Deze is ' + formatBytes(file.size) + '.';
+              const ext = (file.name.split('.').pop() || '').toLowerCase();
+              if (!DOC_ALLOWED_EXTS.includes(ext)) return 'Bestandstype "." + ' + ext + ' niet toegestaan. Toegelaten: ' + DOC_ALLOWED_EXTS.join(', ') + '.';
+              return null;
+            }
+
+            function setDocFile(file) {
+              const errBox = document.getElementById('doc-upload-error');
+              errBox.classList.add('hidden');
+              const err = validateDocFile(file);
+              if (err) {
+                errBox.textContent = err;
+                errBox.classList.remove('hidden');
+                clearDocFile();
+                return;
+              }
+              selectedDocFile = file;
+              document.getElementById('doc-file-name').textContent = file.name;
+              document.getElementById('doc-file-size').textContent = '(' + formatBytes(file.size) + ')';
+              document.getElementById('doc-file-info').classList.remove('hidden');
+              document.getElementById('doc-upload-btn').disabled = false;
+              // Pre-vul naam-veld met bestandsnaam zonder extensie als leeg
+              const nameInp = document.getElementById('upload-doc-name');
+              if (!nameInp.value) {
+                nameInp.value = file.name.replace(/\\.[^.]+$/, '');
+              }
+            }
+
+            function clearDocFile() {
+              selectedDocFile = null;
+              document.getElementById('doc-file-input').value = '';
+              document.getElementById('doc-file-info').classList.add('hidden');
+              document.getElementById('doc-upload-btn').disabled = true;
+              document.getElementById('doc-upload-progress').classList.add('hidden');
+              document.getElementById('doc-upload-error').classList.add('hidden');
+            }
+            window.clearDocFile = clearDocFile;
+
+            // File input change
+            const docFileInput = document.getElementById('doc-file-input');
+            if (docFileInput) {
+              docFileInput.addEventListener('change', function(e) {
+                const f = e.target.files && e.target.files[0];
+                if (f) setDocFile(f);
+              });
+            }
+
+            // Drag-and-drop op dropzone
+            const dropzone = document.getElementById('doc-dropzone');
+            if (dropzone) {
+              ['dragenter','dragover'].forEach(function(evt){
+                dropzone.addEventListener(evt, function(e){
+                  e.preventDefault(); e.stopPropagation();
+                  dropzone.classList.add('border-animato-primary','bg-blue-50');
+                });
+              });
+              ['dragleave','drop'].forEach(function(evt){
+                dropzone.addEventListener(evt, function(e){
+                  e.preventDefault(); e.stopPropagation();
+                  dropzone.classList.remove('bg-blue-50');
+                  if (evt === 'dragleave' && !dropzone.contains(e.relatedTarget)) {
+                    dropzone.classList.remove('border-animato-primary');
+                  }
+                });
+              });
+              dropzone.addEventListener('drop', function(e){
+                const files = e.dataTransfer && e.dataTransfer.files;
+                if (files && files.length > 0) {
+                  setDocFile(files[0]);
+                }
+              });
+            }
+
+            // Ook op de hele pagina drag-drop: als iemand een bestand op de pagina
+            // droppt terwijl de modal open is, wordt het overgenomen. Buiten modal
+            // negeren we het (anders gaat de browser 't bestand openen).
+            document.addEventListener('dragover', function(e){
+              const modal = document.getElementById('add-document-modal');
+              if (modal && !modal.classList.contains('hidden')) e.preventDefault();
+            });
+            document.addEventListener('drop', function(e){
+              const modal = document.getElementById('add-document-modal');
+              if (modal && !modal.classList.contains('hidden')) {
+                e.preventDefault();
+                const files = e.dataTransfer && e.dataTransfer.files;
+                if (files && files.length > 0) setDocFile(files[0]);
+              }
+            });
+
+            // Upload via XHR (voor progress)
+            function submitDocUpload() {
+              if (!selectedDocFile) return;
+              const btn = document.getElementById('doc-upload-btn');
+              const progWrap = document.getElementById('doc-upload-progress');
+              const progBar = document.getElementById('doc-upload-bar');
+              const progStatus = document.getElementById('doc-upload-status');
+              const errBox = document.getElementById('doc-upload-error');
+              errBox.classList.add('hidden');
+              btn.disabled = true;
+              progWrap.classList.remove('hidden');
+              progBar.style.width = '0%';
+              progStatus.textContent = 'Uploaden…';
+
+              const fd = new FormData();
+              fd.append('file', selectedDocFile);
+              fd.append('project_id', String(${projectId}));
+              const nameVal = document.getElementById('upload-doc-name').value.trim();
+              if (nameVal) fd.append('name', nameVal);
+
+              const xhr = new XMLHttpRequest();
+              xhr.open('POST', '/api/admin/projects/documents/upload');
+              xhr.upload.onprogress = function(e){
+                if (e.lengthComputable) {
+                  const pct = Math.round((e.loaded / e.total) * 100);
+                  progBar.style.width = pct + '%';
+                  progStatus.textContent = 'Uploaden… ' + pct + '%';
+                }
+              };
+              xhr.onload = function(){
+                if (xhr.status >= 200 && xhr.status < 300) {
+                  progBar.style.width = '100%';
+                  progStatus.textContent = 'Klaar! Herladen…';
+                  setTimeout(function(){ location.reload(); }, 300);
+                } else {
+                  let msg = 'Upload mislukt (HTTP ' + xhr.status + ')';
+                  try {
+                    const data = JSON.parse(xhr.responseText);
+                    if (data && data.error) msg = data.error;
+                  } catch (_) {
+                    if (xhr.responseText) msg = xhr.responseText.substring(0, 200);
+                  }
+                  errBox.textContent = msg;
+                  errBox.classList.remove('hidden');
+                  progWrap.classList.add('hidden');
+                  btn.disabled = false;
+                }
+              };
+              xhr.onerror = function(){
+                errBox.textContent = 'Netwerkfout tijdens upload. Probeer opnieuw.';
+                errBox.classList.remove('hidden');
+                progWrap.classList.add('hidden');
+                btn.disabled = false;
+              };
+              xhr.send(fd);
+            }
+            window.submitDocUpload = submitDocUpload;
           ` }} />
 
         </div>
@@ -2256,6 +2513,112 @@ app.post('/api/admin/projects/documents/create', async (c) => {
   ).bind(project_id, name, file_url, file_type || 'link').run()
 
   return c.redirect(`/admin/projects/${project_id}?tab=documents`)
+})
+
+// -----------------------------------------------------------
+// Document UPLOAD (multipart) — Dominique 2026-08-22
+// -----------------------------------------------------------
+// Upload een bestand naar R2 (bucket 'animato-storage') en registreer een
+// concert_project_documents rij die naar /r2/<key> wijst.
+//
+// Limieten:
+//   - Max 10 MB per bestand
+//   - MIME/ext whitelist (PDF, Word, Excel, PowerPoint, afbeeldingen, txt, csv)
+//   - Alleen admin/moderator/bestuurslid (via requireBestuurslid)
+//
+// Antwoord: JSON { ok: true, id, url } zodat de frontend zonder full-page-reload
+// kan reageren. Foutmelding: JSON { error: '...' } met 400/413/415/500.
+// -----------------------------------------------------------
+const DOC_MAX_SIZE_BYTES = 10 * 1024 * 1024
+const DOC_ALLOWED_EXTS = new Set([
+  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'txt', 'csv'
+])
+const EXT_TO_TYPE: Record<string, string> = {
+  pdf: 'pdf',
+  doc: 'doc', docx: 'doc',
+  xls: 'excel', xlsx: 'excel', csv: 'excel',
+  ppt: 'other', pptx: 'other',
+  png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image',
+  txt: 'other',
+}
+
+app.post('/api/admin/projects/documents/upload', requireBestuurslid, async (c) => {
+  if (!c.env.R2) {
+    return c.json({ error: 'R2 storage niet beschikbaar. Contacteer de beheerder.' }, 500)
+  }
+
+  let form: FormData
+  try {
+    form = await c.req.formData()
+  } catch (e: any) {
+    return c.json({ error: 'Formulier kon niet gelezen worden: ' + String(e?.message || e) }, 400)
+  }
+
+  const projectIdRaw = form.get('project_id')
+  const projectId = Number(projectIdRaw)
+  if (!projectId) return c.json({ error: 'project_id ontbreekt of ongeldig.' }, 400)
+
+  const file = form.get('file')
+  if (!file || typeof file === 'string') {
+    return c.json({ error: 'Geen bestand ontvangen.' }, 400)
+  }
+  const f = file as File
+
+  // Validatie: grootte
+  if (f.size > DOC_MAX_SIZE_BYTES) {
+    return c.json({
+      error: `Bestand te groot: ${(f.size / 1024 / 1024).toFixed(2)} MB (max ${DOC_MAX_SIZE_BYTES / 1024 / 1024} MB).`
+    }, 413)
+  }
+  if (f.size === 0) {
+    return c.json({ error: 'Bestand is leeg.' }, 400)
+  }
+
+  // Validatie: extensie (op naam, niet op MIME — MIME liegt soms bij .docx etc.)
+  const fname = f.name || 'document.bin'
+  const extMatch = fname.match(/\.([a-zA-Z0-9]+)$/)
+  const ext = extMatch ? extMatch[1].toLowerCase() : ''
+  if (!DOC_ALLOWED_EXTS.has(ext)) {
+    return c.json({
+      error: `Bestandstype .${ext || '?'} niet toegestaan. Toegelaten: ${Array.from(DOC_ALLOWED_EXTS).join(', ')}.`
+    }, 415)
+  }
+
+  // Naam: expliciet meegegeven > bestandsnaam zonder extensie
+  const providedName = String(form.get('name') || '').trim()
+  const displayName = providedName || fname.replace(/\.[^.]+$/, '')
+
+  // Upload naar R2 met prefix per project (makkelijk in bulk te verwijderen bij project-cleanup)
+  let uploadResult
+  try {
+    uploadResult = await uploadFileToR2(c.env.R2, `projects/${projectId}/documents`, f, fname)
+  } catch (e: any) {
+    console.error('[admin-projects] R2 upload failed:', e?.message || e)
+    return c.json({ error: 'Upload naar R2 mislukt: ' + String(e?.message || 'onbekende fout') }, 500)
+  }
+
+  // Registreer in DB — url wijst naar /r2/<key>, wordt geserveerd door src/routes/r2.tsx
+  const fileType = EXT_TO_TYPE[ext] || 'other'
+  try {
+    await c.env.DB.prepare(
+      `INSERT INTO concert_project_documents (project_id, titel, url, type)
+       VALUES (?, ?, ?, ?)`
+    ).bind(projectId, displayName, uploadResult.url, fileType).run()
+  } catch (e: any) {
+    // Als DB-insert faalt, ruim R2 op om dangling bestanden te vermijden
+    try { await c.env.R2.delete(uploadResult.key) } catch (_) {}
+    console.error('[admin-projects] DB insert after R2 upload failed:', e?.message || e)
+    return c.json({ error: 'Database-fout bij opslaan van document: ' + String(e?.message || 'onbekende fout') }, 500)
+  }
+
+  return c.json({
+    ok: true,
+    name: displayName,
+    url: uploadResult.url,
+    size: uploadResult.size,
+    type: fileType
+  })
 })
 
 app.get('/api/admin/projects/documents/:id/delete', async (c) => {

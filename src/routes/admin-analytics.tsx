@@ -677,7 +677,7 @@ app.get('/admin/analytics/email-rapport', async (c) => {
                   </label>
                   <input type="text" name="recipients"
                     value={cfg.recipients}
-                    placeholder="dominique@pensato.org, info@gemengdkooranimato.be"
+                    placeholder="info@gemengdkooranimato.be"
                     class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
                   />
                   <p class="text-xs text-gray-400 mt-1">Meerdere adressen scheiden met een komma</p>

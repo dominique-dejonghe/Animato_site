@@ -33,7 +33,7 @@ export interface MentionInfo {
  *   @marijke-van-goethem
  *   @dries.raes
  *   @Veerle_Mampaey
- *   @veerle.mampaey@pensato.org  → token stops bij @ → 'veerle.mampaey' (de domain wordt niet gevangen — bewust)
+ *   @voornaam.achternaam@voorbeeld.org  → token stopt bij @ → 'voornaam.achternaam' (domein wordt niet gevangen — bewust)
  *
  * NB: een @-teken aan de start van de match wordt niet behouden in groep 1.
  */

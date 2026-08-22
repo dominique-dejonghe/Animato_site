@@ -15,9 +15,9 @@ import { getReactionsForTargets } from '../utils/comment-reactions'
 // Helper: hosts die als 'intern' gelden bij rich-text linkprocessing (#90)
 function siteHosts(url: string): string[] {
   try {
-    return [new URL(url).hostname, 'animato-live.pages.dev', 'animato.be', 'www.animato.be']
+    return [new URL(url).hostname, 'animato-live.pages.dev', 'gemengdkooranimato.be', 'www.gemengdkooranimato.be']
   } catch {
-    return ['animato-live.pages.dev', 'animato.be', 'www.animato.be']
+    return ['animato-live.pages.dev', 'gemengdkooranimato.be', 'www.gemengdkooranimato.be']
   }
 }
 

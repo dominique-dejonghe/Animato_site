@@ -556,8 +556,8 @@ app.get('/nieuws/:slug', async (c) => {
             dangerouslySetInnerHTML={{ __html: processBodyLinks(artikel.body, [
               new URL(c.req.url).hostname,
               'animato-live.pages.dev',
-              'animato.be',
-              'www.animato.be'
+              'gemengdkooranimato.be',
+              'www.gemengdkooranimato.be'
             ]) }}
           />
 

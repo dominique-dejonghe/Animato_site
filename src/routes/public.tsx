@@ -67,9 +67,9 @@ app.get('/', async (c) => {
     "@context": "https://schema.org",
     "@type": "MusicGroup",
     "name": "Gemengd Koor Animato",
-    "url": "https://animato.be",
-    "logo": "https://animato.be/static/logo.png",
-    "image": "https://animato.be/static/cover.jpg",
+    "url": "https://www.gemengdkooranimato.be",
+    "logo": "https://www.gemengdkooranimato.be/static/logo.png",
+    "image": "https://www.gemengdkooranimato.be/static/cover.jpg",
     "description": "Een dynamisch gemengd koor uit Brussel dat klassieke meesterwerken en moderne composities brengt.",
     "foundingDate": "1988",
     "location": {
@@ -99,7 +99,7 @@ app.get('/', async (c) => {
         "name": concert.locatie,
         "address": concert.locatie
       },
-      "image": concert.poster_url || "https://animato.be/static/default-concert.jpg",
+      "image": concert.poster_url || "https://www.gemengdkooranimato.be/static/default-concert.jpg",
       "description": `Concert van Gemengd Koor Animato: ${concert.titel}`,
       "performer": {
         "@type": "MusicGroup",
@@ -107,7 +107,7 @@ app.get('/', async (c) => {
       },
       "offers": {
         "@type": "Offer",
-        "url": `https://animato.be/concerten/${concert.slug}`,
+        "url": `https://www.gemengdkooranimato.be/concerten/${concert.slug}`,
         "availability": "https://schema.org/InStock"
       }
     }))
@@ -841,7 +841,7 @@ app.get('/contact', async (c) => {
     console.warn('contact editable_pages lookup failed:', e)
   }
   const url = new URL(c.req.url)
-  const siteHosts = [url.hostname, 'animato-live.pages.dev', 'animato.be']
+  const siteHosts = [url.hostname, 'animato-live.pages.dev', 'gemengdkooranimato.be', 'www.gemengdkooranimato.be']
   const pageTitel = (pageOverride?.titel || 'Contact').trim()
   const pageIntro = pageOverride?.intro?.trim() || ''
   const pageBody = pageOverride?.body?.trim() || ''

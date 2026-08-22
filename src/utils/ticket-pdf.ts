@@ -262,8 +262,8 @@ export async function generateSeatTicketPdf(data: SeatTicketPdfData): Promise<Ui
   const footerLines = [
     '• Eén QR-code per stoel. Toon dit ticket op je smartphone of geprint bij de ingang.',
     '• Tickets zijn persoonlijk en niet-overdraagbaar zonder voorafgaande toestemming.',
-    '• Bij verlies kan je een duplicaat opvragen via tickets@animato.be (vermeld je ordernummer).',
-    `• Vragen? Mail naar tickets@animato.be — vermeld order ${data.order_ref}.`
+    '• Bij verlies kan je een duplicaat opvragen via info@gemengdkooranimato.be (vermeld je ordernummer).',
+    `• Vragen? Mail naar info@gemengdkooranimato.be — vermeld order ${data.order_ref}.`
   ]
   let fy = footerY - 4
   for (const fl of footerLines) {
@@ -393,8 +393,8 @@ export async function generateTicketPdf(data: TicketPdfData): Promise<Uint8Array
     const footerLines = [
       '• Eén QR-code per ticket-categorie. Toon dit ticket op je smartphone of geprint bij de ingang.',
       '• Tickets zijn persoonlijk en niet-overdraagbaar zonder voorafgaande toestemming.',
-      '• Bij verlies kan je een duplicaat opvragen via tickets@animato.be (vermeld je ordernummer).',
-      `• Vragen? Mail naar tickets@animato.be — vermeld order ${data.order_ref}.`
+      '• Bij verlies kan je een duplicaat opvragen via info@gemengdkooranimato.be (vermeld je ordernummer).',
+      `• Vragen? Mail naar info@gemengdkooranimato.be — vermeld order ${data.order_ref}.`
     ]
     let fy = footerY - 4
     for (const fl of footerLines) {

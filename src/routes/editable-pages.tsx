@@ -87,7 +87,7 @@ app.use('/:slug', async (c, next) => {
   const intro = page.intro || ''
   const body = page.body || '<p>Deze pagina wordt nog ingevuld.</p>'
   const url = new URL(c.req.url)
-  const siteHosts = [url.hostname, 'animato-live.pages.dev', 'animato.be']
+  const siteHosts = [url.hostname, 'animato-live.pages.dev', 'gemengdkooranimato.be', 'www.gemengdkooranimato.be']
 
   return c.html(
     <Layout title={titel} user={user} currentPath={`/${slug}`}>

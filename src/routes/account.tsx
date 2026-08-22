@@ -62,7 +62,7 @@ app.get('/account/setup', async (c) => {
   }
 
   if (user.account_setup_token_expires && new Date(user.account_setup_token_expires) < new Date()) {
-    return c.html(renderSetupError('Link verlopen', 'Deze link is meer dan 14 dagen oud. Neem contact op met tickets@animato.be voor een nieuwe.'))
+    return c.html(renderSetupError('Link verlopen', 'Deze link is meer dan 14 dagen oud. Neem contact op met info@gemengdkooranimato.be voor een nieuwe.'))
   }
 
   // Toon wachtwoord-formulier
@@ -143,7 +143,7 @@ app.post('/account/setup', async (c) => {
       'Deze link is al gebruikt. Log in met je e-mail en wachtwoord.', '/login'))
   }
   if (user.account_setup_token_expires && new Date(user.account_setup_token_expires) < new Date()) {
-    return c.html(renderSetupError('Link verlopen', 'Vraag een nieuwe link via tickets@animato.be.'))
+    return c.html(renderSetupError('Link verlopen', 'Vraag een nieuwe link via info@gemengdkooranimato.be.'))
   }
 
   // Wachtwoord hashen en opslaan, token invalideren, account markeren als compleet
@@ -231,7 +231,7 @@ app.get('/profiel', requireAuth, async (c) => {
               <label class="block text-sm font-medium text-gray-700 mb-1">E-mailadres</label>
               <input type="email" value={user.email} disabled
                 class="w-full px-4 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-600" />
-              <p class="text-xs text-gray-500 mt-1">E-mail kan niet gewijzigd worden. Neem contact op met tickets@animato.be indien nodig.</p>
+              <p class="text-xs text-gray-500 mt-1">E-mail kan niet gewijzigd worden. Neem contact op met info@gemengdkooranimato.be indien nodig.</p>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>

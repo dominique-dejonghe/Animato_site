@@ -188,7 +188,7 @@ app.get('/leden/mijn-tickets', async (c) => {
               <p class="text-gray-500 mb-4">
                 We vinden geen tickets onder <strong>{user.email}</strong>.
                 Heb je gekocht met een ander emailadres? Neem contact op via{' '}
-                <a href="mailto:tickets@animato.be" class="text-animato-primary hover:underline">tickets@animato.be</a>.
+                <a href="mailto:info@gemengdkooranimato.be" class="text-animato-primary hover:underline">info@gemengdkooranimato.be</a>.
               </p>
               <a href="/concerten" class="inline-block mt-2 px-5 py-2 bg-animato-primary text-white rounded-lg hover:bg-animato-secondary transition">
                 Bekijk concerten
@@ -411,7 +411,7 @@ app.get('/leden/mijn-tickets/:order_ref', async (c) => {
           )}
 
           <div class="mt-6 text-xs text-gray-500 text-center">
-            Tickets zijn persoonlijk. Bij verlies: mail naar <a href="mailto:tickets@animato.be" class="text-animato-primary">tickets@animato.be</a> met je ordernummer.
+            Tickets zijn persoonlijk. Bij verlies: mail naar <a href="mailto:info@gemengdkooranimato.be" class="text-animato-primary">info@gemengdkooranimato.be</a> met je ordernummer.
           </div>
 
         </div>

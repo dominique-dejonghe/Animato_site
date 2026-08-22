@@ -223,7 +223,7 @@ app.post('/api/word-lid', async (c) => {
         subject: `[Animato] Nieuwe aanmelding: ${voornaam} ${achternaam}`,
         html: adminAlertEmail({
           titel: `Nieuwe aanmelding van ${voornaam} ${achternaam}`,
-          intro: `Er is een nieuwe registratie-aanvraag binnengekomen via het "Word lid"-formulier op animato.be. Bekijk en volg op via het admin-paneel.`,
+          intro: `Er is een nieuwe registratie-aanvraag binnengekomen via het "Word lid"-formulier op gemengdkooranimato.be. Bekijk en volg op via het admin-paneel.`,
           details,
           actionLink: '/admin/aanvragen',
           actionLabel: 'Bekijk aanvragen',
@@ -287,14 +287,14 @@ app.post('/api/contact', async (c) => {
 
     // Email versturen naar het koor
     const emailHtml = [
-      '<h2>Nieuw contactbericht via animato.be</h2>',
+      '<h2>Nieuw contactbericht via gemengdkooranimato.be</h2>',
       '<table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;">',
       `<tr><td style="padding:8px;font-weight:bold;background:#f5f5f5;width:120px;">Naam</td><td style="padding:8px;border-bottom:1px solid #eee;">${naam}</td></tr>`,
       `<tr><td style="padding:8px;font-weight:bold;background:#f5f5f5;">E-mail</td><td style="padding:8px;border-bottom:1px solid #eee;"><a href="mailto:${email}">${email}</a></td></tr>`,
       `<tr><td style="padding:8px;font-weight:bold;background:#f5f5f5;">Onderwerp</td><td style="padding:8px;border-bottom:1px solid #eee;">${onderwerp}</td></tr>`,
       `<tr><td style="padding:8px;font-weight:bold;background:#f5f5f5;vertical-align:top;">Bericht</td><td style="padding:8px;white-space:pre-wrap;">${bericht.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td></tr>`,
       '</table>',
-      '<p style="color:#888;font-size:12px;margin-top:16px;">Verzonden via het contactformulier op animato.be</p>'
+      '<p style="color:#888;font-size:12px;margin-top:16px;">Verzonden via het contactformulier op gemengdkooranimato.be</p>'
     ].join('')
 
     try {

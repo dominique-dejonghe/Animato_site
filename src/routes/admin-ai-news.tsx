@@ -565,7 +565,7 @@ app.get('/admin/ai-nieuws', async (c) => {
                 { name: 'wanneer', label: 'Wanneer?', placeholder: 'bv. zaterdag 21 maart 2026, 20u', required: true },
                 { name: 'waar', label: 'Waar?', placeholder: 'bv. Sint-Pieterskerk Oppuurs', required: true },
                 { name: 'programma', label: 'Programma / inhoud', type: 'textarea', placeholder: 'bv. We brengen werken van Mozart, Brahms en eigentijdse pop-arrangementen.' },
-                { name: 'tickets', label: 'Tickets / inschrijving', placeholder: 'bv. €15 aan de kassa, vvk €12 via animato.be/tickets' },
+                { name: 'tickets', label: 'Tickets / inschrijving', placeholder: 'bv. €15 aan de kassa, vvk €12 via gemengdkooranimato.be/tickets' },
                 { name: 'bijzonderheden', label: 'Bijzonderheden', type: 'textarea', placeholder: 'Speciale gasten, samenwerking, eerste keer iets, ...' }
               ]
             },

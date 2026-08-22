@@ -191,7 +191,7 @@ export function orderConfirmationEmail(data: {
   </div>
   
   <div class="footer">
-    <p>Gemengd Koor Animato | www.animato.be</p>
+    <p>Gemengd Koor Animato | www.gemengdkooranimato.be</p>
     <p style="font-size: 12px; color: #999;">
       Deze email is verstuurd naar ${data.koperNaam}
     </p>
@@ -324,7 +324,7 @@ export function ticketEmail(data: {
         <li>Bewaar de PDF-bijlage goed — je hebt hem nodig bij de ingang</li>
         <li>Print je ticket uit OF toon de QR-code op je smartphone</li>
         <li>Kom op tijd — deuren openen ca. 30 minuten voor aanvang</li>
-        <li>Bij verlies: neem contact op met <a href="mailto:tickets@animato.be">tickets@animato.be</a> (vermeld je ordernummer)</li>
+        <li>Bij verlies: neem contact op met <a href="mailto:info@gemengdkooranimato.be">info@gemengdkooranimato.be</a> (vermeld je ordernummer)</li>
       </ul>
     </div>
     
@@ -339,7 +339,7 @@ export function ticketEmail(data: {
   </div>
   
   <div class="footer">
-    <p>Gemengd Koor Animato | www.animato.be</p>
+    <p>Gemengd Koor Animato | www.gemengdkooranimato.be</p>
     <p style="font-size: 12px; color: #999;">
       Order referentie: ${data.orderRef}
     </p>
@@ -445,7 +445,7 @@ const TYPE_ACCENT: Record<string, { color: string; emoji: string; label: string 
  * Bouw een simpele, mobiel-vriendelijke HTML-email voor een notificatie.
  *
  * @param data.link — optioneel. Als het een pad is (/leden/…) prependen we
- *                    https://animato.be zodat de link ook in mail-clients klopt.
+ *                    https://www.gemengdkooranimato.be zodat de link ook in mail-clients klopt.
  */
 export function notificationEmail(data: {
   voornaam: string | null
@@ -462,7 +462,7 @@ export function notificationEmail(data: {
   if (data.link) {
     absoluteLink = data.link.startsWith('http')
       ? data.link
-      : `https://animato.be${data.link.startsWith('/') ? '' : '/'}${data.link}`
+      : `https://www.gemengdkooranimato.be${data.link.startsWith('/') ? '' : '/'}${data.link}`
   }
 
   // Body ondersteunt eenvoudige newlines
@@ -510,7 +510,7 @@ export function notificationEmail(data: {
     <div style="text-align:center;padding:20px 12px;color:#6b7280;font-size:12px;line-height:1.5;">
       Deze e-mail komt van <strong>Gemengd Koor Animato</strong>.<br>
       Wil je dit soort mails niet meer ontvangen? Pas je voorkeuren aan via
-      <a href="https://animato.be/leden/profiel#notificaties" style="color:#00A9CE;">je profielinstellingen</a>.<br>
+      <a href="https://www.gemengdkooranimato.be/leden/profiel#notificaties" style="color:#00A9CE;">je profielinstellingen</a>.<br>
       <span style="color:#9ca3af;">info@gemengdkooranimato.be</span>
     </div>
   </div>
@@ -557,14 +557,14 @@ export function adminAlertEmail(data: {
       </table>
       ${data.actionLink ? `
       <div style="text-align:center;margin:24px 0 8px 0;">
-        <a href="${escapeHtml(data.actionLink.startsWith('http') ? data.actionLink : 'https://animato.be' + data.actionLink)}"
+        <a href="${escapeHtml(data.actionLink.startsWith('http') ? data.actionLink : 'https://www.gemengdkooranimato.be' + data.actionLink)}"
            style="display:inline-block;background:#00A9CE;color:#ffffff;padding:11px 24px;text-decoration:none;border-radius:8px;font-weight:600;font-size:14px;">
           ${escapeHtml(data.actionLabel || 'Bekijk in admin')} →
         </a>
       </div>` : ''}
     </div>
     <div style="text-align:center;padding:16px 12px;color:#9ca3af;font-size:11px;">
-      Automatische melding van animato.be — niet beantwoorden.
+      Automatische melding van gemengdkooranimato.be — niet beantwoorden.
     </div>
   </div>
 </body>

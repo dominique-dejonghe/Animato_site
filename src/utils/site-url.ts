@@ -13,10 +13,9 @@
 //   4. Hardcoded fallback              (www.gemengdkooranimato.be)
 //
 // Waarom een helper?
-//   Eerder stond overal `c.env.SITE_URL || 'https://animato.be'` hardcoded
-//   verspreid in 6 bestanden. `animato.be` is echter niet de actieve
-//   deployment-host, waardoor Mollie-redirects faalden en webhooks
-//   nooit binnenkwamen (ticket bleef vast op 'pending').
+//   Eerder stond `c.env.SITE_URL || 'https://animato.be'` hardcoded verspreid
+//   in 6 bestanden. Het koor gebruikt uitsluitend gemengdkooranimato.be —
+//   verkeerde host in Mollie redirect → 422 error, ticket blijft op 'pending'.
 // ============================================================
 
 import { queryOne } from './db'
@@ -30,8 +29,6 @@ export const DEFAULT_SITE_URL = 'https://www.gemengdkooranimato.be'
 // custom test-domeinen) mag NOOIT als Mollie redirect/webhook-URL de deur uit
 // — Mollie weigert dan met 422 "The redirect URL doesn't match your profile URL".
 const ALLOWED_PUBLIC_HOSTS = new Set<string>([
-  'animato.be',
-  'www.animato.be',
   'gemengdkooranimato.be',
   'www.gemengdkooranimato.be',
 ])

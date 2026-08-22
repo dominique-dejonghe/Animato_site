@@ -25,6 +25,17 @@ import type { Context } from 'hono'
 // Publieke koor-domein — één fallback voor e-mails en publieke links
 export const DEFAULT_SITE_URL = 'https://www.gemengdkooranimato.be'
 
+// Hosts die WEL gebruikt mogen worden als request-origin fallback.
+// Alles wat niet in deze lijst staat (bv. *.pages.dev previews, workers.dev,
+// custom test-domeinen) mag NOOIT als Mollie redirect/webhook-URL de deur uit
+// — Mollie weigert dan met 422 "The redirect URL doesn't match your profile URL".
+const ALLOWED_PUBLIC_HOSTS = new Set<string>([
+  'animato.be',
+  'www.animato.be',
+  'gemengdkooranimato.be',
+  'www.gemengdkooranimato.be',
+])
+
 /**
  * Normaliseer een URL-string: trim, strip trailing slash.
  * Geeft '' terug als input ongeldig/leeg is.
@@ -36,6 +47,21 @@ function normalize(raw: string | null | undefined): string {
   // Moet beginnen met http(s)://
   if (!/^https?:\/\//i.test(t)) return ''
   return t
+}
+
+/**
+ * Is deze URL veilig om naar Mollie te sturen als redirect/webhook?
+ * Enkel als de host in ALLOWED_PUBLIC_HOSTS zit én https is.
+ */
+function isAllowedPublicUrl(raw: string): boolean {
+  if (!raw) return false
+  try {
+    const u = new URL(raw)
+    if (u.protocol !== 'https:') return false
+    return ALLOWED_PUBLIC_HOSTS.has(u.hostname.toLowerCase())
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -91,9 +117,11 @@ export async function getSiteUrl(c: Context | undefined): Promise<string> {
   const fromEnv = normalize(c?.env?.SITE_URL)
   if (fromEnv) return fromEnv
 
-  // 3. Request-origin (auto-detect)
+  // 3. Request-origin (auto-detect) — ENKEL als het een erkend publiek domein
+  //    is. Preview-hosts als *.pages.dev mogen NOOIT als Mollie-redirect
+  //    doorlekken (Mollie weigert dan met 422).
   const fromReq = normalize(originFromContext(c))
-  if (fromReq) return fromReq
+  if (fromReq && isAllowedPublicUrl(fromReq)) return fromReq
 
   // 4. Hardcoded fallback
   return DEFAULT_SITE_URL

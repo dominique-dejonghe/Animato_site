@@ -3137,4 +3137,255 @@ app.post('/api/admin/donations/sync-mollie-bulk', async (c) => {
   return c.redirect(`/admin/lidgelden?${params.toString()}`)
 })
 
+// ============================================================
+// Mollie-selfcheck — Dominique 2026-08-22
+// ============================================================
+// Diagnostische pagina die in één oogopslag toont of Mollie's profiel-instellingen
+// nog overeenkomen met onze publieke site-URL. Was hard nodig: eind aug 2026 hebben
+// we een dag donaties verloren omdat het Mollie-profiel nog op de oude
+// animato-live.pages.dev preview-URL stond. De 422-fout was pas zichtbaar wanneer
+// een echte bezoeker probeerde te doneren — met deze pagina zien we het direct.
+//
+// Doet 2 API-calls:
+//   1. GET /v2/profiles/me       → welk profiel + welke website-URL kent Mollie?
+//   2. POST /v2/payments (€0.01) → probeert echt een payment aan te maken met
+//                                  onze redirectUrl. Als Mollie 422 geeft,
+//                                  weten we dat het profiel niet klopt.
+//                                  Deze test-payment wordt onmiddellijk NIET
+//                                  bevestigd — Mollie laat 'm gewoon expireren.
+// ============================================================
+app.get('/admin/finance/mollie-check', async (c) => {
+  const token = getCookie(c, 'token')
+  if (!token) return c.redirect('/login')
+  const user = await verifyToken(token, c.env.JWT_SECRET)
+  if (!user || (user.role !== 'admin' && user.role !== 'moderator')) {
+    return c.redirect('/login')
+  }
+
+  const apiKey = await getMollieApiKey(c.env)
+  const mode = getMollieMode(apiKey)
+  const ourSiteUrl = await getSiteUrl(c)
+
+  // 1. Profiel ophalen
+  let profile: any = null
+  let profileError: string | null = null
+  if (mode === 'live' || mode === 'test') {
+    try {
+      const res = await fetch('https://api.mollie.com/v2/profiles/me', {
+        headers: { 'Authorization': `Bearer ${apiKey}` }
+      })
+      if (res.ok) {
+        profile = await res.json()
+      } else {
+        profileError = `HTTP ${res.status}: ${(await res.text()).substring(0, 200)}`
+      }
+    } catch (e: any) {
+      profileError = String(e?.message || e)
+    }
+  }
+
+  // 2. Test-payment aanmaken
+  let paymentTest: { ok: boolean; error?: string; checkoutUrl?: string; id?: string } = { ok: false }
+  if (mode === 'live' || mode === 'test') {
+    try {
+      const res = await fetch('https://api.mollie.com/v2/payments', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          amount: { currency: 'EUR', value: '0.01' },
+          description: 'Selfcheck — safe to ignore',
+          redirectUrl: `${ourSiteUrl}/steun-ons?success=true`,
+          webhookUrl: `${ourSiteUrl}/api/webhooks/mollie`,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json() as any
+        paymentTest = { ok: true, checkoutUrl: data._links?.checkout?.href, id: data.id }
+      } else {
+        const errText = await res.text()
+        paymentTest = { ok: false, error: `HTTP ${res.status}: ${errText.substring(0, 400)}` }
+      }
+    } catch (e: any) {
+      paymentTest = { ok: false, error: String(e?.message || e) }
+    }
+  }
+
+  // Vergelijk profiel-URL met onze site-URL
+  const profileWebsite = String(profile?.website || '').replace(/\/+$/, '')
+  const oursNormalized = ourSiteUrl.replace(/\/+$/, '')
+  const websitesMatch = profileWebsite && (
+    profileWebsite === oursNormalized ||
+    profileWebsite.replace(/^https?:\/\/(www\.)?/, '') === oursNormalized.replace(/^https?:\/\/(www\.)?/, '')
+  )
+
+  return c.html(
+    <Layout title="Mollie selfcheck" user={user}>
+      <div class="flex">
+        <AdminSidebar currentPath="/admin/finance/mollie-check" user={user} />
+        <div class="flex-1 p-6 md:p-10 max-w-4xl">
+          <h1 class="text-3xl font-bold text-gray-900 mb-2">
+            <i class="fas fa-heartbeat text-red-500 mr-2"></i>
+            Mollie configuratie-check
+          </h1>
+          <p class="text-gray-600 mb-8">
+            Controleert of onze Mollie-instellingen nog overeenkomen met onze publieke website-URL.
+            Voer deze check uit na elke domein-wijziging of als je vermoedt dat Mollie 422-fouten geeft.
+          </p>
+
+          {/* Sectie 1: Mode + API-key */}
+          <div class="bg-white rounded-lg shadow p-6 mb-4">
+            <h2 class="text-lg font-bold mb-3">
+              <i class="fas fa-key text-gray-500 mr-2"></i>
+              API-key
+            </h2>
+            <div class="space-y-2 text-sm">
+              <div class="flex items-center gap-3">
+                <span class="text-gray-600 w-32">Mode:</span>
+                <span class={
+                  mode === 'live'
+                    ? 'inline-flex items-center gap-1 px-2 py-0.5 rounded bg-green-100 text-green-800 font-semibold'
+                    : mode === 'test'
+                    ? 'inline-flex items-center gap-1 px-2 py-0.5 rounded bg-yellow-100 text-yellow-800 font-semibold'
+                    : 'inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-100 text-red-800 font-semibold'
+                }>
+                  <i class={mode === 'live' ? 'fas fa-broadcast-tower' : mode === 'test' ? 'fas fa-flask' : 'fas fa-exclamation-triangle'}></i>
+                  {mode.toUpperCase()}
+                </span>
+              </div>
+              <div class="flex items-center gap-3">
+                <span class="text-gray-600 w-32">Key preview:</span>
+                <code class="text-xs bg-gray-100 px-2 py-1 rounded">
+                  {apiKey ? apiKey.substring(0, 12) + '…' + apiKey.substring(apiKey.length - 4) : '(geen key)'}
+                </code>
+              </div>
+            </div>
+          </div>
+
+          {/* Sectie 2: profiel-check */}
+          <div class="bg-white rounded-lg shadow p-6 mb-4">
+            <h2 class="text-lg font-bold mb-3">
+              <i class="fas fa-id-card text-gray-500 mr-2"></i>
+              Mollie profiel
+            </h2>
+            {profileError && (
+              <div class="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-800 mb-3">
+                <i class="fas fa-times-circle mr-1"></i>
+                Kon profiel niet ophalen: <code class="bg-white/50 px-1 rounded">{profileError}</code>
+              </div>
+            )}
+            {profile && (
+              <table class="w-full text-sm">
+                <tbody>
+                  <tr class="border-b border-gray-100">
+                    <td class="py-2 text-gray-600 w-40">Profielnaam:</td>
+                    <td class="py-2 font-semibold">{profile.name}</td>
+                  </tr>
+                  <tr class="border-b border-gray-100">
+                    <td class="py-2 text-gray-600">Profiel-ID:</td>
+                    <td class="py-2"><code class="text-xs bg-gray-100 px-1 rounded">{profile.id}</code></td>
+                  </tr>
+                  <tr class="border-b border-gray-100">
+                    <td class="py-2 text-gray-600">Status:</td>
+                    <td class="py-2">
+                      <span class={profile.status === 'verified' ? 'text-green-700' : 'text-yellow-700'}>
+                        <i class={profile.status === 'verified' ? 'fas fa-check-circle mr-1' : 'fas fa-clock mr-1'}></i>
+                        {profile.status}
+                      </span>
+                    </td>
+                  </tr>
+                  <tr class="border-b border-gray-100">
+                    <td class="py-2 text-gray-600">Contact-email:</td>
+                    <td class="py-2">{profile.email}</td>
+                  </tr>
+                  <tr class="border-b border-gray-100">
+                    <td class="py-2 text-gray-600">Website in Mollie:</td>
+                    <td class="py-2">
+                      <code class="text-xs bg-gray-100 px-2 py-1 rounded">{profile.website || '(leeg)'}</code>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="py-2 text-gray-600">Onze site-URL:</td>
+                    <td class="py-2">
+                      <code class="text-xs bg-gray-100 px-2 py-1 rounded">{ourSiteUrl}</code>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            )}
+            {profile && (
+              <div class={
+                websitesMatch
+                  ? 'mt-4 bg-green-50 border border-green-200 rounded p-3 text-sm text-green-900'
+                  : 'mt-4 bg-red-50 border border-red-300 rounded p-3 text-sm text-red-900'
+              }>
+                {websitesMatch ? (
+                  <><i class="fas fa-check-circle mr-1"></i> Website-URLs komen overeen.</>
+                ) : (
+                  <>
+                    <div class="font-semibold mb-1"><i class="fas fa-exclamation-triangle mr-1"></i> Mismatch!</div>
+                    Mollie kent onze site nog niet onder de juiste URL.
+                    Ga naar het Mollie dashboard en pas de "Website URL" aan van
+                    <code class="mx-1 bg-white/50 px-1 rounded">{profile.website || '(leeg)'}</code>
+                    naar
+                    <code class="mx-1 bg-white/50 px-1 rounded">{ourSiteUrl}</code>.
+                    {profile._links?.dashboard?.href && (
+                      <div class="mt-2">
+                        <a href={profile._links.dashboard.href} target="_blank" rel="noreferrer" class="inline-flex items-center gap-1 text-red-700 underline font-semibold">
+                          Open Mollie profiel-instellingen <i class="fas fa-external-link-alt text-xs"></i>
+                        </a>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Sectie 3: echte test-payment */}
+          <div class="bg-white rounded-lg shadow p-6 mb-4">
+            <h2 class="text-lg font-bold mb-3">
+              <i class="fas fa-vial text-gray-500 mr-2"></i>
+              Payment-creatie test
+            </h2>
+            <p class="text-xs text-gray-500 mb-3">
+              Probeert een €0,01 payment aan te maken met onze redirectUrl. Als Mollie 422 geeft, weten we zeker
+              dat het profiel niet klopt. De test-payment wordt niet bevestigd — Mollie laat 'm expireren.
+            </p>
+            {paymentTest.ok ? (
+              <div class="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-900">
+                <div class="font-semibold mb-1"><i class="fas fa-check-circle mr-1"></i> Payment aangemaakt!</div>
+                Mollie accepteert onze redirectUrl. Bezoekers kunnen doneren.
+                <div class="mt-2 text-xs text-gray-600">
+                  Test-payment ID: <code class="bg-white px-1 rounded">{paymentTest.id}</code>
+                </div>
+              </div>
+            ) : (
+              <div class="bg-red-50 border border-red-300 rounded p-3 text-sm text-red-900">
+                <div class="font-semibold mb-1"><i class="fas fa-times-circle mr-1"></i> Payment MISLUKT</div>
+                <code class="text-xs bg-white/50 px-2 py-1 rounded block break-all">{paymentTest.error}</code>
+                <p class="mt-2">
+                  Zolang deze fout blijft bestaan, kunnen bezoekers niet doneren, geen tickets kopen, geen lidgeld
+                  betalen. Fix eerst de Mollie profiel-instellingen zoals hierboven aangegeven.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div class="mt-6 flex gap-2">
+            <a href="/admin/finance/mollie-check" class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-semibold">
+              <i class="fas fa-sync"></i> Opnieuw controleren
+            </a>
+            <a href="/admin/lidgelden" class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 text-sm font-semibold">
+              <i class="fas fa-arrow-left"></i> Terug naar finance
+            </a>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  )
+})
+
 export default app

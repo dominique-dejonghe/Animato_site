@@ -9,6 +9,21 @@ import type { Bindings } from '../types'
 const app = new Hono<{ Bindings: Bindings }>()
 
 app.get('/steun-ons', (c) => {
+  // Error-parameter uitlezen (bv. ?error=payment_setup_failed). Bepaalt of we
+  // een banner tonen boven het formulier — Dominique 2026-08-22: bij een Mollie
+  // 422 werd de bezoeker vroeger naar een cryptische "Er ging iets mis" pagina
+  // gestuurd zonder duidelijk terug-pad. Nu blijft ze op /steun-ons.
+  const errorCode = (c.req.query('error') || '').trim()
+  const ERROR_MESSAGES: Record<string, string> = {
+    invalid_amount: 'Het ingevulde bedrag is ongeldig. Vul minstens €1 in.',
+    payment_setup_failed: 'De verbinding met onze betaalprovider is momenteel niet in orde. Onze technische ploeg is verwittigd. Probeer het over enkele uren opnieuw, of neem contact op via info@gemengdkooranimato.be.',
+    payment_provider_unavailable: 'Onze betaalprovider is tijdelijk niet bereikbaar. Probeer het straks opnieuw.',
+  }
+  const errorMessage = errorCode && ERROR_MESSAGES[errorCode]
+    ? ERROR_MESSAGES[errorCode]
+    : (errorCode ? 'Er ging iets mis bij het opstarten van de betaling. Probeer opnieuw of neem contact op.' : '')
+  const success = c.req.query('success') === 'true'
+
   return c.html(
     <Layout title="Steun Animato" currentPath="/steun-ons">
       <div class="py-12 bg-gray-50 min-h-screen">
@@ -27,6 +42,26 @@ app.get('/steun-ons', (c) => {
               <span>Terug</span>
             </a>
           </div>
+
+          {errorMessage && (
+            <div class="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 flex items-start gap-3" role="alert">
+              <i class="fas fa-exclamation-triangle text-red-500 text-xl mt-0.5"></i>
+              <div class="flex-1">
+                <div class="font-semibold text-red-800 mb-1">Betaling niet opgestart</div>
+                <div class="text-sm text-red-700">{errorMessage}</div>
+              </div>
+            </div>
+          )}
+
+          {success && (
+            <div class="mb-6 rounded-lg border border-green-200 bg-green-50 p-4 flex items-start gap-3">
+              <i class="fas fa-check-circle text-green-500 text-xl mt-0.5"></i>
+              <div class="flex-1">
+                <div class="font-semibold text-green-800 mb-1">Bedankt voor je gift!</div>
+                <div class="text-sm text-green-700">Je bijdrage werd geregistreerd. Van harte dank voor je steun aan Animato.</div>
+              </div>
+            </div>
+          )}
 
           <div class="text-center mb-12">
             <h1 class="text-4xl font-bold text-gray-900 mb-4" style="font-family: 'Playfair Display', serif;">
@@ -143,13 +178,13 @@ app.post('/api/public/donatie', async (c) => {
     const amount = parseFloat(String(body.amount))
     const name = String(body.name || 'Anoniem')
     const email = String(body.email || '')
-    
+
     if (!amount || amount < 1) return c.redirect('/steun-ons?error=invalid_amount')
 
     const siteUrl = await getSiteUrl(c)
-    
+
     // 1. Create Donation Record (User ID is NULL for public)
-    // We store name/email in the message or a JSON field if we had one, 
+    // We store name/email in the message or a JSON field if we had one,
     // for now let's prepend to message
     const publicMessage = `[Publiek: ${name} <${email}>] ${body.message || ''}`
 
@@ -157,26 +192,52 @@ app.post('/api/public/donatie', async (c) => {
         INSERT INTO donations (user_id, amount, message, is_anonymous, status)
         VALUES (NULL, ?, ?, 0, 'pending')
     `, [amount, publicMessage])
-    
+
     const donationId = insertRes.meta.last_row_id
 
     // 2. Create Payment
     // Bug #197 — naam + referentie meegeven in Mollie description.
+    // Dominique 2026-08-22: try/catch toegevoegd zodat een Mollie-fout (bv. 422
+    // "redirect URL doesn't match your profile URL") niet meer eindigt in de
+    // generieke error-pagina. In plaats daarvan:
+    //   - dangling 'pending' donation-rij wordt gemarkeerd als 'failed'
+    //     (niet gedelete → audit-trail blijft)
+    //   - bezoeker keert netjes terug naar /steun-ons met een uitlegbare fout
+    //   - fout wordt gelogd in server-console voor de admin
     const publicRef = `PUBG-D${donationId}`
-    const payment = await createMolliePayment(await getMollieApiKey(c.env), {
-        amount: amount,
-        description: `${name} — Publieke Gift Animato [${publicRef}]`,
-        redirectUrl: `${siteUrl}/steun-ons?success=true`,
-        webhookUrl: `${siteUrl}/api/webhooks/mollie`,
-        metadata: {
-            type: 'donation',
-            donation_id: donationId,
-            is_public: true,
-            payer_name: name,
-            payer_email: email,
-            payment_ref: publicRef
-        }
-    })
+    let payment: any
+    try {
+        payment = await createMolliePayment(await getMollieApiKey(c.env), {
+            amount: amount,
+            description: `${name} — Publieke Gift Animato [${publicRef}]`,
+            redirectUrl: `${siteUrl}/steun-ons?success=true`,
+            webhookUrl: `${siteUrl}/api/webhooks/mollie`,
+            metadata: {
+                type: 'donation',
+                donation_id: donationId,
+                is_public: true,
+                payer_name: name,
+                payer_email: email,
+                payment_ref: publicRef
+            }
+        })
+    } catch (err: any) {
+        const errMsg = String(err?.message || err)
+        console.error('[public-donation] Mollie createPayment failed:', errMsg)
+        // Markeer donation als 'failed' met fout in message (voor admin-review)
+        try {
+            await execute(c.env.DB, `
+                UPDATE donations
+                   SET status = 'failed',
+                       message = message || CHAR(10) || '[FAILED: ' || ? || ']'
+                 WHERE id = ?
+            `, [errMsg.substring(0, 300), donationId])
+        } catch (_) { /* best-effort */ }
+        // Classificeer: 422 = configuratie-fout, andere = provider-availability
+        const isConfigError = errMsg.includes('422') || errMsg.toLowerCase().includes('redirect url')
+        const errorCode = isConfigError ? 'payment_setup_failed' : 'payment_provider_unavailable'
+        return c.redirect(`/steun-ons?error=${errorCode}`)
+    }
 
     // 3. Update DB
     await execute(c.env.DB, `UPDATE donations SET payment_id = ?, status = 'pending' WHERE id = ?`, [payment.id, donationId])

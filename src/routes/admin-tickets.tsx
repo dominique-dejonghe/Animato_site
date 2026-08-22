@@ -16,7 +16,7 @@ import {
   buildTicketAttachments, loadTicketLogoBytes,
 } from '../utils/ticket-resend'
 import { uploadDataUrlToR2, isDataUrl } from '../utils/r2-storage'
-import { parseBrusselsDate, formatBrusselsDate, formatBrusselsDateTime } from '../utils/time'
+import { parseBrusselsDate, formatBrusselsDate, formatBrusselsDateTime, brusselsToday } from '../utils/time'
 
 const app = new Hono()
 
@@ -647,6 +647,11 @@ app.get('/admin/tickets/concert/:concertId/orders', async (c) => {
             </div>
           </div>
           <div class="flex flex-wrap gap-2">
+            <a href={`/api/admin/tickets/concert/${concertId}/export`}
+               class="inline-flex items-center bg-white border-2 border-green-600 text-green-700 px-4 py-2 rounded-lg hover:bg-green-50 shadow-sm"
+               title="Download volledige kopers-lijst (CSV, Excel-compatibel) — voor manuele controle op concert-dag">
+              <i class="fas fa-file-csv mr-2"></i> Kopers-lijst (CSV)
+            </a>
             <a href={`/admin/tickets/resend?concert_id=${concertId}`}
                class="inline-flex items-center bg-white border-2 border-animato-primary text-animato-primary px-4 py-2 rounded-lg hover:bg-purple-50 shadow-sm"
                title="Herstuur ticket-mails naar geselecteerde kopers van dit concert">
@@ -2092,6 +2097,184 @@ app.post('/api/admin/tickets/:id{[0-9]+}/delete', async (c) => {
   } catch (error) {
     return c.json({ error: (error as Error).message }, 500)
   }
+})
+
+// ==========================================
+// KOPERS-LIJST EXPORT (CSV) — per concert
+// Bedoeld voor manuele controle op concert-dag. Bevat volledige contactinfo,
+// aantal + categorie zetels, totaalbedrag, aankoopdatum, betaalmoment, status.
+// Analog aan /api/admin/lidgelden/export.
+// ==========================================
+app.get('/api/admin/tickets/concert/:concertId/export', async (c) => {
+  const db = c.env.DB
+  const concertId = parseInt(c.req.param('concertId'))
+  if (!concertId || Number.isNaN(concertId)) return c.text('concert_id required', 400)
+
+  const concert = await queryOne<any>(db, `
+    SELECT id, titel, start_at, locatie FROM concerts WHERE id = ?
+  `, [concertId])
+  if (!concert) return c.text('concert not found', 404)
+
+  // Alle tickets voor dit concert. Multi-cat orders hebben meerdere rijen met dezelfde order_ref;
+  // die aggregeren we in-memory zodat één regel per koper-bestelling uitkomt (analoog aan hoe
+  // de klant het in zijn mailbox ziet).
+  const rows = await queryAll<any>(db, `
+    SELECT
+      id, order_ref, koper_naam, koper_email, koper_telefoon,
+      aantal, categorie, prijs_totaal, status,
+      betaalmethode, betaling_id, betaald_at, created_at,
+      gescand, gescand_at,
+      seat_label, seat_row, seat_number, seat_category
+    FROM tickets
+    WHERE concert_id = ?
+    ORDER BY created_at DESC, order_ref, id
+  `, [concertId])
+
+  // Groepeer per order_ref
+  type OrderAgg = {
+    order_ref: string
+    koper_naam: string
+    koper_email: string
+    koper_telefoon: string | null
+    aantal: number
+    categorien: string[]
+    zetels: string[]
+    prijs_totaal: number
+    status_set: Set<string>
+    betaalmethode: string | null
+    betaling_id: string | null
+    betaald_at: string | null
+    created_at: string
+    gescand: number
+    gescand_total: number
+  }
+  const orders = new Map<string, OrderAgg>()
+  for (const r of (rows as any[])) {
+    let o = orders.get(r.order_ref)
+    if (!o) {
+      o = {
+        order_ref: r.order_ref,
+        koper_naam: r.koper_naam || '',
+        koper_email: r.koper_email || '',
+        koper_telefoon: r.koper_telefoon,
+        aantal: 0,
+        categorien: [],
+        zetels: [],
+        prijs_totaal: 0,
+        status_set: new Set<string>(),
+        betaalmethode: r.betaalmethode,
+        betaling_id: r.betaling_id,
+        betaald_at: r.betaald_at,
+        created_at: r.created_at,
+        gescand: 0,
+        gescand_total: 0,
+      }
+      orders.set(r.order_ref, o)
+    }
+    o.aantal += (r.aantal || 1)
+    o.prijs_totaal += (typeof r.prijs_totaal === 'number' ? r.prijs_totaal : parseFloat(r.prijs_totaal) || 0)
+    if (r.categorie) o.categorien.push(`${r.categorie}${r.aantal > 1 ? ` ×${r.aantal}` : ''}`)
+    if (r.seat_label) o.zetels.push(r.seat_label)
+    else if (r.seat_row && r.seat_number) o.zetels.push(`${r.seat_row}${r.seat_number}`)
+    if (r.status) o.status_set.add(r.status)
+    // Neem eerste niet-lege betaal-info (multi-cat orders delen dezelfde payment)
+    if (!o.betaalmethode && r.betaalmethode) o.betaalmethode = r.betaalmethode
+    if (!o.betaling_id && r.betaling_id) o.betaling_id = r.betaling_id
+    if (!o.betaald_at && r.betaald_at) o.betaald_at = r.betaald_at
+    o.gescand_total += 1
+    if (r.gescand === 1) o.gescand += 1
+  }
+
+  // CSV bouwen — Excel-compatibel met BOM voor accenten (semicolon voor NL Excel)
+  const escape = (v: any) => {
+    if (v === null || v === undefined) return ''
+    const s = String(v).replace(/"/g, '""')
+    return /[",;\n]/.test(s) ? `"${s}"` : s
+  }
+  const humanStatus = (s: Set<string>): string => {
+    if (s.has('paid')) return 'Betaald'
+    if (s.has('pending')) return 'Openstaand'
+    if (s.has('used')) return 'Gebruikt'
+    if (s.has('refunded')) return 'Terugbetaald'
+    if (s.has('cancelled')) return 'Geannuleerd'
+    return Array.from(s).join(', ') || '-'
+  }
+  const humanBetaalmethode = (m: string | null): string => {
+    if (!m) return ''
+    if (m === 'mollie') return 'Mollie'
+    if (m === 'stripe') return 'Stripe'
+    if (m === 'admin_bulk' || m === 'bulk' || m === 'admin') return 'Admin (manueel)'
+    if (m === 'cash') return 'Cash'
+    if (m === 'bank') return 'Overschrijving'
+    return m
+  }
+
+  const headers = [
+    'Bestel-ref', 'Naam', 'Email', 'Telefoon',
+    'Aantal', 'Categorie(ën)', 'Zetel(s)',
+    'Bedrag (€)', 'Status',
+    'Betaalmethode', 'Betaling-ID',
+    'Aankoopdatum', 'Betaald op',
+    'Gescand (van totaal)',
+  ]
+  const lines = [headers.join(';')]
+
+  // Sorteer op datum-oplopend voor de export (bovenaan de vroegste bestelling)
+  const sortedOrders = Array.from(orders.values()).sort((a, b) => {
+    return (a.created_at || '').localeCompare(b.created_at || '')
+  })
+
+  for (const o of sortedOrders) {
+    lines.push([
+      escape(o.order_ref),
+      escape(o.koper_naam),
+      escape(o.koper_email),
+      escape(o.koper_telefoon || ''),
+      escape(o.aantal),
+      escape(o.categorien.join(' + ')),
+      escape(o.zetels.join(', ')),
+      escape(o.prijs_totaal.toFixed(2).replace('.', ',')),
+      escape(humanStatus(o.status_set)),
+      escape(humanBetaalmethode(o.betaalmethode)),
+      escape(o.betaling_id || ''),
+      escape(o.created_at ? formatBrusselsDateTime(o.created_at) : ''),
+      escape(o.betaald_at ? formatBrusselsDateTime(o.betaald_at) : ''),
+      escape(o.gescand_total > 0 ? `${o.gescand}/${o.gescand_total}` : ''),
+    ].join(';'))
+  }
+
+  // Totalen-regel onderaan (handig bij manuele controle)
+  const totaalAantal = sortedOrders.reduce((s, o) => s + o.aantal, 0)
+  const totaalBedrag = sortedOrders.reduce((s, o) => s + (o.status_set.has('paid') ? o.prijs_totaal : 0), 0)
+  const totaalBetaald = sortedOrders.filter(o => o.status_set.has('paid')).length
+  lines.push('') // lege regel
+  lines.push([
+    escape('TOTAAL'),
+    escape(`${sortedOrders.length} bestellingen (waarvan ${totaalBetaald} betaald)`),
+    '', '',
+    escape(totaalAantal),
+    '', '',
+    escape(totaalBedrag.toFixed(2).replace('.', ',')),
+    escape('Betaald'),
+    '', '', '', '', '',
+  ].join(';'))
+
+  const csv = '\uFEFF' + lines.join('\r\n')
+
+  // Nette bestandsnaam: kopers_<concert-titel>_<yyyy-mm-dd>.csv
+  const slug = (concert.titel as string || 'concert')
+    .toLowerCase()
+    .replace(/[^\w]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 50)
+  const filename = `kopers_${slug}_${brusselsToday()}.csv`
+
+  return new Response(csv, {
+    headers: {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    }
+  })
 })
 
 // ==========================================

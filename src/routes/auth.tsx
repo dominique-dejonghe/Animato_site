@@ -876,8 +876,11 @@ app.post('/api/auth/forgot-password', async (c) => {
   </div>
 </body>
 </html>
-    `
-  }, c.env.RESEND_API_KEY)
+    `,
+    category: 'password_reset',
+    relatedEntityType: 'user',
+    relatedEntityId: user.id,
+  }, c.env.RESEND_API_KEY, c.env.DB)
 
   if (!emailSent) {
     console.error(`[forgot-password] Email send FAILED for user ${user.id} (${user.email}) — RESEND_API_KEY=${c.env.RESEND_API_KEY ? 'set' : 'MISSING'}`)

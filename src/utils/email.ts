@@ -19,6 +19,26 @@ interface EmailAttachment {
   contentType?: string
 }
 
+/**
+ * Vaste set categorieën waarop de admin-UI kan filteren.
+ * Uitbreidbaar zonder migratie — de kolom heeft geen CHECK-constraint —
+ * maar hou ze bewust beperkt zodat de dropdown-filter zinvol blijft.
+ */
+export type EmailCategory =
+  | 'ticket_confirmation'
+  | 'ticket_resend'
+  | 'password_reset'
+  | 'contact_form'
+  | 'word_lid'
+  | 'admin_notification'
+  | 'weekly_report'
+  | 'waitlist_notification'
+  | 'activity_invitation'
+  | 'feedback_reply'
+  | 'newsletter'
+  | 'lidgeld_reminder'
+  | 'other'
+
 interface EmailOptions {
   to: string
   subject: string
@@ -27,20 +47,106 @@ interface EmailOptions {
   replyTo?: string
   /** Bijlagen — bv. PDF-tickets. Resend slikt base64-content. */
   attachments?: EmailAttachment[]
+  /**
+   * Categorie voor het email_log (filter-dropdown in /admin/email-log).
+   * Default 'other' — callsites die dit niet meegeven verschijnen als 'other'
+   * en kunnen later verfijnd worden zonder de wrapper te breken.
+   */
+  category?: EmailCategory
+  /** Optionele koppeling met domein-entiteit (voor context in de UI) */
+  relatedEntityType?: string
+  relatedEntityId?: number
 }
 
-export async function sendEmail(options: EmailOptions, resendApiKey: string | undefined): Promise<boolean> {
+/**
+ * Schrijf één regel naar email_log. Gooit NOOIT — de mail zelf is belangrijker
+ * dan de logging. Als D1 hikt loggen we naar console en gaan door.
+ */
+async function logEmail(
+  db: D1Database | undefined,
+  fields: {
+    recipient: string
+    subject: string
+    category: string
+    status: 'sent' | 'failed' | 'skipped'
+    resend_message_id: string | null
+    error_message: string | null
+    from_address: string
+    reply_to: string
+    attachments_count: number
+    related_entity_type: string | null
+    related_entity_id: number | null
+  }
+): Promise<void> {
+  if (!db) return  // geen db → skip stil (backward-compat met callsites zonder db)
+  try {
+    await db.prepare(`
+      INSERT INTO email_log (
+        recipient, subject, category, status,
+        resend_message_id, error_message,
+        from_address, reply_to, attachments_count,
+        related_entity_type, related_entity_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(
+      fields.recipient,
+      fields.subject.substring(0, 500),
+      fields.category,
+      fields.status,
+      fields.resend_message_id,
+      fields.error_message ? fields.error_message.substring(0, 2000) : null,
+      fields.from_address,
+      fields.reply_to,
+      fields.attachments_count,
+      fields.related_entity_type,
+      fields.related_entity_id,
+    ).run()
+  } catch (e: any) {
+    console.error('[email_log] insert failed:', e?.message || e)
+  }
+}
+
+/**
+ * Verstuur een mail via Resend.
+ * @param options Mail-inhoud + optionele category/related-entity voor het log
+ * @param resendApiKey Resend API-key (uit c.env.RESEND_API_KEY)
+ * @param db Optioneel — als meegegeven, logt elke poging in email_log.
+ *           Backward-compat: bestaande callsites zonder db blijven werken,
+ *           enkel de logging valt weg.
+ */
+export async function sendEmail(
+  options: EmailOptions,
+  resendApiKey: string | undefined,
+  db?: D1Database,
+): Promise<boolean> {
+  const category = options.category || 'other'
+  const fromAddr = options.from || EMAIL_FROM
+  const replyToAddr = options.replyTo || EMAIL_REPLY_TO
+  const attachmentsCount = options.attachments?.length || 0
+
   // Skip when API key is missing — clear log so the cause is obvious
   if (!resendApiKey || resendApiKey.trim() === '') {
     console.error('[email] RESEND_API_KEY is not configured — cannot send email to', options.to)
+    await logEmail(db, {
+      recipient: options.to,
+      subject: options.subject,
+      category,
+      status: 'skipped',
+      resend_message_id: null,
+      error_message: 'RESEND_API_KEY not configured',
+      from_address: fromAddr,
+      reply_to: replyToAddr,
+      attachments_count: attachmentsCount,
+      related_entity_type: options.relatedEntityType || null,
+      related_entity_id: options.relatedEntityId || null,
+    })
     return false
   }
 
   try {
     const payload: any = {
-      from: options.from || EMAIL_FROM,
+      from: fromAddr,
       to: [options.to],
-      reply_to: options.replyTo || EMAIL_REPLY_TO,
+      reply_to: replyToAddr,
       subject: options.subject,
       html: options.html
     }
@@ -73,12 +179,61 @@ export async function sendEmail(options: EmailOptions, resendApiKey: string | un
         'subject=', options.subject.substring(0, 80),
         'body=', errorBody.substring(0, 500)
       )
+      await logEmail(db, {
+        recipient: options.to,
+        subject: options.subject,
+        category,
+        status: 'failed',
+        resend_message_id: null,
+        error_message: `HTTP ${response.status}: ${errorBody.substring(0, 1500)}`,
+        from_address: fromAddr,
+        reply_to: replyToAddr,
+        attachments_count: attachmentsCount,
+        related_entity_type: options.relatedEntityType || null,
+        related_entity_id: options.relatedEntityId || null,
+      })
       return false
     }
 
+    // Resend geeft bij success { id: '...' } terug — dat is de message-id
+    // die we terugvinden in het Resend-dashboard voor bounce/complaint tracking.
+    let resendMessageId: string | null = null
+    try {
+      const responseBody = await response.json() as { id?: string }
+      resendMessageId = responseBody?.id || null
+    } catch {
+      // parse-fail: mail is toch verstuurd (2xx), log gewoon zonder id
+    }
+
+    await logEmail(db, {
+      recipient: options.to,
+      subject: options.subject,
+      category,
+      status: 'sent',
+      resend_message_id: resendMessageId,
+      error_message: null,
+      from_address: fromAddr,
+      reply_to: replyToAddr,
+      attachments_count: attachmentsCount,
+      related_entity_type: options.relatedEntityType || null,
+      related_entity_id: options.relatedEntityId || null,
+    })
     return true
   } catch (error: any) {
     console.error('[email] network/exception sending to', options.to, ':', error?.message || error)
+    await logEmail(db, {
+      recipient: options.to,
+      subject: options.subject,
+      category,
+      status: 'failed',
+      resend_message_id: null,
+      error_message: `Exception: ${error?.message || String(error)}`.substring(0, 1500),
+      from_address: fromAddr,
+      reply_to: replyToAddr,
+      attachments_count: attachmentsCount,
+      related_entity_type: options.relatedEntityType || null,
+      related_entity_id: options.relatedEntityId || null,
+    })
     return false
   }
 }

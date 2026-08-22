@@ -816,8 +816,11 @@ app.post('/api/tickets/order', async (c) => {
         tickets: Object.values(groupedTickets).map((t: any) => `${t.aantal}x ${t.categorie} (€${t.prijs.toFixed(2)})`).join(', '),
         totaalBedrag: totalAmount,
         betaalUrl: molliePayment._links.checkout.href
-      })
-    }, c.env.RESEND_API_KEY)
+      }),
+      category: 'ticket_confirmation',
+      relatedEntityType: 'ticket_order',
+      relatedEntityId: ticketId,
+    }, c.env.RESEND_API_KEY, c.env.DB)
 
     return c.redirect(molliePayment._links.checkout.href)
     

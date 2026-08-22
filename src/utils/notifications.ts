@@ -110,6 +110,11 @@ export interface NotifyUserOptions {
   skipEmail?: boolean
   /** Als true: sla in-app over (zelden gebruikt — voor admin-only mails) */
   skipInApp?: boolean
+  /** Categorie voor email_log — default 'admin_notification' */
+  emailCategory?: string
+  /** Optionele koppeling met domein-entiteit (voor context in het log) */
+  relatedEntityType?: string
+  relatedEntityId?: number
 }
 
 export async function notifyUser(
@@ -173,7 +178,10 @@ export async function notifyUser(
         to: userInfo.email,
         subject: opts.emailSubject || titel,
         html: emailHtml,
-      }, resendApiKey)
+        category: (opts.emailCategory || 'admin_notification') as any,
+        relatedEntityType: opts.relatedEntityType,
+        relatedEntityId: opts.relatedEntityId,
+      }, resendApiKey, db)
       result.email = ok
     } catch (e) {
       console.error('[notifyUser] sendEmail failed:', e)
@@ -254,7 +262,10 @@ export async function notifyUsers(
           to: r.email,
           subject: opts.emailSubject || titel,
           html: emailHtml,
-        }, resendApiKey)
+          category: (opts.emailCategory || 'admin_notification') as any,
+          relatedEntityType: opts.relatedEntityType,
+          relatedEntityId: opts.relatedEntityId,
+        }, resendApiKey, db)
       }))
       for (const rr of results) {
         if (rr.status === 'fulfilled' && rr.value) result.email++

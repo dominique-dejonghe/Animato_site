@@ -131,8 +131,11 @@ app.post('/api/admin/activities/send-invites', async (c) => {
     await sendEmail({
       to: member.email,
       subject: `Uitnodiging: ${activity.titel}`,
-      html: emailHtml
-    }, c.env.RESEND_API_KEY)
+      html: emailHtml,
+      category: 'activity_invitation',
+      relatedEntityType: 'activity',
+      relatedEntityId: activity.id,
+    }, c.env.RESEND_API_KEY, c.env.DB)
 
     const existing = await queryOne(db,
       `SELECT id FROM activity_invitations WHERE activity_id = ? AND user_id = ?`,

@@ -54,6 +54,7 @@ import adminPagesRoutes from './routes/admin-pages'
 import adminReglementenRoutes from './routes/admin-reglementen'
 import quizRoutes from './routes/quiz'
 import adminAnalyticsRoutes from './routes/admin-analytics'
+import adminEmailLogRoutes from './routes/admin-email-log'
 import adminModulesRoutes from './routes/admin-modules'
 import adminWalkthroughRoutes from './routes/admin-walkthrough'
 import walkthroughApiRoutes from './routes/walkthrough-api'
@@ -271,6 +272,7 @@ app.route('/', adminReglementenRoutes)
 app.route('/', quizRoutes)
 // adminLedenImportRoutes en adminAttendanceRoutes zijn verplaatst naar boven (voor adminRoutes)
 app.route('/', adminAnalyticsRoutes)
+app.route('/', adminEmailLogRoutes)
 app.route('/', adminR2MigrateRoutes)
 
 // (ticketsRoutes en webhooksRoutes zijn hierboven al gemount vóór ledenRoutes —

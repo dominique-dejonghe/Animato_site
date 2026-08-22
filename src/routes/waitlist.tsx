@@ -94,8 +94,11 @@ app.post('/api/waitlist/:concertId', async (c) => {
             </p>
           </td></tr>
         </table>
-      </body></html>`
-    }, c.env.RESEND_API_KEY)
+      </body></html>`,
+      category: 'waitlist_notification',
+      relatedEntityType: 'concert',
+      relatedEntityId: concertId,
+    }, c.env.RESEND_API_KEY, c.env.DB)
   } catch (e: any) {
     console.warn('[waitlist] bevestigingsmail mislukt (non-fatal):', e?.message)
   }
@@ -124,8 +127,11 @@ app.post('/api/waitlist/:concertId', async (c) => {
             ${notities ? `<li>Notities: ${notities}</li>` : ''}
           </ul>
           <p><a href="${siteUrl}/admin/tickets/concert/${concertId}/waitlist">📋 Bekijk volledige wachtlijst</a></p>
-        </body></html>`
-      }, c.env.RESEND_API_KEY)
+        </body></html>`,
+        category: 'admin_notification',
+        relatedEntityType: 'concert',
+        relatedEntityId: concertId,
+      }, c.env.RESEND_API_KEY, c.env.DB)
     }
   } catch (e: any) {
     console.warn('[waitlist] admin notif mislukt (non-fatal):', e?.message)

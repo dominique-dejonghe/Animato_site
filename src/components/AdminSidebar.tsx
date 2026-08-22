@@ -51,6 +51,7 @@ export const AdminSidebar: FC<AdminSidebarProps> = ({
     { id: 'feedback', label: 'Beta Feedback', href: '/admin/feedback', icon: 'fas fa-bug', adminOnly: true },
     { id: 'comments', label: 'Comments & Moderatie', href: '/admin/comments', icon: 'fas fa-comments', adminOnly: true },
     { id: 'walkthrough', label: 'Walkthrough Tours', href: '/admin/walkthrough', icon: 'fas fa-route', adminOnly: true },
+    { id: 'email-log', label: 'Email log (Resend)', href: '/admin/email-log', icon: 'fas fa-envelope-open-text', adminOnly: true },
     { id: 'settings', label: 'Instellingen', href: '/admin/settings', icon: 'fas fa-cogs', adminOnly: true },
   ]
 

@@ -2066,8 +2066,11 @@ app.post('/api/admin/feedback/send-retest-digest', async (c) => {
     const ok = await sendEmail({
       to: r.email,
       subject: `🔔 ${items.length} item${items.length === 1 ? '' : 's'} klaar voor retest — Animato`,
-      html
-    }, c.env.RESEND_API_KEY)
+      html,
+      category: 'feedback_reply',
+      relatedEntityType: 'user',
+      relatedEntityId: r.id,
+    }, c.env.RESEND_API_KEY, c.env.DB)
 
     if (ok) sent++; else failed++
   }

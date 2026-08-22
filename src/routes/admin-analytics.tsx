@@ -772,8 +772,9 @@ app.post('/admin/analytics/email-rapport/send-now', async (c) => {
     const ok = await sendEmail({
       to: recipient,
       subject: `📊 Activiteitsrapport Animato — ${reportDate}`,
-      html: htmlContent
-    }, c.env.RESEND_API_KEY)
+      html: htmlContent,
+      category: 'weekly_report',
+    }, c.env.RESEND_API_KEY, c.env.DB)
     if (!ok) allOk = false
   }
 

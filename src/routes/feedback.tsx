@@ -210,7 +210,10 @@ app.post('/api/feedback', async (c) => {
           actionLink: feedbackId ? `/admin/feedback?id=${feedbackId}` : '/admin/feedback',
           actionLabel: 'Bekijk in admin',
         }),
-      }, c.env.RESEND_API_KEY)
+        category: 'admin_notification',
+        relatedEntityType: 'feedback',
+        relatedEntityId: feedbackId,
+      }, c.env.RESEND_API_KEY, c.env.DB)
     } catch (mailErr) {
       console.error('feedback admin email failed (non-fatal):', mailErr)
     }

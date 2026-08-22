@@ -2680,7 +2680,12 @@ app.post('/api/admin/lidgelden/bulk-remind', async (c) => {
         <p>Met muzikale groet,<br>Het Bestuur — Gemengd Koor Animato</p>
       `
 
-      await sendEmail({ to: m.email, subject, html }, c.env.RESEND_API_KEY)
+      await sendEmail({
+        to: m.email, subject, html,
+        category: 'lidgeld_reminder',
+        relatedEntityType: 'membership',
+        relatedEntityId: m.id,
+      }, c.env.RESEND_API_KEY, c.env.DB)
 
       // Notificatie ook in-app
       // BUG-FIX (Claudine, 23 mei): sluit eerst alle bestaande open lidgeld-notifs

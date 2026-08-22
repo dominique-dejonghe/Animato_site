@@ -113,8 +113,9 @@ export async function notifyAdminsOfTicketSale(
     const ok = await sendEmail({
       to: r.email,
       subject: `🎫 Kaartverkoop: ${payload.concertTitel} — € ${payload.totaalBedrag.toFixed(2).replace('.', ',')}`,
-      html
-    }, resendApiKey)
+      html,
+      category: 'admin_notification',
+    }, resendApiKey, db)
     if (ok) sent++
     else skipped++
   }
@@ -543,8 +544,9 @@ export async function sendWeeklyReport(
     const ok = await sendEmail({
       to: r.email,
       subject: `📊 Animato weekrapport — ${data.ordersLastWeek} orders, € ${data.revenueLastWeek.toFixed(2).replace('.', ',')} (tot ${weekEndFmt})`,
-      html
-    }, resendApiKey)
+      html,
+      category: 'weekly_report',
+    }, resendApiKey, db)
     if (ok) sent++
     else skipped++
   }

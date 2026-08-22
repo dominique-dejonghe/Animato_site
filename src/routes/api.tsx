@@ -228,7 +228,8 @@ app.post('/api/word-lid', async (c) => {
           actionLink: '/admin/aanvragen',
           actionLabel: 'Bekijk aanvragen',
         }),
-      }, c.env.RESEND_API_KEY)
+        category: 'word_lid',
+      }, c.env.RESEND_API_KEY, c.env.DB)
     } catch (mailErr) {
       console.error('word_lid admin email failed (non-fatal):', mailErr)
     }
@@ -302,8 +303,9 @@ app.post('/api/contact', async (c) => {
         to: EMAIL_REPLY_TO,
         replyTo: email,
         subject: `[Animato Contact] ${onderwerp}`,
-        html: emailHtml
-      }, c.env.RESEND_API_KEY)
+        html: emailHtml,
+        category: 'contact_form',
+      }, c.env.RESEND_API_KEY, c.env.DB)
     } catch (mailErr) {
       console.error('Contact mail error (non-fatal):', mailErr)
       // Niet blokkeren — bericht staat in DB, mail is best-effort

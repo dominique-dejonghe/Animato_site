@@ -152,8 +152,11 @@ app.post('/api/webhooks/mollie', async (c) => {
             await sendEmail({
                 to: user.email,
                 subject: 'Bedankt voor je donatie aan Animato!',
-                html: `<h1>Bedankt ${user.voornaam}!</h1><p>We hebben je donatie van €${molliePayment.amount.value} goed ontvangen.</p><p>Met muzikale groet,<br>Het Bestuur</p>`
-            }, c.env.RESEND_API_KEY);
+                html: `<h1>Bedankt ${user.voornaam}!</h1><p>We hebben je donatie van €${molliePayment.amount.value} goed ontvangen.</p><p>Met muzikale groet,<br>Het Bestuur</p>`,
+                category: 'admin_notification',
+                relatedEntityType: 'donation',
+                relatedEntityId: donationId,
+            }, c.env.RESEND_API_KEY, c.env.DB);
         }
       }
 
@@ -239,8 +242,11 @@ app.post('/api/webhooks/mollie', async (c) => {
                 html: `<h1>Bedankt ${user.voornaam}!</h1>
                        <p>We hebben je betaling van €${molliePayment.amount.value} goed ontvangen.</p>
                        <p>Je lidmaatschap is nu actief en bedankt voor je extra steun!</p>
-                       <p>Met muzikale groet,<br>Het Bestuur</p>`
-            }, c.env.RESEND_API_KEY);
+                       <p>Met muzikale groet,<br>Het Bestuur</p>`,
+                category: 'admin_notification',
+                relatedEntityType: 'membership',
+                relatedEntityId: membershipId,
+            }, c.env.RESEND_API_KEY, c.env.DB);
          }
       }
 
@@ -464,8 +470,11 @@ app.post('/api/webhooks/mollie', async (c) => {
           to: ticket.koper_email,
           subject: `✅ Je Tickets voor ${ticket.titel} - ${ticket.order_ref}`,
           html: emailHtml,
-          attachments
-        }, c.env.RESEND_API_KEY)
+          attachments,
+          category: 'ticket_confirmation',
+          relatedEntityType: 'ticket_order',
+          relatedEntityId: ticket.id,
+        }, c.env.RESEND_API_KEY, c.env.DB)
 
         // Notificatie voor het lid (indien email matcht met user)
         if (memberPortalUrl) {

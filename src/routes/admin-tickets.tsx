@@ -1432,8 +1432,11 @@ app.post('/api/admin/tickets/:id{[0-9]+}/resend', async (c) => {
       to: ticket.koper_email,
       subject: `🎫 (Duplicaat) Je tickets voor ${ticket.titel} - ${ticket.order_ref}`,
       html: emailHtml,
-      attachments
-    }, c.env.RESEND_API_KEY)
+      attachments,
+      category: 'ticket_resend',
+      relatedEntityType: 'ticket_order',
+      relatedEntityId: ticket.id,
+    }, c.env.RESEND_API_KEY, c.env.DB)
 
     if (!ok) {
       return c.json({ success: false, error: 'Mail kon niet verzonden worden (Resend faalde — check RESEND_API_KEY).' }, 500)
@@ -1564,7 +1567,10 @@ app.post('/api/admin/tickets/resend/bulk', async (c) => {
           subject: rendered.subject,
           html: rendered.html,
           attachments,
-        }, c.env.RESEND_API_KEY)
+          category: 'ticket_resend',
+          relatedEntityType: 'ticket_order',
+          relatedEntityId: ctx.id,
+        }, c.env.RESEND_API_KEY, c.env.DB)
 
         if (ok) {
           sent.push({ ticket_id: ticketId, order_ref: ctx.order_ref, email: ctx.koper_email })

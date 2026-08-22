@@ -1,0 +1,57 @@
+{
+  "name": "Animato — Gemengd Koor",
+  "short_name": "Animato",
+  "description": "De officiële app van Gemengd Koor Animato: agenda, concerten, tickets en leden-portaal.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#00A9CE",
+  "lang": "nl-BE",
+  "dir": "ltr",
+  "categories": ["music", "entertainment", "lifestyle"],
+  "icons": [
+    {
+      "src": "/static/images/pwa/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/images/pwa/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/images/pwa/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Agenda",
+      "short_name": "Agenda",
+      "description": "Bekijk de agenda van concerten en repetities",
+      "url": "/agenda?source=pwa-shortcut",
+      "icons": [{ "src": "/static/images/pwa/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Concerten",
+      "short_name": "Concerten",
+      "description": "Bekijk aankomende concerten",
+      "url": "/concerten?source=pwa-shortcut",
+      "icons": [{ "src": "/static/images/pwa/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Leden-portaal",
+      "short_name": "Leden",
+      "description": "Login voor leden",
+      "url": "/leden?source=pwa-shortcut",
+      "icons": [{ "src": "/static/images/pwa/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}

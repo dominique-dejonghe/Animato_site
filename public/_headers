@@ -43,6 +43,20 @@
   Cache-Control: public, max-age=2592000, stale-while-revalidate=86400
 
 # ─────────────────────────────────────────────────────────────
+# PWA — service worker mag NOOIT gecached worden (Cloudflare edge en browser)
+# want anders krijgen we een oude SW die verkeerde routing doet. Manifest krijgt
+# de juiste Content-Type.
+# ─────────────────────────────────────────────────────────────
+/sw.js
+  Cache-Control: no-cache, no-store, must-revalidate
+  Content-Type: application/javascript; charset=utf-8
+  Service-Worker-Allowed: /
+
+/manifest.webmanifest
+  Content-Type: application/manifest+json; charset=utf-8
+  Cache-Control: public, max-age=86400
+
+# ─────────────────────────────────────────────────────────────
 # Global security headers (alle pages)
 # ─────────────────────────────────────────────────────────────
 /*

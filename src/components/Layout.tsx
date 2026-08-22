@@ -128,6 +128,28 @@ export const Layout: FC<LayoutProps> = ({
         {/* Animato branding colors */}
         <meta name="theme-color" content="#00A9CE" />
 
+        {/* ============================================================
+            PWA — Progressive Web App configuratie (Dominique 2026-08-22)
+            ============================================================
+            Maakt de site installeerbaar op mobiel (iOS Safari, Android Chrome)
+            en desktop (Chrome/Edge). Service worker (/sw.js) doet
+            network-first met offline-fallback voor pagina's,
+            stale-while-revalidate voor statische assets. Alle /api, /admin,
+            /leden routes worden NOOIT gecached (dynamische data). */}
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="icon" type="image/png" sizes="32x32" href="/static/images/pwa/favicon-32.png" />
+        <link rel="icon" type="image/png" sizes="16x16" href="/static/images/pwa/favicon-16.png" />
+        <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg" />
+        {/* Apple-specifieke instellingen (Safari negeert manifest voor sommige
+            velden — moet via meta tags) */}
+        <link rel="apple-touch-icon" href="/static/images/pwa/apple-touch-icon.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+        <meta name="apple-mobile-web-app-title" content="Animato" />
+        {/* Microsoft tiles (Edge on Windows) */}
+        <meta name="msapplication-TileColor" content="#00A9CE" />
+        <meta name="msapplication-TileImage" content="/static/images/pwa/icon-192.png" />
+
         {/* ⚡ PERFORMANCE — 2026-07-08:
             Vroeger laadden we Tailwind via cdn.tailwindcss.com (JIT compiler
             in de browser). Nadeel: traag first-paint EN als je 'defer' zet
@@ -750,6 +772,8 @@ export const Layout: FC<LayoutProps> = ({
             </div>
         </div>
         <script src="/static/js/beta-feedback.js" defer></script>
+        {/* PWA: service-worker registratie + install-prompt banner */}
+        <script src="/static/js/pwa.js" defer></script>
       </body>
     </html>
   )

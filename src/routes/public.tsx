@@ -1786,4 +1786,111 @@ app.get('/cookies', async (c) => {
   )
 })
 
+// ============================================================
+// PWA offline fallback pagina — geserveerd door service worker
+// wanneer de bezoeker geen netwerkverbinding heeft.
+// Bewust minimalistisch: geen dynamische data, geen externe fonts,
+// alleen inline styles die geen extra requests triggeren.
+// ============================================================
+app.get('/offline', (c) => {
+  return c.html(`<!DOCTYPE html>
+<html lang="nl-BE">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Offline — Animato</title>
+  <meta name="theme-color" content="#00A9CE" />
+  <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg" />
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+      color: #1e293b;
+      padding: 1.5rem;
+    }
+    .card {
+      background: white;
+      border-radius: 20px;
+      padding: 3rem 2rem;
+      max-width: 480px;
+      width: 100%;
+      text-align: center;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.06);
+    }
+    .icon {
+      width: 88px;
+      height: 88px;
+      margin: 0 auto 1.5rem;
+      background: #fef3c7;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 40px;
+    }
+    h1 {
+      font-size: 1.75rem;
+      margin: 0 0 0.75rem;
+      color: #0f172a;
+    }
+    p {
+      color: #64748b;
+      line-height: 1.6;
+      margin: 0 0 1.5rem;
+      font-size: 0.95rem;
+    }
+    .btn {
+      display: inline-block;
+      background: #00A9CE;
+      color: white;
+      text-decoration: none;
+      padding: 0.85rem 1.75rem;
+      border-radius: 10px;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: transform 0.15s, background 0.15s;
+    }
+    .btn:hover { background: #008fb2; transform: translateY(-1px); }
+    .btn:active { transform: translateY(0); }
+    .hint {
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #e2e8f0;
+      font-size: 0.85rem;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon" aria-hidden="true">📡</div>
+    <h1>Je bent offline</h1>
+    <p>
+      Geen internetverbinding op dit moment. Zodra je terug online bent, kan je
+      verder waar je gebleven was.
+    </p>
+    <button class="btn" onclick="window.location.reload()">Opnieuw proberen</button>
+    <div class="hint">
+      Tip: als je Animato op je startscherm hebt geïnstalleerd, blijven eerder bezochte
+      pagina's ook zonder netwerk vlot bereikbaar.
+    </div>
+  </div>
+  <script>
+    // Auto-retry wanneer netwerk terugkeert — bespaart de gebruiker een tik
+    window.addEventListener('online', function() {
+      window.location.reload();
+    });
+  </script>
+</body>
+</html>`)
+})
+
 export default app
